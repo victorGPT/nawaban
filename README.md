@@ -57,6 +57,20 @@ The request uses TypeSafe Choice with all existing module names, up to three rec
 
 See [the evaluation report](docs/epic-hint-evaluation.md) for coverage, error rates, timing, and reproduction instructions. Suggestions are fallible; choose the module yourself.
 
+### Optional prerequisite suggestions
+
+With `TYPESAFE_API_KEY` set, `create` can also suggest one unfinished prerequisite
+after the new task commits. Candidates stay within the same project, prefer the
+same module, then recent activity, and are capped at 25. A top Noul score of at
+least 0.75 is required. The command only prints a suggestion; it never adds an edge.
+
+Title/success, module, and prerequisite suggestions share one five-second waiting
+budget. Missing credentials, unavailable services, uncertain answers, and expired
+budgets remain silent and leave the created task intact. The corrected held-out
+evaluation produced three correct hints out of three, with low coverage (3.75%);
+see [the dependency evaluation](docs/dependency-hint-evaluation.md) for request
+success rates, false-hint rates, candidate recall ceilings, and limitations.
+
 ## Install as a plugin
 
 The same checkout is a Claude Code plugin and a Codex plugin; both read `hooks/hooks.json`.

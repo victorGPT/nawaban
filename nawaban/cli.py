@@ -25,13 +25,14 @@ import os
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from nawaban import db, inbox, task_content  # noqa: E402
+from nawaban import db, dependency_hints, inbox, task_content  # noqa: E402
 
 # Compatibility names delegate to the shared hard-policy implementation.
 _TITLE_EXAMPLES = task_content._TITLE_EXAMPLES
@@ -269,6 +270,71 @@ def _default_project(path: Path, split_from: str | None) -> str | None:
         return None
     fd = db.foreman_dir() or Path(path).absolute().parent
     return fd.parent.name if fd.name in (".nawaban", ".foreman") else None
+
+
+def _dependency_hint(path: Path, task_id: str) -> str | None:
+    """Read the committed task and suggest one prerequisite without any writes."""
+    if not os.environ.get("TYPESAFE_API_KEY"):
+        return None
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=.1)) as con:
+        con.row_factory = sqlite3.Row
+        con.execute("BEGIN")
+        target = dict(con.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone())
+        candidates = [dict(t) for t in con.execute(
+            "SELECT * FROM tasks WHERE id != ? AND project IS ? "
+            "AND status IN ('open','claimed','in_progress','staging-verified') "
+            "AND created_at <= ? ORDER BY id",
+            (task_id, target["project"], target["created_at"]))]
+        if not candidates:
+            return None
+        latest = dict(con.execute("SELECT task_id,MAX(created_at) FROM task_events "
+                                  "WHERE created_at <= ? GROUP BY task_id", (target["created_at"],)))
+    activity = {t["id"]: sorted([t["created_at"], latest.get(t["id"], t["created_at"])])
+                for t in candidates}
+    candidates = dependency_hints.shortlist(target, candidates, activity)
+    payload, names = dependency_hints.request_payload(target, candidates)
+    scores = dependency_hints.scores_from(
+        {"answers": _answers(payload["state"], payload["questions"])}, names)
+    if len(scores) != len(names):
+        return None
+    best = min(scores, key=lambda key: (-scores[key], key))
+    if scores[best] < dependency_hints.THRESHOLD:
+        return None
+    title = next(t["title"] for t in candidates if t["id"] == best)
+    # JSON escaping keeps persisted user text on one terminal line.
+    label = json.dumps(f"{best}: {title}", ensure_ascii=False)
+    return f"前置建议：这张卡可能需要先完成 {label}（判分 {scores[best]:.2f}）；仅提示，未自动连线。"
+
+
+def _create_hints(path: Path, task_id: str, title: str, context: str | None,
+                  success: list[str] | None, *, suggest_epic: bool) -> list[str]:
+    """Bound all post-commit advisory reads and requests to one five-second wait."""
+    if not os.environ.get("TYPESAFE_API_KEY"):
+        return []
+    # Reserve 500 ms for scheduler wakeup, return and rendering within the budget.
+    deadline = time.monotonic() + max(0, _HINT_DEADLINE_S - .5)
+    hints = []
+
+    def collect():
+        try:
+            hints.extend(_hints(title, success))
+            if time.monotonic() >= deadline:
+                return
+            if suggest_epic and (hint := _epic_hint(path, task_id, title, context, success)):
+                hints.append(hint)
+            if time.monotonic() >= deadline:
+                return
+            if hint := _dependency_hint(path, task_id):
+                hints.append(hint)
+        except Exception:
+            # Advisory DB/network boundary: the business write already committed.
+            return
+
+    # Daemon work only reads; a stalled DNS/socket must not keep the CLI alive.
+    worker = threading.Thread(target=collect, daemon=True)
+    worker.start()
+    worker.join(max(0, deadline - time.monotonic()))
+    return [] if worker.is_alive() else hints
 
 
 
@@ -525,10 +591,9 @@ def main(argv: list[str] | None = None) -> int:
                            touches=a.touch or None, epic=a.epic, adr=a.adr,
                            split_from=a.split_from,
                            project=a.project or _default_project(path, a.split_from))
-            print(f"✓ create {a.task_id}")
-            for hint in _hints(a.title, _j(a.success)):
-                print("⚠ " + hint, file=sys.stderr)
-            if a.epic is None and (hint := _epic_hint(path, a.task_id, a.title, context, _j(a.success))):
+            print(f"✓ create {a.task_id}", flush=True)
+            for hint in _create_hints(path, a.task_id, a.title, context, _j(a.success),
+                                      suggest_epic=a.epic is None):
                 print("⚠ " + hint, file=sys.stderr)
         elif a.verb == "claim":
             owner, sid = _identity(need_session=True)
