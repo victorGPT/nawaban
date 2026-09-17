@@ -23,13 +23,13 @@ import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from nawaban.dependency_hints import (  # noqa: E402
-    MODEL, CANDIDATE_RULE, QUESTION, request_payload, scores_from, shortlist,
+    MODEL, THRESHOLD, CANDIDATE_RULE, QUESTION, request_payload, scores_from, shortlist,
 )
 BUDGET = 5.0
 SEED = 20260919
 THRESHOLDS = [round(.3 + .05 * i, 2) for i in range(12)]
-GATE = {"minimum_top1_precision": 0.8, "maximum_negative_hint_rate": 0.1,
-        "maximum_seconds": BUDGET}
+GATE = {"threshold": THRESHOLD, "minimum_closure_precision": 0.8,
+        "maximum_negative_hint_rate": 0.1, "maximum_seconds": BUDGET}
 
 
 
@@ -81,10 +81,11 @@ def request_worker():
 
 
 
-def metrics(rows, threshold):
+def metrics(rows, threshold, graph=None):
     successful = [r for r in rows if not r.get("error") and r["seconds"] <= BUDGET
                   and len(r["scores"]) == len(r["candidates"])]
     hits = hints = negative_hints = 0
+    closure_hits = 0 if graph is not None else None
     positive_cards = sum(bool(r["expected"]) for r in successful)
     negative_cards = len(successful) - positive_cards
     for row in successful:
@@ -93,11 +94,15 @@ def metrics(rows, threshold):
             hints += 1
             hits += selected in row["expected"]
             negative_hints += not row["expected"]
+            if graph is not None:
+                closure_hits += selected in upstream(row["id"], graph)
     return {"threshold": threshold, "requests": len(rows), "successful_requests": len(successful),
             "request_success_rate": len(successful) / len(rows),
             "positive_cards": positive_cards, "no_dependency_cards": negative_cards,
             "top1_hints": hints, "top1_hits": hits, "unrecorded_hints": hints - hits,
             "top1_precision": hits / hints if hints else None,
+            "closure_hits": closure_hits,
+            "closure_precision": closure_hits / hints if graph is not None and hints else None,
             "positive_card_hit_rate": hits / positive_cards if positive_cards else None,
             "no_dependency_hints": negative_hints,
             "no_dependency_hint_rate": negative_hints / negative_cards if negative_cards else None,
@@ -105,8 +110,8 @@ def metrics(rows, threshold):
 
 
 def quality_pass(m):
-    return (m["top1_precision"] is not None and m["no_dependency_hint_rate"] is not None
-            and m["top1_precision"] >= GATE["minimum_top1_precision"]
+    return (m["closure_precision"] is not None and m["no_dependency_hint_rate"] is not None
+            and m["closure_precision"] >= GATE["minimum_closure_precision"]
             and m["no_dependency_hint_rate"] <= GATE["maximum_negative_hint_rate"])
 
 
@@ -122,12 +127,21 @@ def upstream(task_id, edges):
     return visited - {task_id}
 
 
-def rescore(output, board, threshold):
+def rescore(output, board, threshold, replay=False):
     """Report a post-hoc owner-selected threshold without rerunning the model."""
     snapshot = json.loads((output / "snapshot.json").read_text())
-    with closing(sqlite3.connect(board.resolve().as_uri() + "?mode=ro", uri=True)) as con:
-        edges = list(con.execute("SELECT src,dst,created_at FROM task_edges "
-                                 "WHERE kind='depends_on' ORDER BY src,dst"))
+    artifact = output / f"owner-threshold-{threshold:.2f}.json"
+    if replay:
+        saved = json.loads(artifact.read_text())
+        edges = saved["closure_edges"]
+        if saved["closure_edges_sha256"] != digest(edges) or saved["snapshot_sha256"] != digest(snapshot):
+            raise ValueError("Saved closure edges or evaluation snapshot changed")
+        as_of = saved["closure_as_of_unix"]
+    else:
+        with closing(sqlite3.connect(board.resolve().as_uri() + "?mode=ro", uri=True)) as con:
+            edges = list(con.execute("SELECT src,dst,created_at FROM task_edges "
+                                     "WHERE kind='depends_on' ORDER BY src,dst"))
+        as_of = int(time.time())
     graph = {}
     for src, dst, _ in edges:
         graph.setdefault(src, []).append(dst)
@@ -142,23 +156,19 @@ def rescore(output, board, threshold):
     splits["combined"] = all_rows
     summaries = {}
     for split, rows in splits.items():
-        measured = metrics(rows, threshold)
-        closed_hits = 0
-        for row in rows:
-            if row.get("error") or row["seconds"] > BUDGET or len(row["scores"]) != len(row["candidates"]):
-                continue
-            best = min(row["scores"], key=lambda key: (-row["scores"][key], key))
-            if row["scores"][best] >= threshold:
-                closed_hits += best in upstream(row["id"], graph)
-        measured["closure_hits"] = closed_hits
-        measured["closure_precision"] = closed_hits / measured["top1_hints"] if measured["top1_hints"] else None
+        measured = metrics(rows, threshold, graph)
+        times = sorted(r["seconds"] for r in rows)
+        measured["latency_seconds"] = {"p50": statistics.median(times),
+                                       "p95": times[math.ceil(len(times) * .95) - 1], "max": max(times)}
+        measured["owner_gate_pass"] = quality_pass(measured) and max(times) <= BUDGET
         summaries[split] = measured
     result = {"threshold": threshold, "selection": "owner-selected after examining both splits; not fresh holdout validation",
               "snapshot_sha256": digest(snapshot), "closure_edges_sha256": digest(edges),
-              "closure_edges": edges, "closure_as_of_unix": int(time.time()),
+              "closure_edges": edges, "closure_as_of_unix": as_of,
               "closure_caveat": "current board edges include later additions; mild temporal leakage",
               "splits": summaries}
-    with (output / f"owner-threshold-{threshold:.2f}.json").open("x") as f:
+    destination = output / f"owner-threshold-{threshold:.2f}-replay.json" if replay else artifact
+    with destination.open("w" if replay else "x") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
     return {key: value for key, value in result.items() if key != "closure_edges"}
 
@@ -254,20 +264,19 @@ def evaluate(output, split, replay):
     if [r["id"] for r in rows] != [r["id"] for r in data[split]]:
         raise ValueError("Incomplete or mismatched split; cannot report a complete evaluation")
     times = sorted(r["seconds"] for r in rows)
-    thresholds = [metrics(rows, t) for t in THRESHOLDS]
+    graph = {}
+    for edge in data["edges"]:
+        graph.setdefault(edge["src"], []).append(edge["dst"])
+    thresholds = [metrics(rows, t, graph) for t in THRESHOLDS]
     if split == "calibration":
-        passing = [m for m in thresholds if quality_pass(m)]
-        ranked = passing or [m for m in thresholds if m["top1_precision"] is not None]
-        selected = max(ranked, key=lambda m: (m["top1_hits"], m["top1_precision"], m["threshold"])) if passing else (
-            max(ranked, key=lambda m: (m["top1_precision"], m["top1_hits"], m["threshold"])) if ranked else thresholds[-1])
-        decision = {"snapshot_sha256": digest(data), "threshold": selected["threshold"],
-                    "calibration_quality_pass": bool(passing),
-                    "reason": "most correct top1 hints among passing thresholds; precision then threshold breaks ties"
-                    if passing else "no passing threshold; best precision for diagnostic holdout only"}
+        selected = metrics(rows, THRESHOLD, graph)
+        decision = {"snapshot_sha256": digest(data), "threshold": THRESHOLD,
+                    "calibration_quality_pass": quality_pass(selected),
+                    "reason": "fixed owner threshold; sweep is diagnostic and cannot override runtime policy"}
         if not replay:
             with decision_path.open("x") as f:
                 json.dump(decision, f, indent=2)
-    measured = metrics(rows, decision["threshold"])
+    measured = metrics(rows, decision["threshold"], graph)
     summary = {"split": split, "model_requested": MODEL, "snapshot_sha256": digest(data),
                "question_sha256": digest(QUESTION), "gate": GATE, "decision": decision,
                "metrics": measured, "requests": len(rows),
@@ -315,15 +324,15 @@ def main():
         ap.error("private evaluation output must be outside the repository")
     if a.split == "prepare" and (a.db is None or a.replay):
         ap.error("prepare requires --db and does not support --replay")
-    if a.split == "rescore" and (a.db is None or a.threshold is None or not 0 <= a.threshold <= 1 or a.replay):
-        ap.error("rescore requires --db and --threshold in [0,1]; no --replay")
+    if a.split == "rescore" and (not a.replay and a.db is None or a.threshold is None or not 0 <= a.threshold <= 1):
+        ap.error("rescore requires --threshold in [0,1] and either --db or --replay")
     if a.split in ("calibration", "holdout") and not a.replay and not os.environ.get("TYPESAFE_API_KEY"):
         ap.error("TYPESAFE_API_KEY is required; no requests sent")
     a.output.mkdir(parents=True, exist_ok=True, mode=0o700)
     if a.split == "prepare":
         result = prepare(a.db, a.output, a.exclude_snapshot)
     elif a.split == "rescore":
-        result = rescore(a.output, a.db, a.threshold)
+        result = rescore(a.output, a.db, a.threshold, a.replay)
     else:
         result = evaluate(a.output, a.split, a.replay)
     print(json.dumps(result, indent=2))

@@ -30,9 +30,9 @@ def test_top_one_and_negative_card_denominators():
 def test_failed_requests_only_affect_request_success_not_quality_denominators():
     rows = [{"expected": ["a"], "candidates": ["a"], "scores": {"a": 1}, "seconds": 5.01},
             {"expected": ["b"], "candidates": ["b"], "scores": {"b": 1}, "seconds": 1, "error": "HTTPError"},
-            {"expected": ["c"], "candidates": ["c"], "scores": {"c": .95}, "seconds": 1},
+            {"id": "positive", "expected": ["c"], "candidates": ["c"], "scores": {"c": .95}, "seconds": 1},
             {"expected": [], "candidates": ["d"], "scores": {"d": .1}, "seconds": 1}]
-    measured = evaluation.metrics(rows, .9)
+    measured = evaluation.metrics(rows, .9, {"positive": ["c"]})
     assert measured["request_success_rate"] == .5
     assert measured["top1_precision"] == 1
     assert measured["positive_card_hit_rate"] == 1
@@ -60,6 +60,7 @@ def test_saved_scores_replay_without_network_and_reject_partial_evidence(tmp_pat
     data = {"question": evaluation.QUESTION, "gate": evaluation.GATE,
             "thresholds": evaluation.THRESHOLDS, "model": evaluation.MODEL,
             "candidate_rule": evaluation.CANDIDATE_RULE,
+            "edges": [{"src": "target", "dst": "a"}],
             "holdout": [{"id": "target"}]}
     (tmp_path / "snapshot.json").write_text(json.dumps(data))
     (tmp_path / "calibration-decision.json").write_text(json.dumps(
@@ -172,3 +173,28 @@ def test_owner_rescore_preserves_direct_metric_and_excludes_failed_calls(tmp_pat
     assert path.read_bytes() == before
     artifact = json.loads((tmp_path / "owner-threshold-0.60.json").read_text())
     assert len(artifact["closure_edges"]) == 2
+    # Replaying the saved graph must ignore subsequent changes to the live board.
+    with sqlite3.connect(path) as con:
+        con.execute("DELETE FROM task_edges")
+    replayed = evaluation.rescore(tmp_path, None, .6, replay=True)
+    assert replayed["splits"]["combined"] == result
+
+
+def test_fixed_owner_threshold_uses_closure_gate_not_direct_precision(tmp_path):
+    data = {"question": evaluation.QUESTION, "gate": evaluation.GATE,
+            "thresholds": evaluation.THRESHOLDS, "model": evaluation.MODEL,
+            "candidate_rule": evaluation.CANDIDATE_RULE,
+            "edges": [{"src": "target", "dst": "direct"}, {"src": "direct", "dst": "ancestor"}],
+            "calibration": [{"id": "target"}, {"id": "negative"}]}
+    (tmp_path / "snapshot.json").write_text(json.dumps(data))
+    rows = [{"id": "target", "expected": ["direct"], "retained_expected": ["direct"],
+             "candidates": ["direct", "ancestor"], "scores": {"direct": .1, "ancestor": .60},
+             "seconds": 1, "payload_bytes": 100},
+            {"id": "negative", "expected": [], "retained_expected": [], "candidates": ["other"],
+             "scores": {"other": .2}, "seconds": 1, "payload_bytes": 100}]
+    (tmp_path / "calibration.jsonl").write_text("\n".join(map(json.dumps, rows)))
+    summary = evaluation.evaluate(tmp_path, "calibration", True)
+    assert summary["decision"]["threshold"] == evaluation.THRESHOLD == .60
+    assert summary["metrics"]["top1_precision"] == 0
+    assert summary["metrics"]["closure_precision"] == 1
+    assert summary["experimental_gate_pass"]

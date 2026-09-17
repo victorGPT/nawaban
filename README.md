@@ -65,8 +65,9 @@ same module, then recent activity, and are capped at 25. A top Noul score of at
 least 0.60 is required. The command only prints a suggestion; it never adds an edge.
 
 Title/success, module, and prerequisite suggestions share one five-second waiting
-budget. Missing credentials, unavailable services, uncertain answers, and expired
-budgets remain silent and leave the created task intact. At the owner-selected
+budget. Missing credentials, unavailable services, and uncertain or expired hint
+stages stay silent and leave the created task intact; already-completed hints
+remain visible. At the owner-selected, post-hoc
 threshold, 22/120 cards received a hint: 13/22 matched a direct dependency and
 20/22 matched an upstream dependency through the current graph. The closure
 measure includes later-recorded edges and has mild temporal leakage;

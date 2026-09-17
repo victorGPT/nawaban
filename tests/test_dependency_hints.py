@@ -122,7 +122,7 @@ def test_failures_are_silent_and_leave_one_committed_card(board, monkeypatch, ca
 def test_shared_budget_covers_module_and_stalled_dependency(board, monkeypatch, capsys):
     blocked, release, finished = threading.Event(), threading.Event(), threading.Event()
     monkeypatch.setattr(cli, "_HINT_DEADLINE_S", 1.2)
-    monkeypatch.setattr(cli, "_hints", lambda *args: [])
+    monkeypatch.setattr(cli, "_hints", lambda *args: ["completed title hint"])
     monkeypatch.setattr(cli, "_epic_hint", lambda *args: time.sleep(.12) or "module hint")
 
     def stall(*args):
@@ -146,7 +146,9 @@ def test_shared_budget_covers_module_and_stalled_dependency(board, monkeypatch, 
         assert create(board) == 0
         assert blocked.is_set()
         assert .6 <= durations[0] < 1.2
-        assert capsys.readouterr().err == ""
+        output = capsys.readouterr().err
+        assert "completed title hint" in output and "module hint" in output
+        assert "late dependency hint" not in output
         with sqlite3.connect(board) as con:
             assert con.execute("SELECT count(*) FROM tasks WHERE id='NEW'").fetchone()[0] == 1
     finally:

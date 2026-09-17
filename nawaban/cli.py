@@ -334,7 +334,7 @@ def _create_hints(path: Path, task_id: str, title: str, context: str | None,
     worker = threading.Thread(target=collect, daemon=True)
     worker.start()
     worker.join(max(0, deadline - time.monotonic()))
-    return [] if worker.is_alive() else hints
+    return list(hints)
 
 
 

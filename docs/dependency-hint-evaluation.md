@@ -62,6 +62,13 @@ not human acceptance evidence.
 
 ## Request, threshold selection, and denominators
 
+The current script imports the runtime `THRESHOLD` as its sole operating threshold
+(0.60). Calibration always records that value; the 0.30–0.85 sweep is diagnostic
+and cannot select a different runtime policy. Its gate checks **closure precision
+at least 80%**, no-recorded-dependency false-hint rate at most 10%, and the shared
+time criterion. Direct-edge precision remains a reported metric, not a veto of
+the owner-selected 0.60 threshold. The older selection procedure below is history.
+
 One HTTP request asks a [TypeSafe Noul](https://docs.typesafe.ai/primitives/noul)
 question for each shortlisted candidate. It asks whether the target directly
 requires the candidate's result, distinguishing related, helpful, parallel, and
@@ -163,8 +170,9 @@ The business task commits once before any advisory work. Title/success, module,
 and dependency suggestions share a single advisory worker and a **4.5-second
 wait**, reserving 500 ms within the five-second budget for scheduler wakeup,
 return, and rendering.
-The worker performs only reads and API calls. If it remains busy at the deadline,
-the parent prints no late suggestions and returns success; a daemon worker cannot
+The worker performs only reads and API calls. At the deadline, the parent returns
+a `list(hints)` snapshot, preserving already-completed title/success/module hints
+while excluding later arrivals. It still returns success; a daemon worker cannot
 keep the CLI process alive. It checks the deadline before starting another hint
 request. An in-flight network call is not forcibly cancelled in an embedding
 process, but cannot write task data or emit output after the timeout.
@@ -180,6 +188,12 @@ shared deadline additionally covers those advisory steps. The tests separately
 exercise combined module/dependency delays and a network call stalled for 30
 seconds, verifying that the CLI exits while retaining exactly one created card.
 No production installation or human acceptance is claimed by this report.
+
+After the final consistency fixes, the same full regression command passed all
+33 inherited scripts and **289 pytest tests**. Coverage verifies that completed
+hints survive a later timeout, calibration records the shared 0.60 threshold,
+closure-based acceptance does not reject a direct-edge miss, and saved closure
+replay ignores subsequent changes to the live board.
 
 Before the threshold-only update, `uv run --no-project --python 3.12 --with pytest
 --with pyyaml python tests/run.py` passed all 33 inherited scripts and 286 pytest
@@ -200,11 +214,17 @@ python3 scripts/eval_dependency_hints.py --output /private/dependency-eval --spl
 python3 scripts/eval_dependency_hints.py --output /private/dependency-eval --split holdout --replay
 # Owner-selected threshold; freezes current edges privately, sends no API calls.
 python3 scripts/eval_dependency_hints.py --output /private/dependency-eval --db /absolute/path/to/board.db --split rescore --threshold 0.60
+# Reproduce both metrics with saved edges, without the live board.
+python3 scripts/eval_dependency_hints.py --output /private/dependency-eval --split rescore --threshold 0.60 --replay
 ```
 
 `--exclude-snapshot` is optional for a first study. Raw splits and snapshots use
 exclusive creation; rerunning does not replace evidence. HTTP failures retain
 status/body privately. Replay sends no API requests and refuses incomplete splits.
+Closure replay verifies the saved edge/snapshot hashes and ignores later board
+changes. Historical snapshots with the superseded gate remain immutable: use
+their archived runner for the original summary or current `rescore --replay` for
+the owner policy; do not silently relabel the original calibration decision.
 The frozen model alias may resolve differently on a later date.
 
 - Base commit: `e820a660c2ee42537c13e2e2e68e58d6bae7c901`.
