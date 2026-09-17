@@ -8,6 +8,18 @@ The original feature sync used reference revision `e498cfe23563f70b4d35daa0656c7
 
 Plugin manifests, marketplace, hooks.json, Codex apply_patch support, and all five advisory TypeSafe paths remain. The standalone task DAG, its vendor/license, route, buttons and keyboard shortcut were removed by the subsequent scope decision; module dependency networks and static-path traversal protections remain.
 
+## PR #12 language rebase evidence
+
+The saved English/Chinese language behavior is ported onto the synchronized frontend, with implementation frozen at `f3bc28ffdc3c6e02c9ed555b31a89453bc9ab315`. The sidebar switch retains the `nawaban.locale` key, saved-preference precedence, browser-language fallback, document language updates and continued operation when storage is denied. Assigned remains separate from In progress. Board/list, project/module selectors, module network, inbox, detail sheet, notices and date controls update with the selected language.
+
+Both dictionaries contain **257 matching keys**. English messages are registered in CONTEXT.md; keys and interpolation placeholders match. PR #12's three glossary tests are unchanged from `origin/main`. The original hardcoded-Chinese check reproduced a failure in 17 synchronized source files before the port. Persisted verdict/supplement text, context-formatting decisions and the legacy ungrouped module URL value retain their previous meaning; translation changes display text without changing API identifiers or task content.
+
+Frontend checks on the frozen implementation: `npm run build`, `npm run lint`, `npm test`, `npm run test:components`, and `npm run test:proxy` all pass. Results: **25 unit tests, 44 component tests, 1 real Vite/backend proxy integration test**; lint has zero errors and 20 existing warnings. The build's existing large-chunk warning remains. Twenty added component regressions cover initialization and reload, storage rejection, mounted view/detail switching, legacy module links and filters, date drafts, and unknown submission guidance. Unknown outcomes remain locked against retry; raw server errors are preserved.
+
+The requested command `uv run --no-project --python 3.12 --with pytest python -m pytest -q tests` passes with **331 passed, 3 optional YAML skips, 9 subtests passed** in 36.54 seconds, including all three unmodified PR #12 glossary checks and the previously reviewed runtime regressions.
+
+The full-live-ID scan now covers **1,007 task IDs and 211 tracked text files**: **0 data matches**, with the same 50 reviewed provenance references. Comparing runtime, hook, security-test, privacy-checker and workflow files with the previously reviewed `2991482` revision shows no changes. The new glossary checks are retained verbatim. Final-head GitHub CI is recorded in the PR checks and delivery letter; a successful run on an older PR head is not acceptance for this rebase.
+
 ## Follow-up review corrections
 
 The reviewer accepted S1–S4 and the write-interface security behavior before this follow-up. The remaining changes are frozen at `96a469022ea805acac8385e4a24c53b09fbf365e`; no schema or persistence contract changes are included in this follow-up.
