@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import en from "./en.json";
-import zhCN from "./zh-CN.json";
+import en from "./en.json" with { type: "json" };
+import zhCN from "./zh-CN.json" with { type: "json" };
 
 export type Locale = "en" | "zh-CN";
 export type TranslationKey = keyof typeof en;
@@ -8,6 +8,8 @@ const messages: Record<Locale, Record<TranslationKey, string>> = { en, "zh-CN": 
 const storageKey = "nawaban.locale";
 
 function initialLocale(): Locale {
+  // Pure model tests and server imports have no browser preference or document.
+  if (typeof document === "undefined") return "en";
   // Browser storage can be denied by privacy settings or embedded contexts.
   try {
     const saved = localStorage.getItem(storageKey);
@@ -17,7 +19,7 @@ function initialLocale(): Locale {
 }
 
 let locale = initialLocale();
-document.documentElement.lang = locale;
+if (typeof document !== "undefined") document.documentElement.lang = locale;
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -25,12 +27,14 @@ const subscribe = (listener: () => void) => {
 };
 
 export function useLocale(): Locale {
-  return useSyncExternalStore(subscribe, () => locale);
+  return useSyncExternalStore(subscribe, () => locale, () => "en");
 }
+
+export const getLocale = (): Locale => locale;
 
 export function setLocale(next: Locale): void {
   locale = next;
-  document.documentElement.lang = next;
+  if (typeof document !== "undefined") document.documentElement.lang = next;
   try { localStorage.setItem(storageKey, next); }
   catch { /* Switching still works when browser storage is unavailable. */ }
   listeners.forEach((listener) => listener());

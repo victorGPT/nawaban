@@ -24,7 +24,7 @@
 #   是真能用的逃生门。留它的理由是有一个合法场景:把被切歪的主树**还原**回原分支。
 # 判定体在同目录 foreman_branch_gate.py —— 不内联成 heredoc:bash 5.x 的
 # heredoc 走 pipe,macOS pipe 初始容量 512 字节,3.6KB 正文写一半就死锁
-# (FOREMAN-BRANCHGATE-HANG-001 · 2026-08-28 · 栈 heredoc_write→write)。
+# (2026-08-28 · 栈 heredoc_write→write)。
 set -u
 input=$(cat 2>/dev/null || true)
 

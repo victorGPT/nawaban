@@ -5,8 +5,9 @@ SessionStart hook stdin JSON: {"session_id": "...", "cwd": "/path/to/project"}
 退出码始终 0 · 不阻塞会话启动。
 
 2.1(关窗恢复 / 谁做的):
-- 每次启动把 `pane → {session, cwd, owner, ts, resume}` upsert 进 ~/.claude/foreman/
-  session-registry.json(latest-per-pane)· 横幅打出本窗口 session + resume 命令。
+- 每次启动把 `pane → {session, cwd, owner, ts, resume}` upsert 进状态目录下的
+  session-registry.json(默认 ~/.local/state/nawaban;NAWABAN_STATE_DIR 优先于 WORKOS_STATE_DIR)。
+  新注册表缺失时读 ~/.claude/foreman/session-registry.json;横幅打印 session + resume 命令。
 - `--list`:dump 注册表(给恢复时按 pane/cwd 反查 session-id)。
 任意失败都吞掉(注册是增强 · 绝不能拖垮会话启动)。
 """
@@ -24,12 +25,16 @@ from datetime import datetime
 from pathlib import Path
 
 _RUNTIME = Path(__file__).resolve().parents[1] / "nawaban"
-_REGISTRY = Path.home() / ".claude" / "foreman" / "session-registry.json"
+_STATE = Path(os.environ.get("NAWABAN_STATE_DIR") or os.environ.get("WORKOS_STATE_DIR")
+              or Path.home() / ".local/state/nawaban").expanduser()
+_REGISTRY = _STATE / "session-registry.json"
+_LEGACY_REGISTRY = Path.home() / ".claude/foreman/session-registry.json"
+_LEGACY_STATE = Path.home() / ".claude/state"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nawaban import db as _wdb  # noqa: E402
 try:  # 只有旧 md 卡路径用它;缺 PyYAML 时开工横幅照常出,跳过 md 卡
-    from foreman_card import CardError, guard_problems, load_card  # noqa: E402
+    from nawaban.foreman_card import CardError, guard_problems, load_card  # noqa: E402
 except ImportError:
     load_card = None
 
@@ -63,9 +68,10 @@ def _register_session(session_id: str, cwd: str) -> tuple[str, str] | None:
     owner = os.environ.get("FOREMAN_OWNER") or _tmux_owner(pane) or f"ac:{session_id[:8]}"
     try:
         reg: dict = {}
-        if _REGISTRY.is_file():
+        source = _REGISTRY if _REGISTRY.is_file() else _LEGACY_REGISTRY
+        if source.is_file():
             try:
-                reg = json.loads(_REGISTRY.read_text(encoding="utf-8"))
+                reg = json.loads(source.read_text(encoding="utf-8"))
             except Exception:
                 reg = {}
         reg[key] = {
@@ -84,11 +90,12 @@ def _register_session(session_id: str, cwd: str) -> tuple[str, str] | None:
 
 def _print_registry() -> int:
     """--list:dump 注册表 · 给关窗恢复时按 pane/cwd/时间反查 session-id。"""
-    if not _REGISTRY.is_file():
+    source = _REGISTRY if _REGISTRY.is_file() else _LEGACY_REGISTRY
+    if not source.is_file():
         print("(session 注册表为空)")
         return 0
     try:
-        reg = json.loads(_REGISTRY.read_text(encoding="utf-8"))
+        reg = json.loads(source.read_text(encoding="utf-8"))
     except Exception:
         print("(注册表读取失败)")
         return 0
@@ -307,8 +314,11 @@ def main() -> int:
 
     cwd = Path(cwd_str)
     from nawaban import db as _wdb  # sys.path 已在文件头指向本目录
-    foreman_dir = _wdb.resolve_db(cwd).parent  # worktree 里也要找得到主树的板(FOREMAN-SIMPLIFY-004)
-    if not foreman_dir.is_dir():
+    explicit_db = os.environ.get("NAWABAN_DB") or os.environ.get("WORKOS_DB")
+    # Board discovery also finds legacy Markdown-only boards before DB migration.
+    foreman_dir = (Path(explicit_db).expanduser().parent if explicit_db
+                   else _wdb.foreman_dir(cwd))
+    if foreman_dir is None or not foreman_dir.is_dir():
         return 0  # 非 foreman 项目 · 静默退出(session 已注册)
 
     # 人侧收件箱不依赖 md 卡的存在:md 侧清空(CUTOVER 之后必然发生)时,
@@ -478,18 +488,20 @@ def main() -> int:
     # stale_check 接电(LOOP-HYGIENE-001):gh 网络调用绝不进启动热路径——日一次后台跑,
     # 横幅带【上一次】的发现;报告文件由后台进程写完整体替换。任何失败吞掉(增强件)。
     try:
-        state_dir = Path.home() / ".claude" / "state"
+        state_dir = _STATE
         report = state_dir / "foreman-stale.txt"
-        if report.is_file():
-            txt = report.read_text(encoding="utf-8").strip()
+        report_source = report if report.is_file() else _LEGACY_STATE / report.name
+        if report_source.is_file():
+            txt = report_source.read_text(encoding="utf-8").strip()
             if txt and not txt.startswith("✅"):
                 # STALE 是 **agent 卫生问题**(PR 已合但卡没迁),不是需要人 triage 的事。
                 # 原来全列 8 行 = 每次开窗都让人扫一遍别人的脏活。只留标题行 + 指针。
                 print(txt.splitlines()[0]
-                      + "  → 全表 ~/.claude/state/foreman-stale.txt")
+                      + f"  → 全表 {report_source}")
         marker = state_dir / "foreman-stale.last"
+        marker_source = marker if marker.is_file() else _LEGACY_STATE / marker.name
         today = datetime.now().strftime("%Y-%m-%d")
-        if not marker.is_file() or marker.read_text(encoding="utf-8").strip() != today:
+        if not marker_source.is_file() or marker_source.read_text(encoding="utf-8").strip() != today:
             state_dir.mkdir(parents=True, exist_ok=True)
             marker.write_text(today, encoding="utf-8")
             with open(os.devnull, "rb") as devin, open(os.devnull, "ab") as devout:
@@ -497,8 +509,9 @@ def main() -> int:
                     ["bash", "-c",
                      # 切换日 2026-08-13:指 DB 版对账器(缺省 dry-run 只报告;
                      # 自动真写 --write 的接电是显式拍板项,不随切换默默激活)
-                     f"python3 {shlex.quote(str(_RUNTIME / 'stale_recon.py'))} --repo {shlex.quote(cwd_str)} "
-                     f'> "{report}.tmp" 2>&1; mv "{report}.tmp" "{report}"'],
+                     f"{shlex.quote(sys.executable)} {shlex.quote(str(_RUNTIME / 'stale_recon.py'))} --repo {shlex.quote(cwd_str)} "
+                     f'> {shlex.quote(str(report) + ".tmp")} 2>&1; '
+                     f'mv {shlex.quote(str(report) + ".tmp")} {shlex.quote(str(report))}' ],
                     stdin=devin, stdout=devout, stderr=devout, start_new_session=True,
                 )
     except Exception:

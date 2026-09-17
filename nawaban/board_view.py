@@ -3,14 +3,12 @@
 
 跑法:python3 nawaban/board_view.py [--db PATH] [--port 8813] [--host 127.0.0.1]
      → http://127.0.0.1:8813/           列表板(Linear 皮 · 字段仍是现卡)
-     → http://127.0.0.1:8813/?view=dag&focus=<id>  本卡 ego 子图(卡面 DAG 按钮 / 快捷键 g)
-       (?view=dag 无 focus 的全图仍可访问,但 nav 入口已摘——模块视图取代了它,BOARD-REVAMP-DAG-PRUNE-001)
      → http://127.0.0.1:8813/?view=inbox  收件箱(人侧队列:等拍板/放行/验收的 ask)
      → http://127.0.0.1:8813/?view=modules  模块流转(epic 聚合:进度 + 内部依赖链,可 &epic=<名> 直达)
 
 本体/投影原则:板是投影不是真相——本模块只开只读连接(file:...?mode=ro),
 物理上不可能写库;人的写操作走 CLI / 对话拍板通道。
-反陈旧:全部历史条目渲染相对年龄("18h ago"),不显示裸时间戳(Hermes 研究 §5)。
+反陈旧:全部历史条目渲染相对年龄("18h ago"),不显示裸时间戳。
 
 排序(NAWABAN-BOARD-LIVE-001 起):等拍板钉最前,其余按**最近活动**倒序
 (task_events 最后一条 → started_at → created_at),躺着不动的自然沉底。
@@ -22,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import ipaddress
 import mimetypes
 import os
 import sqlite3
@@ -36,13 +35,14 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import foreman_liveness  # noqa: E402
+from nawaban import foreman_liveness  # noqa: E402
 from nawaban import db  # noqa: E402
+# Preserve the public Web projection name without keeping a second implementation.
+from nawaban.inbox import read as inbox_data  # noqa: E402
+from nawaban.paths import web_dist  # noqa: E402
 
-DAG_DIR = Path(__file__).resolve().parent / "dagview"  # 单卡 ego 子图页(卡面 DAG 按钮 / 快捷键 g)
-VENDOR_DIR = DAG_DIR / "vendor"
 # 新版前端(webui/ · vite build 产物)。有 dist 就 / 吐它;没有回落到内嵌旧板,永不 404。
-WEBUI_DIST = Path(__file__).resolve().parent / "webui" / "dist"
+WEBUI_DIST = web_dist()
 _ACTIVE = frozenset({"open", "claimed", "in_progress", "staging-verified"})
 
 # 五列:验收队列在最左(它才是在等人的);done 只取最近 12 张(对齐 开工看板.md「最近完成」)
@@ -66,6 +66,9 @@ BUSY_WINDOW_S = 120  # 转录多久没追写就不算在跑(板 30s 刷一次,�
 def _ro(path: Path | str) -> sqlite3.Connection:
     con = sqlite3.connect(f"file:{Path(path)}?mode=ro", uri=True, timeout=10)
     con.row_factory = sqlite3.Row
+    # 板不迁移库:未迁移的旧库没有 project 列时,用临时视图遮住 tasks 补一列 NULL
+    if "project" not in {r[1] for r in con.execute("PRAGMA main.table_info(tasks)")}:
+        con.execute("CREATE TEMP VIEW tasks AS SELECT *, NULL AS project FROM main.tasks")
     return con
 
 
@@ -75,11 +78,11 @@ def _j(s):
     try:
         return json.loads(s)
     except ValueError:
-        return s  # letters.links 是裸文本(URL 等),不是 JSON
+        return s  # Historical task contracts and decisions may contain plain text.
 
 
 #: 前缀归并阈值 —— 该前缀下**有 capability 的卡**里某功能占比达标,才把它的兜底卡也归过去。
-#: 低于阈值的前缀(实测 SSC 34% / OBS 50% / KB 50%)下面确实分属多个功能,归并就是硬凑。
+# Prefixes below the threshold remain separate rather than forcing a module.
 PREFIX_MERGE_SHARE = 0.6
 PREFIX_MERGE_MIN = 3   # 样本太少时占比不可信
 
@@ -113,7 +116,7 @@ def fold_key(task_id: str, epic: str | None,
 
     epic 是**自由文本**(capability 列退役后由它承担分组 · FOREMAN-SIMPLIFY-003),同一功能有多种写法:
         运维开关面板(加载提速 · stale-while-revalidate)
-        运维开关面板(OPS-FLAGS-PANEL-001 后继 · 版本开关分区)
+        运维开关面板(新版 · 版本开关分区)
     直接 GROUP BY 会把本该一组的拆开。所以截到第一个分隔符 —— 后面那串全是
     「哪份文档 / 哪张卡 / 哪个 ADR」的注解,不是功能名的一部分。
 
@@ -128,9 +131,7 @@ def fold_key(task_id: str, epic: str | None,
         k = (s[:min(cuts)] if cuts else s).strip()
         if k:
             return k
-    # 兜底:ID 前缀第一段。曾试过识别「有意义的子域」(把 IAM2-SSO-* 留成 IAM2-SSO),
-    # 但 SSO 与 SSC-POOL-* 里的 POOL、MEM-CORE-* 里的 CORE 在字符层面分不开 ——
-    # 任何长度/字母规则都是瞎猜。兜底本就是粗粒度:要精细就把 epic 填上。
+    # Prefix fallback is deliberately coarse; explicit epic values define modules.
     pre = task_id.split("-")[0]
     return (hints or {}).get(pre, pre)
 
@@ -200,7 +201,7 @@ def _card(r: sqlite3.Row, hints: dict[str, str] | None = None) -> dict:
     return {
         "id": r["id"], "title": r["title"], "status": r["status"],
         "waiting_on": r["waiting_on"], "owner": r["owner"], "epic": r["epic"],
-        "now": r["now"], "created_at": r["created_at"],
+        "now": r["now"], "created_at": r["created_at"], "project": r["project"],
         "fold": fold_key(r["id"], r["epic"], hints),
         "started_at": r["started_at"], "completed_at": r["completed_at"],
     }
@@ -208,7 +209,8 @@ def _card(r: sqlite3.Row, hints: dict[str, str] | None = None) -> dict:
 
 _BASE = ("SELECT t.*, MAX(e.created_at) AS last_event_at"
          " FROM tasks t LEFT JOIN task_events e ON e.task_id = t.id"
-         " WHERE t.status = :status{touched} GROUP BY t.id")
+         " WHERE t.status = :status{touched}{project} GROUP BY t.id")
+_PROJECT = " AND t.project = :project"
 # 「更新时间」筛(Linear 式 filter · 用户 2026-09-08 选定):时间段内有事件、或段内建/开工/完成的卡。
 # 用 EXISTS 而不是改 LEFT JOIN 的范围,否则 last_event_at(卡面「没动」)会变成「段内最后一次」。
 _TOUCHED = (" AND (EXISTS (SELECT 1 FROM task_events x WHERE x.task_id = t.id"
@@ -280,20 +282,33 @@ def _live_of(owner: str | None, idx: dict[str, float] | None) -> dict | None:
     return {"tier": tier, "age_s": age}
 
 
+def _liveness_index() -> tuple[dict[str, float] | None, bool]:
+    # An unavailable activity probe must not hide either task view.
+    try:
+        idx, complete = _transcript_index()
+        # A partial scan cannot establish that an omitted worker is absent.
+        return (idx if complete else None), complete
+    except Exception:  # noqa: BLE001
+        return None, False
+
+
 def board_data(path: Path | str, live: dict | None = None,
                idx: dict[str, float] | None = None,
-               touched: tuple[int, int] | None = None) -> dict:
+               touched: tuple[int, int] | None = None,
+               project: str | None = None) -> dict:
     """五列投影。等拍板钉最前,其余按最近活动倒序。
 
     ``idx`` = ``_transcript_index()`` 的索引;None(默认)= 不探测,本函数保持纯函数。
     ``live`` 保留是为了不破坏既有调用方签名,本函数已不再使用它 ——
     活性改从转录 mtime 直接算(见 ``_live_of``)。
     ``touched`` = (lo, hi) epoch:只留这段时间动过的卡(列仍按**当前**状态分)。
+    ``project`` = 只留该项目的卡;None = 全部项目。
     """
-    params: dict = {}
+    params: dict = {"project": project}
     if touched:
         params["lo"], params["hi"] = touched
-    base = _BASE.format(touched=_TOUCHED if touched else "")
+    base = _BASE.format(touched=_TOUCHED if touched else "",
+                        project=_PROJECT if project else "")
     con = _ro(path)
     try:
         hints = prefix_hints(con)
@@ -351,71 +366,8 @@ def board_data(path: Path | str, live: dict | None = None,
         con.close()
 
 
-def inbox_data(path: Path | str) -> dict:
-    """人侧收件箱投影(NAWABAN-INBOX-VIEW-001)。
-
-    看板回答「所有任务什么状态」,收件箱回答「现在轮到我做什么」——
-    前者是 agent 需要的,后者是人需要的。整个界面就是 db.open_asks() 一个查询,
-    没有列、没有状态机、没有过滤器要选。
-
-    `flow` 是**活性自证**:空态句「没有需要你的事」若因上游断了而恒为真,它就成了
-    一个从不触发的指示器 —— 把「信号源坏了」伪装成「没事发生」,比没有更坏。
-    带上流量数,人一眼看得出这条路径还活着。
-    """
-    con0 = _ro(path)
-    try:
-        has_asks = con0.execute(
-            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='asks'"
-        ).fetchone()[0]
-    finally:
-        con0.close()
-    if not has_asks:
-        # 老库(未迁移)。看板是底线:这里返回空结构而不是抛 —— 叠加层不可用时
-        # 页面该当它不存在,不该看到崩掉的连接。
-        return {"total": 0, "oldest_days": 0.0, "unavailable": True,
-                "groups": [{"kind": k, "title": t, "items": []} for k, t in
-                           (("authorize", "放行"), ("accept", "验收"), ("decide", "拍板"))],
-                "flow": {"raised_7d": 0, "closed_7d": 0}, "agent_side": 0}
-
-    asks = db.open_asks(path)
-    order = {"authorize": 0, "accept": 1, "decide": 2}
-    # agent 没把握的(<0.5)沉到本组末尾,但一条不藏 —— 藏起来它就变成人的盲区
-    # (ADR-0209 原则 6)。人手工提的没有分数,按有把握处理(0.5)。
-    def _conf(a: dict) -> float:
-        # 人手工提的没有分数,按有把握处理(0.5)。注意不能写 `or 0.5` —— 0.0 是
-        # 合法的「毫无把握」,被 falsy 吞掉之后反而不沉底。
-        c = a.get("confidence")
-        return 0.5 if c is None else float(c)
-
-    asks.sort(key=lambda a: (order.get(a["kind"], 9), _conf(a) < 0.5, -a["stalled_days"]))
-
-    con = _ro(path)
-    try:
-        week = int(time.time()) - 7 * 86400
-        raised = con.execute("SELECT count(*) FROM asks WHERE raised_at>?", (week,)).fetchone()[0]
-        closed = con.execute("SELECT count(*) FROM asks WHERE closed_at>?", (week,)).fetchone()[0]
-        agent_side = con.execute(
-            "SELECT count(*) FROM tasks WHERE status NOT IN ('done','cancelled') AND id NOT IN"
-            " (SELECT task_id FROM ask_tasks WHERE ask_id IN"
-            "  (SELECT id FROM asks WHERE closed_at IS NULL))").fetchone()[0]
-    finally:
-        con.close()
-
-    groups = [
-        {"kind": "authorize", "title": "放行", "items": [a for a in asks if a["kind"] == "authorize"]},
-        {"kind": "accept", "title": "验收", "items": [a for a in asks if a["kind"] == "accept"]},
-        {"kind": "decide", "title": "拍板", "items": [a for a in asks if a["kind"] == "decide"]},
-    ]
-    return {
-        "total": len(asks),
-        "oldest_days": max((a["stalled_days"] for a in asks), default=0.0),
-        "groups": groups,
-        "flow": {"raised_7d": raised, "closed_7d": closed},
-        "agent_side": agent_side,
-    }
-
-
-def modules_data(path: Path | str) -> dict:
+def modules_data(path: Path | str, idx: dict[str, float] | None = None,
+                 project: str | None = None) -> dict:
     """模块(epic)聚合视图数据(BOARD-REVAMP-DAG-IMPL-001)。
 
     全量卡 + depends_on 边,分组/分层/进度全在前端算——766 卡量级一次传输 <100KB,
@@ -423,14 +375,50 @@ def modules_data(path: Path | str) -> dict:
     """
     con = _ro(path)
     try:
-        tasks = [{"i": r["id"], "t": (r["title"] or "")[:60], "s": r["status"],
-                  "e": r["epic"] or ""}
-                 for r in con.execute("SELECT id, title, status, epic FROM tasks")]
+        tasks = [{"i": r["id"], "t": r["title"] or "", "s": r["status"],
+                  "e": r["epic"] or "", "waiting_on": r["waiting_on"],
+                  "live": _live_of(r["owner"], idx) if r["status"] in LIVE_COLUMNS else None}
+                 for r in con.execute(
+                     "SELECT id, title, status, epic, owner, waiting_on FROM tasks"
+                     " WHERE :project IS NULL OR project = :project", {"project": project})]
+        ids = {t["i"] for t in tasks}
+        # 跨项目的依赖边两端不全在本项目里,只留两端都在的
         deps = [[r["src"], r["dst"]] for r in con.execute(
-            "SELECT src, dst FROM task_edges WHERE kind='depends_on'")]
+            "SELECT src, dst FROM task_edges WHERE kind='depends_on'")
+            if r["src"] in ids and r["dst"] in ids]
     finally:
         con.close()
     return {"tasks": tasks, "deps": deps}
+
+
+def projects_data(path: Path | str) -> dict:
+    """项目切换器的选项:每个项目的未结卡数与总卡数;project 为空的卡归 null。"""
+    con = _ro(path)
+    try:
+        rows = con.execute(
+            "SELECT project, SUM(status NOT IN ('done','cancelled')) AS open, count(*) AS total"
+            " FROM tasks GROUP BY project ORDER BY project IS NULL, project").fetchall()
+    finally:
+        con.close()
+    return {"projects": [{"name": r["project"], "open": r["open"], "total": r["total"]}
+                         for r in rows]}
+
+
+def project_inbox(path: Path | str, data: dict, project: str | None) -> dict:
+    """把收件箱投影收窄到一个项目:关联卡里有该项目的卡才留;没关联卡的问题各项目都显示。"""
+    if not project or data.get("unavailable"):
+        return data
+    con = _ro(path)
+    try:
+        ids = {r[0] for r in con.execute("SELECT id FROM tasks WHERE project=?", (project,))}
+    finally:
+        con.close()
+    groups = [{**g, "items": [a for a in g["items"]
+                              if not a["task_ids"] or ids.intersection(a["task_ids"])]}
+              for g in data["groups"]]
+    items = [a for g in groups for a in g["items"]]
+    return {**data, "groups": groups, "total": len(items),
+            "oldest_days": max((a["stalled_days"] for a in items), default=0.0)}
 
 
 def task_detail(path: Path | str, task_id: str) -> dict:
@@ -496,7 +484,7 @@ def task_detail(path: Path | str, task_id: str) -> dict:
         ]
         # 信件(worker→总监汇报,NAWABAN-LETTERS-DB-001)只读投影;标已读仍走 cli letter-read
         d["letters"] = [
-            {"id": r["id"], "kind": r["kind"], "msg": r["msg"], "links": _j(r["links"]),
+            {"id": r["id"], "kind": r["kind"], "msg": r["msg"], "links": r["links"],
              "session_id": r["session_id"], "created_at": r["created_at"],
              "read_at": r["read_at"]}
             for r in con.execute(
@@ -891,7 +879,7 @@ aside{width:290px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--lin
   </section>
 </main>
 <script>
-// 形态定稿:BOARD-REVAMP-DAG-PROTO-001 decide 行(2026-08-29 用户点验)。
+// 形态定稿:模块网络布局(2026-08-29 用户点验)。
 // 进度口径只数 done;staging-verified 在分段条与统计里单独可见。
 let D = {tasks: [], deps: []};
 const noEpic = e => !e || e === 'n/a';
@@ -1040,7 +1028,7 @@ fetch('/api/modules').then(r => r.json()).then(d => {
   if (d.unavailable) throw new Error(d.error || 'unavailable');
   D = d; index();
   const q = new URLSearchParams(location.search).get('epic');
-  sel = (q && EPICS[q]) ? q : (EPICS['IAM2'] ? 'IAM2' : Object.keys(EPICS)[0]);
+  sel = (q && EPICS[q]) ? q : Object.keys(EPICS)[0];
   render();
 }).catch(e => {
   document.getElementById('ep-head').innerHTML = '<div class=empty>模块数据不可用:' + esc(e.message) + '</div>';
@@ -1333,10 +1321,6 @@ h1{font-size:14px;margin:0;letter-spacing:.02em;font-weight:600}
 .edge{cursor:pointer;color:var(--accent)}
 ul{margin:4px 0;padding-left:18px;font-size:12.5px}
 .rej{color:var(--red)}
-.dag{font-size:10px;color:var(--accent);border:1px solid var(--accent-soft);border-radius:999px;padding:1px 6px;cursor:pointer;letter-spacing:.04em}
-.dag:hover{background:var(--accent-soft)}
-.dag-link{display:inline-block;margin-top:10px;color:var(--accent);text-decoration:none;border:1px solid var(--line-2);border-radius:6px;padding:5px 10px}
-.dag-link:hover{background:var(--accent-soft)}
 .keys{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--dim);background:rgba(9,9,11,.92);border:1px solid var(--line);border-radius:999px;padding:5px 12px;pointer-events:none;z-index:8}
 kbd{font:10px ui-monospace,monospace;border:1px solid var(--line-2);border-radius:3px;padding:0 4px;color:var(--muted)}
 .inb{background:var(--accent-soft);border-radius:999px;padding:0 6px;font-size:10px}
@@ -1354,7 +1338,7 @@ kbd{font:10px ui-monospace,monospace;border:1px solid var(--line-2);border-radiu
 <div id=fambar hidden></div>
 <div id=board></div>
 <div id=detail></div>
-<div class=keys><kbd>j</kbd><kbd>k</kbd> 卡 · <kbd>Enter</kbd> 详情 · <kbd>g</kbd> DAG · <kbd>/</kbd> 找寻 · <kbd>Esc</kbd> 关 · <kbd>f</kbd> 顶</div>
+<div class=keys><kbd>j</kbd><kbd>k</kbd> 卡 · <kbd>Enter</kbd> 详情 · <kbd>/</kbd> 找寻 · <kbd>Esc</kbd> 关 · <kbd>f</kbd> 顶</div>
 <script>
 const $=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e};
 // 收件箱计数徽标 · fail-soft:API 挂/降级(total=0)就不显示,不破看板底线
@@ -1465,13 +1449,6 @@ function cardEl(t,color){
   }
   m.appendChild($("span",null,ago(t.status==="done"?t.completed_at:t.active_at)));
   m.appendChild($("span",null,t.owner||"—"));
-  const dag=$("span","dag","DAG");
-  dag.title="本卡关系子图";
-  dag.addEventListener("click",e=>{
-    e.preventDefault(); e.stopPropagation();
-    location.href="/?view=dag&focus="+encodeURIComponent(t.id);
-  });
-  m.appendChild(dag);
   if(t.live && t.live.tier){
     const L={working:["dot working","在跑"],idle:["dot idle","窗口闲着"],
              cold:["dot cold","窗口早没动静"],"no-window":["dot cold","找不到窗口"]}[t.live.tier];
@@ -1577,9 +1554,6 @@ async function openTask(id){
       t.epic].filter(Boolean).join(" · ")));
   p.appendChild($("div","sub","建于 "+ago(t.created_at)+(t.started_at?" · 开工 "+ago(t.started_at):"")+
       (t.completed_at?" · 完成 "+ago(t.completed_at):"")));
-  const dagA=$("a","dag-link","DAG 关系图");
-  dagA.href="/?view=dag&focus="+encodeURIComponent(t.id);
-  p.appendChild(dagA);
   if(t.now){sec(p,"当前态");blk(p,t.now)}
   if(t.context){sec(p,"缘由");blk(p,t.context)}
   if(t.success&&t.success.length){sec(p,"验收判据");list(p,t.success)}
@@ -1639,7 +1613,6 @@ document.addEventListener("keydown", e=>{
   if(e.key==="j"||e.key==="ArrowDown"){ e.preventDefault(); if(!FOCUS.length)return; FI=Math.min(FOCUS.length-1, Math.max(0,FI)+1); select(FOCUS[FI]._task.id, false); return; }
   if(e.key==="k"||e.key==="ArrowUp"){ e.preventDefault(); if(!FOCUS.length)return; FI=Math.max(0,(FI<0?0:FI)-1); select(FOCUS[FI]._task.id, false); return; }
   if(e.key==="Enter" && SEL){ e.preventDefault(); openTask(SEL); return; }
-  if(e.key==="g" && SEL){ e.preventDefault(); location.href="/?view=dag&focus="+encodeURIComponent(SEL); return; }
   if(e.key==="f"){ e.preventDefault(); window.scrollTo({top:0,behavior:"smooth"}); document.querySelector(".card.sel")?.scrollIntoView({block:"nearest"}); return; }
 });
 load();
@@ -1666,33 +1639,34 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         u = urlparse(self.path)
         qs = parse_qs(u.query)
+        project = (qs.get("project") or [""])[0] or None   # 空 = 全部项目
         if u.path == "/":
             view = (qs.get("view") or [""])[0]
-            if view == "dag":
-                dag = DAG_DIR / "index.html"
-                if not dag.exists():
-                    self._json(404, {"error": "dagview/index.html missing"})
-                    return
-                self._send(200, dag.read_bytes(), "text/html; charset=utf-8")
+            if view != "legacy" and (WEBUI_DIST / "index.html").exists():
+                self._send(200, (WEBUI_DIST / "index.html").read_bytes(), "text/html; charset=utf-8")
             elif view == "modules":
                 self._send(200, MODULES_PAGE.encode(), "text/html; charset=utf-8")
             elif view == "inbox":
                 self._send(200, INBOX_PAGE.encode(), "text/html; charset=utf-8")
-            elif view == "legacy" or not (WEBUI_DIST / "index.html").exists():
+            else:
                 # 看板是底线(用户 2026-08-14 拍板):asks 表坏了、巡检 agent 挂了、
                 # LLM 不可用 —— 看板都必须照常可用。收件箱是叠在它上面的一层,不是替代品。
                 self._send(200, PAGE.encode(), "text/html; charset=utf-8")
-            else:
-                self._send(200, (WEBUI_DIST / "index.html").read_bytes(), "text/html; charset=utf-8")
+        elif u.path == "/api/projects":
+            self._json(200, projects_data(self.db_path))
         elif u.path == "/api/modules":
             try:
-                self._json(200, modules_data(self.db_path))
+                idx, complete = _liveness_index()
+                d = modules_data(self.db_path, idx=idx, project=project)
+                d["liveness"] = {"available": idx is not None, "complete": complete,
+                                 "busy_window_s": BUSY_WINDOW_S, "idle_window_s": IDLE_WINDOW_S}
+                self._json(200, d)
             except Exception as e:  # noqa: BLE001  # 叠加层坏了也得给合法响应,看板不陪葬
                 self._json(200, {"tasks": [], "deps": [], "unavailable": True,
                                  "error": f"{type(e).__name__}: {e}"})
         elif u.path == "/api/inbox":
             try:
-                self._json(200, inbox_data(self.db_path))
+                self._json(200, project_inbox(self.db_path, inbox_data(self.db_path), project))
             except Exception as e:  # noqa: BLE001  # 边界:叠加层坏了也得给出合法响应
                 self._json(200, {"total": 0, "oldest_days": 0.0, "unavailable": True,
                                  "error": f"{type(e).__name__}: {e}", "groups": [],
@@ -1708,11 +1682,8 @@ class _Handler(BaseHTTPRequestHandler):
                     self._json(400, {"error": "since/until 须为 YYYY-MM-DD 且 until ≥ since"})
                     return
             # 活性探测不许拖垮看板:任何异常都降级成「不探测」(全部留白),板照常出
-            try:
-                idx, complete = _transcript_index()
-            except Exception:  # noqa: BLE001  # 边界:探测是增强件
-                idx, complete = None, False
-            d = board_data(self.db_path, idx=idx, touched=touched)
+            idx, complete = _liveness_index()
+            d = board_data(self.db_path, idx=idx, touched=touched, project=project)
             d["liveness"] = {"available": idx is not None, "complete": complete,
                              "busy_window_s": BUSY_WINDOW_S, "idle_window_s": IDLE_WINDOW_S}
             self._json(200, d)
@@ -1749,17 +1720,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(404, {"error": str(e)})
         elif u.path.startswith("/assets/") or u.path == "/favicon.svg":
             self._static(WEBUI_DIST, unquote(u.path.lstrip("/")))
-        elif u.path.startswith("/vendor/"):
-            self._static(VENDOR_DIR, unquote(u.path[len("/vendor/"):]))
         else:
             self._json(404, {"error": "no such path"})
 
     def _static(self, root: Path, rel: str) -> None:
-        if ".." in rel.split("/") or rel.startswith("/"):  # 绝对路径会让 root / rel 直接丢掉 root
+        if ".." in rel.split("/") or rel.startswith("/"):
             self._json(400, {"error": "bad path"})
             return
         fp = (root / rel).resolve()
-        # 按目录祖先判,不按字符串前缀:vendor-private/ 也以 vendor 开头
         if not fp.is_relative_to(root.resolve()) or not fp.is_file():
             self._json(404, {"error": "no such static file"})
             return
@@ -1768,11 +1736,45 @@ class _Handler(BaseHTTPRequestHandler):
             ctype = "application/javascript"
         self._send(200, fp.read_bytes(), ctype)
 
-    # 信任边界(刻意,不是遗漏):板不做身份校验 —— 能连到这个端口 = 有权代表人拍板。
-    # 前提是它只绑 127.0.0.1 或 tailnet IP(board-up.sh 保证),而 tailnet 内全是本人设备。
-    # 因此**绝不能**绑 0.0.0.0 / 公网地址;真要多人用,这里得先加共享 token。
-    # 拍板通道闸(decided_by=user 需 NAWABAN_DECISION_CHANNEL)在进程身份层生效,拦的是
-    # agent 冒充人,不是网络层的伪造 —— 两者防的不是一回事。
+    def _write_request_problem(self) -> tuple[int, str] | None:
+        """Reject cross-site browser writes before reading a body or invoking CLI.
+
+        The board is an HTTP listener without public authentication. A Host must
+        name loopback or this listener at its actual port, without DNS lookups.
+        Browsers must supply the exact same HTTP origin. Origin-less CLI callers
+        are allowed only over an unscoped loopback connection with a loopback Host.
+        """
+        media = self.headers.get_all("Content-Type", [])
+        if len(media) != 1 or media[0].split(";", 1)[0].strip().lower() != "application/json":
+            return 415, "Content-Type must be application/json"
+        hosts = self.headers.get_all("Host", [])
+        if len(hosts) != 1:
+            return 403, "a single local Host is required"
+        port = self.server.server_address[1]
+        bound = self.server.server_address[0].lower()
+        bound_host = f"[{bound}]" if ":" in bound else bound
+        local_hosts = {"localhost", "127.0.0.1", "[::1]"}
+        bound_hosts = {bound_host} if bound not in {"0.0.0.0", "::", "*"} else set()
+        allowed = {f"{name}:{port}" for name in local_hosts | bound_hosts}
+        local = {f"{name}:{port}" for name in local_hosts}
+        if port == 80:
+            allowed |= local_hosts | bound_hosts
+            local |= local_hosts
+        host = hosts[0].lower()
+        if host not in allowed:
+            return 403, "Host does not match this board listener"
+        origins = self.headers.get_all("Origin", [])
+        if origins:
+            if len(origins) != 1 or origins[0].lower() != f"http://{host}":
+                return 403, "cross-origin writes are forbidden"
+        elif (host not in local or "%" in self.client_address[0]
+              or not ipaddress.ip_address(self.client_address[0]).is_loopback):
+            # Scoped socket peers are nonlocal here; do not pass them to the parser.
+            return 403, "Origin is required outside loopback"
+        if self.headers.get("Sec-Fetch-Site", "").lower() == "cross-site":
+            return 403, "cross-site writes are forbidden"
+        return None
+
     def do_POST(self) -> None:  # noqa: N802
         """回答一个 ask(NAWABAN-INBOX-WRITE-001 · 选型 B)。
 
@@ -1784,6 +1786,10 @@ class _Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path != "/api/answer":
             self._json(404, {"error": "no such path"})
+            return
+        if problem := self._write_request_problem():
+            code, message = problem
+            self._json(code, {"error": message})
             return
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -1798,10 +1804,11 @@ class _Handler(BaseHTTPRequestHandler):
             aid = int(body.get("ask_id") or 0)
         except (ValueError, TypeError):
             aid = 0
-        verdict = (body.get("verdict") or "").strip()
-        if not aid or not verdict:
+        verdict = body.get("verdict")
+        if not isinstance(verdict, str) or not aid or not verdict.strip():
             self._json(400, {"error": "ask_id 与 verdict 必填"})
             return
+        verdict = verdict.strip()
         cmd = [sys.executable, str(Path(__file__).with_name("cli.py")),
                "--db", str(self.db_path), "answer", str(aid), "--verdict", verdict]
         if body.get("reject"):
@@ -1841,7 +1848,7 @@ def serve(path: Path, port: int, host: str = "127.0.0.1") -> None:
 
     servers = [ThreadingHTTPServer((h, port), _Handler) for h in hosts]
     for h in hosts:
-        print(f"NAWABAN 板 → http://{h}:{port}/  DAG → /?view=dag[&focus=id]  (库:{path} · 只读)")
+        print(f"NAWABAN 板 → http://{h}:{port}/  (库:{path} · 只读)")
     # 除最后一个外都放后台线程,主线程守着最后一个 —— Ctrl-C 仍能整体退出
     for srv in servers[:-1]:
         threading.Thread(target=srv.serve_forever, daemon=True).start()

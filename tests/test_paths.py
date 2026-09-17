@@ -47,20 +47,49 @@ def test_init_in_empty_directory_creates_new_default(tmp_path):
     assert (tmp_path / ".nawaban/nawaban.db").is_file()
 
 
-def test_legacy_board_fallback_and_new_board_priority(tmp_path):
+def test_init_reuses_legacy_board_without_creating_a_second_database(tmp_path):
     legacy = tmp_path / ".foreman/workos.db"  # Legacy path fallback.
     legacy.parent.mkdir()
     db.init_db(legacy)
+    db.create_task(legacy, task_id="EXISTING", title="Existing task", context="Saved context")
     primary = tmp_path / ".nawaban/nawaban.db"
     primary.parent.mkdir()
     assert db.resolve_db() == legacy
     assert db.foreman_dir() == legacy.parent
     assert guard.db.board_db(tmp_path) == legacy
     assert cli.main(["init"]) == 0
-    assert primary.is_file()
-    assert db.resolve_db() == primary
-    assert guard.db.board_db(tmp_path) == primary
+    assert not primary.exists()
+    assert db.resolve_db() == legacy
+    assert guard.db.board_db(tmp_path) == legacy
     assert legacy.is_file()
+    with db.connect(legacy) as con:
+        assert con.execute("SELECT context FROM tasks WHERE id='EXISTING'").fetchone()[0] == "Saved context"
+
+
+def test_existing_primary_board_keeps_priority(tmp_path):
+    legacy = tmp_path / ".foreman/workos.db"
+    primary = tmp_path / ".nawaban/nawaban.db"
+    db.init_db(legacy)
+    db.init_db(primary)
+    assert cli.main(["init"]) == 0
+    assert db.resolve_db() == primary
+
+
+def test_init_upgrades_reused_legacy_schema_and_preserves_context(tmp_path):
+    legacy = tmp_path / ".foreman/workos.db"
+    db.init_db(legacy)
+    db.create_task(legacy, task_id="LEGACY", title="Existing task", context="Saved context")
+    with db.connect(legacy) as con:
+        con.execute("ALTER TABLE tasks RENAME COLUMN context TO origin")
+        con.execute("ALTER TABLE tasks DROP COLUMN project")
+    assert cli.main(["init"]) == 0
+    assert not (tmp_path / ".nawaban/nawaban.db").exists()
+    detail = board_view.task_detail(legacy, "LEGACY")
+    assert detail["context"] == "Saved context"
+    with db.connect(legacy) as con:
+        assert con.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
+        columns = {row[1] for row in con.execute("PRAGMA table_info(tasks)")}
+    assert "context" in columns and "project" in columns and "origin" not in columns
 
 
 def test_linked_worktree_uses_main_board(tmp_path, monkeypatch):

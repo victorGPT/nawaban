@@ -2,7 +2,7 @@
 """NAWABAN 政策层 CLI:10 动词 + backup。
 
 身份铁律:owner/session 只从环境解析(FOREMAN_OWNER / CLAUDE_CODE_SESSION_ID),
-任何子命令不设 --owner/--session 旗标——身份不可伪造(Hermes author-from-runtime 平移)。
+任何子命令不设 --owner/--session 旗标——身份不可伪造。
 
 字段合同(2026-09-07 用户拍板 · 唯一定义处 · 每种内容只有一个家):
   title        做完后人能看见什么变化。板 UI 不渲染 ID 前缀,title 必须自立。
@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sqlite3
 import subprocess
 import sys
@@ -32,80 +31,16 @@ from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from nawaban import board_view, db  # noqa: E402
+from nawaban import db, inbox, task_content  # noqa: E402
 
-# ── 提问的写侧闸(NAWABAN-INBOX-RAISE-001)──────────────────────────────
-# 材料闸必须在**写侧**:在读侧筛掉「没材料的卡」是事后惩罚人 —— 卡已经堵在队列里了,
-# 筛掉只是让人看不见它。这里让 agent 一开始就提不出没材料的问题。
-#
-# accept 的判据直接引仓库 verification-close 规则:要**读侧正向证据**。
-# 「PR 已合并」「CI 绿」是写侧信号 —— 写侧 2xx 与实际效果之间那条缝里住着一整族 bug。
-_WRITE_SIDE = ("已合并", "已合入", "已 merge", "merged", "ci 绿", "ci 全绿", "全绿",
-               "测试通过", "单测通过", "pytest", "已部署", "已上线")
-_READ_SIDE = ("真机", "实测", "逐条对照", "日志", "loki", "grafana", "run ", "http",
-              "查出", "正向证据", "复现", "观测", "抽样", "截图", "真人", "端到端")
+# Compatibility names delegate to the shared hard-policy implementation.
+_TITLE_EXAMPLES = task_content._TITLE_EXAMPLES
+_title_gate = task_content.title_problem
+_success_gate = task_content.success_problem
 
 
 def _ask_gate(a) -> str | None:
-    """三类各自的必填。返回错误消息(说清怎么改才能过)或 None。"""
-    ev = (a.evidence or "").strip()
-    if a.kind == "accept":
-        low = ev.lower()
-        if any(w in low for w in _WRITE_SIDE) and not any(r in low for r in _READ_SIDE):
-            return ("accept 的 evidence 只有写侧信号(PR 已合并 / CI 绿 / 测试通过)。\n"
-                    "  写侧 2xx 不等于实际效果 —— 要读侧正向证据:真机操作记录、日志查询、\n"
-                    "  run URL、逐条对照 success 的账本。补一条再提。")
-    if a.kind == "authorize":
-        if not a.blast:
-            return ('authorize 必须带 --blast "谁受影响|改什么|怎么回滚" —— '
-                    "放行一个动作而说不清影响面,人没法判断。")
-        if len(a.blast.split("|")) != 3:
-            return f'--blast 要三段(谁受影响|改什么|怎么回滚),收到 {len(a.blast.split("|"))} 段'
-    if a.kind == "decide":
-        if len(a.option) < 2:
-            return ('decide 必须带 ≥2 个 --option "选项|后果" —— '
-                    "只有一个选项那不是分叉;一个都没有那是在让人替你想方案。")
-        for o in a.option:
-            if "|" not in o or not o.split("|", 1)[1].strip():
-                return f'--option "{o}" 缺后果。格式:"选项|这么选会怎样"'
-    return None
-
-
-# ── 标题的写侧闸(2026-09-07 · PM 看板看不懂卡是干嘛的)──────────────────
-# 模块 docstring 的「做完后人能看见什么变化」写了几个月没人执行:150 张活跃卡全是
-# 工程师给自己看的诊断 —— 症状 + 原因 + 交付塞进 80 字。语义判不了,判代码味:
-# 代码味的东西(标识符 / 路径 / flag 名 / 多段分句)都该去 context / success。
-_TITLE_CODE_SMELL: tuple[tuple[str, str], ...] = (
-    (r"`", "反引号"),
-    (r"\b[a-z][a-z0-9]*_[a-z0-9_]+\b", "snake_case 标识符"),
-    (r"\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b", "全大写 flag / env 名"),
-    (r"\b\w+\.(py|md|yml|yaml|ts|tsx|sh|json)\b", "文件名"),
-    (r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", "路径"),  # ASCII 限定:「姓名/部门/岗位」不是路径
-)
-_TITLE_EXAMPLES = (
-    "  ✗ keyword-lists 七个端点零判权 · 靠 nginx 不路由挡着 · 前端功能因此在线上 404\n"
-    "  ✓ 关键词表页面在线上能打开,且只有有权限的人能改\n"
-    "  ✗ platform_owner 权限包从「算出来」改成「写下来」· 焊死静默提权通道\n"
-    "  ✓ 平台管理员的权限改成明文清单,不会被悄悄扩权\n"
-    "  ✗ 删掉 m2 判权缓存 —— 六个模块十一个调用点,清的是一个没人往里写的空 dict\n"
-    "  ✓ 清掉一段没用的权限缓存代码(用户无感)")
-
-
-def _smell(text: str, rules=_TITLE_CODE_SMELL) -> list[str]:
-    return [why for pat, why in rules if re.search(pat, text)]
-
-
-def _title_gate(title: str) -> str | None:
-    """返回错误消息(说清怎么改才能过)或 None。只判形式,不判语义。"""
-    hits = _smell(title)
-    seps = len(re.findall(r" · |——| / ", title))
-    if seps >= 2:
-        hits.append(f"{seps} 处分句(· / —— / /)= 症状+原因+交付塞一句")
-    if not hits:
-        return None
-    return ("title 要让非技术人一眼知道这张卡做完后能看见什么变化。查到:"
-            + " · ".join(hits) + "\n  原因 / 调用点 / flag 名 / 路径 → 写进 --context;"
-            "交付细节 → --success。示范:\n" + _TITLE_EXAMPLES)
+    return inbox._materials_problem(a.kind, a.evidence, a.option, a.blast)
 
 
 # 正则只判形式;语义交给 TypeSafe Noul,**只提醒不拦**(2026-09-17 eval:65 对 retitle 前后标题,
@@ -199,22 +134,6 @@ def _hints(title: str | None = None, success: list[str] | None = None) -> list[s
                    + "\n".join(f"  ✗ {s[:60]} ({v:.2f})" for s, v in low)
                    + "\n  不拦;觉得不对就 nawaban decide --set-success 改写成能看见、能核对的结果")
     return out
-
-
-# success 用 title 的前三条:文件名 / 路径不拦 —— 「docs/integration/… 存在」是交付位置判据,
-# 正当(2026-09-07 实测 573 条里 27 条只因此命中)。2a 拍板:success 给 PM 读,标识符去括号外的家。
-_SUCCESS_CODE_SMELL = _TITLE_CODE_SMELL[:3]
-
-
-def _success_gate(items: list[str] | None) -> str | None:
-    bad = [(s, _smell(s, _SUCCESS_CODE_SMELL)) for s in (items or []) if _smell(s, _SUCCESS_CODE_SMELL)]
-    if not bad:
-        return None
-    # 存量 105/144 张会命中(2026-09-07 实测),claim 时全列会训练人忽略 ⚠ → 只列前 3 条
-    more = f"\n  …还有 {len(bad) - 3} 条" if len(bad) > 3 else ""
-    return ("success 每条要让 PM 能读、能抽查(「面板切开关后真机能打开填表页」),不是实现 todo。查到:\n"
-            + "\n".join(f"  ✗ {s[:60]} ← {' · '.join(w)}" for s, w in bad[:3]) + more
-            + "\n  标识符 / flag 名 → 换成它对应的用户面现象;实现细节 → context 或 event")
 
 
 # 语义层同标题:只提醒不拦。2026-09-17 eval:40 条 success(30 差 10 好;33 号 PM 标,其余 39 条 Claude 代标,
@@ -340,6 +259,19 @@ def _epic_hint(path: Path, task_id: str, title: str, context: str | None,
     return f"模块建议：这张卡可能属于 {name}（判分 {result[1]:.2f}）；仅提示，未自动归组。"
 
 
+def _default_project(path: Path, split_from: str | None) -> str | None:
+    """Name the board's repository: cwd's board first, then the --db location.
+
+    A split card returns None so create_task inherits its parent's project. The db
+    path is not resolved, so a compatibility symlink keeps its consuming project's name.
+    """
+    if split_from:
+        return None
+    fd = db.foreman_dir() or Path(path).absolute().parent
+    return fd.parent.name if fd.name in (".nawaban", ".foreman") else None
+
+
+
 def _identity(*, need_session: bool) -> tuple[str, str | None]:
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
     owner = os.environ.get("FOREMAN_OWNER") or (f"ac:{sid[:8]}" if sid else None)
@@ -354,7 +286,7 @@ def _j(s: str | None):
 
 
 def _ago(ts: int | None) -> str:
-    """相对年龄(Hermes 反陈旧呈现平移):绝对时间戳不会让人/模型去想「这还新鲜吗」。"""
+    """相对年龄:绝对时间戳不会让人/模型去想「这还新鲜吗」。"""
     if not ts:
         return "?"
     d = max(0, int(time.time()) - ts)
@@ -400,20 +332,28 @@ def _print_kin(data: dict) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run one command; None reads process arguments, otherwise use argv verbatim.
+
+    argparse owns usage exits. Business-rule rejection prints to stderr and
+    returns 1; success returns 0. Commands migrate an existing selected database
+    before dispatch, while only init creates one. Identity is resolved per verb.
+    Inbox answer/fanout retain their process-wide decision-channel side effect.
+    """
     ap = argparse.ArgumentParser(prog="nawaban", allow_abbrev=False,
                                  description="NAWABAN 本地 Agent Work OS · 写入工具环")
-    ap.add_argument("--db", help="库路径(默认 NAWABAN_DB env → 就近 .nawaban/nawaban.db)")
+    ap.add_argument("--db", help="库路径(默认 NAWABAN_DB env → 就近 .nawaban/nawaban.db (兼容 WORKOS_DB / .foreman/workos.db))")
     sub = ap.add_subparsers(dest="verb", required=True)
 
     p = sub.add_parser("create", help="建卡(title=人话:做完后人能看见什么变化)")
     p.add_argument("task_id")
     p.add_argument("--title", required=True)
-    p.add_argument("--context", "--origin", help="票正文:What to build + 背景,用户视角(write-once;长文用 --context-file)")
+    p.add_argument("--context", "--origin", help="票正文:背景与要做的事;必须写成无序列表(write-once;长文用 --context-file)")
     p.add_argument("--context-file", "--origin-file", help="从文件读票正文(与 --context 二选一)")
     p.add_argument("--success", help="JSON array")
     p.add_argument("--constraints", help="JSON array")
     p.add_argument("--touch", action="append", default=[])
-    p.add_argument("--split-from", help="父卡号(自动挂 split_from 边并继承 epic)")
+    p.add_argument("--split-from", help="父卡号(自动挂 split_from 边并继承 epic/project)")
+    p.add_argument("--project", help="所属项目(默认:当前仓库板目录所在的项目名;拆卡继承父卡)")
     for f in ("epic", "adr"):
         p.add_argument(f"--{f}")
 
@@ -561,13 +501,14 @@ def main(argv: list[str] | None = None) -> int:
     path = Path(a.db).expanduser() if a.db else db.resolve_db(for_init=a.verb == "init")
     if a.verb == "init":
         db.init_db(path)
+        db.migrate_db(path)
         print(f"✓ init → {path}")
         return 0
     if not path.exists():
-        # 不静默建库:路径错误时空库会让一切「看似成功」(空库备份永绿=错误的成功)
+        # Only init may create a board; a misspelled path must not look like success.
         print(f"✗ 库不存在:{path}(建新板用 nawaban init;路径错就修路径)", file=sys.stderr)
         return 1
-    db.migrate_db(path)  # 幂等:退役列 DROP / 新表补建(FOREMAN-SIMPLIFY-003)
+    db.migrate_db(path)
 
     try:
         if a.verb == "create":
@@ -575,12 +516,15 @@ def main(argv: list[str] | None = None) -> int:
             if a.context and a.context_file:
                 raise db.NawabanError("--context 与 --context-file 二选一")
             context = Path(a.context_file).read_text(encoding="utf-8") if a.context_file else a.context
-            if err := _title_gate(a.title) or _success_gate(_j(a.success)):
+            if err := (task_content.title_problem(a.title)
+                       or task_content.success_problem(_j(a.success))
+                       or task_content.context_problem(context)):
                 raise db.NawabanError(err)
             db.create_task(path, task_id=a.task_id, title=a.title, context=context,
                            success=_j(a.success), constraints=_j(a.constraints),
                            touches=a.touch or None, epic=a.epic, adr=a.adr,
-                           split_from=a.split_from)
+                           split_from=a.split_from,
+                           project=a.project or _default_project(path, a.split_from))
             print(f"✓ create {a.task_id}")
             for hint in _hints(a.title, _j(a.success)):
                 print("⚠ " + hint, file=sys.stderr)
@@ -591,13 +535,13 @@ def main(argv: list[str] | None = None) -> int:
             if db.claim_task(path, a.task_id, owner=owner, session_id=sid,
                              override=a.override):
                 print(f"✓ claim {a.task_id} → {owner}")
-                # 占用只在这里看一次(FOREMAN-SIMPLIFY-004):WARN 不拒,guard 不再逐次 Edit 查
+                # Advisory checks follow the committed claim and never undo ownership.
                 touches = _j(db.task_touches(path, a.task_id)) or []
                 if touches:
                     subprocess.run([sys.executable, str(Path(__file__).parent / "claim_check.py"),
-                                    *touches, "--owner", owner, "--repo", str(path.parent.parent)])
-                # 存量 success 错位(实现 todo 写成验收)只提醒不拦:谁 claim 谁顺手改(decide --set-success)
-                if warn := _success_gate(_j(db.task_success(path, a.task_id))):
+                                    *touches, "--owner", owner, "--db", str(path)], check=False)
+                # Imported criteria may violate current readability policy; warn without blocking work.
+                if warn := task_content.success_problem(_j(db.task_success(path, a.task_id))):
                     print("⚠ 本卡 " + warn.replace("\n", "\n  "), file=sys.stderr)
                 _print_kin(db.kin(path, a.task_id))
             else:
@@ -632,7 +576,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"✓ event({a.kind}) {a.task_id}" + (" · now 已刷新" if a.now else ""))
         elif a.verb == "retitle":
             owner, sid = _identity(need_session=False)
-            if err := _title_gate(a.title):
+            if err := task_content.title_problem(a.title):
                 raise db.NawabanError(err)
             old = db.retitle(path, a.task_id, title=a.title, author=owner, session_id=sid)
             print(f"✓ retitle {a.task_id}\n  旧:{old}\n  新:{a.title}")
@@ -670,7 +614,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"✓ handoff {a.task_id}({a.outcome})" + (" · released" if a.release else ""))
         elif a.verb == "decide":
             owner, sid = _identity(need_session=False)
-            if err := _success_gate(_j(a.set_success)):
+            if err := task_content.success_problem(_j(a.set_success)):
                 raise db.NawabanError(err)
             db.decide(path, a.task_id, question=a.question, verdict=a.verdict,
                       rejected=_j(a.rejected), decided_by=a.by or f"agent:{owner}",
@@ -701,24 +645,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"    · {t}")
         elif a.verb == "ask":
             owner, _ = _identity(need_session=False)
-            bad = _ask_gate(a)
-            if bad:
-                print(f"✗ {bad}", file=sys.stderr)
-                return 1
-            opts = [{"option": o.split("|", 1)[0].strip(),
-                     "consequence": o.split("|", 1)[1].strip()} for o in a.option] or None
-            blast = None
-            if a.blast:
-                parts = [x.strip() for x in a.blast.split("|")]
-                blast = {"who": parts[0], "what": parts[1], "rollback": parts[2]}
-            aid = db.raise_ask(path, kind=a.kind, question=a.question, evidence=a.evidence,
-                               task_ids=a.tasks, raised_by=owner, options=opts,
-                               blast=blast, hands_on=a.hands_on)
+            aid = inbox.raise_ask(path, kind=a.kind, question=a.question, evidence=a.evidence,
+                                  task_ids=a.tasks, raised_by=owner, options=a.option,
+                                  blast=a.blast, hands_on=a.hands_on)
             print(f"✓ ask #{aid} [{a.kind}] → 收件箱({len(a.tasks)} 张卡)")
             if a.kind == "accept" and (hint := _evidence_hint(a.evidence)):
                 print("⚠ " + hint, file=sys.stderr)
         elif a.verb == "inbox":
-            d = board_view.inbox_data(path)
+            d = inbox.read(path)
             if a.json:
                 print(json.dumps(d, ensure_ascii=False, indent=2))
                 return 0
@@ -743,59 +677,24 @@ def main(argv: list[str] | None = None) -> int:
                 print()
         elif a.verb == "answer":
             owner, sid = _identity(need_session=True)
-            d = db.ask_detail(path, a.ask_id)
-            if d["closed_at"]:
-                # 并发:两个窗口同时答同一条,第二个拿明确报错而不是静默覆盖
-                print(f"✗ ask #{a.ask_id} 已于早前关闭({d['closed_as']}),不可重复回答",
-                      file=sys.stderr)
-                return 1
-            # 收件箱本身就是拍板通道 —— 人在这里点的,不是 agent 代填
-            os.environ["NAWABAN_DECISION_CHANNEL"] = "inbox"
-            for t in d["tasks"]:
-                db.decide(path, t["id"], question=d["question"], verdict=a.verdict,
-                          rejected=_j(a.rejected), decided_by="user")
-            # 顺序要紧:先扇出再关 ask。反过来的话,advance 被库层闸拦住时
-            # (如 done 闸② 的同秒自批检测)ask 已经关了、决策已经写了、卡却没关 ——
-            # 一个不可重试的不一致状态。放这里,闸一拦就抛,ask 仍开着,人可以再答。
-            moved = []
-            if d["kind"] == "accept":
-                # accept 的回答本身就是终态:验收通过 = 卡可以关
-                for t in d["tasks"]:
-                    to = "in_progress" if a.reject else "done"
-                    db.advance_task(path, t["id"], to=to, owner=owner, session_id=sid)
-                    moved.append(f"   {'↩ 打回' if a.reject else '✓ 归档'} {t['id']}")
-            db.close_ask(path, a.ask_id, closed_as="answered", answer=a.verdict)
-            print(f"✓ answer #{a.ask_id} · {len(d['tasks'])} 张卡各落一条决策")
-            for line in moved:
-                print(line)
-            if d["kind"] != "accept":
-                # authorize/decide:回答只是**授权**,动作还没发生。
-                # 扇出必须钩在动作成功信号上,不是钩在这次点击上 —— 否则失败的部署
-                # 会静默关掉一批卡(写侧信号当成实际效果,verification-close 第 ③ 类形状)。
-                print(f"   {len(d['tasks'])} 张卡**未动**:授权≠已生效。")
+            result = inbox.answer_ask(path, a.ask_id, verdict=a.verdict, owner=owner,
+                                      session_id=sid, reject=a.reject, rejected=_j(a.rejected))
+            print(f"✓ answer #{a.ask_id} · {len(result.task_ids)} 张卡各落一条决策")
+            if result.kind == "accept":
+                for task_id in result.task_ids:
+                    print(f"   {'↩ 打回' if a.reject else '✓ 归档'} {task_id}")
+            else:
+                print(f"   {len(result.task_ids)} 张卡**未动**:授权≠已生效。")
                 print(f"   动作成功后跑:nawaban fanout {a.ask_id} --ok"
                       f"   失败则:nawaban fanout {a.ask_id} --failed")
         elif a.verb == "fanout":
             owner, sid = _identity(need_session=True)
-            d = db.ask_detail(path, a.ask_id)
-            if not d["closed_at"]:
-                print(f"✗ ask #{a.ask_id} 还没被回答,先 answer", file=sys.stderr)
-                return 1
+            task_ids = inbox.fanout(path, a.ask_id, succeeded=not a.failed,
+                                    owner=owner, session_id=sid)
             if a.failed:
-                print(f"✓ 记下动作失败 · {len(d['tasks'])} 张卡一张都不关")
-                db.add_event(path, d["tasks"][0]["id"], kind="note", author=owner,
-                             session_id=sid,
-                             body=f"ask #{a.ask_id} 授权的动作执行失败 —— 扇出未发生,卡保持原状")
-                return 0
-            os.environ["NAWABAN_DECISION_CHANNEL"] = "inbox"
-            closed = []
-            for t in d["tasks"]:
-                db.decide(path, t["id"], question=d["question"],
-                          verdict=f"{d['answer']} · 动作已成功执行(fanout --ok)",
-                          decided_by="user")
-                db.advance_task(path, t["id"], to="done", owner=owner, session_id=sid)
-                closed.append(t["id"])
-            print(f"✓ fanout #{a.ask_id}:关 {len(closed)} 张")
+                print(f"✓ 记下动作失败 · {len(task_ids)} 张卡一张都不关")
+            else:
+                print(f"✓ fanout #{a.ask_id}:关 {len(task_ids)} 张")
         elif a.verb == "wrapup":
             owner, sid = _identity(need_session=True)
             rows = db.open_claim_rows(path, session_id=sid)

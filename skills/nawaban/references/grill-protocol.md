@@ -8,11 +8,12 @@
 
 | 内容 | CLI 字段或动作 |
 |---|---|
-| 用户目标与背景 | `create --origin` 或 `--origin-file`，原始记录 write-once；写成 Markdown 无序列表，每条一个要点，可用 `**标签**：` 开头（如 `- **用户 2026-09-17**：…`、`- **背景**：…`） |
+| 用户目标与背景 | `create --context` 或 `--context-file`，原始记录 write-once；写成 Markdown 无序列表，每条一个要点，可用 `**标签**：` 开头（如 `- **用户 2026-09-17**：…`、`- **背景**：…`） |
 | 可观察的完成条件 | `--success` JSON array |
 | 范围、授权和约束 | `--constraints` JSON array；编辑路径分别用 `--touch` |
 | 当前进度、证据 | `--now`、event、ref、handoff |
 | 关联决策或模块归组 | 有必要时用 `--adr`、`--epic`；决定经 decide 追加 |
+| 同库中的项目归属 | 多项目共库时显式 `--project`；`--split-from` 未覆盖时继承父卡项目 |
 
 字段细节查 `nawaban create --help`，不要发明 body/description 字段。success 需要修订时经 decide 留痕，保留原因及实际决策来源。
 

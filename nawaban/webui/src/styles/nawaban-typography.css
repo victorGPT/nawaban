@@ -1,0 +1,144 @@
+/* NAWABAN reading surfaces share BoardUI body typography. */
+.detail-task-title {
+  @apply text-title-1-semibold;
+}
+.detail-section-title {
+  @apply text-body-medium;
+}
+.detail-subheading,
+.attribute-heading {
+  @apply text-body-medium;
+}
+.detail-reading,
+.detail-properties-rail,
+.detail-body {
+  @apply text-body-regular;
+  color: var(--ink);
+}
+.detail-meta,
+.detail-breadcrumb,
+.detail-attribute-group > div > div:first-child > p {
+  @apply text-body-regular;
+  color: var(--muted);
+}
+.detail-value > span {
+  @apply text-body-regular;
+}
+.detail-action,
+.detail-code-link,
+.nawaban-prose .markdown-link {
+  @apply text-body-regular;
+  font-family: var(--font-sans);
+}
+.detail-action {
+  color: var(--muted);
+}
+.detail-code-link,
+.detail-breadcrumb code,
+.detail-mono > span,
+.detail-file-list > code,
+.nawaban-prose code {
+  @apply text-body-regular;
+  font-family: var(--font-sans);
+}
+.detail-code-link {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.nawaban-prose.detail-subheading {
+  @apply text-body-medium;
+}
+.nawaban-prose :is(h1, h2, h3, h4, h5, h6) {
+  @apply text-body-medium;
+  margin-block: 24px 12px;
+}
+.nawaban-prose > :first-child {
+  margin-top: 0;
+}
+.nawaban-prose p + p {
+  margin-top: 8px;
+}
+.nawaban-prose :is(ul, ol) {
+  margin-block: 8px;
+  padding-left: 20px;
+}
+.nawaban-prose li + li,
+.detail-list > li + li {
+  margin-top: 8px;
+}
+.nawaban-prose strong {
+  font-weight: var(--text-body-medium--font-weight);
+}
+.nawaban-prose pre code {
+  font-family: var(--font-mono);
+}
+.nawaban-prose :is(table, th, td) {
+  @apply text-body-regular;
+}
+.nawaban-prose th {
+  @apply text-body-medium;
+}
+.nawaban-prose .context-callout p:first-child {
+  @apply text-body-medium;
+}
+
+.nawaban-prose code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.nawaban-prose blockquote {
+  border: 0;
+  padding: 0;
+  margin-block: 24px;
+  color: inherit;
+}
+
+.nawaban-prose {
+  @apply text-body-regular;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.nawaban-prose p {
+  margin: 0;
+}
+.nawaban-prose ul {
+  list-style: disc;
+}
+.nawaban-prose ol {
+  list-style: decimal;
+}
+.nawaban-prose a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.nawaban-prose pre {
+  margin-block: 12px;
+  overflow-x: auto;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--color-background-secondary-default);
+}
+.nawaban-prose hr {
+  margin-block: 24px;
+}
+.nawaban-prose :is(th, td) {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+}
+.nawaban-shell,
+.nawaban-modal {
+  @apply text-body-regular;
+}
+.task-meta code,
+.task-table code {
+  @apply text-body-regular;
+  font-family: var(--font-sans);
+}
+
+.bui-table.task-table :is(td, th) {
+  @apply text-body-regular;
+}
+.bui-table.task-table thead th {
+  @apply text-body-medium;
+}

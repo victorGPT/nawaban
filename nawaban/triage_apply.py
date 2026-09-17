@@ -5,7 +5,7 @@
 在人这一侧。所以「agent 能改什么」在结构上就封死了,不靠它自觉。
 
 用法:
-    INBOX_TRIAGE_ENABLED=1 uv run python -m agent_center.triage --json > /tmp/t.json
+    # Save the triage producer JSON output to /tmp/t.json first.
     python3 nawaban/triage_apply.py /tmp/t.json          # dry-run
     python3 nawaban/triage_apply.py /tmp/t.json --apply  # 真写
 
@@ -72,7 +72,7 @@ def _dup_key(question: str, task_ids: list[str]) -> tuple[str, tuple[str, ...]]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="triage_apply", description="巡检建议落库")
-    ap.add_argument("json_file", help="agent_center.triage --json 的输出")
+    ap.add_argument("json_file", help="巡检生产者的 JSON 输出")
     ap.add_argument("--db", help="库路径(默认 NAWABAN_DB → 就近 .nawaban/nawaban.db)")
     ap.add_argument("--apply", action="store_true", help="真写(缺省只打印)")
     a = ap.parse_args(argv)

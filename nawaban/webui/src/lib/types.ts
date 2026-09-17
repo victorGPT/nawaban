@@ -1,8 +1,10 @@
-// Read-only projections from board_view.py; keep fields aligned with the API.
+// Match the board_data, modules_data and inbox_data read projections.
+// Add fields only when the authoritative backend projection supplies them.
 
 export type Live = { tier: string; age_s: number | null } | null;
 
 export type BoardTask = {
+  project?: string | null;
   id: string;
   title: string;
   status: string;
@@ -17,7 +19,7 @@ export type BoardTask = {
   active_at: number;
   dep?: { blocked_by?: string[]; blocks?: string[] };
   live?: Live;
-  merged_refs?: string[];
+  merged_refs?: string[]; // Open tasks with existing PR or merge SHA references.
 };
 
 export type BoardColumn = {
@@ -33,8 +35,11 @@ export type BoardResponse = {
   liveness: { available: boolean; complete: boolean; busy_window_s: number; idle_window_s: number };
 };
 
-export type ModuleTask = { i: string; t: string; s: string; e: string };
-export type ModulesResponse = { tasks: ModuleTask[]; deps: [string, string][]; unavailable?: boolean };
+export type ProjectsResponse = {
+  projects: { name: string | null; open: number; total: number }[];
+};
+export type ModuleTask = { i: string; t: string; s: string; e: string; live?: Live; waiting_on?: string | null };
+export type ModulesResponse = { tasks: ModuleTask[]; deps: [string, string][]; liveness?: BoardResponse["liveness"]; unavailable?: boolean };
 
 export type AskItem = {
   id: number;
@@ -73,11 +78,12 @@ export type InboxResponse = {
   groups: AskGroup[];
   flow: { raised_7d: number; closed_7d: number };
   agent_side: number;
-  self_approved?: SelfApproved[];
+  self_approved?: SelfApproved[]; // Optional for compatibility with older inbox projections.
 };
 
 export type AnswerResponse = { ok: boolean; out: string; unknown?: boolean };
 
+// Complete task_detail projection consumed by the detail sheet.
 export type TaskEdge = {
   kind: string;
   other: string;
@@ -152,8 +158,8 @@ export type TaskLetter = {
 export type TaskDetail = BoardTask & {
   context: string | null;
   adr: string | null;
-  success: string[] | null;
-  constraints: string[] | null;
+  success: string[] | string | null;
+  constraints: string[] | string | null;
   touches: string[] | null;
   edges_out: TaskEdge[];
   edges_in: TaskEdge[];
