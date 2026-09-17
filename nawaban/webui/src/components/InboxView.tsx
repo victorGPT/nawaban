@@ -263,7 +263,7 @@ function AskCard({
         )}
         {error && (
           <p role="alert" className="text-body-regular text-text-error-primary">
-            {error}
+            {unknown ? t("unknownAnswer") : error}
           </p>
         )}
         {unknown && (
@@ -348,7 +348,7 @@ function AskCard({
           </footer>
           {error && (
             <p role="alert" className="text-text-error-primary">
-              {error}
+              {unknown ? t("unknownAnswer") : error}
             </p>
           )}
         </div>

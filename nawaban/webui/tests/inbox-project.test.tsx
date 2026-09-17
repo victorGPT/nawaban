@@ -2,8 +2,11 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { InboxView } from "@/components/InboxView";
 import { Notices } from "@/components/NawabanUI";
-import { fetchInbox, postAnswer } from "@/lib/api";
+import { AnswerError, fetchInbox, postAnswer } from "@/lib/api";
 import type { AskItem, InboxResponse } from "@/lib/types";
+import { setLocale } from "@/i18n";
+import en from "@/i18n/en.json";
+import zh from "@/i18n/zh-CN.json";
 
 vi.mock("@/lib/api", async (original) => ({
   ...await original<typeof import("@/lib/api")>(),
@@ -90,4 +93,40 @@ test("overlapping answer refreshes only apply the newest response", async () => 
   await act(async () => oldRefresh.resolve(inbox(2)));
   expect(screen.queryByRole("button", { name: "\u6536\u4e0b" })).toBeNull();
   expect(screen.queryAllByText("Ask 2")).toHaveLength(0);
+});
+
+
+test("an unknown answer updates its warning after a language change without permitting a retry", async () => {
+  vi.mocked(fetchInbox).mockResolvedValue(inbox(1));
+  vi.mocked(postAnswer).mockRejectedValue(new AnswerError(zh.unknownAnswer, true));
+  render(view("A"));
+  const submit = await screen.findByRole("button", { name: zh.acknowledge });
+  await act(async () => fireEvent.click(submit));
+  expect(screen.getByText((text) => text.includes(zh.unknownAnswer))).toBeTruthy();
+  expect((screen.getByRole("button", { name: zh.acknowledge }) as HTMLButtonElement).disabled).toBe(true);
+
+  act(() => setLocale("en"));
+  expect(screen.getByText(en.unknownAnswer)).toBeTruthy();
+  expect(screen.queryByText((text) => text.includes(zh.unknownAnswer))).toBeNull();
+  const answer = screen.getByRole("button", { name: en.acknowledge }) as HTMLButtonElement;
+  const reject = screen.getByRole("button", { name: en.requestChanges }) as HTMLButtonElement;
+  expect(answer.disabled).toBe(true);
+  expect(reject.disabled).toBe(true);
+  fireEvent.click(answer);
+  fireEvent.click(reject);
+  expect(postAnswer).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: en.verifyAnswerResult })).toBeTruthy();
+});
+
+test("a server rejection keeps its original message when the language changes", async () => {
+  vi.mocked(fetchInbox).mockResolvedValue(inbox(1));
+  vi.mocked(postAnswer).mockRejectedValue(new AnswerError("Server detail: decision already closed"));
+  render(view("A"));
+  const submit = await screen.findByRole("button", { name: zh.acknowledge });
+  await act(async () => fireEvent.click(submit));
+  const message = "Error: Server detail: decision already closed";
+  expect(screen.getByText(message)).toBeTruthy();
+  act(() => setLocale("en"));
+  expect(screen.getByText(message)).toBeTruthy();
+  expect((screen.getByRole("button", { name: en.acknowledge }) as HTMLButtonElement).disabled).toBe(false);
 });

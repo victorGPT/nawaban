@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { Button as BaseButton } from "@base-ui/react/button";
 import type { DateRange } from "@daypicker/react";
@@ -45,22 +45,20 @@ export interface DateRangePickerProps {
 }
 
 function useQuickSelectPresets() {
-  const locale = useLocale();
-  return useMemo(() => {
-    const now = today(getLocalTimeZone());
-    const lastMonth = now.subtract({ months: 1 });
-    const lastYear = now.subtract({ years: 1 });
-    return [
-      { id: "today", label: t("today"), range: { start: now, end: now } },
-      { id: "yesterday", label: t("yesterday"), range: { start: now.subtract({ days: 1 }), end: now.subtract({ days: 1 }) } },
-      { id: "lastWeek", label: t("lastWeek"), range: { start: now.subtract({ days: 7 }), end: now.subtract({ days: 1 }) } },
-      { id: "thisMonth", label: t("thisMonth"), range: { start: startOfMonth(now), end: endOfMonth(now) } },
-      { id: "lastMonth", label: t("lastMonth"), range: { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) } },
-      { id: "thisYear", label: t("thisYear"), range: { start: startOfYear(now), end: endOfYear(now) } },
-      { id: "lastYear", label: t("lastYear"), range: { start: startOfYear(lastYear), end: endOfYear(lastYear) } },
-      { id: "allTime", label: t("allTime"), range: { start: now.subtract({ years: 10 }), end: now } },
-    ];
-  }, [locale]);
+  useLocale();
+  const now = today(getLocalTimeZone());
+  const lastMonth = now.subtract({ months: 1 });
+  const lastYear = now.subtract({ years: 1 });
+  return [
+    { id: "today", label: t("today"), range: { start: now, end: now } },
+    { id: "yesterday", label: t("yesterday"), range: { start: now.subtract({ days: 1 }), end: now.subtract({ days: 1 }) } },
+    { id: "lastWeek", label: t("lastWeek"), range: { start: now.subtract({ days: 7 }), end: now.subtract({ days: 1 }) } },
+    { id: "thisMonth", label: t("thisMonth"), range: { start: startOfMonth(now), end: endOfMonth(now) } },
+    { id: "lastMonth", label: t("lastMonth"), range: { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) } },
+    { id: "thisYear", label: t("thisYear"), range: { start: startOfYear(now), end: endOfYear(now) } },
+    { id: "lastYear", label: t("lastYear"), range: { start: startOfYear(lastYear), end: endOfYear(lastYear) } },
+    { id: "allTime", label: t("allTime"), range: { start: now.subtract({ years: 10 }), end: now } },
+  ];
 }
 
 function isPresetActive(value: DateRangeValue | null, range: DateRangeValue) {
