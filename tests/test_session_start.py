@@ -22,6 +22,7 @@ _spec.loader.exec_module(session_start)
 @pytest.fixture(autouse=True)
 def isolated_legacy_registry(monkeypatch, tmp_path):
     monkeypatch.setattr(session_start, "_LEGACY_REGISTRY", tmp_path / "legacy-registry.json", raising=False)
+    monkeypatch.setattr(session_start, "_LEGACY_STATE", tmp_path / "legacy-state", raising=False)
 
 
 def test_list_reads_legacy_registry_without_moving_it(monkeypatch, tmp_path, capsys):
@@ -138,3 +139,55 @@ def test_state_directory_priority(monkeypatch, tmp_path, primary, legacy, expect
     spec.loader.exec_module(hook)
     assert hook._STATE == tmp_path / expected
     assert hook._REGISTRY == tmp_path / expected / "session-registry.json"
+
+
+@pytest.mark.parametrize("new_report,new_marker,old_marker,spawn", [
+    (None, None, "today", False),
+    (None, None, "yesterday", True),
+    ("Current stale report", "yesterday", "today", True),
+    ("Current stale report", "today", "yesterday", False),
+])
+def test_stale_state_reads_legacy_fallback_but_writes_current(
+    monkeypatch, tmp_path, capsys, new_report, new_marker, old_marker, spawn,
+):
+    repo = tmp_path / "repo"
+    board = repo / ".foreman/workos.db"
+    db.init_db(board)
+    db.create_task(board, task_id="DEMO-STALE-001", title="Active fixture")
+    db.claim_task(board, "DEMO-STALE-001", owner="ac:test", session_id="test-sid")
+    _prepare_main(monkeypatch, tmp_path, repo)
+    monkeypatch.setattr(session_start, "_warn_dirty_main_tree", lambda *args: None)
+    monkeypatch.setattr(session_start, "_inbox_banner", lambda *args: False)
+    calls = []
+    monkeypatch.setattr(session_start, "subprocess", types.SimpleNamespace(
+        Popen=lambda *args, **kwargs: calls.append(args),
+    ))
+    current, legacy = session_start._STATE, session_start._LEGACY_STATE
+    legacy.mkdir()
+    today = datetime.now().strftime("%Y-%m-%d")
+    dates = {"today": today, "yesterday": "2000-01-01"}
+    (legacy / "foreman-stale.txt").write_text("Legacy stale report\nDetails")
+    (legacy / "foreman-stale.last").write_text(dates[old_marker])
+    if new_report is not None:
+        (current / "foreman-stale.txt").write_text(new_report)
+    marker = current / "foreman-stale.last"
+    if new_marker is None:
+        marker.unlink()
+    else:
+        marker.write_text(dates[new_marker])
+
+    assert session_start.main() == 0
+    output = capsys.readouterr().out
+    assert (new_report or "Legacy stale report") in output
+    if new_report:
+        assert "Legacy stale report" not in output
+    assert len(calls) == int(spawn)
+    assert (legacy / "foreman-stale.txt").read_text() == "Legacy stale report\nDetails"
+    assert (legacy / "foreman-stale.last").read_text() == dates[old_marker]
+    if spawn:
+        assert marker.read_text() == today
+        command = calls[0][0][2]
+        assert str(current / "foreman-stale.txt") in command
+        assert str(legacy) not in command
+    elif new_marker is None:
+        assert not marker.exists()

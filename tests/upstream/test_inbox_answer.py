@@ -97,7 +97,7 @@ def fresh(tmp: Path, name: str) -> Path:
 
 def main() -> int:  # noqa: C901
     tmp = Path(tempfile.mkdtemp(prefix="answer-"))
-    print(f"WORKOS-INBOX-WRITE-001 自检 · {tmp}\n")
+    print(f"Inbox answer self-test · {tmp}\n")
 
     def t_accept_closes_card():
         p = fresh(tmp, "acc")

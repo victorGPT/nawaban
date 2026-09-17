@@ -34,13 +34,6 @@ export function SettingsCard({ className, children }: { className?: string; chil
   );
 }
 
-/** Muted 13px section heading above a card ("Pull Requests", "Notifications"). */
-export function SettingsSectionLabel({ className, children }: { className?: string; children: ReactNode }) {
-  return (
-    <p className={cx("w-full px-3 text-body-2-medium text-text-secondary", className)}>{children}</p>
-  );
-}
-
 /** One label + control row. Rows separate themselves; the last has no border. */
 export function SettingsRow({
   label,

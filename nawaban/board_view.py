@@ -879,7 +879,7 @@ aside{width:290px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--lin
   </section>
 </main>
 <script>
-// 形态定稿:BOARD-REVAMP-DAG-PROTO-001 decide 行(2026-08-29 用户点验)。
+// 形态定稿:模块网络布局(2026-08-29 用户点验)。
 // 进度口径只数 done;staging-verified 在分段条与统计里单独可见。
 let D = {tasks: [], deps: []};
 const noEpic = e => !e || e === 'n/a';
@@ -1742,7 +1742,7 @@ class _Handler(BaseHTTPRequestHandler):
         The board is an HTTP listener without public authentication. A Host must
         name loopback or this listener at its actual port, without DNS lookups.
         Browsers must supply the exact same HTTP origin. Origin-less CLI callers
-        are allowed only over a loopback connection with a loopback Host.
+        are allowed only over an unscoped loopback connection with a loopback Host.
         """
         media = self.headers.get_all("Content-Type", [])
         if len(media) != 1 or media[0].split(";", 1)[0].strip().lower() != "application/json":
@@ -1767,7 +1767,9 @@ class _Handler(BaseHTTPRequestHandler):
         if origins:
             if len(origins) != 1 or origins[0].lower() != f"http://{host}":
                 return 403, "cross-origin writes are forbidden"
-        elif host not in local or not ipaddress.ip_address(self.client_address[0]).is_loopback:
+        elif (host not in local or "%" in self.client_address[0]
+              or not ipaddress.ip_address(self.client_address[0]).is_loopback):
+            # Scoped socket peers are nonlocal here; do not pass them to the parser.
             return 403, "Origin is required outside loopback"
         if self.headers.get("Sec-Fetch-Site", "").lower() == "cross-site":
             return 403, "cross-site writes are forbidden"

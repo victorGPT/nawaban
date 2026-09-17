@@ -66,7 +66,7 @@ def expect_raises(fn, *, want: type[Exception] | tuple[type[Exception], ...]) ->
 
 def main() -> int:  # noqa: C901, PLR0915
     tmp = Path(tempfile.mkdtemp(prefix="workos-asks-"))
-    print(f"WORKOS-INBOX-SCHEMA-001 自检 · {tmp}\n")
+    print(f"Inbox schema self-test · {tmp}\n")
 
     # ── happy ────────────────────────────────────────────────
     def t_raise_and_list():

@@ -5,8 +5,9 @@ SessionStart hook stdin JSON: {"session_id": "...", "cwd": "/path/to/project"}
 退出码始终 0 · 不阻塞会话启动。
 
 2.1(关窗恢复 / 谁做的):
-- 每次启动把 `pane → {session, cwd, owner, ts, resume}` upsert 进 ~/.claude/foreman/
-  session-registry.json(latest-per-pane)· 横幅打出本窗口 session + resume 命令。
+- 每次启动把 `pane → {session, cwd, owner, ts, resume}` upsert 进状态目录下的
+  session-registry.json(默认 ~/.local/state/nawaban;NAWABAN_STATE_DIR 优先于 WORKOS_STATE_DIR)。
+  新注册表缺失时读 ~/.claude/foreman/session-registry.json;横幅打印 session + resume 命令。
 - `--list`:dump 注册表(给恢复时按 pane/cwd 反查 session-id)。
 任意失败都吞掉(注册是增强 · 绝不能拖垮会话启动)。
 """
@@ -28,6 +29,7 @@ _STATE = Path(os.environ.get("NAWABAN_STATE_DIR") or os.environ.get("WORKOS_STAT
               or Path.home() / ".local/state/nawaban").expanduser()
 _REGISTRY = _STATE / "session-registry.json"
 _LEGACY_REGISTRY = Path.home() / ".claude/foreman/session-registry.json"
+_LEGACY_STATE = Path.home() / ".claude/state"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nawaban import db as _wdb  # noqa: E402
@@ -488,16 +490,18 @@ def main() -> int:
     try:
         state_dir = _STATE
         report = state_dir / "foreman-stale.txt"
-        if report.is_file():
-            txt = report.read_text(encoding="utf-8").strip()
+        report_source = report if report.is_file() else _LEGACY_STATE / report.name
+        if report_source.is_file():
+            txt = report_source.read_text(encoding="utf-8").strip()
             if txt and not txt.startswith("✅"):
                 # STALE 是 **agent 卫生问题**(PR 已合但卡没迁),不是需要人 triage 的事。
                 # 原来全列 8 行 = 每次开窗都让人扫一遍别人的脏活。只留标题行 + 指针。
                 print(txt.splitlines()[0]
-                      + f"  → 全表 {report}")
+                      + f"  → 全表 {report_source}")
         marker = state_dir / "foreman-stale.last"
+        marker_source = marker if marker.is_file() else _LEGACY_STATE / marker.name
         today = datetime.now().strftime("%Y-%m-%d")
-        if not marker.is_file() or marker.read_text(encoding="utf-8").strip() != today:
+        if not marker_source.is_file() or marker_source.read_text(encoding="utf-8").strip() != today:
             state_dir.mkdir(parents=True, exist_ok=True)
             marker.write_text(today, encoding="utf-8")
             with open(os.devnull, "rb") as devin, open(os.devnull, "ab") as devout:

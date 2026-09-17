@@ -10,7 +10,7 @@ import { SettingsCard } from "@/components/application/settings/settings-rows";
 import { Button, type ButtonProps } from "@/components/base/buttons/button";
 import { cx } from "@/utils/cx";
 
-// BoardUI SettingsModal surface adapted to a side sheet; Base UI owns focus,
+// BoardUI dialog surface adapted to a side sheet; Base UI owns focus,
 // dismissal and dialog semantics. The source recipe remains radius/3xl + full surface.
 export function NawabanDialog({
   open,

@@ -9,10 +9,10 @@ The frontend uses BoardUI source components installed through the official `boar
 | Navigation and filters | NavItem, ThemeToggle, Input, Select, DateRangePicker, Button |
 | Cards, module nodes and tags | SettingsCard, Button, Chip, Badge, StatusDot |
 | List and detail properties | Table, SettingsRow, SettingsValueField |
-| Detail and answers | SettingsModal surface recipe, Base UI Dialog, CloseButton, RadioCard, Textarea |
+| Detail and answers | BoardUI dialog surface recipe, Base UI Dialog, CloseButton, RadioCard, Textarea |
 | Notices and long text | Notification, Base UI Toast, Tooltip |
 
-Business sections, Markdown, layout grids, module statistics and SVG dependency wires compose these sources. Upstream component metadata remains intact. The isolated `interaction-fixture.html` exercises controls without backend calls and is excluded from the production entry.
+Business sections, Markdown, layout grids, module statistics and SVG dependency wires compose these sources. Upstream component metadata remains intact. The isolated `interaction-fixture.html` exercises the production `NawabanDialog` and base controls without backend calls and is excluded from the production entry.
 
 ## Data and interaction contracts
 

@@ -365,86 +365,6 @@ input[type="search"]::-webkit-search-cancel-button {
   }
 }
 
-/* New-row entrance for the Storage settings table. Three coordinated
- * pieces (wrapper pairs with `grid grid-rows-[1fr]` + an overflow-hidden
- * middle layer, content carries the slide):
- *   row-grow-in   wrapper's grid track 0fr → 1fr — pushes the rows below
- *                 down smoothly.
- *   row-slide-in  content translates -100% → 0 with the SAME duration and
- *                 easing, so it stays glued to the growing wrapper's bottom
- *                 edge — visually the row slides out from underneath the
- *                 header row above it.
- *   row-fade-in   opacity/blur on a SHORTER clock than the movement — the
- *                 row is fully visible before it finishes settling (fades
- *                 must complete before movement ends). */
-@keyframes row-grow-in {
-  from {
-    grid-template-rows: 0fr;
-  }
-  to {
-    grid-template-rows: 1fr;
-  }
-}
-@keyframes row-slide-in {
-  from {
-    translate: 0 -100%;
-  }
-}
-@keyframes row-fade-in {
-  from {
-    opacity: 0;
-    filter: blur(2px);
-  }
-}
-.animate-row-grow-in {
-  animation: row-grow-in 400ms ease-out;
-}
-.animate-row-slide-in {
-  animation:
-    row-slide-in 400ms ease-out,
-    row-fade-in 240ms ease-out;
-}
-
-/* Reverse of the Storage row entrance. The content rises into the clipped
- * top edge while its grid track collapses, so the following rows move upward
- * continuously and the deleted row disappears beneath the header surface. */
-@keyframes row-collapse-out {
-  from {
-    grid-template-rows: 1fr;
-  }
-  to {
-    grid-template-rows: 0fr;
-  }
-}
-@keyframes row-slide-out {
-  to {
-    translate: 0 -100%;
-  }
-}
-@keyframes row-fade-out {
-  to {
-    opacity: 0;
-    filter: blur(2px);
-  }
-}
-.animate-row-collapse-out {
-  animation: row-collapse-out 225ms ease-in forwards;
-}
-.animate-row-slide-out {
-  animation:
-    row-slide-out 225ms ease-in forwards,
-    row-fade-out 160ms ease-in forwards;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .animate-row-grow-in,
-  .animate-row-slide-in,
-  .animate-row-collapse-out,
-  .animate-row-slide-out {
-    animation-duration: 1ms;
-  }
-}
-
 /* Transitions.dev — "Texts reveal", used by the Storage dropzone's content
  * swaps (idle copy ↔ file name + status line).
  *
@@ -894,7 +814,7 @@ input[type="search"]::-webkit-search-cancel-button {
   }
 }
 
-/* Portal layers sit above NAWABAN dialogs and installed BoardUI settings. */
+/* Portal layers sit above NAWABAN dialogs. */
 .bui-popup-layer { z-index: 110; }
 .bui-tooltip-layer { z-index: 120; }
 .bui-toast-layer { z-index: 130; }

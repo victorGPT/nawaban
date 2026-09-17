@@ -61,7 +61,7 @@ def _status_owner(p: Path) -> tuple[str, str | None]:
 
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="reclaim-"))
-    print(f"WORKOS-RECLAIM-STALE-001 自检 · {tmp}\n")
+    print(f"Stale owner reclaim self-test · {tmp}\n")
 
     def t_dry_run_writes_nothing():
         p = _mk(tmp)

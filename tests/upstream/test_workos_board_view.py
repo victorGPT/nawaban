@@ -363,7 +363,7 @@ def main() -> int:  # noqa: C901, PLR0915
         # n/a / 无档 不是功能名,是「没填」的说法 → 走 ID 前缀兜底,不留「未归类」大杂烩
         assert bv.fold_key("DEMO-QUEUE-SYNC-001", "n/a") == "DEMO"
         assert bv.fold_key("WORKOS-X-001", "无档(最近 ADR)") == "WORKOS"
-        assert bv.fold_key("MEM-CORE-001", "  ") == "MEM"
+        assert bv.fold_key("DEMO-CORE-001", "  ") == "DEMO"
         # 兜底只取第一段:SSO / POOL / CORE 在字符层面分不开谁是「真子域」,
         # 任何长度规则都是瞎猜。要精细就填 epic,别指望 ID 猜得准。
         assert bv.fold_key("DEMO2-AUTH-EXAMPLE-001", None) == "DEMO2"
@@ -574,7 +574,7 @@ def main() -> int:  # noqa: C901, PLR0915
             j = src.find(sel, lo)
             assert lo <= j < hi, f"{sel} 没有定义在 {tpl} 模板范围内"
 
-    print("WORKOS-BOARD-VIEW-001 自检")
+    print("Board view self-test")
     cases = [
         ("五列分栏(open/claimed/in_progress/verified/done)", t_columns),
         ("切换后:页面无「切换前/预览/非真相」字样", t_no_precutover_wording),

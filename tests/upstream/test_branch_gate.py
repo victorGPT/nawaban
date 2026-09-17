@@ -119,7 +119,7 @@ def main() -> int:
         case("与 git 无关的命令", "uv run pytest -q", main_tree, 0)
         case("逃生门", "FOREMAN_ALLOW_BRANCH_SWITCH=1 git checkout feature/x", main_tree, 0)
 
-        print("误伤回归(FOREMAN-BRANCH-GATE-ANCHOR-001)· 引用原文放行:")
+        print("误伤回归 · 引用原文放行:")
         case("单引号字符串里引用", "echo '绝不 git checkout -b / 切分支'", main_tree, 0)
         case(
             "heredoc 行内引用",

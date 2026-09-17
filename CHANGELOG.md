@@ -5,6 +5,7 @@
 - Add English and Chinese board languages, selected from the browser language and switchable in the sidebar with a saved preference. Preserve existing Chinese wording and stored API values. Show Assigned separately from In progress, and enforce English message registration in CONTEXT.md.
 
 - Session state uses `NAWABAN_STATE_DIR`, then `WORKOS_STATE_DIR`, then `~/.local/state/nawaban`. If the new session registry is absent, reads fall back to `~/.claude/foreman/session-registry.json`; the next registration preserves those entries in the new file and leaves the old file untouched. An existing new registry takes precedence.
+- Stale reports and daily markers independently fall back to `~/.claude/state` when their new files are absent. A legacy marker for today prevents duplicate background checks; subsequent checks write only to the current state directory and leave legacy files untouched.
 - `init` reuses an existing `.foreman/workos.db` when `.nawaban/nawaban.db` is absent, preventing a second board from splitting task history. Explicit database selections still take precedence.
 - Board writes require JSON and validate Host and Origin against the local listener before invoking the task CLI.
 - Prefer `deps`, `transition`, `notify`, `notifications`, and `notify-read`. The old verbs remain hidden aliases with identical output; `fanout` and `wrapup` are unchanged.

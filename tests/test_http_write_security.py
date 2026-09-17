@@ -195,3 +195,30 @@ def test_same_origin_answer_commits_and_closed_ask_cannot_be_answered_twice(boar
     assert post(board, body=body)[0] == 400
     with db.connect(path) as con:
         assert con.execute("SELECT count(*) FROM task_decisions").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("address", ["fe80::1%lo0", "::1%lo0"])
+@pytest.mark.parametrize("origin,expected", [(None, 403), ("same", 200)])
+@pytest.mark.parametrize("scope_parser", ["native", "reject"])
+def test_scoped_ipv6_peer_requires_origin(board, monkeypatch, address, origin, expected, scope_parser):
+    handler = board.server.RequestHandlerClass
+    setup = handler.setup
+
+    def scoped_setup(self):
+        setup(self)
+        # Represent the scoped peer metadata returned by an IPv6 socket.
+        self.client_address = (address, self.client_address[1], 0, 1)
+
+    monkeypatch.setattr(handler, "setup", scoped_setup)
+    if scope_parser == "reject":
+        native_parse = board_view.ipaddress.ip_address
+
+        def reject_scope(value):
+            # Represent runtimes/parsers that reject scoped address strings.
+            if "%" in value:
+                raise ValueError("Scoped address is not accepted")
+            return native_parse(value)
+
+        monkeypatch.setattr(board_view.ipaddress, "ip_address", reject_scope)
+    assert post(board, origin=origin)[0] == expected
+    assert len(board.calls) == (1 if expected == 200 else 0)

@@ -111,8 +111,8 @@ test("context presentation uses explicit latest formatting records, preserving o
 
 test("Markdown task links recognize local task routes while leaving external URLs alone", () => {
   assert.equal(
-    taskIdFromHref("?task=INTSTD-IMPL-CARDS-001"),
-    "INTSTD-IMPL-CARDS-001",
+    taskIdFromHref("?task=DEMO-CARDS-001"),
+    "DEMO-CARDS-001",
   );
   assert.equal(taskIdFromHref("https://example.com/?task=A"), null);
   assert.equal(taskIdFromHref(undefined), null);
