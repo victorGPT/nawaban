@@ -8,6 +8,18 @@ The original feature sync used reference revision `e498cfe23563f70b4d35daa0656c7
 
 Plugin manifests, marketplace, hooks.json, Codex apply_patch support, and all five advisory TypeSafe paths remain. The standalone task DAG, its vendor/license, route, buttons and keyboard shortcut were removed by the subsequent scope decision; module dependency networks and static-path traversal protections remain.
 
+## Card success criteria
+
+| Card criterion | Evidence and boundary |
+| --- | --- |
+| Project switching and current frontend | Synced the current frontend and module network, resolving task fields to main's context contract. Project API, module model, and stale inbox response regressions pass; build and 48 frontend tests pass. Visual equivalence to the running board still requires human/browser acceptance. |
+| CLI project attribution and list context | Inherited project/filter and content-gate tests pass. The fresh-copy CLI probe creates and claims a task with project/context; detail and filtered module HTTP endpoints return the intended fixture. Non-list context remains rejected by the content gate. |
+| Source tests and original nawaban tests | All 33 source scripts are represented. Dependency-minimal pytest: 304 passed, 3 optional YAML skips, 9 subtests. With PyYAML the compatibility runner reports 34 groups passed, 0 failed, 0 skipped (33 source scripts plus its pytest group of 226 tests). |
+| Symlink launcher | Both directory-symlink and file-symlink launcher regressions start a real temporary board, observe HTTP 200 and read board/modules endpoints, then stop the process. The launcher resolves its own physical directory. |
+| Public source hygiene | Public/tracked text scan finds none of the review's private project/customer identifiers or machine-specific paths. Fixtures are fictional; source database content is not committed. |
+
+Original Nawaban plugin layout, Codex apply_patch, semantic/title hints, acceptance-evidence hints, module suggestions and import-review tests remain in the passing suite. The earlier card constraint about preserving the standalone DAG is superseded by the explicit removal decision; the module dependency network remains.
+
 ## Review corrections and evidence
 
 | Review request | Result and evidence |
@@ -62,5 +74,7 @@ uv run --no-project --python 3.12 --with pytest python -m pytest -q tests
 ```
 
 For the optional historical YAML path, add `--with pyyaml` and run `python tests/run.py` through uv. CI runs both the dependency-minimal suite and the optional compatibility suite.
+
+The final compatibility run used `uv run --no-project --python 3.12 --with pytest --with pyyaml python tests/run.py`: **34 groups passed, 0 failed, 0 skipped**, including 226 pytest tests. Executable changes were frozen at `3587f2600fa2fc3738813689981c382a4e5248c5`; subsequent delivery changes only record this evidence.
 
 Delivery remains an unmerged PR. CI results and visual acceptance must be checked separately; passing local tests does not establish either.
