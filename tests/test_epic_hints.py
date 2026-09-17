@@ -120,8 +120,8 @@ def test_empty_board_skips_api(tmp_path, monkeypatch, capsys):
 
 def test_state_excludes_labels_and_bounds_long_context():
     state = cli._epic_state("title", "x" * 10000, ["y" * 1000] * 20)["task"]
-    assert set(state) == {"title", "origin", "success"}
-    assert len(state["origin"]) == 4000
+    assert set(state) == {"title", "context", "success"}
+    assert len(state["context"]) == 4000
     assert len(state["success"]) == 10
     assert len(state["success"][0]) == 500
 

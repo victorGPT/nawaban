@@ -16,7 +16,7 @@
 
 导入期一手知识(NAWABAN-IMPORT-001 同窗施工,写进呈现层免得下一个 agent 踩):
   · 标题:395 张全部产于旧标题制,带 needs_retitle 事件 → 标出来,别把它当人话标题信。
-  · now:144/395 张为空(旧 notes >200 字全文进 origin)→ 空态明说去 origin 找,别当没上下文。
+  · now:144/395 张为空(旧 notes >200 字全文进 context)→ 空态明说去 context 找,别当没上下文。
   · decisions:带 provenance 的是历史回放(归属由文本推断,可能误标),无 provenance 的才是
     运行时拍板 —— 这个区别就是 done 闸② 的判据,呈现层必须让 agent 看见。
   · 14 张卡 YAML 炸没进库(全在 done/)→ 查无此卡时报出「是那 14 张之一」,不报成「不存在」。
@@ -98,7 +98,7 @@ def _state(d: dict, ev: list[dict], now_ts: int) -> list[str]:
     顶替时**标明出处**——那是一条事件,不是有人写下的当前态,不能伪装成 now。
     """
     L = ["", "## 当前态"]
-    now, origin = (d.get("now") or "").strip(), (d.get("origin") or "").strip()
+    now, context = (d.get("now") or "").strip(), (d.get("context") or "").strip()
     if now:
         L.append(f"  {clip(now, 200)}")
     else:
@@ -116,14 +116,14 @@ def _origin(d: dict, *, fold: bool = False) -> list[str]:
     """建卡缘由 —— write-once,**最不变**的一段,所以它让位给判据而不是反过来。
 
     判例(2026-08-12):它原本长在 `_state` 里被当成硬区,小预算下把验收判据挤出了输出。
-    导入产物:notes ≤200 的卡 origin 与 now 逐字相同(251/395),同文不重复打。
+    导入产物:notes ≤200 的卡 context 与 now 逐字相同(251/395),同文不重复打。
     """
-    origin = (d.get("origin") or "").strip()
-    if not origin or origin == (d.get("now") or "").strip():
+    context = (d.get("context") or "").strip()
+    if not context or context == (d.get("now") or "").strip():
         return []
     if fold:
-        return ["", "## 缘由(节选 · 全文 --budget 16384)", f"  {clip(origin, 150)}"]
-    return ["", "## 缘由(建卡时的叙事 · write-once)", f"  {clip(origin, 900)}"]
+        return ["", "## 缘由(节选 · 全文 --budget 16384)", f"  {clip(context, 150)}"]
+    return ["", "## 缘由(建卡时的叙事 · write-once)", f"  {clip(context, 900)}"]
 
 
 def _success(d: dict) -> list[str]:
@@ -279,7 +279,7 @@ def _refs(rows: list[dict], d: dict) -> list[str]:
 #
 # ponytail: 不落缓存表 —— 全量重算实测 66ms(395 卡 / 6.7 万 token),
 # 「惰性计算落表」那条约束是为昂贵 embedding 写的;真慢了再加表。
-# 语料边界(红线):只吃本板 title+origin+decisions+handoff;可移植教训归 nmem,两边零重叠。
+# 语料边界(红线):只吃本板 title+context+decisions+handoff;可移植教训归 nmem,两边零重叠。
 
 _WORD = re.compile(r"[a-z0-9_][a-z0-9_\-.]*")
 _CJK = re.compile(r"[一-鿿]+")
@@ -298,7 +298,7 @@ def _corpus(path: Path | str) -> dict[str, list[str]]:
     con = board_view._ro(path)
     try:
         docs: dict[str, list[str]] = {}
-        for r in con.execute("SELECT id, title, COALESCE(origin,'') FROM tasks"):
+        for r in con.execute("SELECT id, title, COALESCE(context,'') FROM tasks"):
             docs[r[0]] = [r[1], r[2]]
         for r in con.execute("SELECT task_id, verdict FROM task_decisions"):
             docs.setdefault(r[0], []).append(r[1])

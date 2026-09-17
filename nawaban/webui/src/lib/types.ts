@@ -152,7 +152,7 @@ export type TaskLetter = {
 };
 
 export type TaskDetail = BoardTask & {
-  origin: string | null;
+  context: string | null;
   adr: string | null;
   success: string[] | null;
   constraints: string[] | null;

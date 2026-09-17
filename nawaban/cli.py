@@ -7,7 +7,7 @@
 字段合同(2026-09-07 用户拍板 · 唯一定义处 · 每种内容只有一个家):
   title        做完后人能看见什么变化。板 UI 不渲染 ID 前缀,title 必须自立。
                技术名词只有当它就是用户面对的东西时才许出现(写侧闸 _title_gate)。
-  origin       为什么做 + 做什么(触发事件 · 证据 · 拍板来源 · 票正文,长 spec 也行)。
+  context       为什么做 + 做什么(触发事件 · 证据 · 拍板来源 · 票正文,长 spec 也行)。
                write-once:来由变了就是另一张卡。进度别塞这里。
   now          此刻到哪了 / 下一步(≤200)。唯一随时间变的字段:start 必填,event --now 随时刷。
   success      凭什么说做完了。每条一个 PM 能读、能抽查的观察(写侧闸 _success_gate);
@@ -74,7 +74,7 @@ def _ask_gate(a) -> str | None:
 # ── 标题的写侧闸(2026-09-07 · PM 看板看不懂卡是干嘛的)──────────────────
 # 模块 docstring 的「做完后人能看见什么变化」写了几个月没人执行:150 张活跃卡全是
 # 工程师给自己看的诊断 —— 症状 + 原因 + 交付塞进 80 字。语义判不了,判代码味:
-# 代码味的东西(标识符 / 路径 / flag 名 / 多段分句)都该去 origin / success。
+# 代码味的东西(标识符 / 路径 / flag 名 / 多段分句)都该去 context / success。
 _TITLE_CODE_SMELL: tuple[tuple[str, str], ...] = (
     (r"`", "反引号"),
     (r"\b[a-z][a-z0-9]*_[a-z0-9_]+\b", "snake_case 标识符"),
@@ -104,7 +104,7 @@ def _title_gate(title: str) -> str | None:
     if not hits:
         return None
     return ("title 要让非技术人一眼知道这张卡做完后能看见什么变化。查到:"
-            + " · ".join(hits) + "\n  原因 / 调用点 / flag 名 / 路径 → 写进 --origin;"
+            + " · ".join(hits) + "\n  原因 / 调用点 / flag 名 / 路径 → 写进 --context;"
             "交付细节 → --success。示范:\n" + _TITLE_EXAMPLES)
 
 
@@ -214,7 +214,7 @@ def _success_gate(items: list[str] | None) -> str | None:
     more = f"\n  …还有 {len(bad) - 3} 条" if len(bad) > 3 else ""
     return ("success 每条要让 PM 能读、能抽查(「面板切开关后真机能打开填表页」),不是实现 todo。查到:\n"
             + "\n".join(f"  ✗ {s[:60]} ← {' · '.join(w)}" for s, w in bad[:3]) + more
-            + "\n  标识符 / flag 名 → 换成它对应的用户面现象;实现细节 → origin 或 event")
+            + "\n  标识符 / flag 名 → 换成它对应的用户面现象;实现细节 → context 或 event")
 
 
 # 语义层同标题:只提醒不拦。2026-09-17 eval:40 条 success(30 差 10 好;33 号 PM 标,其余 39 条 Claude 代标,
@@ -293,9 +293,9 @@ def _epic_question(rows) -> tuple[dict, dict[str, str]]:
             "criteria": criteria}, names
 
 
-def _epic_state(title: str, origin: str | None, success: list[str] | None) -> dict:
+def _epic_state(title: str, context: str | None, success: list[str] | None) -> dict:
     """Bound the optional hint payload independently of persisted task content."""
-    return {"task": {"title": title, "origin": (origin or "")[:4000],
+    return {"task": {"title": title, "context": (context or "")[:4000],
                      "success": [s[:500] for s in (success or [])[:10]]}}
 
 
@@ -314,7 +314,7 @@ def _epic_choice(answer, question: dict) -> tuple[str, float] | None:
     return top, ps[top]
 
 
-def _epic_hint(path: Path, task_id: str, title: str, origin: str | None,
+def _epic_hint(path: Path, task_id: str, title: str, context: str | None,
                success: list[str] | None) -> str | None:
     """Read after create commits; never assign a module or retry the write."""
     if not os.environ.get("TYPESAFE_API_KEY"):
@@ -332,7 +332,7 @@ def _epic_hint(path: Path, task_id: str, title: str, origin: str | None,
     question, names = _epic_question(rows)
     if not names:
         return None
-    answer = _answers(_epic_state(title, origin, success), {"module": question}).get("module")
+    answer = _answers(_epic_state(title, context, success), {"module": question}).get("module")
     result = _epic_choice(answer, question)
     if result is None or result[0] == "none" or result[1] < _EPIC_HINT_THRESHOLD:
         return None
@@ -408,8 +408,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("create", help="建卡(title=人话:做完后人能看见什么变化)")
     p.add_argument("task_id")
     p.add_argument("--title", required=True)
-    p.add_argument("--origin", help="票正文:What to build + 背景,用户视角(write-once;长文用 --origin-file)")
-    p.add_argument("--origin-file", help="从文件读票正文(与 --origin 二选一)")
+    p.add_argument("--context", "--origin", help="票正文:What to build + 背景,用户视角(write-once;长文用 --context-file)")
+    p.add_argument("--context-file", "--origin-file", help="从文件读票正文(与 --context 二选一)")
     p.add_argument("--success", help="JSON array")
     p.add_argument("--constraints", help="JSON array")
     p.add_argument("--touch", action="append", default=[])
@@ -425,10 +425,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("task_id")
     p.add_argument("--now", required=True, help="板上当前态一句 ≤200:到哪了 / 下一步")
 
-    p = sub.add_parser("kin", help="看一张卡的阻塞、下游与家谱")
+    p = sub.add_parser("deps", help="看一张卡的阻塞、下游与家谱")
     p.add_argument("task_id")
 
-    p = sub.add_parser("advance", help="状态转移(闸在库层)")
+    p = sub.add_parser("transition", help="状态转移(闸在库层)")
     p.add_argument("task_id")
     p.add_argument("--to", required=True,
                    choices=["staging-verified", "done", "in_progress"])
@@ -480,18 +480,18 @@ def main(argv: list[str] | None = None) -> int:
     for f in db.META_FIELDS:
         p.add_argument(f"--set-{f}", dest=f"set_{f}")
 
-    p = sub.add_parser("letter", help="写信(worker→总监汇报,NAWABAN-LETTERS-DB-001)")
+    p = sub.add_parser("notify", help="写信(worker→总监汇报,NAWABAN-LETTERS-DB-001)")
     p.add_argument("task_id")
     p.add_argument("--kind", required=True, choices=list(db.LETTER_KINDS))
     p.add_argument("--msg", required=True)
     p.add_argument("--links")
 
-    p = sub.add_parser("letters", help="列信(📩=未读)")
+    p = sub.add_parser("notifications", help="列信(📩=未读)")
     p.add_argument("--unread", action="store_true")
     p.add_argument("--task")
     p.add_argument("--limit", type=int, default=50)
 
-    p = sub.add_parser("letter-read", help="标已读")
+    p = sub.add_parser("notify-read", help="标已读")
     p.add_argument("ids", nargs="+", type=int)
 
     p = sub.add_parser("link", help="建边(幻觉闸+depends_on 环检测)")
@@ -550,7 +550,14 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("backup", help="全量备份到 <db 目录>/backups/ · 保留 14 天")
     sub.add_parser("init", help="显式建库(唯一允许创建 DB 文件的动词)")
 
+    # Register compatibility names without adding help entries or usage choices.
+    aliases = {"kin": "deps", "advance": "transition", "letter": "notify",
+               "letters": "notifications", "letter-read": "notify-read"}
+    sub.metavar = "{" + ",".join(sub.choices) + "}"
+    for old, current in aliases.items():
+        sub.choices[old] = sub.choices[current]
     a = ap.parse_args(argv)
+    a.verb = aliases.get(a.verb, a.verb)
     path = Path(a.db).expanduser() if a.db else db.resolve_db(for_init=a.verb == "init")
     if a.verb == "init":
         db.init_db(path)
@@ -565,19 +572,19 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if a.verb == "create":
             owner, sid = _identity(need_session=False)
-            if a.origin and a.origin_file:
-                raise db.NawabanError("--origin 与 --origin-file 二选一")
-            origin = Path(a.origin_file).read_text(encoding="utf-8") if a.origin_file else a.origin
+            if a.context and a.context_file:
+                raise db.NawabanError("--context 与 --context-file 二选一")
+            context = Path(a.context_file).read_text(encoding="utf-8") if a.context_file else a.context
             if err := _title_gate(a.title) or _success_gate(_j(a.success)):
                 raise db.NawabanError(err)
-            db.create_task(path, task_id=a.task_id, title=a.title, origin=origin,
+            db.create_task(path, task_id=a.task_id, title=a.title, context=context,
                            success=_j(a.success), constraints=_j(a.constraints),
                            touches=a.touch or None, epic=a.epic, adr=a.adr,
                            split_from=a.split_from)
             print(f"✓ create {a.task_id}")
             for hint in _hints(a.title, _j(a.success)):
                 print("⚠ " + hint, file=sys.stderr)
-            if a.epic is None and (hint := _epic_hint(path, a.task_id, a.title, origin, _j(a.success))):
+            if a.epic is None and (hint := _epic_hint(path, a.task_id, a.title, context, _j(a.success))):
                 print("⚠ " + hint, file=sys.stderr)
         elif a.verb == "claim":
             owner, sid = _identity(need_session=True)
@@ -601,9 +608,9 @@ def main(argv: list[str] | None = None) -> int:
             db.start_task(path, a.task_id, owner=owner, session_id=sid, now=a.now)
             print(f"✓ start {a.task_id}")
             _print_kin(db.kin(path, a.task_id))
-        elif a.verb == "kin":
+        elif a.verb == "deps":
             _print_kin(db.kin(path, a.task_id))
-        elif a.verb == "advance":
+        elif a.verb == "transition":
             owner, sid = _identity(need_session=True)
             db.advance_task(path, a.task_id, to=a.to, waiting_on=a.waiting_on,
                             owner=owner, session_id=sid)
@@ -638,12 +645,12 @@ def main(argv: list[str] | None = None) -> int:
                                 if getattr(a, f"set_{f}", None)},
                         author=owner, session_id=sid)
             print(f"✓ meta {a.task_id}")
-        elif a.verb == "letter":
+        elif a.verb == "notify":
             owner, sid = _identity(need_session=False)
             lid = db.add_letter(path, a.task_id, kind=a.kind, msg=a.msg,
                                 links=a.links, session_id=sid)
             print(f"✓ letter #{lid} → {a.task_id} [{a.kind}]")
-        elif a.verb == "letters":
+        elif a.verb == "notifications":
             rows = db.list_letters(path, unread_only=a.unread, task_id=a.task,
                                    limit=a.limit)
             if not rows:
@@ -652,7 +659,7 @@ def main(argv: list[str] | None = None) -> int:
                 mark = "📩" if r["read_at"] is None else "  "
                 ts = time.strftime("%m-%d %H:%M", time.localtime(r["created_at"]))
                 print(f"{mark} #{r['id']} {ts} [{r['kind']}] {r['task_id']} · {r['msg'][:80]}")
-        elif a.verb == "letter-read":
+        elif a.verb == "notify-read":
             n = db.mark_letters_read(path, a.ids)
             print(f"✓ 已读 {n} 封")
         elif a.verb == "handoff":

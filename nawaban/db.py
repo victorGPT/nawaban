@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     waiting_on   TEXT CHECK (waiting_on IS NULL OR waiting_on IN ({_q(WAITING)})),
     owner        TEXT,
     epic         TEXT,
-    origin       TEXT,
+    context       TEXT,
     now          TEXT CHECK (now IS NULL OR length(now) <= 200),
     success      TEXT,
     constraints_ TEXT,
@@ -235,9 +235,10 @@ def init_db(path: Path | str) -> None:
 
 
 def migrate_db(path: Path | str) -> list[str]:
-    """Additive migration(字段草案 §七「增长走 additive migration 纪律」· Hermes
-    _migrate_add_optional_columns 同款路径)。只加可空列,从不改/删既有列与语义。
-    返回本次新加的列名,幂等:已是最新则返回 []。
+    """Migrate the board schema; return applied changes, or [] when current.
+
+    NAWABAN-VERBS-003 renames tasks.origin to context in one ALTER TABLE.
+    This requires the matching runtime; do not run it on a legacy live board.
 
     一处例外(NAWABAN-CANCEL-001):tasks.status 的 CHECK 要**放宽**收 'cancelled'。
     SQLite 改 CHECK 只能整表重建,不在 additive 之列。但放宽对旧代码是兼容的 ——
@@ -246,6 +247,12 @@ def migrate_db(path: Path | str) -> list[str]:
     added = []
     con = connect(path)
     try:
+        # Serialize the schema check and rename across concurrent CLI starts.
+        with _txn(con):
+            columns = {r[1] for r in con.execute("PRAGMA table_info(tasks)")}
+            if "origin" in columns:
+                con.execute("ALTER TABLE tasks RENAME COLUMN origin TO context")
+                added.append("tasks.origin→context")
         # 四个对齐指针列退役(FOREMAN-SIMPLIFY-003):免检率 50-90% 的闸是表单不是闸。
         # 工具本地单版本,所有窗口读同一份代码,直接 DROP(sqlite ≥3.35)。
         tcols = {r[1] for r in con.execute("PRAGMA table_info(tasks)")}
@@ -413,7 +420,7 @@ def _event(con: sqlite3.Connection, task_id: str, kind: str, body: str,
 # ── 9 动词 ────────────────────────────────────────────────────────
 
 def create_task(path: Path | str, *, task_id: str, title: str,
-                origin: Optional[str] = None,
+                context: Optional[str] = None,
                 success: Optional[Sequence[str]] = None,
                 constraints: Optional[Sequence[str]] = None,
                 touches: Optional[Sequence[str]] = None,
@@ -429,10 +436,10 @@ def create_task(path: Path | str, *, task_id: str, title: str,
                 if epic is None:
                     epic = parent["epic"]
             con.execute(
-                "INSERT INTO tasks (id, title, status, origin, success, constraints_,"
+                "INSERT INTO tasks (id, title, status, context, success, constraints_,"
                 " touches, epic, adr, created_at)"
                 " VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (task_id, title, "open", origin, _jd(list(success) if success else None),
+                (task_id, title, "open", context, _jd(list(success) if success else None),
                  _jd(list(constraints) if constraints else None),
                  _jd(list(touches) if touches else None),
                  epic, adr, _now()),
@@ -1320,7 +1327,7 @@ def ask_detail(path: Path | str, ask_id: int) -> dict:
 def import_task(path: Path | str, *, task_id: str, title: str, status: str,
                 created_at: int, owner: Optional[str] = None,
                 waiting_on: Optional[str] = None, epic: Optional[str] = None,
-                origin: Optional[str] = None, now: Optional[str] = None,
+                context: Optional[str] = None, now: Optional[str] = None,
                 success: Optional[Sequence[str]] = None,
                 constraints: Optional[Sequence[str]] = None,
                 touches: Optional[Sequence[str]] = None,
@@ -1352,11 +1359,11 @@ def import_task(path: Path | str, *, task_id: str, title: str, status: str,
                 return False
             con.execute(
                 "INSERT INTO tasks (id, title, status, waiting_on, owner, epic,"
-                " origin, now, success, constraints_, touches, adr,"
+                " context, now, success, constraints_, touches, adr,"
                 " created_at, started_at, completed_at)"
                 " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (task_id, title, status, waiting_on, owner, epic,
-                 origin, now, _jd(list(success) if success else None),
+                 context, now, _jd(list(success) if success else None),
                  _jd(list(constraints) if constraints else None),
                  _jd(list(touches) if touches else None),
                  adr, created_at, started_at, completed_at),

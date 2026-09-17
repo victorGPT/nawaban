@@ -283,10 +283,10 @@ export function TaskDetailSheet({ taskId, onOpenChange, onSelectTask }: {
                   {d.now && <Md className="text-[15px] leading-6 text-fg-secondary" text={d.now} />}
                 </div>
 
-                {d.origin && d.origin !== d.now && (
+                {d.context && d.context !== d.now && (
                   <section>
                     <H>来由</H>
-                    <Md className="text-sm" text={d.origin} />
+                    <Md className="text-sm" text={d.context} />
                   </section>
                 )}
 

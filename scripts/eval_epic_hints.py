@@ -50,7 +50,7 @@ def main():
         with closing(sqlite3.connect(a.db.resolve().as_uri() + "?mode=ro", uri=True)) as con:
             con.row_factory = sqlite3.Row
             tasks = [dict(r) for r in con.execute(
-                "SELECT id,title,origin,success,epic,created_at FROM tasks ORDER BY created_at DESC,id")]
+                "SELECT id,title,context,success,epic,created_at FROM tasks ORDER BY created_at DESC,id")]
         labeled = [t for t in tasks if t["epic"] and t["epic"].strip()
                    and t["epic"].strip().lower() != "n/a"]
         sample = random.Random(20260917).sample(sorted(labeled, key=lambda t: t["id"]), 120)
@@ -86,7 +86,7 @@ def main():
     else:
         with output.open("x") as f:
             for i, task in enumerate(data[a.split]):
-                state = cli._epic_state(task["title"], task["origin"], json.loads(task["success"] or "null"))
+                state = cli._epic_state(task["title"], task["context"], json.loads(task["success"] or "null"))
                 start = time.monotonic()
                 answer = cli._answers(state, {"module": question}).get("module")
                 elapsed = time.monotonic() - start

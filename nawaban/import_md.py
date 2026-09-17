@@ -391,7 +391,7 @@ def plan_card(card: dict, root: Path) -> CardPlan:
         "owner": owner,
         "waiting_on": (str(fm["waiting_on"]).strip()
                        if fm.get("waiting_on") in db.WAITING else None),
-        "epic": fm.get("epic"), "origin": notes or None, "now": now,
+        "epic": fm.get("epic"), "context": notes or None, "now": now,
         "success": _as_list(fm.get("success")) or None,
         "constraints": _as_list(fm.get("constraints")) or None,
         "touches": _as_list(fm.get("touches")) or None,
@@ -513,7 +513,7 @@ def render_report(root: Path, files: list[Path], plans: list[CardPlan],
 
     filled = {k: sum(1 for p in plans if p.row.get(k) not in (None, "", []))
               for k in ("title", "status", "owner", "waiting_on", "epic",
-                        "origin", "now", "success", "constraints", "touches",
+                        "context", "now", "success", "constraints", "touches",
                         "adr", "started_at", "completed_at")}
     L += ["## 逐列覆盖率(15 列)", "", "| 列 | 有值 | 覆盖率 |", "|---|---|---|",
           f"| id | {n} | 100.0% |", f"| created_at | {n} | 100.0% |"]

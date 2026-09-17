@@ -16,8 +16,11 @@ def test_every_cli_subcommand_is_registered_in_glossary():
     )
     assert commands, "No argparse subcommands found in nawaban/cli.py"
     assert entries, "No bilingual glossary entries found in CONTEXT.md"
-    registered = {term.casefold() for term, _ in entries}
+    registered = set()
     for _, body in entries:
-        registered.update(re.findall(r"`([^`\n]+)`", body))
+        for line in body.splitlines():
+            if line.startswith("_Current identifiers_:"):
+                registered.update(re.findall(r"`([^`\n]+)`", line))
+    assert {"deps", "transition", "notify", "notifications", "notify-read"} <= commands
     missing = sorted(commands - registered)
     assert not missing, "CLI subcommands missing from CONTEXT.md: " + ", ".join(missing)

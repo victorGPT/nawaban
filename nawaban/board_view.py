@@ -442,7 +442,7 @@ def task_detail(path: Path | str, task_id: str) -> dict:
             raise db.NawabanError(f"卡不存在:{task_id}")
         d = _card(row)
         d.update({
-            "origin": row["origin"], "adr": row["adr"],
+            "context": row["context"], "adr": row["adr"],
             "success": _j(row["success"]), "constraints": _j(row["constraints_"]),
             "touches": _j(row["touches"]),
         })
@@ -680,7 +680,7 @@ def graph_data(
             for r in con.execute(
                 """
                 SELECT id, title, status, waiting_on, owner, epic, now,
-                       origin, created_at, started_at, completed_at
+                       context, created_at, started_at, completed_at
                 FROM tasks
                 """
             )
@@ -746,7 +746,7 @@ def graph_data(
             "owner": owner or None,
             "epic": epic,
             "now": t["now"],
-            "origin": t["origin"],
+            "context": t["context"],
             "created_at": t["created_at"],
             "started_at": t["started_at"],
             "completed_at": t["completed_at"],
@@ -1581,7 +1581,7 @@ async function openTask(id){
   dagA.href="/?view=dag&focus="+encodeURIComponent(t.id);
   p.appendChild(dagA);
   if(t.now){sec(p,"当前态");blk(p,t.now)}
-  if(t.origin){sec(p,"缘由");blk(p,t.origin)}
+  if(t.context){sec(p,"缘由");blk(p,t.context)}
   if(t.success&&t.success.length){sec(p,"验收判据");list(p,t.success)}
   if(t.constraints&&t.constraints.length){sec(p,"约束");list(p,t.constraints)}
   const edges=(t.edges_out||[]).concat(t.edges_in||[]);
