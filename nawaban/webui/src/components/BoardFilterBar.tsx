@@ -1,3 +1,4 @@
+import { t as tr, useLocale } from "@/i18n";
 import { parseDate } from "@internationalized/date";
 import { DateRangePicker } from "@/components/base/date-picker/date-range-picker";
 import { Button } from "@/components/base/buttons/button";
@@ -14,12 +15,12 @@ const monday = (d: Date) => shift(d, -((d.getDay() + 6) % 7));
 const PRESETS: { id: string; label: string; range: () => DateRange }[] = [
   {
     id: "today",
-    label: "今天",
+    get label() { return tr("today"); },
     range: () => ({ since: iso(new Date()), until: iso(new Date()) }),
   },
   {
     id: "yesterday",
-    label: "昨天",
+    get label() { return tr("yesterday"); },
     range: () => ({
       since: iso(shift(new Date(), -1)),
       until: iso(shift(new Date(), -1)),
@@ -27,12 +28,12 @@ const PRESETS: { id: string; label: string; range: () => DateRange }[] = [
   },
   {
     id: "week",
-    label: "本周",
+    get label() { return tr("thisWeek"); },
     range: () => ({ since: iso(monday(new Date())), until: iso(new Date()) }),
   },
   {
     id: "lastweek",
-    label: "上周",
+    get label() { return tr("lastWeek"); },
     range: () => ({
       since: iso(shift(monday(new Date()), -7)),
       until: iso(shift(monday(new Date()), -1)),
@@ -40,7 +41,7 @@ const PRESETS: { id: string; label: string; range: () => DateRange }[] = [
   },
   {
     id: "7d",
-    label: "最近 7 天",
+    get label() { return tr("last7Days"); },
     range: () => ({
       since: iso(shift(new Date(), -6)),
       until: iso(new Date()),
@@ -55,6 +56,7 @@ export function BoardFilterBar({
   range: DateRange | null;
   onChange: (r: DateRange | null) => void;
 }) {
+  useLocale();
   const activePreset = PRESETS.find((p) => {
     if (!range) return false;
     const r = p.range();
@@ -63,7 +65,7 @@ export function BoardFilterBar({
 
   return (
     <div className="date-filter">
-      <span className="text-body-regular">更新时间</span>
+      <span className="text-body-regular">{tr("updated")}</span>
       {PRESETS.map((p) => (
         <Button
           key={p.id}
@@ -81,8 +83,8 @@ export function BoardFilterBar({
         </Button>
       ))}
       <DateRangePicker
-        aria-label="自定义更新时间范围"
-        placeholder="自定义日期"
+        aria-label={tr("customUpdatedRange")}
+        placeholder={tr("customDates")}
         value={
           range
             ? { start: parseDate(range.since), end: parseDate(range.until) }
@@ -102,9 +104,7 @@ export function BoardFilterBar({
           className="bg-transparent text-text-secondary"
           size="small"
           onClick={() => onChange(null)}
-        >
-          清除筛选
-        </Button>
+        >{tr("clearFilters")}</Button>
       )}
     </div>
   );

@@ -14,13 +14,13 @@ test("answer preserves exact authority boundary and does not retry unknown outco
   }) as typeof fetch;
   try {
     await assert.rejects(
-      postAnswer(12, "选项A · 补充:证据", false),
+      postAnswer(12, "\u9009\u9879A · \u8865\u5145:\u8bc1\u636e", false),
       (e: unknown) => e instanceof AnswerError && e.unknown,
     );
     assert.deepEqual(calls, [
       {
         url: "/api/answer",
-        body: { ask_id: 12, verdict: "选项A · 补充:证据", reject: false },
+        body: { ask_id: 12, verdict: "\u9009\u9879A · \u8865\u5145:\u8bc1\u636e", reject: false },
       },
     ]);
   } finally {
@@ -34,7 +34,7 @@ test("HTTP 200 with ok:false is a failed answer", async () => {
       status: 200,
     })) as typeof fetch;
   try {
-    await assert.rejects(postAnswer(13, "打回理由", true), /CAS rejected/);
+    await assert.rejects(postAnswer(13, "\u6253\u56de\u7406\u7531", true), /CAS rejected/);
   } finally {
     globalThis.fetch = original;
   }
@@ -51,7 +51,7 @@ test("lost transport and unreadable responses leave the answer outcome unknown",
     ]) {
       globalThis.fetch = reply as typeof fetch;
       await assert.rejects(
-        postAnswer(14, "授权", false),
+        postAnswer(14, "\u6388\u6743", false),
         (e: unknown) => e instanceof AnswerError && e.unknown,
       );
     }

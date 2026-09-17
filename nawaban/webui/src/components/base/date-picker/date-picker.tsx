@@ -8,6 +8,7 @@ import { Button } from "@/components/base/buttons/button";
 import { BoardCalendar, DateChipInput, formatTriggerDate, popoverClassName, triggerButtonClassName } from "./shared";
 import { fromPickerDate, toPickerDate } from "./dates";
 import { cx } from "@/utils/cx";
+import { t, useLocale } from "@/i18n";
 
 export interface DatePickerProps {
   value?: CalendarDate | null;
@@ -28,6 +29,7 @@ function DateEditor({ value, label, onApply, onCancel }: {
   onApply: (value: CalendarDate | null) => void;
   onCancel: () => void;
 }) {
+  useLocale();
   const [pendingValue, setPendingValue] = useState(value);
   const [month, setMonth] = useState(value ? toPickerDate(value) : new Date());
   return (
@@ -43,14 +45,14 @@ function DateEditor({ value, label, onApply, onCancel }: {
       />
       <div className="flex items-center justify-between gap-3 px-4">
         <div>
-          {pendingValue && <DateChipInput date={pendingValue} label="Date" onCommit={(date) => {
+          {pendingValue && <DateChipInput date={pendingValue} label={t("date")} onCommit={(date) => {
             setPendingValue(date);
             setMonth(toPickerDate(date));
           }} />}
         </div>
         <div className="flex items-center gap-2.5">
-          <Button variant="secondary" onClick={onCancel}>Cancel</Button>
-          <Button onClick={() => onApply(pendingValue)} disabled={!pendingValue}>Apply</Button>
+          <Button variant="secondary" onClick={onCancel}>{t("cancel")}</Button>
+          <Button onClick={() => onApply(pendingValue)} disabled={!pendingValue}>{t("apply")}</Button>
         </div>
       </div>
     </div>
@@ -58,9 +60,11 @@ function DateEditor({ value, label, onApply, onCancel }: {
 }
 
 export function DatePicker({ value, defaultValue = null, onChange, isDisabled, className,
-  "aria-label": ariaLabel = "Date", triggerRef: externalTriggerRef,
+  "aria-label": ariaLabel, triggerRef: externalTriggerRef,
   isOpen: controlledOpen, onOpenChange,
 }: DatePickerProps) {
+  useLocale();
+  const label = ariaLabel ?? t("date");
   const ownTriggerRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const triggerRef = externalTriggerRef ?? ownTriggerRef;
@@ -79,17 +83,17 @@ export function DatePicker({ value, defaultValue = null, onChange, isDisabled, c
       setOpen(open);
     }} modal={false}>
       {!externalTriggerRef && (
-        <Popover.Trigger ref={ownTriggerRef} disabled={isDisabled} aria-label={ariaLabel} className={cx(triggerButtonClassName, className)}>
+        <Popover.Trigger ref={ownTriggerRef} disabled={isDisabled} aria-label={label} className={cx(triggerButtonClassName, className)}>
           <RiCalendarLine className="size-5 shrink-0 text-foreground-icon-primary" aria-hidden />
           <span className="flex items-center justify-center whitespace-nowrap px-1 text-body-medium text-text-primary">
-            {committedValue ? formatTriggerDate(committedValue) : "Select date"}
+            {committedValue ? formatTriggerDate(committedValue) : t("selectDate")}
           </span>
         </Popover.Trigger>
       )}
       <Popover.Portal>
         <Popover.Positioner anchor={externalTriggerRef} sideOffset={4} align="end" className="bui-popup-layer">
-          <Popover.Popup ref={popupRef} initialFocus={() => popupRef.current?.querySelector<HTMLElement>('[role="grid"] button[tabindex="0"]') ?? true} aria-label={ariaLabel} finalFocus={triggerRef} className={popoverClassName}>
-            <DateEditor key={String(isOpen)} value={committedValue} label={ariaLabel} onCancel={() => setOpen(false)} onApply={(next) => {
+          <Popover.Popup ref={popupRef} initialFocus={() => popupRef.current?.querySelector<HTMLElement>('[role="grid"] button[tabindex="0"]') ?? true} aria-label={label} finalFocus={triggerRef} className={popoverClassName}>
+            <DateEditor key={String(isOpen)} value={committedValue} label={label} onCancel={() => setOpen(false)} onApply={(next) => {
               if (value === undefined) setInternalValue(next);
               onChange?.(next);
               setOpen(false);

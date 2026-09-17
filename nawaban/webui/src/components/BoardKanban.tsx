@@ -1,3 +1,5 @@
+import { UNGROUPED_EPIC } from "@/lib/modules-model";
+import { t as tr, useLocale } from "@/i18n";
 import { useCallback, useState } from "react";
 import { RiLayoutColumnLine, RiListCheck } from "@remixicon/react";
 import { Button } from "@/components/base/buttons/button";
@@ -35,6 +37,7 @@ export function BoardKanban({
   onDecision: (id: string) => void;
   decisionTasks: Set<string>;
 }) {
+  useLocale();
   const loadBoard = useCallback(() => fetchBoard(range, project), [range, project]);
   const { data: board, error } = useReadOnlyData(loadBoard);
   const [layout, setLayout] = useState(() =>
@@ -44,13 +47,13 @@ export function BoardKanban({
   );
   const [module, setModule] = useState("all");
   if (error) return <LoadState error>{error}</LoadState>;
-  if (!board) return <LoadState>正在读取任务…</LoadState>;
+  if (!board) return <LoadState>{tr("loadingTasks")}</LoadState>;
   const tasks = boardItems(board);
-  const modules = [...new Set(tasks.map((t) => t.epic || "未分组"))].sort();
+  const modules = [...new Set(tasks.map((t) => t.epic || UNGROUPED_EPIC))].sort();
   const q = query.trim().toLowerCase();
   const visible = tasks.filter(
     (t) =>
-      (module === "all" || (t.epic || "未分组") === module) &&
+      (module === "all" || (t.epic || UNGROUPED_EPIC) === module) &&
       [t.id, t.title, t.owner ?? "", t.epic ?? ""].some((s) =>
         s.toLowerCase().includes(q),
       ),
@@ -91,9 +94,7 @@ export function BoardKanban({
             leadingIcon={RiLayoutColumnLine}
             aria-pressed={layout === "board"}
             onClick={() => changeLayout("board")}
-          >
-            看板
-          </Button>
+          >{tr("board")}</Button>
           <Button
             size="small"
             variant={layout === "list" ? "secondary" : "ghost"}
@@ -105,32 +106,29 @@ export function BoardKanban({
             leadingIcon={RiListCheck}
             aria-pressed={layout === "list"}
             onClick={() => changeLayout("list")}
-          >
-            列表
-          </Button>
+          >{tr("list")}</Button>
         </div>
-        <ModuleSelect modules={modules} value={module} onValueChange={setModule} />
+        <ModuleSelect modules={modules} value={module} onValueChange={setModule}
+          getLabel={(value) => value === UNGROUPED_EPIC ? tr("ungrouped") : value} />
         <span className="text-body-regular text-text-secondary">
-          {visible.length} 项任务
+          {tr("taskCount", { count: visible.length })}
         </span>
       </div>
       <StatusLegend available={board.liveness.available} />
       {layout === "list" ? (
         <Table
           size="sm"
-          aria-label="任务列表"
+          aria-label={tr("taskList")}
           className="task-table"
         >
           <TableHeader>
-            <TableColumn>编号</TableColumn>
-            <TableColumn>
-              标题
-            </TableColumn>
-            <TableColumn>模块名</TableColumn>
-            <TableColumn>状态</TableColumn>
+            <TableColumn>{tr("taskId")}</TableColumn>
+            <TableColumn>{tr("taskTitle")}</TableColumn>
+            <TableColumn>{tr("epicName")}</TableColumn>
+            <TableColumn>{tr("status")}</TableColumn>
           </TableHeader>
           <TableBody>
-            {visible.length === 0 && <TableEmpty colSpan={4}>没有匹配的任务</TableEmpty>}
+            {visible.length === 0 && <TableEmpty colSpan={4}>{tr("noMatchingTasks")}</TableEmpty>}
             {visible.map((t) => (
               <TableRow key={t.id} aria-label={`${t.id} ${t.title}`} onAction={() => onSelectTask(t.id)}>
                 <TableCell>
@@ -140,7 +138,7 @@ export function BoardKanban({
                   <OverflowText className="task-list-title" text={t.title} />
                 </TableCell>
                 <TableCell>
-                  <TaskTag label={t.epic || "未分组"} />
+                  <TaskTag label={t.epic || tr("ungrouped")} />
                 </TableCell>
                 <TableCell>
                   <WindowStatus

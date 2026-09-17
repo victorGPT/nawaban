@@ -19,6 +19,12 @@ A frontend rebuild takes effect on the next page request. Backend changes requir
 
 The explicit `/?view=legacy` board remains separate. Missing builds retain the embedded pages. The module view includes the dependency graph.
 
+## Language
+
+The sidebar switches between English and Simplified Chinese. The saved `nawaban.locale` preference wins on reload; without a valid saved preference, the browser language selects Chinese for `zh` and English otherwise. Switching still works when browser storage is unavailable. UI labels and dates follow the selected language; task content, API identifiers and stored lifecycle values retain their original meaning. Assigned and In progress remain separate board columns.
+
+English and Chinese messages live in `src/i18n/en.json` and `src/i18n/zh-CN.json`. English terms are registered in the repository's `CONTEXT.md` glossary. `tests/test_glossary.py` checks matching keys and placeholders, glossary coverage, and the absence of hardcoded Chinese in frontend TypeScript.
+
 ## Development
 
 ```bash

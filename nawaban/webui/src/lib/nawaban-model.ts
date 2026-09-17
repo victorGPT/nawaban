@@ -1,21 +1,23 @@
+import { t as tr, statusLabel, waitingLabel } from "../i18n/index.ts";
 import type { AskItem, BoardResponse, BoardTask } from "./types.ts";
 export const STAGES = [
-  { id: "open", label: "待认领" },
-  { id: "in_progress", label: "进行中" },
-  { id: "staging-verified", label: "待验收" },
-  { id: "done", label: "最近完成" },
+  { id: "open", get label() { return statusLabel("open"); } },
+  { id: "claimed", get label() { return statusLabel("claimed"); } },
+  { id: "in_progress", get label() { return statusLabel("in_progress"); } },
+  { id: "staging-verified", get label() { return statusLabel("staging-verified"); } },
+  { id: "done", get label() { return tr("recentDone"); } },
 ] as const;
 export const WAIT: Record<string, string> = {
-  decision: "等拍板",
-  prod: "等上线",
-  observe: "等观察",
-  external: "等外部",
+  get decision() { return waitingLabel("decision"); },
+  get prod() { return waitingLabel("prod"); },
+  get observe() { return waitingLabel("observe"); },
+  get external() { return waitingLabel("external"); },
 };
 export function boardItems(board: BoardResponse) {
   return board.columns.flatMap((c) =>
     c.tasks.map((t) => ({
       ...t,
-      column: c.key === "claimed" ? "in_progress" : c.key,
+      column: c.key,
     })),
   );
 }
@@ -24,24 +26,24 @@ export function taskSignal(
   hasAsk: boolean,
 ) {
   if (hasAsk || task.waiting_on === "decision")
-    return { kind: "decision", label: "需要决策，前往收件箱" };
+    return { kind: "decision", label: tr("signalDecision") };
   if (task.live?.tier === "working")
-    return { kind: "working", label: "窗口正在工作" };
+    return { kind: "working", label: tr("signalWorking") };
   if (task.live?.tier === "idle")
-    return { kind: "idle", label: "窗口空闲，暂未工作" };
+    return { kind: "idle", label: tr("signalIdle") };
   if (task.live?.tier === "cold" || task.live?.tier === "no-window")
     return {
       kind: "unresponsive",
-      label: task.live.tier === "cold" ? "窗口长时间无活动" : "未找到窗口",
+      label: task.live.tier === "cold" ? tr("signalCold") : tr("signalMissing"),
     };
-  return { kind: "unknown", label: "状态未知，暂无窗口信号" };
+  return { kind: "unknown", label: tr("signalUnknown") };
 }
 /** Relative age of the window's last activity; null when unknown. */
 export function liveAge(ageS: number | null | undefined) {
   if (ageS == null) return null;
-  if (ageS < 60) return "刚刚有活动";
-  for (const [unit, n] of [["天", 86400], ["小时", 3600], ["分钟", 60]] as const)
-    if (ageS >= n) return `最后活动 ${Math.floor(ageS / n)} ${unit}前`;
+  if (ageS < 60) return tr("activityJustNow");
+  for (const [key, n] of [["activityDaysAgo", 86400], ["activityHoursAgo", 3600], ["activityMinutesAgo", 60]] as const)
+    if (ageS >= n) return tr(key, { count: Math.floor(ageS / n) });
   return null;
 }
 export function inboxMatches(
@@ -74,7 +76,7 @@ export function scopePaths(touches: string[] | null) {
 }
 
 // Preserve the persisted formatting-decision key when reading existing task histories.
-export const CONTEXT_LAYOUT_QUESTION = "来由排版（Markdown）";
+export const CONTEXT_LAYOUT_QUESTION = "\u6765\u7531\u6392\u7248（Markdown）";
 export function contextPresentation(
   decisions: { id: number; question: string; verdict: string }[],
 ) {

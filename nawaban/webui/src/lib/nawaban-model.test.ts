@@ -48,7 +48,7 @@ test("only a working signal is green; pending decisions take precedence", () => 
 test("task links find related inbox entries even when question omits task ID", () => {
   assert.equal(
     inboxMatches(
-      { id: 1, question: "请验收", evidence: "链接", task_ids: ["TASK-A"] },
+      { id: 1, question: "\u8bf7\u9a8c\u6536", evidence: "\u94fe\u63a5", task_ids: ["TASK-A"] },
       "task-a",
     ),
     true,
@@ -61,7 +61,7 @@ test("task history supports related task navigation and back without duplicate e
   assert.deepEqual(navigateTask(path, { type: "back" }), ["A"]);
   assert.deepEqual(navigateTask(path, { type: "close" }), []);
 });
-test("board merges claimed into in progress while preserving source status", () => {
+test("board preserves Assigned as a separate column and source status", () => {
   const tasks = boardItems({
     columns: [
       { key: "claimed", tasks: [{ id: "A", status: "claimed" }] },
@@ -71,7 +71,7 @@ test("board merges claimed into in progress while preserving source status", () 
   assert.deepEqual(
     tasks.map((t) => [t.id, t.column, t.status]),
     [
-      ["A", "in_progress", "claimed"],
+      ["A", "claimed", "claimed"],
       ["B", "in_progress", "in_progress"],
     ],
   );
@@ -93,17 +93,17 @@ test("scope display separates legacy comma-packed paths without changing the sou
 test("context presentation uses explicit latest formatting records, preserving ordinary task prose", () => {
   const a = {
     id: 1,
-    question: "来由排版（Markdown）",
-    verdict: "## 改动清单\n- A",
+    question: "\u6765\u7531\u6392\u7248（Markdown）",
+    verdict: "## \u6539\u52a8\u6e05\u5355\n- A",
   };
   const b = {
     id: 2,
-    question: "来由排版（Markdown）",
-    verdict: "## 改动清单\n- B",
+    question: "\u6765\u7531\u6392\u7248（Markdown）",
+    verdict: "## \u6539\u52a8\u6e05\u5355\n- B",
   };
   assert.equal(contextPresentation([a, b]), b.verdict);
   assert.equal(
-    contextPresentation([{ ...b, question: "执行前提是否具备" }]),
+    contextPresentation([{ ...b, question: "\u6267\u884c\u524d\u63d0\u662f\u5426\u5177\u5907" }]),
     null,
   );
   assert.equal(contextPresentation([]), null);
@@ -120,21 +120,21 @@ test("Markdown task links recognize local task routes while leaving external URL
 
 test("live age reads as a relative time and unknown stays silent", () => {
   assert.equal(liveAge(null), null);
-  assert.equal(liveAge(30), "刚刚有活动");
-  assert.equal(liveAge(180), "最后活动 3 分钟前");
-  assert.equal(liveAge(7200), "最后活动 2 小时前");
-  assert.equal(liveAge(3 * 86400 + 5), "最后活动 3 天前");
+  assert.equal(liveAge(30), "Active just now");
+  assert.equal(liveAge(180), "Last active 3 minutes ago");
+  assert.equal(liveAge(7200), "Last active 2 hours ago");
+  assert.equal(liveAge(3 * 86400 + 5), "Last active 3 days ago");
 });
 
 test("plain line-separated context renders as a bullet list with bold labels", () => {
   assert.equal(
-    contextMarkdown("用户 2026-09-17:跑一个 Evals\n\n背景:官方已确认\n见 https://x.io 说明"),
-    "- **用户 2026-09-17**:跑一个 Evals\n- **背景**:官方已确认\n- 见 https://x.io 说明",
+    contextMarkdown("\u7528\u6237 2026-09-17:\u8dd1\u4e00\u4e2a Evals\n\n\u80cc\u666f:\u5b98\u65b9\u5df2\u786e\u8ba4\n\u89c1 https://x.io \u8bf4\u660e"),
+    "- **\u7528\u6237 2026-09-17**:\u8dd1\u4e00\u4e2a Evals\n- **\u80cc\u666f**:\u5b98\u65b9\u5df2\u786e\u8ba4\n- \u89c1 https://x.io \u8bf4\u660e",
   );
 });
 test("context that is already Markdown or a single line stays unchanged", () => {
-  assert.equal(contextMarkdown("## 目标\n做完"), "## 目标\n做完");
+  assert.equal(contextMarkdown("## \u76ee\u6807\n\u505a\u5b8c"), "## \u76ee\u6807\n\u505a\u5b8c");
   assert.equal(contextMarkdown("- a\n- b"), "- a\n- b");
-  assert.equal(contextMarkdown("一句话来由"), "一句话来由");
-  assert.equal(contextMarkdown("https://x.io\n第二行"), "- https://x.io\n- 第二行");
+  assert.equal(contextMarkdown("\u4e00\u53e5\u8bdd\u6765\u7531"), "\u4e00\u53e5\u8bdd\u6765\u7531");
+  assert.equal(contextMarkdown("https://x.io\n\u7b2c\u4e8c\u884c"), "- https://x.io\n- \u7b2c\u4e8c\u884c");
 });

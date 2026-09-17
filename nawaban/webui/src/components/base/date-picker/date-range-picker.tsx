@@ -26,6 +26,7 @@ import {
   triggerButtonClassName,
 } from "@/components/base/date-picker/shared";
 import { cx } from "@/utils/cx";
+import { t, useLocale } from "@/i18n";
 
 export interface DateRangeValue {
   start: CalendarDate;
@@ -44,21 +45,22 @@ export interface DateRangePickerProps {
 }
 
 function useQuickSelectPresets() {
+  const locale = useLocale();
   return useMemo(() => {
     const now = today(getLocalTimeZone());
     const lastMonth = now.subtract({ months: 1 });
     const lastYear = now.subtract({ years: 1 });
     return [
-      { label: "Today", range: { start: now, end: now } },
-      { label: "Yesterday", range: { start: now.subtract({ days: 1 }), end: now.subtract({ days: 1 }) } },
-      { label: "Last week", range: { start: now.subtract({ days: 7 }), end: now.subtract({ days: 1 }) } },
-      { label: "This month", range: { start: startOfMonth(now), end: endOfMonth(now) } },
-      { label: "Last month", range: { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) } },
-      { label: "This year", range: { start: startOfYear(now), end: endOfYear(now) } },
-      { label: "Last year", range: { start: startOfYear(lastYear), end: endOfYear(lastYear) } },
-      { label: "All time", range: { start: now.subtract({ years: 10 }), end: now } },
+      { id: "today", label: t("today"), range: { start: now, end: now } },
+      { id: "yesterday", label: t("yesterday"), range: { start: now.subtract({ days: 1 }), end: now.subtract({ days: 1 }) } },
+      { id: "lastWeek", label: t("lastWeek"), range: { start: now.subtract({ days: 7 }), end: now.subtract({ days: 1 }) } },
+      { id: "thisMonth", label: t("thisMonth"), range: { start: startOfMonth(now), end: endOfMonth(now) } },
+      { id: "lastMonth", label: t("lastMonth"), range: { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) } },
+      { id: "thisYear", label: t("thisYear"), range: { start: startOfYear(now), end: endOfYear(now) } },
+      { id: "lastYear", label: t("lastYear"), range: { start: startOfYear(lastYear), end: endOfYear(lastYear) } },
+      { id: "allTime", label: t("allTime"), range: { start: now.subtract({ years: 10 }), end: now } },
     ];
-  }, []);
+  }, [locale]);
 }
 
 function isPresetActive(value: DateRangeValue | null, range: DateRangeValue) {
@@ -78,7 +80,7 @@ function QuickSelect({
     <div className="flex w-auto shrink-0 flex-wrap gap-1.5 sm:w-[118px] sm:flex-col">
       {presets.map((preset) => (
         <BaseButton
-          key={preset.label}
+          key={preset.id}
           type="button"
           onClick={() => onSelect(preset.range)}
           className={cx(
@@ -106,6 +108,7 @@ function Footer({
   onCancel: () => void;
   onApply: () => void;
 }) {
+  useLocale();
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 pt-3 pr-4">
       <div className="flex flex-wrap items-center gap-2.5">
@@ -122,7 +125,7 @@ function Footer({
               <div className="flex items-center gap-[5px]">
                 <DateChipInput
                   date={value.start}
-                  label="Start date"
+                  label={t("startDate")}
                   onCommit={(start) =>
                     onChange({ start, end: start.compare(value.end) > 0 ? start : value.end })
                   }
@@ -130,14 +133,14 @@ function Footer({
                 <span className="text-body-medium text-text-secondary">-</span>
                 <DateChipInput
                   date={value.end}
-                  label="End date"
+                  label={t("endDate")}
                   onCommit={(end) =>
                     onChange({ start: end.compare(value.start) < 0 ? end : value.start, end })
                   }
                 />
               </div>
               <span className="rounded-xl bg-background-tertiary-default px-2 py-2 text-body-medium text-text-secondary">
-                {daysInRange(value)} day{daysInRange(value) === 1 ? "" : "s"} selected
+                {t(daysInRange(value) === 1 ? "selectedDay" : "selectedDays", { count: daysInRange(value) })}
               </span>
             </motion.div>
           )}
@@ -145,10 +148,10 @@ function Footer({
       </div>
       <div className="flex flex-wrap items-center gap-2.5">
         <Button variant="secondary" onClick={onCancel}>
-          Cancel
+          {t("cancel")}
         </Button>
         <Button onClick={onApply} disabled={!value}>
-          Apply
+          {t("apply")}
         </Button>
       </div>
     </div>
@@ -197,24 +200,27 @@ function RangeEditor({ value, label, onApply, onCancel }: {
 }
 
 export function DateRangePicker({ value, defaultValue = null, onChange, isDisabled, className,
-  "aria-label": ariaLabel = "Date range", placeholder = "Select date range",
+  "aria-label": ariaLabel, placeholder,
 }: DateRangePickerProps) {
+  useLocale();
+  const label = ariaLabel ?? t("dateRange");
+  const displayPlaceholder = placeholder ?? t("selectDateRange");
   const [internalValue, setInternalValue] = useState(defaultValue);
   const committedValue = value !== undefined ? value : internalValue;
   const [isOpen, setIsOpen] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
   return (
     <Popover.Root open={isOpen} onOpenChange={setIsOpen} modal={false}>
-      <Popover.Trigger disabled={isDisabled} aria-label={ariaLabel} className={cx(triggerButtonClassName, className)}>
+      <Popover.Trigger disabled={isDisabled} aria-label={label} className={cx(triggerButtonClassName, className)}>
         <RiCalendarLine className="size-5 shrink-0 text-foreground-icon-primary" aria-hidden />
         <span className="flex items-center justify-center whitespace-nowrap px-1 text-body-medium text-text-primary">
-          {committedValue ? `${formatTriggerDate(committedValue.start)} - ${formatTriggerDate(committedValue.end)}` : placeholder}
+          {committedValue ? `${formatTriggerDate(committedValue.start)} - ${formatTriggerDate(committedValue.end)}` : displayPlaceholder}
         </span>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner sideOffset={4} align="end" className="bui-popup-layer">
-          <Popover.Popup ref={popupRef} initialFocus={() => popupRef.current?.querySelector<HTMLElement>('[role="grid"] button[tabindex="0"]') ?? true} aria-label={ariaLabel} className={popoverClassName}>
-            <RangeEditor key={String(isOpen)} value={committedValue} label={ariaLabel}
+          <Popover.Popup ref={popupRef} initialFocus={() => popupRef.current?.querySelector<HTMLElement>('[role="grid"] button[tabindex="0"]') ?? true} aria-label={label} className={popoverClassName}>
+            <RangeEditor key={String(isOpen)} value={committedValue} label={label}
               onCancel={() => setIsOpen(false)} onApply={(next) => {
                 if (value === undefined) setInternalValue(next);
                 onChange?.(next);

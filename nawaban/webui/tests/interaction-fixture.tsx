@@ -15,7 +15,7 @@ function Fixture() {
   return <main className="mx-auto flex max-w-3xl flex-col gap-4 p-8">
     <h1 className="text-title-1-medium">Interaction verification</h1>
     <Button onClick={() => setOpen(true)}>Dialog</Button>
-    <Button onClick={() => notice("保存成功", "success", "独立交互测试")}>Notification</Button>
+    <Button onClick={() => notice("\u4fdd\u5b58\u6210\u529f", "success", "\u72ec\u7acb\u4ea4\u4e92\u6d4b\u8bd5")}>Notification</Button>
     <Checkbox>Checkbox</Checkbox>
     <RadioGroup aria-label="Decision" defaultValue="first"><Radio value="first">First</Radio><Radio value="second">Second</Radio></RadioGroup>
     <Textarea label="Notes" placeholder="Enter a note" />

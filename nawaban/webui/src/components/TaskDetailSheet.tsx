@@ -1,3 +1,4 @@
+import { t as tr, statusLabel, useLocale } from "@/i18n";
 import { useEffect, useMemo, useState } from "react";
 import {
   RiCheckLine as Check,
@@ -24,7 +25,7 @@ import type {
   TaskLetter,
   TaskSession,
 } from "@/lib/types";
-import { WAIT, STAGES, scopePaths, textItems } from "@/lib/nawaban-model";
+import { WAIT, scopePaths, textItems } from "@/lib/nawaban-model";
 import { cn } from "@/lib/utils";
 
 // Detail typography is defined in styles/nawaban-typography.css.
@@ -32,15 +33,16 @@ const FOLD = 3; // Visible relation count; activity defaults to five entries.
 
 function rel(ts: number) {
   const s = Math.max(0, Date.now() / 1000 - ts);
-  if (s < 60) return "刚刚";
-  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
-  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
-  return `${Math.floor(s / 86400)} 天前`;
+  if (s < 60) return tr("justNow");
+  if (s < 3600) return tr("minutesAgo", { count: Math.floor(s / 60) });
+  if (s < 86400) return tr("hoursAgo", { count: Math.floor(s / 3600) });
+  return tr("daysAgo", { count: Math.floor(s / 86400) });
 }
 
 const isUrl = (v: string) => /^https?:\/\/\S+$/.test(v.trim());
 
 function CopyBtn({ text, label }: { text: string; label?: string }) {
+  useLocale();
   const [ok, setOk] = useState(false);
   const notice = useNotice();
   return (
@@ -53,9 +55,9 @@ function CopyBtn({ text, label }: { text: string; label?: string }) {
             setOk(true);
             setTimeout(() => setOk(false), 1200);
           })
-          .catch(() => notice("复制失败，请手动选择文本", "error"));
+          .catch(() => notice(tr("copyFailed"), "error"));
       }}
-      title={`复制 ${text}`}
+      title={tr("copyText", { text })}
       type="button"
     >
       {ok ? <Check className="size-3" /> : <Copy className="size-3" />}
@@ -71,6 +73,7 @@ function IdLink({
   id: string;
   onSelect: (id: string) => void;
 }) {
+  useLocale();
   return (
     <LinkButton
       className="detail-code-link"
@@ -91,6 +94,7 @@ function Fold<T>({
   n: number;
   render: (x: T, i: number) => React.ReactNode;
 }) {
+  useLocale();
   const [all, setAll] = useState(false);
   const shown = all ? items : items.slice(0, n);
   return (
@@ -102,7 +106,7 @@ function Fold<T>({
           onClick={() => setAll((v) => !v)}
           type="button"
         >
-          {all ? "收起" : `还有 ${items.length - n} 条`}
+          {all ? tr("collapse") : tr("moreItems", { count: items.length - n })}
         </LinkButton>
       )}
     </>
@@ -111,6 +115,7 @@ function Fold<T>({
 
 // Collapse long activity prose to three lines until expanded.
 function Clamp({ text }: { text: string }) {
+  useLocale();
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -120,13 +125,14 @@ function Clamp({ text }: { text: string }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        {open ? "收起" : "展开全文"}
+        {open ? tr("collapse") : tr("expandFullText")}
       </LinkButton>
     </div>
   );
 }
 
 function H({ children, n }: { children: React.ReactNode; n?: number }) {
+  useLocale();
   return (
     <h3 className="detail-section-title mb-3 flex items-center gap-2">
       {children}
@@ -136,6 +142,7 @@ function H({ children, n }: { children: React.ReactNode; n?: number }) {
 }
 
 function Bullets({ items }: { items: string[] }) {
+  useLocale();
   return (
     <ul className="detail-list list-disc pl-5">
       {items.map((s, i) => (
@@ -170,6 +177,7 @@ function timeline(d: TaskDetail): Tick[] {
 }
 
 function Timeline({ d }: { d: TaskDetail }) {
+  useLocale();
   const ticks = useMemo(() => timeline(d), [d]);
   return (
     <div className="flex flex-col gap-3">
@@ -184,8 +192,8 @@ function Timeline({ d }: { d: TaskDetail }) {
                   <span className="detail-meta">{k.s.owner}</span>{" "}
                   <span className="text-text-secondary">
                     {k.phase === "start"
-                      ? "开工"
-                      : `收尾 · ${k.s.outcome ?? "?"}`}{" "}
+                      ? tr("start")
+                      : tr("wrapupOutcome", { outcome: k.s.outcome ?? "?" })}{" "}
                     · {rel(k.t)}
                   </span>
                 </p>
@@ -202,10 +210,10 @@ function Timeline({ d }: { d: TaskDetail }) {
           ) : k.kind === "letter" ? (
             <div className="detail-meta" key={i}>
               <div className="min-w-0">
-                <span>信</span>{" "}
+                <span>{tr("notifications")}</span>{" "}
                 <span className="detail-meta">{k.l.kind}</span>
                 {!k.l.read_at && (
-                  <span className="ml-1 text-status-yellow-text">未读</span>
+                  <span className="ml-1 text-status-yellow-text">{tr("unread")}</span>
                 )}{" "}
                 · {rel(k.t)}
                 <Clamp text={k.l.msg} />
@@ -239,23 +247,25 @@ function Attr({
   mono?: boolean;
   empty?: string;
 }) {
+  useLocale();
   const isEmpty = value == null || value === "";
   return (
     <SettingsRow label={label}>
       <SettingsValueField className={cn("detail-value", mono && "detail-mono")}>
-        {isEmpty ? (empty ?? `无 ${label}`) : value}
+        {isEmpty ? (empty ?? tr("noValue", { label })) : value}
       </SettingsValueField>
     </SettingsRow>
   );
 }
 
 function ResumeBlock({ s }: { s: TaskSession }) {
+  useLocale();
   return (
     <div className="detail-resume flex items-center justify-between gap-2">
       <span className="flex min-w-0 items-center gap-1.5 detail-meta">
         <TerminalSquare className="size-3.5 shrink-0" />
         <span className="truncate">
-          {s.owner} · {s.outcome ?? "进行中"}
+          {s.owner} · {s.outcome ?? tr("inProgress")}
         </span>
       </span>
       <CopyBtn label="resume" text={`claude --resume ${s.session_id}`} />
@@ -270,6 +280,7 @@ function Ids({
   ids: string[];
   onSelect: (id: string) => void;
 }) {
+  useLocale();
   return (
     <span className="flex flex-wrap gap-1">
       {ids.map((id) => (
@@ -290,6 +301,7 @@ export function TaskDetailSheet({
   onSelectTask: (taskId: string) => void;
   onBack?: () => void;
 }) {
+  useLocale();
   const [d, setD] = useState<TaskDetail | null>(null);
   const [kin, setKin] = useState<KinResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -321,9 +333,9 @@ export function TaskDetailSheet({
   const shortRefs = d?.refs.filter((r) => r.kind !== "acceptance_run") ?? [];
   const times = d
     ? [
-        `创建 ${rel(d.created_at)}`,
-        d.started_at && `开工 ${rel(d.started_at)}`,
-        d.completed_at && `完成 ${rel(d.completed_at)}`,
+        tr("createdAt", { time: rel(d.created_at) }),
+        d.started_at && tr("startedAt", { time: rel(d.started_at) }),
+        d.completed_at && tr("completedAt", { time: rel(d.completed_at) }),
       ]
         .filter(Boolean)
         .join(" · ")
@@ -333,7 +345,7 @@ export function TaskDetailSheet({
     <NawabanDialog
       open={taskId != null}
       onClose={() => onOpenChange(false)}
-      title={`任务详情 ${taskId ?? ""}`}
+      title={tr("taskDetails", { id: taskId ?? "" })}
       wide
       header={
         <div className="detail-breadcrumb">
@@ -343,18 +355,16 @@ export function TaskDetailSheet({
               size="xs"
               leadingIcon={RiArrowLeftLine}
               onClick={onBack}
-            >
-              返回
-            </Button>
+            >{tr("back")}</Button>
           )}
-          <span>{d?.epic ?? "任务"} / </span>
+          <span>{d?.epic ?? tr("task")} / </span>
           <code>{taskId}</code>
           {taskId && <CopyBtn text={taskId} />}
         </div>
       }
     >
       {error && <LoadState error>{error}</LoadState>}
-      {!d && !error && <LoadState>正在读取任务…</LoadState>}
+      {!d && !error && <LoadState>{tr("loadingTasks")}</LoadState>}
       {d && (
         <div className="detail-scroll">
           <div className="detail-grid">
@@ -363,7 +373,7 @@ export function TaskDetailSheet({
                 <h2 className="detail-task-title">{d.title}</h2>
                 {d.now && (
                   <SettingsCard className="detail-now">
-                    <span className="detail-subheading">当前进展</span>
+                    <span className="detail-subheading">{tr("currentProgress")}</span>
                     <Md text={d.now} />
                   </SettingsCard>
                 )}
@@ -371,7 +381,7 @@ export function TaskDetailSheet({
 
               {d.context && d.context !== d.now && (
                 <section>
-                  <H>来由</H>
+                  <H>{tr("context")}</H>
                   <TaskContext
                     key={d.id}
                     context={d.context}
@@ -385,13 +395,13 @@ export function TaskDetailSheet({
                 <section className="grid gap-6 md:grid-cols-2">
                   {success.length > 0 && (
                     <div>
-                      <H n={success.length}>成功判据</H>
+                      <H n={success.length}>{tr("criteria")}</H>
                       <Bullets items={success} />
                     </div>
                   )}
                   {constraints.length > 0 && (
                     <div>
-                      <H n={constraints.length}>约束</H>
+                      <H n={constraints.length}>{tr("constraints")}</H>
                       <Bullets items={constraints} />
                     </div>
                   )}
@@ -400,9 +410,9 @@ export function TaskDetailSheet({
 
               {kin && kin.blocked_by.length > 0 && (
                 <section>
-                  <H n={kin.blocked_by.length}>被挡</H>
+                  <H n={kin.blocked_by.length}>{tr("blockedBy")}</H>
                   <p className="mb-2 detail-meta">
-                    真正卡在{" "}
+                    {tr("stuckAt")}
                     <IdLink id={kin.stuck_at!} onSelect={onSelectTask} />
                   </p>
                   <div className="flex flex-col divide-y">
@@ -423,7 +433,7 @@ export function TaskDetailSheet({
 
               {kin && kin.unblocks.length > 0 && (
                 <section>
-                  <H n={kin.unblocks.length}>放开</H>
+                  <H n={kin.unblocks.length}>{tr("unblocks")}</H>
                   <div className="flex flex-col divide-y">
                     {kin.unblocks.map((t) => (
                       <div className="py-2 detail-body" key={t.id}>
@@ -432,7 +442,7 @@ export function TaskDetailSheet({
                         <p className="mt-1 detail-body">{t.title}</p>
                         {t.others_waiting > 0 && (
                           <p className="detail-meta">
-                            另有 {t.others_waiting} 张还在等别人
+                            {tr("othersWaiting", { count: t.others_waiting })}
                           </p>
                         )}
                       </div>
@@ -443,7 +453,7 @@ export function TaskDetailSheet({
 
               {d.decisions.length > 0 && (
                 <section>
-                  <H n={d.decisions.length}>决策</H>
+                  <H n={d.decisions.length}>{tr("decisions")}</H>
                   <div className="flex flex-col divide-y">
                     {d.decisions.map((x) => {
                       const rej = Array.isArray(x.rejected)
@@ -464,9 +474,7 @@ export function TaskDetailSheet({
                           {rej.length > 0 && (
                             <ul className="mt-1 list-disc pl-4 detail-meta">
                               {rej.map((r, i) => (
-                                <li key={i}>
-                                  否:
-                                  <Md inline text={r} />
+                                <li key={i}>{tr("rejected")}<Md inline text={r} />
                                 </li>
                               ))}
                             </ul>
@@ -483,7 +491,7 @@ export function TaskDetailSheet({
 
               {acceptance.length > 0 && (
                 <section>
-                  <H n={acceptance.length}>验收证据</H>
+                  <H n={acceptance.length}>{tr("evidence")}</H>
                   <div className="flex flex-col gap-3">
                     <Fold
                       items={acceptance}
@@ -517,7 +525,7 @@ export function TaskDetailSheet({
               )}
 
               <section>
-                <H n={timeline(d).length}>活动</H>
+                <H n={timeline(d).length}>{tr("activity")}</H>
                 <Timeline d={d} />
               </section>
             </main>
@@ -525,15 +533,15 @@ export function TaskDetailSheet({
             <aside className="detail-properties-rail">
               {d.sessions[0] && <ResumeBlock s={d.sessions[0]} />}
               <SettingsCard className="detail-attribute-group">
-                <p className="attribute-heading">属性</p>
+                <p className="attribute-heading">{tr("properties")}</p>
                 <Attr
-                  label="阶段"
+                  label={tr("stageLabel")}
                   value={
-                    STAGES.find((s) => s.id === d.status)?.label ?? d.status
+                    statusLabel(d.status)
                   }
                 />
                 <Attr
-                  label="等"
+                  label={tr("waitingOn")}
                   value={
                     d.waiting_on ? (
                       <span className="text-status-yellow-text">
@@ -541,43 +549,43 @@ export function TaskDetailSheet({
                       </span>
                     ) : null
                   }
-                  empty="不等谁"
+                  empty={tr("notWaiting")}
                 />
-                <Attr label="负责人" mono value={d.owner} empty="未认领" />
-                <Attr label="模块" value={d.epic} />
-                <Attr label="决策文档" mono value={d.adr} />
-                <Attr label="时间" value={times} />
+                <Attr label={tr("owner")} mono value={d.owner} empty={tr("noOwner")} />
+                <Attr label={tr("epic")} value={d.epic} />
+                <Attr label={tr("decisionDocument")} mono value={d.adr} />
+                <Attr label={tr("time")} value={times} />
               </SettingsCard>
               <SettingsCard className="detail-attribute-group detail-long-attributes">
-                <p className="attribute-heading">关系</p>
+                <p className="attribute-heading">{tr("relationships")}</p>
                 {L?.split_from && (
                   <Attr
-                    label="拆自"
+                    label={tr("splitFrom")}
                     value={<IdLink id={L.split_from} onSelect={onSelectTask} />}
                   />
                 )}
                 {L && L.split_out.length > 0 && (
                   <Attr
-                    label="拆出"
+                    label={tr("splitOut")}
                     value={<Ids ids={L.split_out} onSelect={onSelectTask} />}
                   />
                 )}
                 {L && L.supersedes.length > 0 && (
                   <Attr
-                    label="替代了"
+                    label={tr("supersedes")}
                     value={<Ids ids={L.supersedes} onSelect={onSelectTask} />}
                   />
                 )}
                 {L && L.superseded_by.length > 0 && (
                   <Attr
-                    label="被替代"
+                    label={tr("supersededBy")}
                     value={
                       <Ids ids={L.superseded_by} onSelect={onSelectTask} />
                     }
                   />
                 )}
                 <Attr
-                  label="修改范围"
+                  label={tr("scope")}
                   mono
                   value={
                     files.length ? (
@@ -590,7 +598,7 @@ export function TaskDetailSheet({
                   }
                 />
                 <Attr
-                  label="引用"
+                  label={tr("reference")}
                   value={
                     shortRefs.length ? (
                       <span className="detail-reference-list">

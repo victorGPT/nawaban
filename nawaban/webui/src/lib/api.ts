@@ -1,3 +1,4 @@
+import { t as tr } from "../i18n/index.ts";
 import type {
   AnswerResponse,
   BoardResponse,
@@ -60,12 +61,12 @@ export async function postAnswer(
     });
     body = (await r.json()) as AnswerResponse;
   } catch {
-    throw new AnswerError("处理结果未知，请先刷新核对，不要重复提交。", true);
+    throw new AnswerError(tr("unknownAnswer"), true);
   }
   if (!r.ok || !body.ok)
     throw new AnswerError(
       body.unknown
-        ? "处理结果未知，请先刷新核对，不要重复提交。"
+        ? tr("unknownAnswer")
         : body.out || `HTTP ${r.status}`,
       body.unknown === true,
     );

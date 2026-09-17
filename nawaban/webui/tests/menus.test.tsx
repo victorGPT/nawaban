@@ -145,12 +145,12 @@ test("project switcher offers all projects first and commits the chosen project"
   const user = userEvent.setup();
   const changed = vi.fn();
   render(<ModuleSelect modules={["example-project", "nawaban"]} value="all" onValueChange={changed}
-    allLabel="全部项目" ariaLabel="切换项目" />);
-  const trigger = screen.getByRole("combobox", { name: "切换项目" });
-  expect(trigger.textContent).toContain("全部项目");
+    allLabel={"\u5168\u90e8\u9879\u76ee"} ariaLabel={"\u5207\u6362\u9879\u76ee"} />);
+  const trigger = screen.getByRole("combobox", { name: "\u5207\u6362\u9879\u76ee" });
+  expect(trigger.textContent).toContain("\u5168\u90e8\u9879\u76ee");
   await user.click(trigger);
   await screen.findByRole("listbox");
-  expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["全部项目", "example-project", "nawaban"]);
+  expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["\u5168\u90e8\u9879\u76ee", "example-project", "nawaban"]);
   await user.click(screen.getByRole("option", { name: "nawaban" }));
   expect(changed).toHaveBeenCalledWith("nawaban");
 });

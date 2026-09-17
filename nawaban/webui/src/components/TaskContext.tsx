@@ -1,3 +1,4 @@
+import { t as tr, useLocale } from "@/i18n";
 import { useState } from "react";
 import { Md } from "@/components/Md";
 import { LinkButton } from "@/components/base/buttons/link-button";
@@ -13,6 +14,7 @@ export function TaskContext({
   decisions: TaskDecision[];
   onSelectTask: (id: string) => void;
 }) {
+  useLocale();
   const [showOriginal, setShowOriginal] = useState(false);
   const formatted = contextPresentation(decisions);
   return (
@@ -32,7 +34,7 @@ export function TaskContext({
             aria-expanded={showOriginal}
             onClick={() => setShowOriginal(!showOriginal)}
           >
-            {showOriginal ? "收起原文" : "查看原文"}
+            {showOriginal ? tr("collapseOriginal") : tr("viewOriginal")}
           </LinkButton>
           {showOriginal && (
             <div className="context-original">

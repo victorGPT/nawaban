@@ -1,3 +1,4 @@
+import { t as tr, useLocale } from "@/i18n";
 import { Select } from "@base-ui/react/select";
 import {
   MENU_ITEM,
@@ -14,9 +15,10 @@ export function ModuleSelect({
   modules,
   value,
   onValueChange,
-  allLabel = "全部模块",
-  ariaLabel = "筛选工作模块",
+  allLabel = tr("allEpics"),
+  ariaLabel = tr("filterEpic"),
   className,
+  getLabel = (value: string) => value,
 }: {
   modules: string[];
   value: string;
@@ -24,10 +26,12 @@ export function ModuleSelect({
   allLabel?: string;
   ariaLabel?: string;
   className?: string;
+  getLabel?: (value: string) => string;
 }) {
+  useLocale();
   const items = [
     { value: "all", label: allLabel },
-    ...modules.map((module) => ({ value: module, label: module })),
+    ...modules.map((module) => ({ value: module, label: getLabel(module) })),
   ];
 
   return (

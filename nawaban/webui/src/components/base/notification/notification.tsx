@@ -1,5 +1,7 @@
 "use client";
 
+import { t as tr, useLocale } from "@/i18n";
+
 import type {
   ComponentType,
   HTMLAttributes,
@@ -186,7 +188,7 @@ export function Notification({
   avatar,
   actions,
   dismissible = true,
-  closeLabel = "Dismiss notification",
+  closeLabel = tr("closeNotice"),
   onDismiss,
   autoDismissDuration,
   introDelay,
@@ -195,6 +197,7 @@ export function Notification({
   role,
   ...props
 }: NotificationProps) {
+  useLocale();
   const [dismissed, setDismissed] = useState(false);
   const Icon = icon ?? STATUS_ICON[status];
   const hasIntro = introDelay !== undefined;
@@ -314,9 +317,10 @@ export function NotificationViewport({
   position,
   placement,
   className,
-  "aria-label": ariaLabel = "Notifications",
+  "aria-label": ariaLabel = tr("noticeRegion"),
   ...props
 }: NotificationViewportProps) {
+  useLocale();
   const resolvedPosition = position ?? placement ?? "bottom-right";
   const mounted = useSyncExternalStore(
     subscribeToHydration,

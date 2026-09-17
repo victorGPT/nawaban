@@ -1,5 +1,7 @@
 "use client";
 
+import { t as tr, useLocale } from "@/i18n";
+
 import { Children, createContext, isValidElement, useContext } from "react";
 import type { HTMLAttributes, Key, ReactNode, Ref } from "react";
 import { Select as BaseSelect } from "@base-ui/react/select";
@@ -39,7 +41,8 @@ export interface SelectProps<T extends object> extends Omit<HTMLAttributes<HTMLD
   ref?: Ref<HTMLDivElement>;
 }
 
-export function Select<T extends object>({ className, triggerClassName, popoverClassName, size = "md", children, items, renderValue, ref, selectedKey, defaultSelectedKey, onSelectionChange, disabledKeys, isDisabled, isRequired, isInvalid, isOpen, defaultOpen, onOpenChange, name, placeholder = "Select an item", "aria-label": ariaLabel, "aria-labelledby": ariaLabelledBy, "aria-describedby": ariaDescribedBy, ...props }: SelectProps<T>) {
+export function Select<T extends object>({ className, triggerClassName, popoverClassName, size = "md", children, items, renderValue, ref, selectedKey, defaultSelectedKey, onSelectionChange, disabledKeys, isDisabled, isRequired, isInvalid, isOpen, defaultOpen, onOpenChange, name, placeholder = tr("selectItem"), "aria-label": ariaLabel, "aria-labelledby": ariaLabelledBy, "aria-describedby": ariaDescribedBy, ...props }: SelectProps<T>) {
+  useLocale();
   const options = Children.toArray(children).filter(isValidElement<SelectItemProps>).map((child) => ({ value: child.props.id, label: child.props.children ?? child.props.textValue }));
   const disabledSet = new Set(disabledKeys);
   return (

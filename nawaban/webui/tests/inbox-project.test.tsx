@@ -50,14 +50,14 @@ test.each(["response", "error"])("an old project's late %s cannot replace the cu
 test("switching projects immediately removes the old answer controls and dialog", async () => {
   vi.mocked(fetchInbox).mockResolvedValueOnce(inbox(1)).mockReturnValueOnce(new Promise(() => {}));
   const { rerender } = render(view("A"));
-  await screen.findByRole("button", { name: "收下" });
-  fireEvent.click(screen.getByRole("button", { name: "打回" }));
+  await screen.findByRole("button", { name: "\u6536\u4e0b" });
+  fireEvent.click(screen.getByRole("button", { name: "\u6253\u56de" }));
   expect(screen.getByRole("dialog")).toBeTruthy();
   rerender(view("B"));
-  expect(screen.queryByRole("button", { name: "收下" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "\u6536\u4e0b" })).toBeNull();
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.queryAllByText("Ask 1")).toHaveLength(0);
-  expect(screen.getByText("正在读取收件箱…")).toBeTruthy();
+  expect(screen.getByText("\u6b63\u5728\u8bfb\u53d6\u6536\u4ef6\u7bb1…")).toBeTruthy();
 });
 
 test("an answer finishing after a project switch cannot refresh the old project", async () => {
@@ -65,8 +65,8 @@ test("an answer finishing after a project switch cannot refresh the old project"
   vi.mocked(fetchInbox).mockResolvedValueOnce(inbox(1)).mockResolvedValueOnce(inbox(2));
   vi.mocked(postAnswer).mockReturnValueOnce(answer.promise);
   const { rerender } = render(view("A"));
-  fireEvent.click(await screen.findByRole("button", { name: "收下" }));
-  expect(postAnswer).toHaveBeenCalledWith(1, "验收通过(收件箱一键)", false);
+  fireEvent.click(await screen.findByRole("button", { name: "\u6536\u4e0b" }));
+  expect(postAnswer).toHaveBeenCalledWith(1, "\u9a8c\u6536\u901a\u8fc7(\u6536\u4ef6\u7bb1\u4e00\u952e)", false);
   rerender(view("B"));
   await screen.findAllByText("Ask 2");
   await act(async () => answer.resolve({ ok: true, out: "" }));
@@ -80,14 +80,14 @@ test("overlapping answer refreshes only apply the newest response", async () => 
     .mockReturnValueOnce(oldRefresh.promise).mockReturnValueOnce(newRefresh.promise);
   vi.mocked(postAnswer).mockResolvedValue({ ok: true, out: "" });
   render(view("A"));
-  const firstAnswer = await screen.findByRole("button", { name: "收下" });
+  const firstAnswer = await screen.findByRole("button", { name: "\u6536\u4e0b" });
   await act(async () => fireEvent.click(firstAnswer));
   fireEvent.click(screen.getByRole("button", { name: /Ask 2/ }));
-  await act(async () => fireEvent.click(screen.getByRole("button", { name: "收下" })));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "\u6536\u4e0b" })));
   expect(fetchInbox).toHaveBeenCalledTimes(3);
   await act(async () => newRefresh.resolve(inbox()));
-  expect(screen.queryByRole("button", { name: "收下" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "\u6536\u4e0b" })).toBeNull();
   await act(async () => oldRefresh.resolve(inbox(2)));
-  expect(screen.queryByRole("button", { name: "收下" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "\u6536\u4e0b" })).toBeNull();
   expect(screen.queryAllByText("Ask 2")).toHaveLength(0);
 });

@@ -2,7 +2,7 @@
 
 ## Current authority and scope
 
-The delivery is rebased onto nawaban main `70a73c3d25b25ce3c088b8e47f80aeda59f8331d` (PR #11). `tasks.context`, `create --context`, and the canonical `deps`, `transition`, `notify`, `notifications`, and `notify-read` verbs are authoritative. Old CLI flags/verbs remain compatibility aliases; task APIs and persisted schema use `context`. The older source runtime is no longer a compatible writer for the migrated live database and was not used to write it during this revision.
+The delivery is rebased onto nawaban main `2fa8aacf3631037bb2e45af8473c54f6b0297759` (PR #12), retaining PR #11's context and command contracts. `tasks.context`, `create --context`, and the canonical `deps`, `transition`, `notify`, `notifications`, and `notify-read` verbs are authoritative. Old CLI flags/verbs remain compatibility aliases; task APIs and persisted schema use `context`. The older source runtime is no longer a compatible writer for the migrated live database and was not used to write it during this revision.
 
 The original feature sync used reference revision `e498cfe23563f70b4d35daa0656c78033449cf62`: project attribution/filtering, current board and module network, inbox policy, task-content validation, runtime helpers, and bundled skills. Project selection filters one shared database. NAWABAN settings retain precedence over supported WORKOS compatibility inputs.
 

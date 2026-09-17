@@ -1,3 +1,4 @@
+import { t as tr, useLocale } from "@/i18n";
 import type { ReactNode } from "react";
 import { Button } from "@/components/base/buttons/button";
 import { Chip, type ChipProps } from "@/components/base/badges/chip";
@@ -18,6 +19,7 @@ export function WindowStatus({
   hasAsk: boolean;
   onDecision?: () => void;
 }) {
+  useLocale();
   const signal = taskSignal(task, hasAsk);
   const age = signal.kind === "decision" ? null : liveAge(task.live?.age_s);
   const dot = (
@@ -61,6 +63,7 @@ export function TaskTag({ label, color = "soft" }: {
   label: string;
   color?: ChipProps["color"];
 }) {
+  useLocale();
   return (
     <Chip className="task-tag" color={color} variant="caption">
       <OverflowText className="task-tag-label" text={label} />
@@ -76,14 +79,15 @@ export function TaskCard({ task, hasAsk, onSelect, onDecision, className, childr
   className?: string;
   children?: ReactNode;
 }) {
+  useLocale();
   return (
     <div data-card-id={task.id}>
       <Surface className={cx("task-card", className)}>
         <ContentButton className="task-card-open" onClick={onSelect}
-          aria-label={`查看 ${task.id} ${task.title}`}>
+          aria-label={tr("viewTask", { id: task.id, title: task.title })}>
           <span className="task-meta">
             <OverflowText as="code" text={task.id} />
-            <TaskTag label={task.epic || "未分组"} />
+            <TaskTag label={task.epic || tr("ungrouped")} />
           </span>
           <OverflowText className="task-title text-body-regular" text={task.title} />
         </ContentButton>
@@ -95,30 +99,21 @@ export function TaskCard({ task, hasAsk, onSelect, onDecision, className, childr
 }
 
 export function StatusLegend({ available }: { available?: boolean }) {
+  useLocale();
   return (
-      <div className="status-legend text-body-regular" aria-label="状态图例">
-        <span className="text-text-primary">卡片右上角的灯：</span>
+      <div className="status-legend text-body-regular" aria-label={tr("statusLegend")}>
+        <span className="text-text-primary">{tr("cardSignalLegend")}</span>
         <span>
-          <StatusDot color="green" />
-          正在工作
-        </span>
+          <StatusDot color="green" />{tr("workingSignal")}</span>
         <span>
-          <StatusDot className="signal-idle" />
-          窗口空闲
-        </span>
+          <StatusDot className="signal-idle" />{tr("idleSignal")}</span>
         <span>
-          <StatusDot className="signal-unresponsive" />
-          窗口无响应
-        </span>
+          <StatusDot className="signal-unresponsive" />{tr("unresponsiveSignal")}</span>
         <span>
-          <StatusDot color="yellow" />
-          需要决策，点击去收件箱
-        </span>
+          <StatusDot color="yellow" />{tr("decisionSignal")}</span>
         <span>
-          <StatusDot className="signal-unknown" />
-          状态未知
-        </span>
-        {available === false && <span>窗口信号当前不可用</span>}
+          <StatusDot className="signal-unknown" />{tr("unknownSignal")}</span>
+        {available === false && <span>{tr("signalsUnavailable")}</span>}
       </div>
   );
 }

@@ -1,3 +1,5 @@
+import { t, useLocale, type TranslationKey } from "@/i18n";
+import zhCN from "@/i18n/zh-CN.json";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Md } from "@/components/Md";
 import { Chip } from "@/components/base/badges/chip";
@@ -20,20 +22,20 @@ import type { AskItem, InboxResponse, SelfApproved } from "@/lib/types";
 
 // Presentation only; answer authority and draft lifecycle follow the existing API.
 
-const ACCEPT_VERDICT = "验收通过(收件箱一键)";
-const KIND_LABEL: Record<string, string> = {
-  authorize: "放行",
-  accept: "验收",
-  decide: "拍板",
+// Persist the established verdict and supplement marker independently of display locale.
+const ACCEPT_VERDICT = zhCN.acceptVerdict;
+const KIND_LABEL: Record<string, TranslationKey> = {
+  authorize: "approval",
+  accept: "acceptance",
+  decide: "decision",
 };
-const KIND_ACTION_LABEL: Record<string, string> = {
-  authorize: "授权",
-  accept: "收下",
-  decide: "就这么定",
+const KIND_ACTION_LABEL: Record<string, TranslationKey> = {
+  authorize: "approve",
+  accept: "acknowledge",
+  decide: "confirmDecision",
 };
 
 type OptionItem = { option: string; consequence?: string };
-const OTHER_OPTION: OptionItem = { option: "其他…" };
 
 // Shared option presentation; onSelect enables interactive selection.
 function OptionsList({
@@ -45,10 +47,11 @@ function OptionsList({
   selectedIndex?: number | null;
   onSelect?: (i: number) => void;
 }) {
+  useLocale();
   if (onSelect)
     return (
       <RadioGroup
-        aria-label="决策选项"
+        aria-label={t("decisionOptions")}
         value={selectedIndex == null ? "" : String(selectedIndex)}
         onChange={(value) => onSelect(Number(value))}
         className="decision-options"
@@ -76,6 +79,7 @@ function OptionsList({
 }
 
 function KindBadge({ kind }: { kind: string }) {
+  useLocale();
   return (
     <Chip
       color={
@@ -83,7 +87,7 @@ function KindBadge({ kind }: { kind: string }) {
       }
       variant="bold"
     >
-      {KIND_LABEL[kind] ?? kind}
+      {KIND_LABEL[kind] ? t(KIND_LABEL[kind]) : kind}
     </Chip>
   );
 }
@@ -97,6 +101,7 @@ function AskCard({
   onDone: () => void;
   onSelectTask: (id: string) => void;
 }) {
+  useLocale();
   const notice = useNotice();
   const [unknown, setUnknown] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -119,7 +124,7 @@ function AskCard({
     setError(null);
     try {
       const r = await postAnswer(ask.id, verdict, reject);
-      notice(`#${ask.id} 已处理`, "success", r.out || undefined);
+      notice(t("resolvedAsk", { id: ask.id }), "success", r.out || undefined);
       close();
       onDone();
     } catch (e) {
@@ -147,7 +152,7 @@ function AskCard({
   const isDecide = ask.kind === "decide";
   // Decision cards include a free-text choice; other kinds render read-only options.
   const displayOptions =
-    isDecide && options ? [...options, OTHER_OPTION] : (options ?? []);
+    isDecide && options ? [...options, { option: t("other") }] : (options ?? []);
   const otherIndex = displayOptions.length - 1;
   const isOtherSelected = isDecide && selectedIdx === otherIndex;
   const decideVerdict =
@@ -156,7 +161,7 @@ function AskCard({
       : isOtherSelected
         ? otherText.trim()
         : supplement.trim()
-          ? `${displayOptions[selectedIdx].option} · 补充:${supplement.trim()}`
+          ? `${displayOptions[selectedIdx].option}${zhCN.supplementMarker}${supplement.trim()}`
           : displayOptions[selectedIdx].option;
 
   return (
@@ -169,11 +174,11 @@ function AskCard({
           </span>
           {ask.hands_on && (
             <Chip color="yellow" variant="bold">
-              需要你亲自操作
+              {t("handsOn")}
             </Chip>
           )}
           <span className="ml-auto shrink-0 text-body-regular text-text-secondary">
-            等待 {ask.stalled_days} 天
+            {t("waitingDays", { days: ask.stalled_days })}
           </span>
         </div>
         <div className="text-body-medium">
@@ -202,17 +207,17 @@ function AskCard({
             {isDecide &&
               (isOtherSelected ? (
                 <Textarea
-                  aria-label="其他决策"
+                  aria-label={t("otherDecision")}
                   onChange={setOtherText}
-                  placeholder="回答(会原样进决策记录)"
+                  placeholder={t("answerPlaceholder")}
                   value={otherText}
                 />
               ) : (
                 selectedIdx != null && (
                   <Textarea
-                    aria-label="补充说明"
+                    aria-label={t("supplementDetails")}
                     onChange={setSupplement}
-                    placeholder="补充说明(非必填)"
+                    placeholder={t("supplement")}
                     value={supplement}
                   />
                 )
@@ -221,7 +226,7 @@ function AskCard({
         )}
         {ask.kind === "authorize" && (
           <p className="text-body-regular text-text-secondary">
-            授权只记录你的决定，操作仍需由 Agent 执行并回报结果。
+            {t("authorizeExecutionNotice")}
           </p>
         )}
         {ask.evidence && (
@@ -232,7 +237,7 @@ function AskCard({
         {ask.confidence != null && (
           <p className="text-body-regular text-text-secondary">
             <span className="text-body-regular text-text-primary">
-              {Math.round(ask.confidence * 100)}% 把握
+              {t("confidence", { percent: Math.round(ask.confidence * 100) })}
             </span>
             {ask.confidence_reason ? ` · ${ask.confidence_reason}` : ""}
           </p>
@@ -263,7 +268,7 @@ function AskCard({
         )}
         {unknown && (
           <Button variant="secondary" onClick={onDone}>
-            刷新收件箱，核对处理结果
+            {t("verifyAnswerResult")}
           </Button>
         )}
       </div>
@@ -277,14 +282,14 @@ function AskCard({
               size="small"
               variant="secondary"
             >
-              打回
+              {t("requestChanges")}
             </Button>
             <Button
               disabled={unknown || busy}
               onClick={() => submit(ACCEPT_VERDICT, false)}
               size="small"
             >
-              收下
+              {t("acknowledge")}
             </Button>
           </>
         ) : isDecide && hasOptions ? (
@@ -292,9 +297,9 @@ function AskCard({
             disabled={unknown || busy || !decideVerdict}
             onClick={() => submit(decideVerdict, false, resetDecide)}
             size="small"
-            title={selectedIdx == null ? "先选一个选项" : undefined}
+            title={selectedIdx == null ? t("selectOption") : undefined}
           >
-            {KIND_ACTION_LABEL.decide}
+            {t(KIND_ACTION_LABEL.decide)}
           </Button>
         ) : (
           <Button
@@ -302,7 +307,7 @@ function AskCard({
             onClick={() => setDialog({ reject: false })}
             size="small"
           >
-            {KIND_ACTION_LABEL[ask.kind] ?? "回答"}
+            {t(KIND_ACTION_LABEL[ask.kind] ?? "answer")}
           </Button>
         )}
       </footer>
@@ -311,14 +316,14 @@ function AskCard({
       <NawabanDialog
         open={dialog != null}
         onClose={() => !busy && setDialog(null)}
-        title={`${dialog?.reject ? "打回" : (KIND_ACTION_LABEL[ask.kind] ?? "回答")} #${ask.id}`}
+        title={`${dialog?.reject ? t("requestChanges") : t(KIND_ACTION_LABEL[ask.kind] ?? "answer")} #${ask.id}`}
       >
         <div className="answer-form">
           <Textarea
-            aria-label={dialog?.reject ? "打回理由" : "回答"}
+            aria-label={dialog?.reject ? t("rejectReason") : t("answer")}
             onChange={setAnswer}
             placeholder={
-              (dialog?.reject ? "打回理由" : "回答") + "(会原样进决策记录)"
+              (dialog?.reject ? t("rejectReason") : t("answer")) + t("recordedVerbatim")
             }
             value={answer}
           />
@@ -328,7 +333,7 @@ function AskCard({
               onClick={() => setDialog(null)}
               variant="secondary"
             >
-              取消
+              {t("cancel")}
             </Button>
             <Button
               disabled={unknown || busy || !answer.trim()}
@@ -338,7 +343,7 @@ function AskCard({
                 )
               }
             >
-              提交
+              {t("submit")}
             </Button>
           </footer>
           {error && (
@@ -356,18 +361,19 @@ function copyReopen(id: string, notice: ReturnType<typeof useNotice>) {
   const cmd = `nawaban reopen ${id} --reason "..."`;
   navigator.clipboard
     .writeText(cmd)
-    .then(() => notice("已复制", "success", cmd))
-    .catch(() => notice("复制失败,手动选中吧", "error"));
+    .then(() => notice(t("copied"), "success", cmd))
+    .catch(() => notice(t("copyFailed"), "error"));
 }
 
 function SelfApprovedRow({ r }: { r: SelfApproved }) {
+  useLocale();
   const notice = useNotice();
   return (
     <Surface className="inbox-history-row min-w-0 text-body-regular">
       <div className="flex min-w-0 items-center justify-between gap-2">
         <span className="min-w-0 truncate text-text-secondary">{r.id}</span>
         <span className="shrink-0 text-text-secondary">
-          {ago(r.completed_at)} ago
+          {t("elapsedAgo", { time: ago(r.completed_at) })}
         </span>
       </div>
       <p className="break-words text-text-primary">{r.title}</p>
@@ -385,7 +391,7 @@ function SelfApprovedRow({ r }: { r: SelfApproved }) {
           onClick={() => copyReopen(r.id, notice)}
           variant="secondary"
         >
-          复制命令
+          {t("copyCommand")}
         </LinkButton>
       </div>
     </Surface>
@@ -393,6 +399,7 @@ function SelfApprovedRow({ r }: { r: SelfApproved }) {
 }
 
 function SelfApprovedDigest({ items }: { items: SelfApproved[] }) {
+  useLocale();
   const [expanded, setExpanded] = useState(false);
   if (items.length === 0) return null;
   const lane = items.filter((r) => r.self_evident);
@@ -405,10 +412,10 @@ function SelfApprovedDigest({ items }: { items: SelfApproved[] }) {
         onClick={() => setExpanded(!expanded)}
       >
         <span className="text-body-medium">
-          自动归档 · 近 7 天 {items.length} 张
+          {t("selfApprovedTitle", { count: items.length })}
         </span>
         <span className="text-body-regular text-text-secondary">
-          可核对 {lane.length} 张{silent ? ` · 其他 ${silent} 张` : ""}
+          {t("selfApprovedCounts", { count: lane.length, other: silent ? t("otherTaskCount", { count: silent }) : "" })}
         </span>
       </ContentButton>
       {expanded && (
@@ -420,7 +427,7 @@ function SelfApprovedDigest({ items }: { items: SelfApproved[] }) {
           </div>
           {silent > 0 && (
             <p className="mt-2 text-body-regular text-text-secondary">
-              其余 {silent} 张由其他自动流程归档。
+              {t("selfApprovedRemainder", { count: silent })}
             </p>
           )}
         </>
@@ -441,8 +448,9 @@ export function InboxView(props: InboxViewProps) {
 }
 
 function ProjectInbox({ query, project, onSelectTask }: InboxViewProps) {
+  useLocale();
   const [data, setData] = useState<InboxResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ key: "inboxUnavailable" } | { message: string } | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const active = useRef(false);
@@ -455,14 +463,14 @@ function ProjectInbox({ query, project, onSelectTask }: InboxViewProps) {
       .then((d) => {
         if (!active.current || version !== requestVersion.current) return;
         if (d.unavailable) {
-          setError("收件箱数据当前不可用");
+          setError({ key: "inboxUnavailable" });
           return;
         }
         setData(d);
         setError(null);
       })
       .catch((e) => {
-        if (active.current && version === requestVersion.current) setError(String(e));
+        if (active.current && version === requestVersion.current) setError({ message: String(e) });
       });
   }, [project]);
   useEffect(() => {
@@ -489,22 +497,23 @@ function ProjectInbox({ query, project, onSelectTask }: InboxViewProps) {
   // Select the first remaining item after processing or filtering the current item.
   const selected = flat.find((a) => a.id === selectedId) ?? flat[0] ?? null;
 
-  if (error && !data) return <LoadState error>{error}</LoadState>;
-  if (!data) return <LoadState>正在读取收件箱…</LoadState>;
+  const errorText = error ? ("key" in error ? t(error.key) : error.message) : null;
+  if (errorText && !data) return <LoadState error>{errorText}</LoadState>;
+  if (!data) return <LoadState>{t("loadingInbox")}</LoadState>;
 
   return (
     <div className="inbox-layout">
       <div className="inbox-index">
         <div className="px-4 py-4 text-body-regular text-text-secondary">
           {data.total
-            ? `${data.total} 件事等你 · 最久停了 ${data.oldest_days} 天`
-            : "没有需要你决定的事"}{" "}
-          · 本周进 {data.flow.raised_7d} · 已清 {data.flow.closed_7d}
+            ? t("inboxPending", { count: data.total, days: data.oldest_days })
+            : t("inboxEmptyDecision")}
+          {t("inboxFlow", { raised: data.flow.raised_7d, closed: data.flow.closed_7d })}
         </div>
         {groups.map((g) => (
           <section key={g.kind}>
             <h2 className="flex items-center px-4 py-2 text-body-medium text-text-secondary">
-              {g.title}{" "}
+              {KIND_LABEL[g.kind] ? t(KIND_LABEL[g.kind]) : g.title}{" "}
               <span className="ml-2 text-body-regular">{g.items.length}</span>
             </h2>
             {g.items.map((a) => (
@@ -525,10 +534,10 @@ function ProjectInbox({ query, project, onSelectTask }: InboxViewProps) {
                   <span className="text-body-regular">#{a.id}</span>
                   {a.hands_on && (
                     <Chip color="yellow" variant="bold">
-                      需亲自操作
+                      {t("handsOn")}
                     </Chip>
                   )}
-                  <span className="ml-auto">{a.stalled_days} 天</span>
+                  <span className="ml-auto">{t("daysCount", { days: a.stalled_days })}</span>
                 </div>
                 <p className="line-clamp-2 text-body-regular text-text-primary">
                   {a.question}
@@ -545,7 +554,7 @@ function ProjectInbox({ query, project, onSelectTask }: InboxViewProps) {
       </div>
 
       <div className="inbox-detail">
-        {error && <LoadState error>刷新失败，保留当前草稿：{error}</LoadState>}
+        {errorText && <LoadState error>{t("inboxRefreshFailed", { error: errorText })}</LoadState>}
         {data.groups.some((g) => g.items.length > 0) && (
           <div
             className="inbox-reading mx-auto max-w-2xl p-6"
@@ -562,7 +571,7 @@ function ProjectInbox({ query, project, onSelectTask }: InboxViewProps) {
         )}
         {!selected && (
           <p className="p-8 text-body-regular text-text-secondary">
-            {q ? "没有匹配的待处理事项" : "收件箱是空的"}
+            {q ? t("inboxNoMatches") : t("inboxEmpty")}
           </p>
         )}
       </div>

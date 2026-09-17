@@ -451,3 +451,109 @@ Exact display templates below are part of the English vocabulary. Braced names a
 | {count} others still waiting on prerequisites | 另有 {count} 张还在等别人 | Dropped interpolation values or raw template placeholders in rendered text. |
 | Close | 关闭 | Runtime enum values as display labels or a different action sharing this label. |
 | No owner | 未认领 | Unassigned as the owner field label; this is not a lifecycle state. |
+| EN | 中文 | Display text only; preserve stored values and user-authored content. |
+| Main navigation | 主导航 | Display text only; preserve stored values and user-authored content. |
+| Agent workspace | Agent 工作空间 | Display text only; preserve stored values and user-authored content. |
+| Toggle sidebar | 切换侧栏 | Display text only; preserve stored values and user-authored content. |
+| All projects | 全部项目 | Display text only; preserve stored values and user-authored content. |
+| Switch project | 切换项目 | Display text only; preserve stored values and user-authored content. |
+| Agents advance tasks | 任务由 Agent 推进 | Display text only; preserve stored values and user-authored content. |
+| Your decisions are collected in the inbox | 需要你的决定，集中在收件箱 | Display text only; preserve stored values and user-authored content. |
+| Needs my attention | 待我处理 | Display text only; preserve stored values and user-authored content. |
+| Search tasks | 搜索任务 | Display text only; preserve stored values and user-authored content. |
+| Search ID, title, epic… | 搜索编号、标题、模块… | Display text only; preserve stored values and user-authored content. |
+| Search questions, related tasks… | 搜索问题、关联任务… | Display text only; preserve stored values and user-authored content. |
+| Search ID, title, owner… | 搜索编号、标题、负责人… | Display text only; preserve stored values and user-authored content. |
+| List | 列表 | Display text only; preserve stored values and user-authored content. |
+| {count} tasks | {count} 项任务 | Display text only; preserve stored values and user-authored content. |
+| Task list | 任务列表 | Display text only; preserve stored values and user-authored content. |
+| ID | 编号 | Display text only; preserve stored values and user-authored content. |
+| Title | 标题 | Display text only; preserve stored values and user-authored content. |
+| Epic name | 模块名 | Display text only; preserve stored values and user-authored content. |
+| No matching tasks | 没有匹配的任务 | Display text only; preserve stored values and user-authored content. |
+| All epics | 全部模块 | Display text only; preserve stored values and user-authored content. |
+| Filter epics | 筛选工作模块 | Display text only; preserve stored values and user-authored content. |
+| Loading tasks… | 正在读取任务… | Display text only; preserve stored values and user-authored content. |
+| Custom updated date range | 自定义更新时间范围 | Display text only; preserve stored values and user-authored content. |
+| Custom dates | 自定义日期 | Display text only; preserve stored values and user-authored content. |
+| Clear filters | 清除筛选 | Display text only; preserve stored values and user-authored content. |
+| Collapse original | 收起原文 | Display text only; preserve stored values and user-authored content. |
+| View original | 查看原文 | Display text only; preserve stored values and user-authored content. |
+| Decision needed; open inbox | 需要决策，前往收件箱 | Display text only; preserve stored values and user-authored content. |
+| Session is working | 窗口正在工作 | Display text only; preserve stored values and user-authored content. |
+| Session is idle | 窗口空闲，暂未工作 | Display text only; preserve stored values and user-authored content. |
+| Session has been inactive | 窗口长时间无活动 | Display text only; preserve stored values and user-authored content. |
+| Status unknown; no session signal | 状态未知，暂无窗口信号 | Display text only; preserve stored values and user-authored content. |
+| Active just now | 刚刚有活动 | Display text only; preserve stored values and user-authored content. |
+| Last active {count} minutes ago | 最后活动 {count} 分钟前 | Display text only; preserve stored values and user-authored content. |
+| Last active {count} hours ago | 最后活动 {count} 小时前 | Display text only; preserve stored values and user-authored content. |
+| Last active {count} days ago | 最后活动 {count} 天前 | Display text only; preserve stored values and user-authored content. |
+| View {id} {title} | 查看 {id} {title} | Display text only; preserve stored values and user-authored content. |
+| Status legend | 状态图例 | Display text only; preserve stored values and user-authored content. |
+| Task corner signals: | 卡片右上角的灯： | Display text only; preserve stored values and user-authored content. |
+| Working | 正在工作 | Display text only; preserve stored values and user-authored content. |
+| Session unresponsive | 窗口无响应 | Display text only; preserve stored values and user-authored content. |
+| Status unknown | 状态未知 | Display text only; preserve stored values and user-authored content. |
+| Session signals are currently unavailable | 窗口信号当前不可用 | Display text only; preserve stored values and user-authored content. |
+| Expand full text | 展开全文 | Display text only; preserve stored values and user-authored content. |
+| Task details {id} | 任务详情 {id} | Display text only; preserve stored values and user-authored content. |
+| Back | 返回 | Display text only; preserve stored values and user-authored content. |
+| Current progress | 当前进展 | Display text only; preserve stored values and user-authored content. |
+| Stage | 阶段 | Display text only; preserve stored values and user-authored content. |
+| Decision document | 决策文档 | Display text only; preserve stored values and user-authored content. |
+| Dismiss notification | 关闭通知 | Display text only; preserve stored values and user-authored content. |
+| Failed to load | 加载失败 | Display text only; preserve stored values and user-authored content. |
+| Switch to light mode | 切换浅色模式 | Display text only; preserve stored values and user-authored content. |
+| Switch to dark mode | 切换深色模式 | Display text only; preserve stored values and user-authored content. |
+| Theme | 主题 | Display text only; preserve stored values and user-authored content. |
+| Light mode | 浅色模式 | Display text only; preserve stored values and user-authored content. |
+| Dark mode | 深色模式 | Display text only; preserve stored values and user-authored content. |
+| Outcome unknown. Refresh to verify before submitting again. | 处理结果未知，请先刷新核对，不要重复提交。 | Display text only; preserve stored values and user-authored content. |
+| Date | 日期 | Display text only; preserve stored values and user-authored content. |
+| Date range | 日期范围 | Display text only; preserve stored values and user-authored content. |
+| Select date | 选择日期 | Display text only; preserve stored values and user-authored content. |
+| Select date range | 选择日期范围 | Display text only; preserve stored values and user-authored content. |
+| Apply | 应用 | Display text only; preserve stored values and user-authored content. |
+| This month | 本月 | Display text only; preserve stored values and user-authored content. |
+| Last month | 上月 | Display text only; preserve stored values and user-authored content. |
+| This year | 今年 | Display text only; preserve stored values and user-authored content. |
+| Last year | 去年 | Display text only; preserve stored values and user-authored content. |
+| All time | 全部时间 | Display text only; preserve stored values and user-authored content. |
+| {count} days selected | 已选 {count} 天 | Display text only; preserve stored values and user-authored content. |
+| {count} day selected | 已选 {count} 天 | Display text only; preserve stored values and user-authored content. |
+| Loading dependencies… | 正在读取依赖关系… | Display text only; preserve stored values and user-authored content. |
+| Epics · unfinished / total | 模块 · 未完成 / 总数 | Display text only; preserve stored values and user-authored content. |
+| {count} tasks · {percent}% done · Done {done} / Ready for acceptance {ready} / Assigned {assigned} / In progress {active} / Unassigned {open} | {count} 卡 · 完成 {percent}% · 完成 {done} / 待验收 {ready} / 已认领 {assigned} / 进行中 {active} / 待认领 {open} | Display text only; preserve stored values and user-authored content. |
+| Focus mode | 专注模式 | Display text only; preserve stored values and user-authored content. |
+| Decision options | 决策选项 | Display text only; preserve stored values and user-authored content. |
+| Other decision | 其他决策 | Display text only; preserve stored values and user-authored content. |
+| Additional details | 补充说明 | Display text only; preserve stored values and user-authored content. |
+| Waiting {days} days | 等待 {days} 天 | Display text only; preserve stored values and user-authored content. |
+| {days} days | {days} 天 | Display text only; preserve stored values and user-authored content. |
+| Approval records your decision. An agent still needs to execute the action and report the result. | 授权只记录你的决定，操作仍需由 Agent 执行并回报结果。 | Display text only; preserve stored values and user-authored content. |
+| Refresh inbox to verify the result | 刷新收件箱，核对处理结果 | Display text only; preserve stored values and user-authored content. |
+| Copy command | 复制命令 | Display text only; preserve stored values and user-authored content. |
+| Automatically archived · {count} in the last 7 days | 自动归档 · 近 7 天 {count} 张 | Display text only; preserve stored values and user-authored content. |
+| {count} with evidence{other} | 可核对 {count} 张{other} | Display text only; preserve stored values and user-authored content. |
+|  · {count} others |  · 其他 {count} 张 | Display text only; preserve stored values and user-authored content. |
+| The remaining {count} tasks were archived by other automated workflows. | 其余 {count} 张由其他自动流程归档。 | Display text only; preserve stored values and user-authored content. |
+| Inbox data is currently unavailable | 收件箱数据当前不可用 | Display text only; preserve stored values and user-authored content. |
+| Loading inbox… | 正在读取收件箱… | Display text only; preserve stored values and user-authored content. |
+| Refresh failed; current drafts are preserved: {error} | 刷新失败，保留当前草稿：{error} | Display text only; preserve stored values and user-authored content. |
+| No matching pending items | 没有匹配的待处理事项 | Display text only; preserve stored values and user-authored content. |
+| {time} ago | {time}前 | Display text only; preserve stored values and user-authored content. |
+| Select an item | 选择一项 | Display text only; preserve stored values and user-authored content. |
+| Pagination | 分页 | Display text only; preserve stored values and user-authored content. |
+| Previous page | 上一页 | Display text only; preserve stored values and user-authored content. |
+| Next page | 下一页 | Display text only; preserve stored values and user-authored content. |
+| Previous | 上一页 | Display text only; preserve stored values and user-authored content. |
+| Next | 下一页 | Display text only; preserve stored values and user-authored content. |
+| Go to page {page} | 前往第 {page} 页 | Display text only; preserve stored values and user-authored content. |
+| Upload a file | 上传文件 | Display text only; preserve stored values and user-authored content. |
+| Drag and drop to upload or | 拖放以上传，或 | Display text only; preserve stored values and user-authored content. |
+| select | 选择文件 | Display text only; preserve stored values and user-authored content. |
+| Only {types} files are supported | 仅支持 {types} 文件 | Display text only; preserve stored values and user-authored content. |
+| That file is larger than {size} | 文件大小超过 {size} | Display text only; preserve stored values and user-authored content. |
+| {types} (max {size}) | {types}（最大 {size}） | Display text only; preserve stored values and user-authored content. |
+| Uploading {size}… | 正在上传 {size}… | Display text only; preserve stored values and user-authored content. |
+| Uploaded successfully! | 上传成功！ | Display text only; preserve stored values and user-authored content. |

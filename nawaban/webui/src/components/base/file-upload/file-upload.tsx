@@ -1,5 +1,7 @@
 "use client";
 
+import { t as tr, useLocale } from "@/i18n";
+
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   RiFileExcel2Line,
@@ -121,10 +123,11 @@ export function FileUpload({
   renderFileIcon,
   className,
 }: FileUploadProps) {
+  useLocale();
   const [phase, setPhase] = useState<UploadPhase>("idle");
   const [progress, setProgress] = useState(0);
   const [file, setFile] = useState<File | null>(null);
-  const [rejection, setRejection] = useState<string | null>(null);
+  const [rejection, setRejection] = useState<{ key: "uploadTypes" | "uploadTooLarge"; values: Record<string, string> } | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -151,12 +154,12 @@ export function FileUpload({
   const startUpload = (nextFile: File) => {
     const extension = extensionFor(nextFile.name);
     if (!allowedExtensions.map((value) => value.toLowerCase()).includes(extension)) {
-      setRejection(`Only ${allowedExtensions.map((value) => value.toUpperCase()).join(", ")} files are supported`);
+      setRejection({ key: "uploadTypes", values: { types: allowedExtensions.map((value) => value.toUpperCase()).join(", ") } });
       timers.current.push(setTimeout(() => setRejection(null), 2600));
       return;
     }
     if (nextFile.size > maxBytes) {
-      setRejection(`That file is larger than ${formatFileSize(maxBytes)}`);
+      setRejection({ key: "uploadTooLarge", values: { size: formatFileSize(maxBytes) } });
       timers.current.push(setTimeout(() => setRejection(null), 2600));
       return;
     }
@@ -202,7 +205,7 @@ export function FileUpload({
       ref={boxRef}
       role="button"
       tabIndex={busy ? -1 : 0}
-      aria-label="Upload a file"
+      aria-label={tr("uploadFile")}
       onClick={() => !busy && inputRef.current?.click()}
       onKeyDown={(event) => {
         if (!busy && (event.key === "Enter" || event.key === " ")) {
@@ -317,14 +320,14 @@ export function FileUpload({
               rejection ? "text-text-error-primary" : "text-text-secondary",
             )}
           >
-            {rejection ?? (
+            {rejection ? tr(rejection.key, rejection.values) : (
               <>
-                Drag and drop to upload or <span className="text-accent-500">select</span>
+                {tr("uploadHint")}{" "}<span className="text-accent-500">{tr("selectFile")}</span>
               </>
             )}
           </p>
           <p className="t-stagger-line t-stagger-line--3 text-body-2-regular text-text-tertiary">
-            {allowedLabel} (max {formatFileSize(maxBytes)})
+            {tr("uploadLimit", { types: allowedLabel, size: formatFileSize(maxBytes) })}
           </p>
         </div>
       </div>
@@ -349,8 +352,7 @@ export function FileUpload({
               staggerLine(uploadingLine),
             )}
           >
-            Uploading {file ? formatFileSize(file.size) : ""}
-            ...
+            {tr("uploadProgress", { size: file ? formatFileSize(file.size) : "" })}
           </p>
           <p
             className={cx(
@@ -358,7 +360,7 @@ export function FileUpload({
               staggerLine(completeLine),
             )}
           >
-            Uploaded successfully!
+            {tr("uploadSuccess")}
           </p>
         </div>
       </div>

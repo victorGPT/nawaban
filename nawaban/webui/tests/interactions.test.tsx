@@ -19,7 +19,7 @@ test("dialog Escape dismisses, traps focus, and restores its opener", async () =
   const opener = screen.getByRole("button", { name: "Open task" });
   await user.click(opener);
   expect(screen.getByRole("dialog", { name: "Task details" })).toBeTruthy();
-  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "关闭" })));
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "\u5173\u95ed" })));
   await user.tab({ shift: true });
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Last action" })));
   await user.keyboard("{Escape}");
@@ -53,6 +53,6 @@ test("notices render their message and dismiss through Base UI", async () => {
   expect(screen.getByText("Saved")).toBeTruthy();
   expect(screen.getByText("Task saved")).toBeTruthy();
   await user.hover(screen.getByText("Saved"));
-  await user.click(await screen.findByRole("button", { name: "关闭通知" }));
+  await user.click(await screen.findByRole("button", { name: "\u5173\u95ed\u901a\u77e5" }));
   await waitFor(() => expect(screen.queryByText("Saved")).toBeNull());
 });

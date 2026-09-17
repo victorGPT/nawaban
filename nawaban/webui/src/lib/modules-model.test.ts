@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dependencyWire, buildIndex, isBlocked, layers, groupByEpic } from "./modules-model.ts";
+import { dependencyWire, buildIndex, isBlocked, layers, groupByEpic, UNGROUPED_EPIC } from "./modules-model.ts";
 
 test("refreshing a scrolled DAG retains dependency endpoints in content coordinates", () => {
   const upstream = { left: 120, right: 370, top: 200, height: 100 };
@@ -17,10 +17,10 @@ test("refreshing a scrolled DAG retains dependency endpoints in content coordina
 });
 const data = {
   tasks: [
-    { i: "A", t: "上游", s: "open", e: "one" },
-    { i: "B", t: "下游", s: "open", e: "two" },
-    { i: "C", t: "下下游", s: "open", e: "two" },
-    { i: "D", t: "独立", s: "done", e: "two" },
+    { i: "A", t: "\u4e0a\u6e38", s: "open", e: "one" },
+    { i: "B", t: "\u4e0b\u6e38", s: "open", e: "two" },
+    { i: "C", t: "\u4e0b\u4e0b\u6e38", s: "open", e: "two" },
+    { i: "D", t: "\u72ec\u7acb", s: "done", e: "two" },
   ],
   deps: [
     ["B", "A"],
@@ -44,4 +44,10 @@ test("cross-module upstream blocks a task; local layers do not omit loose tasks"
   );
   assert.deepEqual(index.downOf.get("A"), ["B"]);
   assert.equal(groupByEpic(data.tasks)[0].epic, "two");
+});
+
+test("ungrouped epic IDs preserve existing deep links", () => {
+  const groups = groupByEpic([{ i: "U", t: "Example", s: "open", e: "" }]);
+  assert.equal(UNGROUPED_EPIC, "\u672a\u5206\u7ec4");
+  assert.equal(groups[0].epic, UNGROUPED_EPIC);
 });

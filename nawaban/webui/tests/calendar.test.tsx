@@ -1,10 +1,15 @@
 import { useRef, useState } from "react";
 import { CalendarDate } from "@internationalized/date";
-import { expect, test, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, expect, test, vi } from "vitest";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DatePicker } from "@/components/base/date-picker/date-picker";
 import { DateRangePicker } from "@/components/base/date-picker/date-range-picker";
+import { setLocale } from "@/i18n";
+import en from "@/i18n/en.json";
+import zh from "@/i18n/zh-CN.json";
+
+beforeEach(() => setLocale("en"));
 
 const original = { start: new CalendarDate(2026, 9, 10), end: new CalendarDate(2026, 9, 12) };
 
@@ -104,4 +109,48 @@ test("external single-date trigger supports keyboard month crossing and focus re
   await user.click(opener);
   await user.click(opener);
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
+test("an open range editor translates its calendar and preserves an unapplied draft", async () => {
+  const user = userEvent.setup();
+  const changed = vi.fn();
+  render(<DateRangePicker defaultValue={original} onChange={changed} />);
+  const opener = screen.getByRole("button", { name: en.dateRange });
+  const englishTrigger = opener.textContent;
+  await user.click(opener);
+  const englishMonth = screen.getAllByRole("grid")[0].getAttribute("aria-label");
+  const englishWeekday = screen.getByRole("dialog").querySelector("th")!.textContent;
+  await user.click(dayButton("2026-09-15"));
+  await user.click(dayButton("2026-09-18"));
+
+  act(() => setLocale("zh-CN"));
+  expect(screen.getByRole("button", { name: zh.today })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: en.today })).toBeNull();
+  expect(screen.getByRole("button", { name: zh.cancel })).toBeTruthy();
+  expect(screen.getAllByRole("grid")[0].getAttribute("aria-label")).not.toBe(englishMonth);
+  expect(screen.getByRole("dialog").querySelector("th")!.textContent).not.toBe(englishWeekday);
+  expect(screen.getByRole("button", { name: zh.dateRange }).textContent).not.toBe(englishTrigger);
+  expect((screen.getByRole("textbox", { name: zh.startDate }) as HTMLInputElement).value).toBe("15/09/2026");
+  expect((screen.getByRole("textbox", { name: zh.endDate }) as HTMLInputElement).value).toBe("18/09/2026");
+  expect(changed).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: zh.apply }));
+  expect(changed).toHaveBeenCalledTimes(1);
+  expect(changed.mock.calls[0][0].start.toString()).toBe("2026-09-15");
+  expect(changed.mock.calls[0][0].end.toString()).toBe("2026-09-18");
+});
+
+test("an open single-date editor translates without committing or discarding its draft", async () => {
+  const user = userEvent.setup();
+  const changed = vi.fn();
+  render(<ExternalDateExample onChange={changed} />);
+  await user.click(screen.getByRole("button", { name: "Birthday", exact: true }));
+  await user.click(dayButton("2026-09-15"));
+  act(() => setLocale("zh-CN"));
+  expect((screen.getByRole("textbox", { name: zh.date }) as HTMLInputElement).value).toBe("15/09/2026");
+  expect(screen.getByRole("button", { name: zh.cancel })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: en.apply })).toBeNull();
+  expect(changed).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: zh.apply }));
+  expect(changed).toHaveBeenCalledTimes(1);
+  expect(changed.mock.calls[0][0].toString()).toBe("2026-09-15");
 });

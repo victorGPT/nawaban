@@ -1,3 +1,4 @@
+import { t as tr, useLocale, setLocale } from "@/i18n";
 import { useEffect, useReducer, useRef, useState } from "react";
 import {
   RiInbox2Line,
@@ -29,12 +30,14 @@ import { navigateTask } from "@/lib/nawaban-model";
 import { cx } from "@/utils/cx";
 
 type View = "board" | "modules" | "inbox";
-const NAV = [
-  { id: "board", label: "任务看板", icon: RiLayoutColumnLine },
-  { id: "modules", label: "工作模块", icon: RiGitBranchLine },
-  { id: "inbox", label: "收件箱", icon: RiInbox2Line },
-] as const;
 export default function App() {
+  const locale = useLocale();
+const NAV = [
+  { id: "board", label: tr("board"), icon: RiLayoutColumnLine },
+  { id: "modules", label: tr("epic"), icon: RiGitBranchLine },
+  { id: "inbox", label: tr("inbox"), icon: RiInbox2Line },
+] as const;
+
   const [view, setView] = useState<View>(() => {
     const v = new URLSearchParams(location.search).get("view");
     return v === "modules" || v === "inbox" ? v : "board";
@@ -165,7 +168,7 @@ export default function App() {
     <div className="nawaban-shell">
       <aside
         className={cx("nawaban-sidebar", !navOpen && "collapsed")}
-        aria-label="主导航"
+        aria-label={tr("mainNavigation")}
       >
         <div className="nawaban-brand">
           <span className="brand-mark">
@@ -174,7 +177,7 @@ export default function App() {
           {navOpen && (
             <div>
               <strong className="text-title-3-semibold">NAWABAN</strong>
-              <p className="text-body-regular">Agent 工作空间</p>
+              <p className="text-body-regular">{tr("agentWorkspace")}</p>
             </div>
           )}
           <Button
@@ -183,7 +186,7 @@ export default function App() {
             iconOnly
             leadingIcon={RiSideBarLine}
             onClick={toggleNav}
-            aria-label="切换侧栏"
+            aria-label={tr("toggleSidebar")}
           />
         </div>
         {navOpen && (
@@ -191,12 +194,12 @@ export default function App() {
             modules={projects}
             value={project ?? "all"}
             onValueChange={changeProject}
-            allLabel="全部项目"
-            ariaLabel="切换项目"
+            allLabel={tr("allProjects")}
+            ariaLabel={tr("switchProject")}
             className="project-select"
           />
         )}
-        {navOpen && <p className="sidebar-label text-body-medium">工作区</p>}
+        {navOpen && <p className="sidebar-label text-body-medium">{tr("workspace")}</p>}
         <nav>
           {NAV.map((n) => (
             <NavItem
@@ -217,28 +220,26 @@ export default function App() {
         </nav>
         <div className="sidebar-bottom">
           <ThemeToggle collapsed={!navOpen} />
+          <Button variant="ghost" size="small" aria-label={tr("switchLanguage")}
+            title={tr("language")} onClick={() => setLocale(locale === "en" ? "zh-CN" : "en")}>
+            {tr("languageShort")}
+          </Button>
           {navOpen && (
-            <p className="text-body-regular">
-              任务由 Agent 推进
-              <br />
-              需要你的决定，集中在收件箱
-            </p>
+            <p className="text-body-regular">{tr("agentsAdvanceTasks")}<br />{tr("decisionsInInbox")}</p>
           )}
         </div>
       </aside>
       <div className="nawaban-main">
         <header className="workspace-topbar">
           <span className="text-body-regular">
-            {project ?? "全部项目"} ／ {title}
+            {project ?? tr("allProjects")} ／ {title}
           </span>
           <LinkButton
             variant="secondary"
             size="small"
             leadingIcon={RiInbox2Line}
             onClick={() => navigate("inbox")}
-          >
-            待我处理
-            {inboxTotal != null && <Badge className="ml-2">{inboxTotal}</Badge>}
+          >{tr("needsAttention")}{inboxTotal != null && <Badge className="ml-2">{inboxTotal}</Badge>}
           </LinkButton>
         </header>
         <div className="page-heading">
@@ -254,22 +255,20 @@ export default function App() {
                 leadingIcon={RiFilter3Line}
                 aria-expanded={filterOpen}
                 onClick={() => setFilterOpen(!filterOpen)}
-              >
-                更新时间
-              </Button>
+              >{tr("updated")}</Button>
             )}
             <Input
               ref={searchRef}
               size="small"
               fieldClassName="border border-border-button-default bg-background-primary-default shadow-xs"
               leadingIcon={RiSearchLine}
-              aria-label="搜索任务"
+              aria-label={tr("searchTasks")}
               placeholder={
                 view === "modules"
-                  ? "搜索编号、标题、模块…"
+                  ? tr("searchModules")
                   : view === "inbox"
-                    ? "搜索问题、关联任务…"
-                    : "搜索编号、标题、负责人…"
+                    ? tr("searchInbox")
+                    : tr("searchBoard")
               }
               value={query}
               onChange={setQuery}

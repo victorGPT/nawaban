@@ -1,5 +1,7 @@
 "use client";
 
+import { t as tr, useLocale } from "@/i18n";
+
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { RiMoonLine, RiSunLine } from "@remixicon/react";
@@ -224,6 +226,7 @@ export function ThemeToggle({
   className,
   transitionDuration = THEME_TRANSITION_DURATION,
 }: ThemeToggleProps) {
+  useLocale();
   const theme = useThemeMode();
   const dark = theme === "dark";
   const switchRef = useRef<HTMLLabelElement | null>(null);
@@ -243,14 +246,14 @@ export function ThemeToggle({
     const glass = appearance === "glass-segmented";
     const sidebarSurface = appearance === "sidebar-segmented";
     const options = [
-      { mode: "light" as const, label: "切换浅色模式", Icon: RiSunLine },
-      { mode: "dark" as const, label: "切换深色模式", Icon: RiMoonLine },
+      { mode: "light" as const, label: tr("switchLight"), Icon: RiSunLine },
+      { mode: "dark" as const, label: tr("switchDark"), Icon: RiMoonLine },
     ];
 
     return (
       <div
         role="group"
-        aria-label="主题"
+        aria-label={tr("theme")}
         className={cx(
           "relative inline-flex w-fit items-center gap-1 rounded-full p-1",
           // Mobile: 2px padding + 28px segments = 32px tall, matching the
@@ -290,7 +293,7 @@ export function ThemeToggle({
               type="button"
               aria-label={label}
               aria-pressed={selected}
-              title={mode === "light" ? "浅色模式" : "深色模式"}
+              title={mode === "light" ? tr("lightMode") : tr("darkMode")}
               onClick={(event) => {
                 if (selected) return;
                 const pointerOrigin =
@@ -332,9 +335,9 @@ export function ThemeToggle({
     return (
       <button
         type="button"
-        aria-label={dark ? "切换浅色模式" : "切换深色模式"}
+        aria-label={dark ? tr("switchLight") : tr("switchDark")}
         aria-pressed={dark}
-        title={dark ? "浅色模式" : "深色模式"}
+        title={dark ? tr("lightMode") : tr("darkMode")}
         onClick={(event) => {
           const pointerOrigin =
             event.clientX === 0 && event.clientY === 0
@@ -375,7 +378,7 @@ export function ThemeToggle({
           duration: transitionDuration,
         });
       }}
-      aria-label="深色模式"
+      aria-label={tr("darkMode")}
       className={({ isFocusVisible }) =>
         cx(
           "flex w-full cursor-pointer items-center justify-between rounded-2lg p-2",
@@ -389,7 +392,7 @@ export function ThemeToggle({
         <>
           <span className="flex min-w-0 items-center gap-2">
             <RiMoonLine className="size-5 shrink-0 text-foreground-icon-secondary" aria-hidden />
-            <span className="text-body-medium text-text-secondary">深色模式</span>
+            <span className="text-body-medium text-text-secondary">{tr("darkMode")}</span>
           </span>
           <SwitchTrack state={state} size="sm" shape="pill" />
         </>

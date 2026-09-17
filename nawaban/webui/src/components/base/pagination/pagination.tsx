@@ -1,5 +1,7 @@
 "use client";
 
+import { t as tr, useLocale } from "@/i18n";
+
 import { useEffect, useRef, useState } from "react";
 import { RiArrowLeftLine, RiArrowRightLine } from "@remixicon/react";
 import { Button } from "@/components/base/buttons/button";
@@ -93,6 +95,7 @@ export function Pagination({
   siblingCount = 1,
   className,
 }: PaginationProps) {
+  useLocale();
   const [navRef, isCompact] = useIsCompact();
   if (totalPages <= 1) return null;
   const pages = paginationRange(page, totalPages, isCompact ? 0 : siblingCount);
@@ -100,7 +103,7 @@ export function Pagination({
   return (
     <nav
       ref={navRef}
-      aria-label="Pagination"
+      aria-label={tr("pagination")}
       className={cx("flex w-full items-center justify-between gap-2", className)}
     >
       <Button
@@ -108,11 +111,11 @@ export function Pagination({
         size="small"
         iconOnly={isCompact}
         leadingIcon={RiArrowLeftLine}
-        aria-label={isCompact ? "Previous page" : undefined}
+        aria-label={isCompact ? tr("previousPage") : undefined}
         disabled={page <= 1}
         onClick={() => onChange(page - 1)}
       >
-        {isCompact ? undefined : "Previous"}
+        {isCompact ? undefined : tr("previous")}
       </Button>
 
       <ul className="flex min-w-0 items-center gap-0.5">
@@ -129,7 +132,7 @@ export function Pagination({
             <li key={item}>
               <button
                 type="button"
-                aria-label={`Go to page ${item}`}
+                aria-label={tr("goToPage", { page: item })}
                 aria-current={item === page ? "page" : undefined}
                 onClick={() => onChange(item)}
                 className={cx(
@@ -153,11 +156,11 @@ export function Pagination({
         iconOnly={isCompact}
         leadingIcon={isCompact ? RiArrowRightLine : undefined}
         trailingIcon={isCompact ? undefined : RiArrowRightLine}
-        aria-label={isCompact ? "Next page" : undefined}
+        aria-label={isCompact ? tr("nextPage") : undefined}
         disabled={page >= totalPages}
         onClick={() => onChange(page + 1)}
       >
-        {isCompact ? undefined : "Next"}
+        {isCompact ? undefined : tr("next")}
       </Button>
     </nav>
   );

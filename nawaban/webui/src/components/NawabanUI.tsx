@@ -1,3 +1,4 @@
+import { t as tr, useLocale } from "@/i18n";
 import { createContext, useContext, type ReactNode } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { Toast } from "@base-ui/react/toast";
@@ -27,6 +28,7 @@ export function NawabanDialog({
   wide?: boolean;
   header?: ReactNode;
 }) {
+  useLocale();
   return (
     <Dialog.Root open={open} onOpenChange={(value) => !value && onClose()}>
       <Dialog.Portal>
@@ -36,7 +38,7 @@ export function NawabanDialog({
             <div className="nawaban-dialog">
               <header className="dialog-heading">
                 {header ?? <Dialog.Title className="text-headline-medium">{title}</Dialog.Title>}
-                <Dialog.Close render={<CloseButton size="sm" aria-label="关闭" />} />
+                <Dialog.Close render={<CloseButton size="sm" aria-label={tr("close")} />} />
               </header>
               {children}
             </div>
@@ -53,6 +55,7 @@ export function Surface({
   children: ReactNode;
   className?: string;
 }) {
+  useLocale();
   return (
     <SettingsCard className={cx("nawaban-surface", className)}>
       {children}
@@ -61,6 +64,7 @@ export function Surface({
 }
 // Layout-only composition of the BoardUI button, used for navigable task content.
 export function ContentButton({ className, ...props }: ButtonProps) {
+  useLocale();
   return (
     <Button
       variant="ghost"
@@ -74,9 +78,11 @@ const NoticeContext = createContext<
 >(() => {});
 export const useNotice = () => useContext(NoticeContext);
 export function Notices({ children }: { children: ReactNode }) {
+  useLocale();
   return <Toast.Provider timeout={5000} limit={1}><NoticeContents>{children}</NoticeContents></Toast.Provider>;
 }
 function NoticeContents({ children }: { children: ReactNode }) {
+  useLocale();
   const manager = Toast.useToastManager<{ status: NotificationStatus }>();
   return (
     <NoticeContext.Provider value={(title, status = "information", description) => {
@@ -84,7 +90,7 @@ function NoticeContents({ children }: { children: ReactNode }) {
     }}>
       {children}
       <Toast.Portal>
-        <Toast.Viewport aria-label="通知" className="pointer-events-none fixed right-3 bottom-3 bui-toast-layer w-[min(400px,calc(100vw-24px))] sm:right-6 sm:bottom-6">
+        <Toast.Viewport aria-label={tr("noticeRegion")} className="pointer-events-none fixed right-3 bottom-3 bui-toast-layer w-[min(400px,calc(100vw-24px))] sm:right-6 sm:bottom-6">
           {manager.toasts.map((toast) => (
             <Toast.Root key={toast.id} toast={toast} className="pointer-events-auto relative data-ending-style:opacity-0 transition-opacity duration-150">
               <Notification
@@ -94,7 +100,7 @@ function NoticeContents({ children }: { children: ReactNode }) {
                 status={toast.data?.status}
                 dismissible={false}
               />
-              <Toast.Close render={<CloseButton size="xs" aria-label="关闭通知" className="absolute top-3 right-3" />} />
+              <Toast.Close render={<CloseButton size="xs" aria-label={tr("closeNotice")} className="absolute top-3 right-3" />} />
             </Toast.Root>
           ))}
         </Toast.Viewport>
@@ -110,10 +116,11 @@ export function LoadState({
   children: ReactNode;
   error?: boolean;
 }) {
+  useLocale();
   return (
     <div className="load-state">
       <Notification
-        title={error ? "加载失败" : "工作空间"}
+        title={error ? tr("loadFailed") : tr("workspace")}
         description={children}
         status={error ? "error" : "information"}
       />

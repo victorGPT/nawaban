@@ -3,16 +3,17 @@
 import { useEffect, useState } from "react";
 import { Input } from "@base-ui/react/input";
 import { DayButton, DayPicker, type DayButtonProps, type DayPickerProps } from "@daypicker/react";
-import { zhCN } from "@daypicker/react/locale";
+import { enUS, zhCN } from "@daypicker/react/locale";
 import { RiArrowLeftSLine, RiArrowRightSLine } from "@remixicon/react";
 import type { CalendarDate } from "@internationalized/date";
 import { cx } from "@/utils/cx";
+import { getLocale, useLocale } from "@/i18n";
 import { formatChipDate, parseChipDate, toPickerDate } from "./dates";
 
 export { formatChipDate, parseChipDate } from "./dates";
 
 export function formatTriggerDate(date: CalendarDate) {
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(toPickerDate(date));
+  return new Intl.DateTimeFormat(getLocale(), { month: "short", day: "numeric", year: "numeric" }).format(toPickerDate(date));
 }
 
 function CalendarDayButton({ modifiers, day, children, ...props }: DayButtonProps) {
@@ -42,9 +43,10 @@ function CalendarDayButton({ modifiers, day, children, ...props }: DayButtonProp
 
 /** DayPicker owns calendar navigation and range selection; BoardUI owns its skin. */
 export function BoardCalendar(props: DayPickerProps) {
+  const locale = useLocale();
   return (
     <DayPicker
-      locale={zhCN}
+      locale={locale === "zh-CN" ? zhCN : enUS}
       weekStartsOn={0}
       navLayout="around"
       components={{

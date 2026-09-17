@@ -1,3 +1,4 @@
+import { t as tr, useLocale, statusLabel } from "@/i18n";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Chip } from "@/components/base/badges/chip";
 import { TaskCard, TaskTag, StatusLegend } from "@/components/TaskCard";
@@ -12,6 +13,7 @@ import type { ModuleTask } from "@/lib/types";
 
 import {
   ST,
+  UNGROUPED_EPIC,
   countBy,
   donePct,
   groupByEpic,
@@ -29,18 +31,12 @@ const STATUS_COLOR = {
   claimed: "soft",
   open: "soft",
 } as const;
-const STATUS_LABEL: Record<Status, string> = {
-  done: "完成",
-  "staging-verified": "待验收",
-  in_progress: "进行中",
-  claimed: "已认领",
-  open: "待认领",
-};
 const isStatus = (s: string): s is Status =>
   (ST as readonly string[]).includes(s);
 function StageTag({ status }: { status: string }) {
+  useLocale();
   return <Chip color={isStatus(status) ? STATUS_COLOR[status] : "soft"} variant="bold">
-    {isStatus(status) ? STATUS_LABEL[status] : status === "cancelled" ? "已取消" : status}
+    {statusLabel(status)}
   </Chip>;
 }
 
@@ -72,12 +68,13 @@ function Card({
   hasAsk: boolean;
   onDecision: () => void;
 }) {
+  useLocale();
   const xdep = new Set(
     (idx.upOf.get(t.i) ?? [])
       .filter((u) => !ids.has(u))
       .map((u) => {
         const e = idx.byId.get(u)?.e;
-        return e && e !== "n/a" ? e : "未分组";
+        return e && e !== "n/a" ? e : tr("ungrouped");
       }),
   );
   const blocked = isBlocked(t, idx);
@@ -88,8 +85,8 @@ function Card({
       className={cn("transition-opacity", hot && "ring-1 ring-border-focus-ring", dim && "opacity-[.22]")}
     >
       <StageTag status={t.s} />
-      {blocked && <Chip color="yellow" variant="bold">被挡</Chip>}
-      {[...xdep].map((e) => <TaskTag label={`依赖 ${e}`} key={e} />)}
+      {blocked && <Chip color="yellow" variant="bold">{tr("blocked")}</Chip>}
+      {[...xdep].map((e) => <TaskTag label={`${tr("dependencyPrefix")}${e}`} key={e} />)}
     </TaskCard>
   );
 }
@@ -107,6 +104,7 @@ export function ModulesView({
   decisionTasks: Set<string>;
   project: Project;
 }) {
+  const locale = useLocale();
   const loadModules = useCallback(() => fetchModules(project), [project]);
   const { data, error } = useReadOnlyData(loadModules);
   const [selected, setSelected] = useState<string | null>(() =>
@@ -196,14 +194,14 @@ export function ModulesView({
       else normal += seg;
     }
     setWires({ w: wrap.scrollWidth, h: wrap.scrollHeight, normal, hot });
-  }, [data, cols, loose, focusSet, tick]);
+  }, [data, cols, loose, focusSet, tick, locale]);
 
   if (error) return <LoadState error>{error}</LoadState>;
-  if (!data || !idx) return <LoadState>正在读取依赖关系…</LoadState>;
+  if (!data || !idx) return <LoadState>{tr("loadingModules")}</LoadState>;
   if (data.unavailable)
     return (
       <p className="p-4 text-body-regular text-text-secondary">
-        模块数据当前不可用
+        {tr("modulesUnavailable")}
       </p>
     );
 
@@ -211,14 +209,14 @@ export function ModulesView({
   const c = current?.counts ?? countBy([]);
   const wip = list.filter((t) => t.s === "in_progress" || t.s === "claimed");
   const nowLine = wip.length
-    ? "进行中：" +
+    ? tr("currentWork") +
       wip
         .map(
           (t) =>
-            `${t.i}${stageOf.has(t.i) ? `(第 ${stageOf.get(t.i)}/${cols.length} 级)` : "(独立卡)"}`,
+            `${t.i}${stageOf.has(t.i) ? tr("stageOf", { stage: stageOf.get(t.i)!, total: cols.length }) : tr("independentSuffix")}`,
         )
         .join(" · ")
-    : "没有进行中的卡";
+    : tr("noInProgress");
 
   const cardOnClick = (id: string) => {
     if (focusMode) setFocusId((cur) => (cur === id ? null : id));
@@ -233,7 +231,7 @@ export function ModulesView({
       <div className="module-rail">
         <div className="flex flex-col px-2 py-3">
           <div className="flex h-7 items-center px-2 text-body-medium text-text-secondary">
-            模块 · 未完成 / 总数
+            {tr("moduleRailTitle")}
           </div>
           {epics.map((e) => {
             const total = e.tasks.length;
@@ -254,7 +252,7 @@ export function ModulesView({
                 }}
                 type="button"
               >
-                <span className="min-w-0 flex-1 truncate">{e.epic}</span>
+                <span className="min-w-0 flex-1 truncate">{e.epic === UNGROUPED_EPIC ? tr("ungrouped") : e.epic}</span>
                 <span className="shrink-0 text-body-regular text-text-secondary">
                   {total - e.counts.done}/{total}
                 </span>
@@ -269,20 +267,19 @@ export function ModulesView({
           <div className="flex flex-col gap-4 px-6 py-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
-                <h2 className="text-title-1-semibold">{current.epic}</h2>
+                <h2 className="text-title-1-semibold">{current.epic === UNGROUPED_EPIC ? tr("ungrouped") : current.epic}</h2>
                 <p className="mt-1 text-body-regular text-text-secondary">
-                  {list.length} 卡 · 完成 {donePct(c)}% · 完成 {c.done} / 待验收{" "}
-                  {c["staging-verified"]} / 进行中 {c.in_progress + c.claimed} /
-                  待认领 {c.open}
+                  {tr("moduleSummary", { count: list.length, percent: donePct(c), done: c.done,
+                    ready: c["staging-verified"], assigned: c.claimed, active: c.in_progress, open: c.open })}
                 </p>
                 <p className="mt-2 text-body-regular text-text-secondary break-words">
                   {nowLine}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2 text-body-regular text-text-secondary select-none">
-                专注模式
+                {tr("focusModeLabel")}
                 <Switch
-                  aria-label="专注模式 · 点卡看它的链"
+                  aria-label={tr("focusMode")}
                   isSelected={focusMode}
                   onChange={(checked) => {
                     setFocusMode(checked);
@@ -325,11 +322,11 @@ export function ModulesView({
                   {cols.map((col, i) => (
                     <div className="w-[250px] shrink-0" key={i}>
                       <div className="flex h-7 items-center px-1 text-body-medium text-text-secondary">
-                        第 {i + 1} 级
+                        {tr("stage", { stage: i + 1 })}
                         {i === 0
-                          ? " · 上游"
+                          ? tr("upstreamSuffix")
                           : i === cols.length - 1
-                            ? " · 下游"
+                            ? tr("downstreamSuffix")
                             : ""}
                       </div>
                       <div className="flex flex-col gap-2 py-1">
@@ -352,7 +349,7 @@ export function ModulesView({
                 </div>
               ) : (
                 <p className="py-8 text-body-regular text-text-secondary">
-                  这个模块内部没有依赖链——所有卡都是独立卡。
+                  {tr("noChain")}
                 </p>
               )}
             </div>
@@ -360,7 +357,7 @@ export function ModulesView({
             {loose.length > 0 && (
               <div className="mt-2 border-t pt-4">
                 <h3 className="mb-2 flex h-7 items-center text-body-medium text-text-secondary">
-                  独立卡(不在链上)· {loose.length}
+                  {tr("independent")}{loose.length}
                 </h3>
                 <div className="flex flex-wrap gap-2">
                   {ST.flatMap((s) => loose.filter((t) => t.s === s)).map(
@@ -385,7 +382,7 @@ export function ModulesView({
           </div>
         ) : (
           <p className="p-4 text-body-regular text-text-secondary">
-            没有模块数据
+            {tr("noModules")}
           </p>
         )}
       </div>

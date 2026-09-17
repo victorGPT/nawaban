@@ -1,3 +1,4 @@
+export const UNGROUPED_EPIC = "\u672a\u5206\u7ec4";
 import type { ModuleTask, ModulesResponse } from "./types.ts";
 export const ST = [
   "done",
@@ -31,7 +32,7 @@ type EpicGroup = { epic: string; tasks: ModuleTask[]; counts: Counts };
 export function groupByEpic(tasks: ModuleTask[]): EpicGroup[] {
   const m = new Map<string, ModuleTask[]>();
   for (const t of tasks) {
-    const key = t.e && t.e !== "n/a" ? t.e : "未分组";
+    const key = t.e && t.e !== "n/a" ? t.e : UNGROUPED_EPIC;
     if (!m.has(key)) m.set(key, []);
     m.get(key)!.push(t);
   }
