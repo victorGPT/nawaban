@@ -117,8 +117,9 @@ def _infer_owner_from_tmux() -> str | None:
         return None
 
 
-def resolve_owner() -> str | None:
-    sid = os.environ.get("CLAUDE_CODE_SESSION_ID") or ""
+def resolve_owner(payload_sid: str | None = None) -> str | None:
+    # Codex 不给 hook 进程 session env,只在 stdin payload 里带 session_id
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID") or payload_sid or ""
     return (
         os.environ.get("FOREMAN_OWNER")
         or _infer_owner_from_tmux()
@@ -388,13 +389,25 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
     return 0, ""
 
 
+# Codex 的文件改动走 apply_patch:补丁头里的路径就是写入目标(新增/修改/删除/改名去向)
+_PATCH_TARGET = re.compile(r"^[ \t]*\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+?)\s*$", re.M)  # Codex 先 trim 再认头;+行是正文
+
+
 def judge(payload: dict) -> tuple[int, str]:
     """返回 (exit_code, stderr 消息)。0=放行(可带 WARN),2=BLOCK。"""
-    owner = resolve_owner()
+    owner = resolve_owner(payload.get("session_id"))
     if not owner:
         return 0, ""  # 非 foreman 会话
     tool_input = payload.get("tool_input") or {}
     target = tool_input.get("file_path")
+    if not target and payload.get("tool_name") == "apply_patch":
+        base = Path(payload.get("cwd") or os.getcwd())
+        for t in _PATCH_TARGET.findall(tool_input.get("command") or ""):
+            p = Path(t)  # apply_patch 不展开 ~:~/x 就是 <cwd>/~/x
+            code, msg = _judge_target(payload, owner, str(p if p.is_absolute() else base / p))
+            if code == 2:
+                return code, msg
+        return 0, ""
     if not target:
         if payload.get("tool_name") != "Bash":
             return 0, ""

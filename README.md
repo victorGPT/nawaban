@@ -38,3 +38,32 @@ nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
 Run `nawaban init` in the project to create `.nawaban/nawaban.db`, then use `nawaban inbox`. An explicit `--db` takes priority over `NAWABAN_DB`; existing legacy configuration remains supported as described in [CHANGELOG.md](CHANGELOG.md). Initialization uses the new default path unless an explicit database path or environment override is supplied.
 
 Launch the board with `bash "$NAWABAN_HOME/nawaban/board-up.sh"`. `NAWABAN_BOARD_PORT` and `NAWABAN_BOARD_HOST` select the listener; `NAWABAN_DB` selects its board. Linked Git worktrees resolve the board in the shared main checkout.
+
+## Install as a plugin
+
+The same checkout is a Claude Code plugin and a Codex plugin; both read `hooks/hooks.json`.
+
+- **Claude Code:** `claude --plugin-dir /path/to/nawaban`.
+- **Codex:** add the checkout as a local marketplace in `~/.codex/config.toml`, then install it. Codex copies the plugin into its cache, so run `codex plugin add` again after pulling.
+
+  ```toml
+  [marketplaces.nawaban]
+  source_type = "local"
+  source = "/path/to/nawaban"
+  ```
+
+  ```sh
+  codex plugin add nawaban@nawaban
+  ```
+
+The gates act only in a Git main checkout that has a nawaban board, for a session with an identity (`FOREMAN_OWNER`, a tmux window or a session id). Files under `.nawaban/` and `.foreman/`, and checkouts containing `.foreman/ALLOW_MAINTREE_EDIT`, stay writable. In `Bash`, the write gate catches common file writes (`>`/`>>` redirects, `tee`, `sed -i`) but not arbitrary scripts; the merge gate inspects `gh pr merge` commands, and the branch gate inspects `git checkout` / `git switch`.
+
+| | Claude Code | Codex |
+| --- | --- | --- |
+| Session banner | Shown at session start | Shown at session start (as developer context) |
+| Main-checkout write gate | Blocks `Edit` / `Write` / `MultiEdit` | Blocks `apply_patch`; target paths are read from the patch headers |
+| Branch and merge gates | Block the `Bash` command | Block the `Bash` command |
+| Session identity | `CLAUDE_CODE_SESSION_ID` | `session_id` from the hook input; Codex sets no session variable |
+| Hook trust | Hooks run once the plugin is enabled | Codex asks you to trust the plugin hooks before they run |
+| Headless compile gate (Stop) | Active only for `claude -p` | Inactive: the gate checks for Claude's headless entrypoint |
+| Main-checkout dirt watch (Stop) | Prints a warning at turn end | Registered; its output in Codex is not verified |
