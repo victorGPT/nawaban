@@ -20,6 +20,7 @@ def board(tmp_path, monkeypatch):
     monkeypatch.setenv("FOREMAN_OWNER", "test")
     monkeypatch.setenv("TYPESAFE_API_KEY", "test")
     monkeypatch.setattr(cli, "_hints", lambda *a, **k: [])
+    monkeypatch.setattr(cli, "_dependency_hint", lambda *a, **k: None)
     return path
 
 
