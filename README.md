@@ -65,7 +65,7 @@ same module, then recent activity, and are capped at 25. A top Noul score of at
 least 0.60 is required. The command only prints a suggestion; it never adds an edge.
 
 Each prerequisite suggestion includes a shell-quoted command on the next line.
-Paste it to add `link <new-task> <prerequisite> --kind depends_on`: the prerequisite
+Paste it to add `link --kind depends_on -- <new-task> <prerequisite>`: the prerequisite
 is upstream. The command uses the running Python interpreter, the installed CLI
 file, and an explicit absolute `--db` path, so it targets the same board even from
 another directory. Run it with the usual `FOREMAN_OWNER` or

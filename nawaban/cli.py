@@ -306,7 +306,7 @@ def _dependency_hint(path: Path, task_id: str) -> str | None:
     label = json.dumps(f"{best}: {title}", ensure_ascii=False)
     # Keep the active interpreter, installation entrypoint and board when pasted elsewhere.
     args = [str(Path(__file__).absolute()), "--db", str(path.absolute()),
-            "link", task_id, best, "--kind", "depends_on"]
+            "link", "--kind", "depends_on", "--", task_id, best]
     command = shlex.join([sys.executable, *args])
     if not command.isprintable():
         # Persisted IDs and filesystem paths may contain terminal control characters.

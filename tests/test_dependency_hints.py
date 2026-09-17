@@ -98,7 +98,7 @@ def test_printed_command_runs_unchanged_on_the_same_board(board, monkeypatch, ca
     assert len(lines) == 2
     command = lines[1].strip()
     assert shlex.split(command) == [sys.executable, str(entrypoint), "--db", str(selected),
-                                   "link", "NEW", "PRE", "--kind", "depends_on"]
+                                   "link", "--kind", "depends_on", "--", "NEW", "PRE"]
     with sqlite3.connect(board) as con:
         assert con.execute("SELECT count(*) FROM task_edges").fetchone()[0] == 0
     elsewhere = tmp_path / "elsewhere"
@@ -114,8 +114,11 @@ def test_printed_command_runs_unchanged_on_the_same_board(board, monkeypatch, ca
                and edge["kind"] == "depends_on" for edge in graph["links"])
 
 
-def test_control_characters_in_ids_stay_out_of_command_display(board, monkeypatch, tmp_path):
-    prerequisite, task_id = "PRE-账户🧭\n\x1b[31m", "NEW\t\x7f"
+@pytest.mark.parametrize("prerequisite,task_id", [
+    ("PRE-账户🧭\n\x1b[31m", "NEW\t\x7f"), ("-PRE", "-NEW"),
+])
+def test_special_ids_round_trip_without_terminal_controls(board, monkeypatch, tmp_path,
+                                                         prerequisite, task_id):
     with sqlite3.connect(board) as con:
         con.execute("UPDATE tasks SET id=? WHERE id='PRE'", (prerequisite,))
     db.create_task(board, task_id=task_id, title="用户可以登录账户", project="p")
