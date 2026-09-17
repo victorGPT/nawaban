@@ -1,0 +1,14 @@
+{
+  "name": "nawaban",
+  "description": "nawaban task coordination plugin for Claude Code.",
+  "owner": {
+    "name": "victor-wu"
+  },
+  "plugins": [
+    {
+      "name": "nawaban",
+      "description": "Task board, worktree gates and human inbox shared by agents and people.",
+      "source": "./"
+    }
+  ]
+}

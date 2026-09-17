@@ -3,7 +3,7 @@
 kibo-ui + shadcn 前端,吃 `board_view.py`(8813)现有的只读 API。深色为默认(D 风格 exact
 hex,见下),不做主题切换。
 
-proto-dagview/ 目录里只留 8813 ?view=dag 真在用的 index.html + vendor/;设计与调研文档(README/DESIGN/research)在分支 proto/dagview
+单卡 DAG 页(8813 `?view=dag`)在 `nawaban/dagview/`:只有 index.html + vendor/;设计与调研文档(README/DESIGN/research)在分支 proto/dagview
 
 ## 起
 

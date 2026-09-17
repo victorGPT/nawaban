@@ -37,13 +37,15 @@ nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
 
 Run `nawaban init` in the project to create `.nawaban/nawaban.db`, then use `nawaban inbox`. An explicit `--db` takes priority over `NAWABAN_DB`; existing legacy configuration remains supported as described in [CHANGELOG.md](CHANGELOG.md). Initialization uses the new default path unless an explicit database path or environment override is supplied.
 
+Build the board UI once per checkout with `npm ci && npm run build` in `nawaban/webui` (the build output is not committed; without it the board serves the built-in fallback page). The single-card DAG view (`/?view=dag&focus=<id>`) ships in `nawaban/dagview` with its vendored [dagre](https://github.com/dagrejs/dagre) library (MIT).
+
 Launch the board with `bash "$NAWABAN_HOME/nawaban/board-up.sh"`. `NAWABAN_BOARD_PORT` and `NAWABAN_BOARD_HOST` select the listener; `NAWABAN_DB` selects its board. Linked Git worktrees resolve the board in the shared main checkout.
 
 ## Install as a plugin
 
 The same checkout is a Claude Code plugin and a Codex plugin; both read `hooks/hooks.json`.
 
-- **Claude Code:** `claude --plugin-dir /path/to/nawaban`.
+- **Claude Code:** `claude plugin marketplace add /path/to/nawaban`, then `claude plugin install nawaban@nawaban`. For a one-off session, `claude --plugin-dir /path/to/nawaban` also works. The installed copy updates with `claude plugin update nawaban@nawaban`.
 - **Codex:** add the checkout as a local marketplace in `~/.codex/config.toml`, then install it. Codex copies the plugin into its cache, so run `codex plugin add` again after pulling.
 
   ```toml

@@ -39,8 +39,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import foreman_liveness  # noqa: E402
 from nawaban import db  # noqa: E402
 
-PROTO_DIR = Path(__file__).resolve().parent / "proto-dagview"
-VENDOR_DIR = PROTO_DIR / "vendor"
+DAG_DIR = Path(__file__).resolve().parent / "dagview"  # 单卡 ego 子图页(卡面 DAG 按钮 / 快捷键 g)
+VENDOR_DIR = DAG_DIR / "vendor"
 # 新版前端(webui/ · vite build 产物)。有 dist 就 / 吐它;没有回落到内嵌旧板,永不 404。
 WEBUI_DIST = Path(__file__).resolve().parent / "webui" / "dist"
 _ACTIVE = frozenset({"open", "claimed", "in_progress", "staging-verified"})
@@ -1669,9 +1669,9 @@ class _Handler(BaseHTTPRequestHandler):
         if u.path == "/":
             view = (qs.get("view") or [""])[0]
             if view == "dag":
-                dag = PROTO_DIR / "index.html"
+                dag = DAG_DIR / "index.html"
                 if not dag.exists():
-                    self._json(404, {"error": "proto-dagview/index.html missing"})
+                    self._json(404, {"error": "dagview/index.html missing"})
                     return
                 self._send(200, dag.read_bytes(), "text/html; charset=utf-8")
             elif view == "modules":
@@ -1755,11 +1755,12 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "no such path"})
 
     def _static(self, root: Path, rel: str) -> None:
-        if ".." in rel.split("/"):
+        if ".." in rel.split("/") or rel.startswith("/"):  # 绝对路径会让 root / rel 直接丢掉 root
             self._json(400, {"error": "bad path"})
             return
         fp = (root / rel).resolve()
-        if not str(fp).startswith(str(root.resolve())) or not fp.is_file():
+        # 按目录祖先判,不按字符串前缀:vendor-private/ 也以 vendor 开头
+        if not fp.is_relative_to(root.resolve()) or not fp.is_file():
             self._json(404, {"error": "no such static file"})
             return
         ctype = mimetypes.guess_type(str(fp))[0] or "application/octet-stream"
