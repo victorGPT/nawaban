@@ -145,3 +145,60 @@ def test_trickling_response_gives_up_at_the_deadline(key, monkeypatch):
 
     monkeypatch.setattr(cli, "_post", lambda req: Trickle())
     assert cli._hints(success=["甲"]) == []
+
+
+def _kind(probs):
+    body = json.dumps({"answers": {"evidence_kind": {"type": "choice", "probabilities": probs}}}).encode()
+    return lambda req: io.BytesIO(body)
+
+
+@pytest.mark.parametrize("probs, expect", [
+    ({"observed": 0.1, "write_only": 0.9, "none": 0.0}, "写侧信号"),
+    ({"observed": 0.1, "write_only": 0.2, "none": 0.7}, "基本是空的"),
+])
+def test_weak_evidence_warns(key, monkeypatch, probs, expect):
+    monkeypatch.setattr(cli, "_post", _kind(probs))
+    assert expect in cli._evidence_hint("PR #1 已合并")
+
+
+@pytest.mark.parametrize("probs", [
+    {"observed": 0.8, "write_only": 0.2, "none": 0.0},
+    {"observed": 0.5, "write_only": 0.5, "none": 0.0},  # 并列
+    {"observed": 0.0, "write_only": 0.5, "none": 0.5},
+])
+def test_observed_or_tied_evidence_is_silent(key, monkeypatch, probs):
+    monkeypatch.setattr(cli, "_post", _kind(probs))
+    assert cli._evidence_hint("日志查到 200") is None
+
+
+@pytest.mark.parametrize("probs", [
+    None, [], {"write_only": 1.0},
+    {"observed": 0.0, "write_only": True, "none": 0.0},
+    {"observed": 0.0, "write_only": 2.0, "none": 0.0},
+    {"observed": 0.0, "write_only": 0.9, "none": 0.0, "other": 0.1},
+])
+def test_malformed_choice_is_silent(key, monkeypatch, probs):
+    monkeypatch.setattr(cli, "_post", _kind(probs))
+    assert cli._evidence_hint("PR #1 已合并") is None
+
+
+def test_evidence_hint_no_key_skips_the_call(monkeypatch):
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.setattr(cli, "_post", pytest.fail)
+    assert cli._evidence_hint("PR #1 已合并") is None
+
+
+@pytest.mark.parametrize("kind, calls", [("accept", 1), ("decide", 0)])
+def test_only_accept_asks_are_judged(key, monkeypatch, tmp_path, capsys, kind, calls):
+    monkeypatch.setenv("WORKOS_DB", str(tmp_path / "w.db"))
+    monkeypatch.setenv("FOREMAN_OWNER", "t")
+    seen = []
+    monkeypatch.setattr(cli, "_evidence_hint", lambda e: seen.append(e) or "提示")
+    monkeypatch.setattr(cli, "_hints", lambda *a, **k: [])
+    assert cli.main(["init"]) == 0
+    assert cli.main(["create", "T-1", "--title", "看板上能看到新按钮"]) == 0
+    extra = ["--option", "甲|后果", "--option", "乙|后果"] if kind == "decide" else []
+    assert cli.main(["ask", "--kind", kind, "--question", "收下吗", "--evidence", "日志查到 200",
+                     "--task", "T-1", *extra]) == 0
+    assert len(seen) == calls
+    assert ("⚠ 提示" in capsys.readouterr().err) == bool(calls)

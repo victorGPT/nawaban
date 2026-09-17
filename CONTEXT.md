@@ -132,7 +132,7 @@ _Current identifiers_: `asks.kind` = `accept`; `asks.hands_on`.
 A non-blocking notice to the author of an Acceptance ask that its evidence may lack an observed result.
 证据提示是提醒验收请求作者其证据可能缺少实际观测结果的非拦截提示。
 _Avoid_: gate, rejection, Readability hint.
-_Current identifiers_: none yet; applies to CLI `ask` for Acceptance.
+_Current identifiers_: stderr warning after CLI `ask` for Acceptance.
 
 **Inbox**(收件箱)
 The human-facing queue of asks awaiting a response, together with their resolved history.

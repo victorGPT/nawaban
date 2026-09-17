@@ -133,8 +133,8 @@ def _post(req: urllib.request.Request):
 _HINT_DEADLINE_S = 5
 
 
-def _nouls(state: dict, questions: dict) -> dict[str, float]:
-    """一次请求判多题,只回合法的分;无 key / 失败 / 畸形 = 缺席。"""
+def _answers(state: dict, questions: dict) -> dict:
+    """一次请求判多题,回原始 answers;无 key / 失败 / 超时 / 畸形 = {}。"""
     key = os.environ.get("TYPESAFE_API_KEY")
     if not key:
         return {}
@@ -142,7 +142,6 @@ def _nouls(state: dict, questions: dict) -> dict[str, float]:
     req = urllib.request.Request(
         "https://api.typesafe.ai/v1/systemone", data=body,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-    out = {}
     try:
         # socket timeout 只管单次读;滴灌响应靠总截止时间兜住(单次读 3s 内返回,总等待 ≤ 截止 + 3s)
         deadline, buf = time.monotonic() + _HINT_DEADLINE_S, b""
@@ -152,19 +151,27 @@ def _nouls(state: dict, questions: dict) -> dict[str, float]:
                 if time.monotonic() > deadline or len(buf) > 1 << 20:
                     return {}
         answers = json.loads(buf)["answers"]
-        for name in questions:
-            ans = answers.get(name)
-            raw = ans.get("noul") if isinstance(ans, dict) else None
-            if type(raw) not in (int, float):  # bool / 字符串 = 畸形响应(float(False) 会冒充 0 分)
-                continue
-            try:
-                p = float(raw)
-            except OverflowError:
-                continue
-            if 0 <= p <= 1:  # NaN / 越界 = 畸形响应
-                out[name] = p
+        return answers if isinstance(answers, dict) else {}
     except Exception:  # 外部 API 边界:提示可有可无,响应再怪也不能让已写库的命令报错
         return {}
+
+
+def _prob(raw) -> float | None:
+    if type(raw) not in (int, float):  # bool / 字符串 = 畸形响应(float(False) 会冒充 0 分)
+        return None
+    try:
+        p = float(raw)
+    except OverflowError:
+        return None
+    return p if 0 <= p <= 1 else None  # NaN / 越界 = 畸形响应
+
+
+def _nouls(state: dict, questions: dict) -> dict[str, float]:
+    """只回合法的分;缺席 = 不提示。"""
+    out = {}
+    for name, ans in _answers(state, questions).items():
+        if name in questions and isinstance(ans, dict) and (p := _prob(ans.get("noul"))) is not None:
+            out[name] = p
     return out
 
 
@@ -223,6 +230,39 @@ def _success_q(i: int) -> dict:
             "false": "是工程师的实现步骤或内部检查:含标识符、表名、函数名、开关名,或只说改了什么、没说能观察到什么。",
         },
     }
+
+
+# accept 证据的语义层:正则闸只认关键词(「uv run pytest」里的 run 就能骗过它),Choice 判证据属于哪类,只提醒不拦。
+# 2026-09-17 eval:全部 52 条 accept ask(Claude 代标 35 有观测 / 14 仅写侧 / 3 基本没有,非 PM 判断):
+# 存量全都过了正则闸(正则抓到 0/17);Choice 取最高概率抓到 12/17,有观测的误报 0/35;加概率差门槛不改善,故用 argmax。
+_EVIDENCE_Q = {
+    "type": "choice",
+    "instructions": "这份验收证据 `evidence` 属于哪一类?",
+    "criteria": {
+        "observed": "含实际观测到的结果:真机操作、日志或数据查询、截图、逐条对照",
+        "write_only": "只有写侧信号:PR 已合并、CI 绿、测试通过、或只贴链接/编号",
+        "none": "基本没有证据:空泛描述或与交付无关",
+    },
+}
+_EVIDENCE_HINT = {
+    "write_only": "验收证据可能只有写侧信号(PR 已合并 / CI 绿 / 测试通过 / 只贴链接):验收人看不到实际效果。",
+    "none": "验收证据可能基本是空的:验收人没法据此判断做没做到。",
+}
+
+
+def _evidence_hint(evidence: str) -> str | None:
+    ans = _answers({"evidence": evidence}, {"evidence_kind": _EVIDENCE_Q}).get("evidence_kind")
+    probs = ans.get("probabilities") if isinstance(ans, dict) else None
+    if not isinstance(probs, dict) or set(probs) != set(_EVIDENCE_Q["criteria"]):
+        return None
+    ps = {k: _prob(v) for k, v in probs.items()}
+    if None in ps.values():
+        return None
+    top = max(ps, key=ps.get)
+    if top not in _EVIDENCE_HINT or list(ps.values()).count(ps[top]) > 1:  # 并列最高 = 没判出来,不提示
+        return None
+    return (_EVIDENCE_HINT[top] + f"(判分 {ps[top]:.2f})"
+            "\n  不拦;补真机操作记录、日志查询、截图或逐条对照 success 的账本更稳。")
 
 
 def _identity(*, need_session: bool) -> tuple[str, str | None]:
@@ -591,6 +631,8 @@ def main(argv: list[str] | None = None) -> int:
                                task_ids=a.tasks, raised_by=owner, options=opts,
                                blast=blast, hands_on=a.hands_on)
             print(f"✓ ask #{aid} [{a.kind}] → 收件箱({len(a.tasks)} 张卡)")
+            if a.kind == "accept" and (hint := _evidence_hint(a.evidence)):
+                print("⚠ " + hint, file=sys.stderr)
         elif a.verb == "inbox":
             d = board_view.inbox_data(path)
             if a.json:
