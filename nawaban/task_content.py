@@ -91,4 +91,3 @@ def context_problem(context: str | None) -> str | None:
     return ("context 要写成无序列表,每行一个「- 」开头的要点。查到非列表行:"
             + f"「{bad[0][:40]}」" + (f" 等 {len(bad)} 行" if len(bad) > 1 else "")
             + "\n  示范:\n" + _ORIGIN_EXAMPLE)
-
