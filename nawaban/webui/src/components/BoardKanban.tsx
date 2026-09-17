@@ -124,6 +124,7 @@ export function BoardKanban({
       onDataChange={setItems}
       onDragEnd={(event) => {
 
+        // Dragging is a preview; lifecycle changes must still pass the CLI gates.
         if (event.active.id === event.over?.id) return;
         setItems(toItems(board));
         toast(t("changeViaCli"), { description: t("dragPreview") });
@@ -131,13 +132,13 @@ export function BoardKanban({
     >
       {(col) => (
         <KanbanBoard id={col.id} key={col.id}>
-          <KanbanHeader className="flex h-12 flex-col items-start justify-center gap-1">
+          <KanbanHeader className="flex h-12 shrink-0 flex-col items-start justify-center gap-1">
             <span className="flex items-center gap-2">
               <span className="inline-block size-2 rounded-full" style={{ background: col.color }} />
               {col.name}
               <span className="font-normal">{counts[col.id] ?? 0}</span>
             </span>
-            {col.id === "in_progress" && (counts[col.id] ?? 0) > 0 && (() => {
+            {(col.id === "in_progress" || col.id === "claimed") && (counts[col.id] ?? 0) > 0 && (() => {
               const tally = tallyOf(board, col);
               return (
                 <span className="flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
@@ -168,7 +169,7 @@ export function BoardKanban({
                       )}
                     </div>
                     <p className="m-0 text-ui leading-5 font-medium text-fg-secondary">{item.title}</p>
-                    {item.column === "in_progress" && (
+                    {(item.column === "in_progress" || item.column === "claimed") && (
                       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                         {item.live?.tier && LIVE[item.live.tier] && (
                           <span className="flex items-center gap-1">
@@ -181,7 +182,7 @@ export function BoardKanban({
                         )}
                       </div>
                     )}
-                    {item.column === "in_progress" && item.now && (
+                    {(item.column === "in_progress" || item.column === "claimed") && item.now && (
                       <p className="m-0 line-clamp-2 text-xs leading-4 text-muted-foreground">{item.now}</p>
                     )}
                     {item.merged_refs?.length ? (

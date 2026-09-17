@@ -1,5 +1,6 @@
-import { t } from "@/i18n";
 "use client"
+
+import { t } from "@/i18n";
 
 import * as React from "react"
 import { XIcon } from "lucide-react"

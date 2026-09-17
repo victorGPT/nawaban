@@ -31,9 +31,9 @@ def test_every_english_ui_message_is_registered_in_glossary():
     root = Path(__file__).resolve().parents[1]
     glossary = (root / "CONTEXT.md").read_text(encoding="utf-8")
     registered = set(re.findall(r"^\*\*([^*\n]+)\*\*\(", glossary, re.MULTILINE))
-    messages_section = glossary.split("### Interface messages\n", 1)[1]
+    messages_section = glossary.split("### Interface messages\n", 1)[1].split("|---|---|---|\n", 1)[1]
     registered.update(
-        match.strip()
+        match
         for match in re.findall(r"^\| ([^|]+) \| [^|]+ \| [^|]+ \|$", messages_section, re.MULTILINE)
     )
     directory = root / "nawaban" / "webui" / "src" / "i18n"
@@ -41,7 +41,7 @@ def test_every_english_ui_message_is_registered_in_glossary():
     chinese = json.loads((directory / "zh-CN.json").read_text(encoding="utf-8"))
     assert english, "English UI messages must not be empty"
     assert english.keys() == chinese.keys(), "Locale keys must match"
-    missing = sorted({value for value in english.values() if value.strip() not in registered})
+    missing = sorted({value for value in english.values() if value not in registered})
     assert not missing, "English UI messages missing from CONTEXT.md: " + ", ".join(missing)
     for key, value in english.items():
         assert set(re.findall(r"\{\w+\}", value)) == set(re.findall(r"\{\w+\}", chinese[key])), key

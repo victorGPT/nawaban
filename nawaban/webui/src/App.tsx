@@ -103,7 +103,7 @@ function App() {
           aria-label={t("switchLanguage")}
           onClick={() => setLocale(locale === "en" ? "zh-CN" : "en")}
         >
-          <span>{t("language")}</span><span>{locale === "en" ? "EN" : "ZH"}</span>
+          <span>{t("switchLanguage")}</span>
         </button>
       </nav>}
 
