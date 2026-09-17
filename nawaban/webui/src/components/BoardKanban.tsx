@@ -131,7 +131,7 @@ export function BoardKanban({
     >
       {(col) => (
         <KanbanBoard id={col.id} key={col.id}>
-          <KanbanHeader className="flex items-center justify-between">
+          <KanbanHeader className="flex h-12 flex-col items-start justify-center gap-1">
             <span className="flex items-center gap-2">
               <span className="inline-block size-2 rounded-full" style={{ background: col.color }} />
               {col.name}
