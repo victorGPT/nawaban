@@ -41,6 +41,14 @@ Build the board UI once per checkout with `npm ci && npm run build` in `nawaban/
 
 Launch the board with `bash "$NAWABAN_HOME/nawaban/board-up.sh"`. `NAWABAN_BOARD_PORT` and `NAWABAN_BOARD_HOST` select the listener; `NAWABAN_DB` selects its board. Linked Git worktrees resolve the board in the shared main checkout.
 
+### Optional module suggestions
+
+With `TYPESAFE_API_KEY` set, `create` without `--epic` can print one module suggestion to stderr after the task has been committed. It never fills `epic`. An explicit module or a module inherited through `--split-from` skips this suggestion.
+
+The request uses TypeSafe Choice with all existing module names, up to three recent distinct task titles per module, and a “none” option. It sends the new title, the first 4,000 characters of its background, and up to ten success criteria (500 characters each). It uses one extra request, without retries. A unique module probability of at least 0.9 is required; missing credentials, unavailable or malformed responses, uncertainty, and empty catalogs remain silent. Boards with more than 254 modules skip the request to stay within the [255-option Choice limit](https://docs.typesafe.ai/primitives/choice).
+
+See [the evaluation report](docs/epic-hint-evaluation.md) for coverage, error rates, timing, and reproduction instructions. Suggestions are fallible; choose the module yourself.
+
 ## Install as a plugin
 
 The same checkout is a Claude Code plugin and a Codex plugin; both read `hooks/hooks.json`.
