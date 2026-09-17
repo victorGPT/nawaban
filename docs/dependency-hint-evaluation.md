@@ -1,10 +1,17 @@
 # Dependency hint evaluation and integration
 
-Measured on 2026-09-18 for NAWABAN-DEPHINT-012. The corrected evaluation passes
-all three owner-specified criteria at threshold **0.75**: top1 precision at least
-80%, false-hint rate on cards without recorded dependencies at most 10%, and
-request duration at most five seconds. The CLI now optionally prints **one**
-prerequisite suggestion after committing a new task. It never writes an edge.
+Measured on 2026-09-18 for NAWABAN-DEPHINT-012. The owner selected threshold
+**0.60** after inspecting both corrected splits: 22/120 cards receive a top1 hint
+(18.3% coverage), **13/22 match direct edges (59.1%)**, and **20/22 match upstream
+dependencies through the current graph (90.9%)**. Cards without recorded
+dependencies have 0/60 false hints. The CLI optionally prints one prerequisite
+suggestion after committing a new task; it never writes an edge.
+
+The owner explicitly replaced the original 0.75 direct-edge-only selection
+because its coverage was only 4/120 (3.3%). This is a post-hoc product decision,
+not a fresh independent holdout validation. Direct-edge precision at 0.60 does
+**not** pass the original 80% direct-edge criterion; the final decision uses the
+disclosed upstream/closure criterion. Both metrics are retained below.
 
 The first unbounded-candidate experiment is superseded. It used an unsuitable
 0.9+ threshold range and counted failed requests as missed labels. Its conclusion
@@ -72,7 +79,9 @@ Before the new calls, thresholds **0.30 through 0.85 in steps of 0.05** and the
 owner's **80% / 10% / 5 s** criteria were frozen. Among passing calibration
 thresholds, selection maximizes correct top1 hints, then precision, then threshold.
 There is no extra recall gate or minimum-hint-count requirement. Only 0.75 passed;
-it was frozen before the 80 held-out requests. Holdout was not retuned.
+it was frozen before the original 80 held-out requests. After seeing both splits,
+the owner selected 0.60 using the current graph's upstream closure, as documented
+above. That later choice did not change or rerun the original requests.
 
 A successful request has no transport error, a complete set of valid scores, and
 finishes within five seconds. Request success rate uses **all requests**. Top1
@@ -82,7 +91,35 @@ misses. A successful positive card whose prerequisite was pruned can still be a
 miss; that retrieval loss is separately exposed through the recall ceiling.
 Undefined precision (no hints) does not satisfy the precision criterion.
 
-## Corrected results
+## Final owner-selected threshold: 0.60
+
+These metrics rescore the same 120 successful responses without new API calls.
+The **direct** metric checks the recorded immediate prerequisites in the frozen
+evaluation answer sets. The **closure** metric follows `depends_on` from the
+target through all upstream tasks using a new read-only snapshot of the **current
+board edges**. It includes edges added after target creation and therefore has
+**mild temporal leakage**. It is an upstream-consistency measure, not proof of a
+direct prerequisite or a leakage-free prospective prediction.
+
+| Metric at 0.60 | Calibration | Original holdout | Combined |
+| --- | ---: | ---: | ---: |
+| Request success | 40/40 (100%) | 80/80 (100%) | 120/120 (100%) |
+| Top1 hint coverage | 7/40 (17.5%) | 15/80 (18.75%) | 22/120 (18.3%) |
+| Direct-edge hits / hints | 4/7 (57.1%) | 9/15 (60.0%) | **13/22 (59.1%)** |
+| Closure hits / hints | 7/7 (100%) | 13/15 (86.7%) | **20/22 (90.9%)** |
+| False hints on no-recorded-dependency cards | 0/20 (0%) | 0/40 (0%) | **0/60 (0%)** |
+| Positive-card direct hit rate | 4/20 (20%) | 9/40 (22.5%) | 13/60 (21.7%) |
+| Candidate direct-edge recall ceiling | 20/20 (100%) | 49/49 (100%) | 69/69 (100%) |
+| True prerequisites discarded by cap25 | 0 | 0 | 0 |
+| Request P50 / P95 / max | 0.932 / 1.305 / 1.675 s | 0.953 / 1.397 / 2.153 s | See per-split values |
+
+The recall ceiling refers to known eligible direct edges before candidate
+truncation. It has not been relabeled as closure recall. Error handling, candidate
+rules, model prompts, top1-only output, read-only behavior, and the five-second
+shared waiting budget remain unchanged. No model calls were repeated to improve
+these results. Labels and timing limitations from the original study still apply.
+
+## Original calibration selection: 0.75 (superseded)
 
 Requested model: `jev-latest`; successful responses reported `jev-1.13.0`.
 Requests were sequential on one macOS host with Python 3.14.7.
@@ -144,9 +181,9 @@ exercise combined module/dependency delays and a network call stalled for 30
 seconds, verifying that the CLI exits while retaining exactly one created card.
 No production installation or human acceptance is claimed by this report.
 
-Local validation: `uv run --no-project --python 3.12 --with pytest --with pyyaml
-python tests/run.py` passed all 33 inherited scripts and 286 pytest tests. The
-frontend build also passed. A real API smoke on a private synthetic board printed
+Before the threshold-only update, `uv run --no-project --python 3.12 --with pytest
+--with pyyaml python tests/run.py` passed all 33 inherited scripts and 286 pytest
+tests; the frontend build also passed. A real API smoke on a private synthetic board printed
 a prerequisite suggestion in 2.219 seconds, left `epic` NULL, and retained zero
 edges. Missing credentials returned silently in 0.052 seconds. A separate stalled
 network process exited successfully in 4.694 seconds with one committed task and
@@ -161,6 +198,8 @@ python3 scripts/eval_dependency_hints.py --db /absolute/path/to/board.db --outpu
 python3 scripts/eval_dependency_hints.py --output /private/dependency-eval --split calibration
 python3 scripts/eval_dependency_hints.py --output /private/dependency-eval --split holdout
 python3 scripts/eval_dependency_hints.py --output /private/dependency-eval --split holdout --replay
+# Owner-selected threshold; freezes current edges privately, sends no API calls.
+python3 scripts/eval_dependency_hints.py --output /private/dependency-eval --db /absolute/path/to/board.db --split rescore --threshold 0.60
 ```
 
 `--exclude-snapshot` is optional for a first study. Raw splits and snapshots use
@@ -172,6 +211,7 @@ The frozen model alias may resolve differently on a later date.
 - Corrected snapshot SHA-256: `73db3f8dfbe026f6e5d19eec66f39a05cac41a0d59590d79a11a2101e5605bc9`.
 - Question SHA-256: `405acc18129db3c3e78070d249b92e0c44c779edc33c3982636b423590c7dadf`.
 - Executed pre-extraction script SHA-256: `1bccce7f3cfb663820ba29be16537846023d2cc88ccef3b1d9b8649623166856`.
+- Current-board closure edge snapshot SHA-256: `bc72a4d61d1b5f3020a9c896b5c42b3f5eae9d36695ea03a8a0f25b519e90a1f`.
 
 The exact executed script, snapshot, raw responses, calibration decision, replay
 summaries, and subsequent runtime checks are retained in private artifacts on

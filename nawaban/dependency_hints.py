@@ -4,7 +4,7 @@ from bisect import bisect_right
 import json
 
 MODEL = "jev-latest"
-THRESHOLD = 0.75
+THRESHOLD = 0.60
 CANDIDATE_RULE = {"maximum": 25, "project": "same project only",
                   "rank": "same nonempty epic first, latest activity at target creation, latest creation, id"}
 
@@ -56,4 +56,3 @@ def scores_from(response, names):
         if type(p) in (float, int) and 0 <= p <= 1:
             scores[task_id] = p
     return scores
-

@@ -62,12 +62,14 @@ See [the evaluation report](docs/epic-hint-evaluation.md) for coverage, error ra
 With `TYPESAFE_API_KEY` set, `create` can also suggest one unfinished prerequisite
 after the new task commits. Candidates stay within the same project, prefer the
 same module, then recent activity, and are capped at 25. A top Noul score of at
-least 0.75 is required. The command only prints a suggestion; it never adds an edge.
+least 0.60 is required. The command only prints a suggestion; it never adds an edge.
 
 Title/success, module, and prerequisite suggestions share one five-second waiting
 budget. Missing credentials, unavailable services, uncertain answers, and expired
-budgets remain silent and leave the created task intact. The corrected held-out
-evaluation produced three correct hints out of three, with low coverage (3.75%);
+budgets remain silent and leave the created task intact. At the owner-selected
+threshold, 22/120 cards received a hint: 13/22 matched a direct dependency and
+20/22 matched an upstream dependency through the current graph. The closure
+measure includes later-recorded edges and has mild temporal leakage;
 see [the dependency evaluation](docs/dependency-hint-evaluation.md) for request
 success rates, false-hint rates, candidate recall ceilings, and limitations.
 

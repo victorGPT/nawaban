@@ -137,3 +137,38 @@ def test_shortlist_prefers_epic_and_ignores_future_activity():
     assert len(selected) == 25
     assert [t["id"] for t in selected[:3]] == ["t00", "t01", "t29"]
     assert "t02" not in {t["id"] for t in selected}
+
+
+def test_dependency_closure_follows_prerequisites_not_dependents():
+    graph = {"target": ["direct"], "direct": ["ancestor"], "dependent": ["target"]}
+    assert evaluation.upstream("target", graph) == {"direct", "ancestor"}
+    assert evaluation.upstream("ancestor", graph) == set()
+    assert evaluation.upstream("target", {"target": ["direct"], "direct": ["target"]}) == {"direct"}
+
+
+def test_owner_rescore_preserves_direct_metric_and_excludes_failed_calls(tmp_path, monkeypatch):
+    path = tmp_path / "board.db"
+    with sqlite3.connect(path) as con:
+        con.execute("CREATE TABLE task_edges (src TEXT, dst TEXT, kind TEXT, created_at INTEGER)")
+        con.executemany("INSERT INTO task_edges VALUES (?,?,'depends_on',10)",
+                        [("target", "direct"), ("direct", "ancestor")])
+    before = path.read_bytes()
+    samples = {"calibration": [{"id": "target"}], "holdout": [{"id": "negative"}, {"id": "failed"}]}
+    (tmp_path / "snapshot.json").write_text(json.dumps(samples))
+    rows = {"calibration": [{"id": "target", "candidates": ["ancestor"], "scores": {"ancestor": .6},
+                             "expected": ["direct"], "seconds": 1}],
+            "holdout": [{"id": "negative", "candidates": ["other"], "scores": {"other": .5},
+                         "expected": [], "seconds": 1},
+                        {"id": "failed", "candidates": ["other"], "scores": {"other": 1},
+                         "expected": [], "seconds": 1, "error": "HTTPError"}]}
+    for split, values in rows.items():
+        (tmp_path / f"{split}.jsonl").write_text("\n".join(map(json.dumps, values)))
+    monkeypatch.setattr(evaluation.subprocess, "run", lambda *a, **k: pytest.fail("rescore must not call API"))
+    result = evaluation.rescore(tmp_path, path, .6)["splits"]["combined"]
+    assert result["request_success_rate"] == 2 / 3
+    assert result["top1_precision"] == 0
+    assert result["closure_precision"] == 1
+    assert result["no_dependency_cards"] == 1 and result["no_dependency_hint_rate"] == 0
+    assert path.read_bytes() == before
+    artifact = json.loads((tmp_path / "owner-threshold-0.60.json").read_text())
+    assert len(artifact["closure_edges"]) == 2

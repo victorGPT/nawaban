@@ -110,6 +110,59 @@ def quality_pass(m):
             and m["no_dependency_hint_rate"] <= GATE["maximum_negative_hint_rate"])
 
 
+def upstream(task_id, edges):
+    """Follow depends_on from a task to all prerequisites, including indirect ones."""
+    visited = {task_id}
+    pending = list(edges.get(task_id, ()))
+    while pending:
+        node = pending.pop()
+        if node not in visited:
+            visited.add(node)
+            pending.extend(edges.get(node, ()))
+    return visited - {task_id}
+
+
+def rescore(output, board, threshold):
+    """Report a post-hoc owner-selected threshold without rerunning the model."""
+    snapshot = json.loads((output / "snapshot.json").read_text())
+    with closing(sqlite3.connect(board.resolve().as_uri() + "?mode=ro", uri=True)) as con:
+        edges = list(con.execute("SELECT src,dst,created_at FROM task_edges "
+                                 "WHERE kind='depends_on' ORDER BY src,dst"))
+    graph = {}
+    for src, dst, _ in edges:
+        graph.setdefault(src, []).append(dst)
+    all_rows = []
+    splits = {}
+    for split in ("calibration", "holdout"):
+        rows = [json.loads(line) for line in (output / f"{split}.jsonl").read_text().splitlines()]
+        if [r["id"] for r in rows] != [r["id"] for r in snapshot[split]]:
+            raise ValueError("Incomplete or mismatched split")
+        splits[split] = rows
+        all_rows.extend(rows)
+    splits["combined"] = all_rows
+    summaries = {}
+    for split, rows in splits.items():
+        measured = metrics(rows, threshold)
+        closed_hits = 0
+        for row in rows:
+            if row.get("error") or row["seconds"] > BUDGET or len(row["scores"]) != len(row["candidates"]):
+                continue
+            best = min(row["scores"], key=lambda key: (-row["scores"][key], key))
+            if row["scores"][best] >= threshold:
+                closed_hits += best in upstream(row["id"], graph)
+        measured["closure_hits"] = closed_hits
+        measured["closure_precision"] = closed_hits / measured["top1_hints"] if measured["top1_hints"] else None
+        summaries[split] = measured
+    result = {"threshold": threshold, "selection": "owner-selected after examining both splits; not fresh holdout validation",
+              "snapshot_sha256": digest(snapshot), "closure_edges_sha256": digest(edges),
+              "closure_edges": edges, "closure_as_of_unix": int(time.time()),
+              "closure_caveat": "current board edges include later additions; mild temporal leakage",
+              "splits": summaries}
+    with (output / f"owner-threshold-{threshold:.2f}.json").open("x") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    return {key: value for key, value in result.items() if key != "closure_edges"}
+
+
 def prepare(db, output, exclude_snapshot=None):
     with closing(sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)) as con:
         con.row_factory = sqlite3.Row
@@ -252,19 +305,27 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--db", type=Path)
     ap.add_argument("--output", type=Path, required=True)
-    ap.add_argument("--split", choices=["prepare", "calibration", "holdout"], required=True)
+    ap.add_argument("--split", choices=["prepare", "calibration", "holdout", "rescore"], required=True)
     ap.add_argument("--replay", action="store_true")
     ap.add_argument("--exclude-snapshot", type=Path, help="Exclude all previous evaluation targets")
+    ap.add_argument("--threshold", type=float, help="Explicit owner-selected post-hoc threshold for rescore")
     a = ap.parse_args()
     repo = Path(__file__).resolve().parents[1]
     if a.output.resolve().is_relative_to(repo):
         ap.error("private evaluation output must be outside the repository")
     if a.split == "prepare" and (a.db is None or a.replay):
         ap.error("prepare requires --db and does not support --replay")
-    if a.split != "prepare" and not a.replay and not os.environ.get("TYPESAFE_API_KEY"):
+    if a.split == "rescore" and (a.db is None or a.threshold is None or not 0 <= a.threshold <= 1 or a.replay):
+        ap.error("rescore requires --db and --threshold in [0,1]; no --replay")
+    if a.split in ("calibration", "holdout") and not a.replay and not os.environ.get("TYPESAFE_API_KEY"):
         ap.error("TYPESAFE_API_KEY is required; no requests sent")
     a.output.mkdir(parents=True, exist_ok=True, mode=0o700)
-    result = prepare(a.db, a.output, a.exclude_snapshot) if a.split == "prepare" else evaluate(a.output, a.split, a.replay)
+    if a.split == "prepare":
+        result = prepare(a.db, a.output, a.exclude_snapshot)
+    elif a.split == "rescore":
+        result = rescore(a.output, a.db, a.threshold)
+    else:
+        result = evaluate(a.output, a.split, a.replay)
     print(json.dumps(result, indent=2))
 
 

@@ -58,7 +58,7 @@ def test_commit_before_all_requests_and_no_automatic_writes(board, monkeypatch, 
         assert con.execute("SELECT count(*) FROM task_edges").fetchone()[0] == 0
 
 
-@pytest.mark.parametrize("score,shown", [(.74, False), (.75, True), (.85, True), (True, False), (None, False)])
+@pytest.mark.parametrize("score,shown", [(.59, False), (.60, True), (.75, True), (True, False), (None, False)])
 def test_threshold_and_explicit_module_still_allows_dependency_hint(board, monkeypatch, capsys, score, shown):
     monkeypatch.setattr(cli, "_hints", lambda *args: [])
     monkeypatch.setattr(cli, "_answers", lambda *args: {"candidate_0": {"noul": score}})
