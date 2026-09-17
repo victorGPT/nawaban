@@ -323,3 +323,125 @@ A recoverable copy of a board's persistent records.
 全量备份是可供恢复的看板持久记录副本。
 _Avoid_: source checkout as a backup of live task data.
 _Current identifiers_: CLI `backup`.
+
+### Interface messages
+
+Exact display templates below are part of the English vocabulary. Braced names are interpolation slots; Chinese text preserves the existing interface. These entries govern display only, not stored enum values or user-authored task content.
+
+| English | 中文 | _Avoid_ |
+|---|---|---|
+| Collapse sidebar ([) | 收起侧栏([) | A control label that describes an action different from what the control performs. |
+| Collapse sidebar  [ | 收起侧栏  [ | A control label that describes an action different from what the control performs. |
+| Expand sidebar ([) | 展开侧栏([) | A control label that describes an action different from what the control performs. |
+| Expand sidebar  [ | 展开侧栏  [ | A control label that describes an action different from what the control performs. |
+| Search ID / title / owner / epic (/ to focus · Esc to clear) | 搜索 id / 标题 / owner / epic(/ 聚焦 · Esc 清空) | A control label that describes an action different from what the control performs. |
+| Workspace | 工作区 | Runtime enum values as display labels or a different action sharing this label. |
+| Filter | 筛选 | A control label that describes an action different from what the control performs. |
+| Language | 语言 | Runtime enum values as display labels or a different action sharing this label. |
+| Switch to Chinese | 切换到英文 | Runtime enum values as display labels or a different action sharing this label. |
+| Waiting on observation | 等观察 | Runtime enum values as display labels or a different action sharing this label. |
+| Waiting on external | 等外部 | Runtime enum values as display labels or a different action sharing this label. |
+| Waiting on deploy | 等上线 | Runtime enum values as display labels or a different action sharing this label. |
+| Running | 在跑 | Task completion or ownership as a synonym for session activity. |
+| Session idle | 窗口闲着 | Task completion or ownership as a synonym for session activity. |
+| Session inactive | 窗口早没动静 | Task completion or ownership as a synonym for session activity. |
+| Session not found | 找不到窗口 | Task completion or ownership as a synonym for session activity. |
+| Loading… | 加载中… | Runtime enum values as display labels or a different action sharing this label. |
+| Change status through the CLI | 状态变更走 CLI | Runtime enum values as display labels or a different action sharing this label. |
+| Dragging previews the board; it does not change task status | 看板拖拽仅供预览,不会改变任务状态 | Runtime enum values as display labels or a different action sharing this label. |
+| No sessions running | 无窗口在动 | Success or populated-state wording when data or an operation is unavailable. |
+| Board failed to load: | 看板加载失败: | Success or populated-state wording when data or an operation is unavailable. |
+| ● {count} running | ● {count} 在动 | Dropped interpolation values or raw template placeholders in rendered text. |
+| {count} idle | {count} 闲着 | Dropped interpolation values or raw template placeholders in rendered text. |
+| {count} sessions gone | {count} 窗口已不在 | Dropped interpolation values or raw template placeholders in rendered text. |
+| Inactive for {time} | {time} 没动 | Dropped interpolation values or raw template placeholders in rendered text. |
+| Existing PR {refs} · awaiting a status decision | 已有 PR {refs} · 状态待人裁定 | Dropped interpolation values or raw template placeholders in rendered text. |
+| Blocked by {tasks} | 被 {tasks} 挡 | Dropped interpolation values or raw template placeholders in rendered text. |
+| Today | 今天 | Runtime enum values as display labels or a different action sharing this label. |
+| Yesterday | 昨天 | Runtime enum values as display labels or a different action sharing this label. |
+| This week | 本周 | Runtime enum values as display labels or a different action sharing this label. |
+| Last week | 上周 | Runtime enum values as display labels or a different action sharing this label. |
+| Last 7 days | 最近 7 天 | Runtime enum values as display labels or a different action sharing this label. |
+| Start date | 起始日期 | A control label that describes an action different from what the control performs. |
+| End date | 结束日期 | A control label that describes an action different from what the control performs. |
+| Updated | 更新时间 | A control label that describes an action different from what the control performs. |
+| Acceptance confirmed (one-click inbox) | 验收通过(收件箱一键) | Runtime enum values as display labels or a different action sharing this label. |
+|  · Supplement: |  · 补充: | Runtime enum values as display labels or a different action sharing this label. |
+| Confirm decision | 就这么定 | Authorization or a recorded answer as proof that the action executed successfully. |
+| Other… | 其他… | Runtime enum values as display labels or a different action sharing this label. |
+| Answer (recorded verbatim in the decision log) | 回答(会原样进决策记录) | Authorization or a recorded answer as proof that the action executed successfully. |
+| Additional details (optional) | 补充说明(非必填) | Runtime enum values as display labels or a different action sharing this label. |
+| Select an option first | 先选一个选项 | A control label that describes an action different from what the control performs. |
+| Reason for requesting changes | 打回理由 | Runtime enum values as display labels or a different action sharing this label. |
+|  (recorded verbatim in the decision log) | (会原样进决策记录) | Authorization or a recorded answer as proof that the action executed successfully. |
+| Copied | 已复制 | Runtime enum values as display labels or a different action sharing this label. |
+| Copy failed; select the text manually | 复制失败,手动选中吧 | A control label that describes an action different from what the control performs. |
+| No decisions waiting | 没有需要你决定的事 | Success or populated-state wording when data or an operation is unavailable. |
+| Select an item for details | 选一条看详情 | A control label that describes an action different from what the control performs. |
+| The inbox is empty | 收件箱是空的 | Success or populated-state wording when data or an operation is unavailable. |
+| Try it yourself | 要你亲自点 | Runtime enum values as display labels or a different action sharing this label. |
+| Approval only records your decision —  | 授权只记录你的决定 ——  | Authorization or a recorded answer as proof that the action executed successfully. |
+| it does not execute automatically | 不会自动执行 | Authorization or a recorded answer as proof that the action executed successfully. |
+| . Once the action has actually run, report its result: | 。动作真跑完之后再收口: | Runtime enum values as display labels or a different action sharing this label. |
+|  (use --failed for failure) | (失败用 --failed) | Success or populated-state wording when data or an operation is unavailable. |
+| Cancel | 取消 | Runtime enum values as display labels or a different action sharing this label. |
+| Submit | 提交 | Runtime enum values as display labels or a different action sharing this label. |
+| Copy | 复制 | Runtime enum values as display labels or a different action sharing this label. |
+| Inbox failed to load: | 收件箱加载失败: | Success or populated-state wording when data or an operation is unavailable. |
+| #{id} resolved | #{id} 已处理 | Dropped interpolation values or raw template placeholders in rendered text. |
+| {percent}% confidence | {percent}% 把握 | Dropped interpolation values or raw template placeholders in rendered text. |
+| 🤖 Self-approved tasks · {count} in the last 7 days ({lane} with evidence{silent} · request changes if needed) | 🤖 自批归档 digest · 近 7 天 {count} 张(自证 lane {lane} 条逐列{silent} · 看着不对就打回) | Dropped interpolation values or raw template placeholders in rendered text. |
+|  · {count} summarized from the legacy path |  · 旧静默路 {count} 张计数压行 | Dropped interpolation values or raw template placeholders in rendered text. |
+| The other {count} tasks were closed through deploy/observation/external paths without human participation (existing behavior). | 其余 {count} 张经 prod/observe/external 路无人参与归档(历来如此)。 | Dropped interpolation values or raw template placeholders in rendered text. |
+| {count} asks waiting · oldest {days} days | {count} 件事等你 · 最久停了 {days} 天 | Dropped interpolation values or raw template placeholders in rendered text. |
+|  · This week: {raised} received · {closed} resolved |  · 本周进 {raised} · 已清 {closed} | Dropped interpolation values or raw template placeholders in rendered text. |
+| Ungrouped | 未分组 | Runtime enum values as display labels or a different action sharing this label. |
+| Working now: | 现在动着的: | Runtime enum values as display labels or a different action sharing this label. |
+|  (independent task) | (独立卡) | Runtime enum values as display labels or a different action sharing this label. |
+| No tasks in progress | 没有进行中的卡 | Success or populated-state wording when data or an operation is unavailable. |
+|  · Upstream |  · 上游 | Runtime enum values as display labels or a different action sharing this label. |
+|  · Downstream |  · 下游 | Runtime enum values as display labels or a different action sharing this label. |
+| ▸ Blocked by = unfinished prerequisite | ▸ 被挡 = 上游未 done | Runtime enum values as display labels or a different action sharing this label. |
+| ▸ Blocked by | ▸ 被挡 | Runtime enum values as display labels or a different action sharing this label. |
+| ← Depends on  | ← 依赖  | Runtime enum values as display labels or a different action sharing this label. |
+| Epics failed to load: | 模块加载失败: | Success or populated-state wording when data or an operation is unavailable. |
+| Epic data is currently unavailable | 模块数据当前不可用 | Success or populated-state wording when data or an operation is unavailable. |
+| Epics · sorted by unfinished tasks | 模块 · 按未完成量排序 | Runtime enum values as display labels or a different action sharing this label. |
+| Focus mode · select a task to see its dependencies | 专注模式 · 点卡看它的链 | A control label that describes an action different from what the control performs. |
+| This epic has no internal dependency chain; all tasks are independent. | 这个模块内部没有依赖链——所有卡都是独立卡。 | Success or populated-state wording when data or an operation is unavailable. |
+| Independent tasks (outside the chain) ·  | 独立卡(不在链上)·  | Runtime enum values as display labels or a different action sharing this label. |
+| No epic data | 没有模块数据 | Success or populated-state wording when data or an operation is unavailable. |
+|  (stage {stage}/{total}) | (第 {stage}/{total} 级) | Dropped interpolation values or raw template placeholders in rendered text. |
+| {count} tasks · {percent}% done · Done {done} / Ready for acceptance {ready} / Assigned + In progress {active} / Unassigned {open} · {now} | {count} 卡 · 完成 {percent}% · done {done} / 待验收 {ready} / 进行中 {active} / open {open} · {now} | Dropped interpolation values or raw template placeholders in rendered text. |
+| Stage {stage} | 第 {stage} 级 | Dropped interpolation values or raw template placeholders in rendered text. |
+| Just now | 刚刚 | Runtime enum values as display labels or a different action sharing this label. |
+| Collapse | 收起 | Runtime enum values as display labels or a different action sharing this label. |
+| Expand | 展开 | Runtime enum values as display labels or a different action sharing this label. |
+| No epic | 无 epic | Success or populated-state wording when data or an operation is unavailable. |
+| Status | 状态 | Runtime enum values as display labels or a different action sharing this label. |
+| Not waiting | 不等谁 | Runtime enum values as display labels or a different action sharing this label. |
+| Time | 时间 | Runtime enum values as display labels or a different action sharing this label. |
+| Split from | 拆自 | Runtime enum values as display labels or a different action sharing this label. |
+| Split out | 拆出 | Runtime enum values as display labels or a different action sharing this label. |
+| Supersedes | 替代了 | Runtime enum values as display labels or a different action sharing this label. |
+| Superseded by | 被替代 | Runtime enum values as display labels or a different action sharing this label. |
+| Unread | 未读 | Runtime enum values as display labels or a different action sharing this label. |
+| Failed to load: | 加载失败: | Success or populated-state wording when data or an operation is unavailable. |
+| Blocked at  | 真正卡在  | Runtime enum values as display labels or a different action sharing this label. |
+| Unblocks | 放开 | Runtime enum values as display labels or a different action sharing this label. |
+| Rejected: | 否: | Runtime enum values as display labels or a different action sharing this label. |
+| Properties | 属性 | Runtime enum values as display labels or a different action sharing this label. |
+| Relationships | 关系 | Runtime enum values as display labels or a different action sharing this label. |
+| {count} minutes ago | {count} 分钟前 | Dropped interpolation values or raw template placeholders in rendered text. |
+| {count} hours ago | {count} 小时前 | Dropped interpolation values or raw template placeholders in rendered text. |
+| {count} days ago | {count} 天前 | Dropped interpolation values or raw template placeholders in rendered text. |
+| Copy {text} | 复制 {text} | Dropped interpolation values or raw template placeholders in rendered text. |
+| {count} more | 还有 {count} 条 | Dropped interpolation values or raw template placeholders in rendered text. |
+| Wrapup · {outcome} | 收尾 · {outcome} | Dropped interpolation values or raw template placeholders in rendered text. |
+| No {label} | 无 {label} | Dropped interpolation values or raw template placeholders in rendered text. |
+| Created {time} | 创建 {time} | Dropped interpolation values or raw template placeholders in rendered text. |
+| Started {time} | 开工 {time} | Dropped interpolation values or raw template placeholders in rendered text. |
+| Done {time} | 完成 {time} | Dropped interpolation values or raw template placeholders in rendered text. |
+| {count} others still waiting on prerequisites | 另有 {count} 张还在等别人 | Dropped interpolation values or raw template placeholders in rendered text. |
+| Close | 关闭 | Runtime enum values as display labels or a different action sharing this label. |
+| No owner | 未认领 | Unassigned as the owner field label; this is not a lifecycle state. |

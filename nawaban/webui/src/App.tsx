@@ -1,3 +1,4 @@
+import { t, useLocale, setLocale } from "@/i18n";
 import { useEffect, useRef, useState } from "react";
 import { Inbox, LayoutGrid, ListFilter, Network, PanelLeft } from "lucide-react";
 import { BoardFilterBar } from "@/components/BoardFilterBar";
@@ -8,30 +9,29 @@ import { TaskDetailSheet } from "@/components/TaskDetailSheet";
 import { cn } from "@/lib/utils";
 import { fetchInbox, type DateRange } from "@/lib/api";
 
-// 壳子按 Linear 真页尺度(2026-09-07 量):侧栏 244px · 导航项 13/500 · 段标题 12/500 三级色 ·
-// 每个视图自己一条 44px 顶栏(标题 + 搜索)。层级靠对比度不靠字号。
 type View = "board" | "modules" | "inbox";
-const NAV: { id: View; label: string; icon: typeof Inbox }[] = [
-  { id: "board", label: "看板", icon: LayoutGrid },
-  { id: "modules", label: "模块", icon: Network },
-  { id: "inbox", label: "收件箱", icon: Inbox },
-];
 
 function App() {
+  const locale = useLocale();
+  const NAV: { id: View; label: string; icon: typeof Inbox }[] = [
+    { id: "board", label: t("board"), icon: LayoutGrid },
+    { id: "modules", label: t("epic"), icon: Network },
+    { id: "inbox", label: t("inbox"), icon: Inbox },
+  ];
   const [view, setView] = useState<View>("board");
   const [query, setQuery] = useState("");
-  // 看板「更新时间」筛(Linear 式):null = 不筛;筛选栏开着但没选也算不筛
+
   const [range, setRange] = useState<DateRange | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [inboxTotal, setInboxTotal] = useState<number | null>(null);
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
-  // 侧栏折叠(Linear:整栏收起 · 顶栏左侧留展开钮 · 快捷键 `[`);记 localStorage,读不到就展开
+
   const [navOpen, setNavOpen] = useState(() => {
     try { return localStorage.getItem("navOpen") !== "0"; } catch { return true; }
   });
   const toggleNav = () =>
     setNavOpen((o) => {
-      try { localStorage.setItem("navOpen", o ? "0" : "1"); } catch { /* 私密窗口等:不记 */ }
+      try { localStorage.setItem("navOpen", o ? "0" : "1"); } catch { /* Storage unavailable. */ }
       return !o;
     });
   const searchRef = useRef<HTMLInputElement>(null);
@@ -43,7 +43,6 @@ function App() {
     return () => clearInterval(iv);
   }, []);
 
-  // 全局 `/` 聚焦搜索,Esc 清空并失焦 —— 旧板的习惯,不装快捷键库,原生 keydown 够用。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
@@ -71,16 +70,16 @@ function App() {
         <div className="mb-5 flex items-center px-2 font-semibold text-fg-secondary">
           NAWABAN
           <button
-            aria-label="收起侧栏([)"
+            aria-label={t("collapseSidebarLabel")}
             className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             onClick={toggleNav}
-            title="收起侧栏  ["
+            title={t("collapseSidebar")}
             type="button"
           >
             <PanelLeft className="size-4" />
           </button>
         </div>
-        <div className="mb-2 px-2 text-xs font-medium text-muted-foreground">工作区</div>
+        <div className="mb-2 px-2 text-xs font-medium text-muted-foreground">{t("workspace")}</div>
         {NAV.map((n) => (
           <button
             className={cn(
@@ -98,16 +97,24 @@ function App() {
             )}
           </button>
         ))}
+        <button
+          className="mt-auto mb-4 flex h-8 items-center justify-between rounded-md px-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+          type="button"
+          aria-label={t("switchLanguage")}
+          onClick={() => setLocale(locale === "en" ? "zh-CN" : "en")}
+        >
+          <span>{t("switchLanguage")}</span>
+        </button>
       </nav>}
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-11 shrink-0 items-center gap-4 border-b px-4 text-ui">
           {!navOpen && (
             <button
-              aria-label="展开侧栏([)"
+              aria-label={t("expandSidebarLabel")}
               className="-ml-1 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={toggleNav}
-              title="展开侧栏  ["
+              title={t("expandSidebar")}
               type="button"
             >
               <PanelLeft className="size-4" />
@@ -125,13 +132,13 @@ function App() {
               type="button"
             >
               <ListFilter className="size-3.5" />
-              筛选{range && " · 1"}
+              {t("filter")}{range && " · 1"}
             </button>
           )}
           <input
             className="ml-auto h-7 w-full max-w-xs rounded-md border bg-transparent px-2.5 outline-none placeholder:text-muted-foreground focus:border-card-hover-border"
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索 id / 标题 / owner / epic(/ 聚焦 · Esc 清空)"
+            placeholder={t("search")}
             ref={searchRef}
             value={query}
           />
