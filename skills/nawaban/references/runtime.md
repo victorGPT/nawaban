@@ -2,14 +2,14 @@
 
 ## 找到实现
 
-从已核实的 nawaban 源码仓运行 `python3 "$NAWABAN_HOME/nawaban/cli.py" <动词>`，参数查 `--help`。本 Skill 真实路径为 `<nawaban 根>/skills/agent-foreman/SKILL.md`；先解析符号链接，再沿目录找到该根。需要短命令时，只为当前执行进程定义：
+从已核实的 nawaban 源码仓运行 `python3 "$NAWABAN_HOME/nawaban/cli.py" <动词>`，参数查 `--help`。本 Skill 真实路径为 `<nawaban 根>/skills/nawaban/SKILL.md`；先解析符号链接，再沿目录找到该根。需要短命令时，只为当前执行进程定义：
 
 ```bash
 export NAWABAN_HOME="<已核实的 nawaban 根绝对路径>"
 nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
 ```
 
-`NAWABAN_HOME` 用于找到源码与可选 helpers，不选择任务数据库。需要安装或配置 hooks 时才读 [安装与集成](../../../integrations/README.md)。安装不足时说明缺少的入口；普通任务不会自动改全局配置。
+作为 Claude Code 插件安装时，`NAWABAN_HOME` 取插件根目录（钩子进程里的 `CLAUDE_PLUGIN_ROOT`）。`NAWABAN_HOME` 用于找到源码与可选 helpers，不选择任务数据库。需要安装或配置 hooks 时才读 [安装与集成](../../../integrations/README.md)。安装不足时说明缺少的入口；普通任务不会自动改全局配置。
 
 ## 选择目标板
 

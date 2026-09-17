@@ -1,0 +1,10 @@
+{
+  "name": "nawaban",
+  "version": "0.1.0",
+  "description": "Task board, worktree gates and human inbox shared by agents and people.",
+  "author": {
+    "name": "victor-wu"
+  },
+  "repository": "https://github.com/victorGPT/nawaban",
+  "license": "MIT"
+}

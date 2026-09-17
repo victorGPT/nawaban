@@ -28,7 +28,10 @@ _REGISTRY = Path.home() / ".claude" / "foreman" / "session-registry.json"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nawaban import db as _wdb  # noqa: E402
-from foreman_card import CardError, guard_problems, load_card  # noqa: E402
+try:  # 只有旧 md 卡路径用它;缺 PyYAML 时开工横幅照常出,跳过 md 卡
+    from foreman_card import CardError, guard_problems, load_card  # noqa: E402
+except ImportError:
+    load_card = None
 
 
 def _tmux_owner(pane: str) -> str | None:
@@ -47,7 +50,7 @@ def _tmux_owner(pane: str) -> str | None:
 
 
 def _register_session(session_id: str, cwd: str) -> tuple[str, str] | None:
-    """把本窗口 pane→session 写进注册表(latest-per-pane)· 返 (pane, session) 供横幅显示。
+    """把本窗口 pane→session 写进注册表(latest-per-pane)· 返 (owner, session) 供横幅显示。
 
     全程吞错:注册是增强,失败不该影响会话启动 / 任务摘要。
     """
@@ -76,7 +79,7 @@ def _register_session(session_id: str, cwd: str) -> tuple[str, str] | None:
         _REGISTRY.write_text(json.dumps(reg, ensure_ascii=False, indent=2), encoding="utf-8")
         return owner, session_id
     except Exception:
-        return (pane or "(no-tmux)", session_id)  # 写失败也照样显示 · 至少这次能恢复
+        return owner, session_id  # 写失败也照样显示本窗 owner · 至少这次能恢复
 
 
 def _print_registry() -> int:
@@ -360,7 +363,7 @@ def main() -> int:
             print("🏗️  Foreman · 无活跃任务")
         return 0
 
-    task_files = [] if used_db else list(tasks_dir.glob("*/active/*.md"))
+    task_files = [] if used_db or load_card is None else list(tasks_dir.glob("*/active/*.md"))
     if not used_db and not task_files:
         if not _inbox_banner(foreman_dir):
             print("🏗️  Foreman · 无活跃任务")

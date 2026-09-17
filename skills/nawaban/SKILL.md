@@ -1,5 +1,5 @@
 ---
-name: agent-foreman
+name: nawaban
 description: 认领、推进或恢复 nawaban 任务，处理工位与状态闸；只查进度时保持只读。
 metadata:
   version: "6.0.0"

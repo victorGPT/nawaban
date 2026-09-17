@@ -9,7 +9,7 @@ The runtime and skill use the nawaban name. CLI subcommands and database schemas
 | Path | Contents |
 | --- | --- |
 | `nawaban/` | Python CLI, SQLite runtime, board server, `board-up.sh`, and WebUI source |
-| `skills/agent-foreman/` | Existing task coordination skill and references |
+| `skills/nawaban/` | Task coordination skill and references |
 | `hooks/` | `foreman_branch_gate.sh`, `foreman_maintree_watch.sh`, and `foreman_session_start.py` |
 | `nawaban/guard.py`, `nawaban/compile_gate_headless.sh` | The other two live hooks, preserved at their runtime paths |
 | `tests/test_glossary.py` | CLI terminology coverage check |

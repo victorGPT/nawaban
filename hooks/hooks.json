@@ -1,0 +1,60 @@
+{
+  "description": "nawaban gates: main-checkout write gate, merge gate, branch gate, session banner, headless compile gate, main-checkout dirt watch.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/foreman_session_start.py\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/nawaban/guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/foreman_branch_gate.sh\"",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/nawaban/guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/nawaban/compile_gate_headless.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/foreman_maintree_watch.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
