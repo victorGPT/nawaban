@@ -148,6 +148,7 @@
   "agentWorkspace": "Agent 工作空间",
   "toggleSidebar": "切换侧栏",
   "allProjects": "全部项目",
+  "noProject": "无项目",
   "switchProject": "切换项目",
   "agentsAdvanceTasks": "任务由 Agent 推进",
   "decisionsInInbox": "需要你的决定，集中在收件箱",

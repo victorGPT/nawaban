@@ -210,7 +210,7 @@ def _card(r: sqlite3.Row, hints: dict[str, str] | None = None) -> dict:
 _BASE = ("SELECT t.*, MAX(e.created_at) AS last_event_at"
          " FROM tasks t LEFT JOIN task_events e ON e.task_id = t.id"
          " WHERE t.status = :status{touched}{project} GROUP BY t.id")
-_PROJECT = " AND t.project = :project"
+_PROJECT = " AND COALESCE(t.project, '') = :project"
 # 「更新时间」筛(Linear 式 filter · 用户 2026-09-08 选定):时间段内有事件、或段内建/开工/完成的卡。
 # 用 EXISTS 而不是改 LEFT JOIN 的范围,否则 last_event_at(卡面「没动」)会变成「段内最后一次」。
 _TOUCHED = (" AND (EXISTS (SELECT 1 FROM task_events x WHERE x.task_id = t.id"
@@ -302,13 +302,13 @@ def board_data(path: Path | str, live: dict | None = None,
     ``live`` 保留是为了不破坏既有调用方签名,本函数已不再使用它 ——
     活性改从转录 mtime 直接算(见 ``_live_of``)。
     ``touched`` = (lo, hi) epoch:只留这段时间动过的卡(列仍按**当前**状态分)。
-    ``project`` = 只留该项目的卡;None = 全部项目。
+    ``project``: None selects all projects; an empty string selects unassigned cards.
     """
     params: dict = {"project": project}
     if touched:
         params["lo"], params["hi"] = touched
     base = _BASE.format(touched=_TOUCHED if touched else "",
-                        project=_PROJECT if project else "")
+                        project=_PROJECT if project is not None else "")
     con = _ro(path)
     try:
         hints = prefix_hints(con)
@@ -380,7 +380,7 @@ def modules_data(path: Path | str, idx: dict[str, float] | None = None,
                   "live": _live_of(r["owner"], idx) if r["status"] in LIVE_COLUMNS else None}
                  for r in con.execute(
                      "SELECT id, title, status, epic, owner, waiting_on FROM tasks"
-                     " WHERE :project IS NULL OR project = :project", {"project": project})]
+                     " WHERE :project IS NULL OR COALESCE(project, '') = :project", {"project": project})]
         ids = {t["i"] for t in tasks}
         # 跨项目的依赖边两端不全在本项目里,只留两端都在的
         deps = [[r["src"], r["dst"]] for r in con.execute(
@@ -396,21 +396,21 @@ def projects_data(path: Path | str) -> dict:
     con = _ro(path)
     try:
         rows = con.execute(
-            "SELECT project, SUM(status NOT IN ('done','cancelled')) AS open, count(*) AS total"
-            " FROM tasks GROUP BY project ORDER BY project IS NULL, project").fetchall()
+            "SELECT NULLIF(project, '') AS name, SUM(status NOT IN ('done','cancelled')) AS open, count(*) AS total"
+            " FROM tasks GROUP BY name ORDER BY name IS NULL, name").fetchall()
     finally:
         con.close()
-    return {"projects": [{"name": r["project"], "open": r["open"], "total": r["total"]}
+    return {"projects": [{"name": r["name"], "open": r["open"], "total": r["total"]}
                          for r in rows]}
 
 
 def project_inbox(path: Path | str, data: dict, project: str | None) -> dict:
     """把收件箱投影收窄到一个项目:关联卡里有该项目的卡才留;没关联卡的问题各项目都显示。"""
-    if not project or data.get("unavailable"):
+    if project is None or data.get("unavailable"):
         return data
     con = _ro(path)
     try:
-        ids = {r[0] for r in con.execute("SELECT id FROM tasks WHERE project=?", (project,))}
+        ids = {r[0] for r in con.execute("SELECT id FROM tasks WHERE COALESCE(project, '')=?", (project,))}
     finally:
         con.close()
     groups = [{**g, "items": [a for a in g["items"]
@@ -1640,6 +1640,8 @@ class _Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         qs = parse_qs(u.query)
         project = (qs.get("project") or [""])[0] or None   # 空 = 全部项目
+        if qs.get("unassigned") == ["1"]:
+            project = ""
         if u.path == "/":
             view = (qs.get("view") or [""])[0]
             if view != "legacy" and (WEBUI_DIST / "index.html").exists():

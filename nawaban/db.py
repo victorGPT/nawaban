@@ -881,7 +881,7 @@ def add_event(path: Path | str, task_id: str, *, kind: str, body: str,
         con.close()
 
 
-META_FIELDS = ("epic",)
+META_FIELDS = ("epic", "project")
 
 
 def retitle(path: Path | str, task_id: str, *, title: str, author: str,
@@ -908,7 +908,7 @@ def retitle(path: Path | str, task_id: str, *, title: str, author: str,
 
 def set_meta(path: Path | str, task_id: str, *, fields: dict, author: str,
              session_id: Optional[str] = None) -> None:
-    """补填 epic(fill-if-empty · 带留痕)。
+    """Fill empty epic/project fields with an audit event.
 
     语义只补空不改写:已有值要改,走 decide 留痕后再人工判断,别在这里悄悄覆盖。
     """
@@ -917,7 +917,7 @@ def set_meta(path: Path | str, task_id: str, *, fields: dict, author: str,
         raise NawabanError(f"meta 只收 {META_FIELDS},不认:{bad}")
     fields = {k: v.strip() for k, v in fields.items() if v and v.strip()}
     if not fields:
-        raise NawabanError("meta 没给任何值:--set-epic")
+        raise NawabanError("meta 没给任何值:--set-epic / --set-project")
     con = connect(path)
     try:
         with _txn(con):

@@ -148,6 +148,7 @@
   "agentWorkspace": "Agent workspace",
   "toggleSidebar": "Toggle sidebar",
   "allProjects": "All projects",
+  "noProject": "No project",
   "switchProject": "Switch project",
   "agentsAdvanceTasks": "Agents advance tasks",
   "decisionsInInbox": "Your decisions are collected in the inbox",

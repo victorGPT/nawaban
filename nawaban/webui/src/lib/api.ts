@@ -16,10 +16,11 @@ async function getJSON<T>(path: string): Promise<T> {
 }
 
 export type DateRange = { since: string; until: string };
-/** null = all projects. */
+/** null = all projects; empty string = unassigned cards. */
 export type Project = string | null;
 const withProject = (path: string, project: Project, params = new URLSearchParams()) => {
-  if (project) params.set("project", project);
+  if (project === "") params.set("unassigned", "1");
+  else if (project !== null) params.set("project", project);
   const qs = params.toString();
   return qs ? `${path}?${qs}` : path;
 };

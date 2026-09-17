@@ -44,9 +44,12 @@ const NAV = [
   });
   const [query, setQuery] = useState("");
   const [project, setProject] = useState<Project>(() => {
-    const p = new URLSearchParams(location.search).get("project");
+    const params = new URLSearchParams(location.search);
+    if (params.get("unassigned") === "1") return "";
+    const p = params.get("project");
     if (p !== null) return p || null;
     try {
+      if (localStorage.getItem("projectUnassigned") === "1") return "";
       return localStorage.getItem("project") || null;
     } catch {
       return null;
@@ -81,21 +84,23 @@ const NAV = [
     });
   const selectTask = (id: string) => dispatch({ type: "open", id });
   const changeProject = (value: string) => {
-    const next = value === "all" ? null : value;
+    const next = value === "all" ? null : value.slice("project:".length);
     setProject(next);
     try {
       localStorage.setItem("project", next ?? "");
+      localStorage.setItem("projectUnassigned", next === "" ? "1" : "0");
     } catch {
       /* Private browsing can disable preference storage. */
     }
     const url = new URL(location.href);
     url.searchParams.set("project", next ?? "");
+    if (next === "") url.searchParams.set("unassigned", "1");
+    else url.searchParams.delete("unassigned");
     history.replaceState(null, "", url);
   };
   useEffect(() => {
     fetchProjects()
       .then((d) =>
-        // Unassigned cards stay reachable under "all projects".
         setProjects(d.projects.flatMap((p) => (p.name ? [p.name] : []))),
       )
       .catch(() => setProjects([]));
@@ -191,8 +196,9 @@ const NAV = [
         </div>
         {navOpen && (
           <ModuleSelect
-            modules={projects}
-            value={project ?? "all"}
+            modules={[...projects, ""].map((p) => `project:${p}`)}
+            value={project === null ? "all" : `project:${project}`}
+            getLabel={(value) => value.slice("project:".length) || tr("noProject")}
             onValueChange={changeProject}
             allLabel={tr("allProjects")}
             ariaLabel={tr("switchProject")}
@@ -232,7 +238,7 @@ const NAV = [
       <div className="nawaban-main">
         <header className="workspace-topbar">
           <span className="text-body-regular">
-            {project ?? tr("allProjects")} ／ {title}
+            {project === "" ? tr("noProject") : project ?? tr("allProjects")} ／ {title}
           </span>
           <LinkButton
             variant="secondary"
