@@ -8,7 +8,28 @@ The original feature sync used reference revision `e498cfe23563f70b4d35daa0656c7
 
 Plugin manifests, marketplace, hooks.json, Codex apply_patch support, and all five advisory TypeSafe paths remain. The standalone task DAG, its vendor/license, route, buttons and keyboard shortcut were removed by the subsequent scope decision; module dependency networks and static-path traversal protections remain.
 
-## Card success criteria
+## Follow-up review corrections
+
+The reviewer accepted S1–S4 and the write-interface security behavior before this follow-up. The remaining changes are frozen at `96a469022ea805acac8385e4a24c53b09fbf365e`; no schema or persistence contract changes are included in this follow-up.
+
+Final command: `uv run --no-project --python 3.12 --with pytest python -m pytest -q tests` → **329 passed, 3 optional YAML skips, 9 subtests passed** in 35.70 seconds. This includes the inherited scripts, original Nawaban regressions, scanner cases, stale-state cases and scoped-IP cases.
+
+| Remaining request | Evidence |
+| --- | --- |
+| Scan every live task ID | Both reported fixtures now use fictional `DEMO-CORE-001` / `DEMO-CARDS-001` IDs. Five test-output strings also lost old identifiers. The read-only scan compares all **1,007 live task IDs** against **206 tracked text files**: **0 data matches**, **50 Python comment/docstring provenance matches**, each reviewed as a source-history reference. Private identifier and machine-path scanning also has zero matches. |
+| Remove unused settings bundle | Deleted the unused 7,690,772-byte PNG, six dedicated SettingsModal components and four exclusively referenced SVGs: **11 deleted files, 7,793,810 bytes**. Shared SettingsCard/Row/ValueField stay in use. The interaction fixture now exercises the production NawabanDialog; obsolete styles and references are removed. Build, 24 unit tests, 24 component tests and the real proxy integration pass; lint has zero errors and 20 existing warnings. |
+| Read legacy stale state | Reports and daily markers independently prefer their current files and fall back to the legacy state directory. A legacy marker for today suppresses duplicate checks; future output and markers use only the current directory, preserving legacy bytes. Four regression combinations pass; session tests with optional PyYAML report **15 passed**. Hook docstring and CHANGELOG match the behavior. |
+| Scoped IPv6 client address | Scoped peers are treated as nonlocal before IP parsing. No-Origin requests are rejected with 403; valid same-origin requests retain the normal remote-client behavior. Native scoped-loopback acceptance reproduced before the fix; a parser-rejection simulation reproduced an uncaught exception. The actual installed parser did not throw for a link-local scope, so the latter evidence is explicitly simulated. All **90 HTTP security tests pass**. |
+
+Run the full-live-ID check without exporting database contents:
+
+```sh
+python3 scripts/check_public_task_ids.py /path/to/board.db
+```
+
+The scanner opens SQLite in read-only mode and prints source locations and aggregate counts, never task IDs or row contents. Only Python lexical comments and AST docstrings are classified separately for manual provenance review. Other lexical contexts remain blocking; Python multiline strings, TypeScript template strings, Markdown text and shell multiline strings containing comment-like prefixes are regression-tested. Scanner tests: **5 passed**.
+
+## Initial delivery card success evidence
 
 | Card criterion | Evidence and boundary |
 | --- | --- |
@@ -20,7 +41,7 @@ Plugin manifests, marketplace, hooks.json, Codex apply_patch support, and all fi
 
 Original Nawaban plugin layout, Codex apply_patch, semantic/title hints, acceptance-evidence hints, module suggestions and import-review tests remain in the passing suite. The earlier card constraint about preserving the standalone DAG is superseded by the explicit removal decision; the module dependency network remains.
 
-## Review corrections and evidence
+## Initial review corrections and evidence
 
 | Review request | Result and evidence |
 | --- | --- |
@@ -75,6 +96,6 @@ uv run --no-project --python 3.12 --with pytest python -m pytest -q tests
 
 For the optional historical YAML path, add `--with pyyaml` and run `python tests/run.py` through uv. CI runs both the dependency-minimal suite and the optional compatibility suite.
 
-The final compatibility run used `uv run --no-project --python 3.12 --with pytest --with pyyaml python tests/run.py`: **34 groups passed, 0 failed, 0 skipped**, including 226 pytest tests. Executable changes were frozen at `3587f2600fa2fc3738813689981c382a4e5248c5`; subsequent delivery changes only record this evidence.
+The initial compatibility run used `uv run --no-project --python 3.12 --with pytest --with pyyaml python tests/run.py`: **34 groups passed, 0 failed, 0 skipped**, including 226 pytest tests. That evidence used code frozen at `3587f2600fa2fc3738813689981c382a4e5248c5`; the later follow-up above has its own revision and evidence.
 
 Delivery remains an unmerged PR. CI results and visual acceptance must be checked separately; passing local tests does not establish either.
