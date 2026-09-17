@@ -26,6 +26,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -103,6 +104,54 @@ def _title_gate(title: str) -> str | None:
     return ("title 要让非技术人一眼知道这张卡做完后能看见什么变化。查到:"
             + " · ".join(hits) + "\n  原因 / 调用点 / flag 名 / 路径 → 写进 --origin;"
             "交付细节 → --success。示范:\n" + _TITLE_EXAMPLES)
+
+
+# 正则只判形式;语义交给 TypeSafe Noul,**只提醒不拦**(2026-09-17 eval:65 对 retitle 前后标题,
+# 正则 → Noul<0.2 准确率 0.82 vs 纯正则 0.70,但误拦 14/65 好标题 —— 硬拦会逼人反复改标题)。
+# 无 key / 网络失败 = 不提示;形式闸仍是硬闸,语义这层可有可无。
+_TITLE_HINT_THRESHOLD = 0.2
+_TITLE_HINT_Q = {
+    "type": "noul",
+    "instructions": "读到这个任务标题 `title` 的非技术产品经理,能否一眼看懂:这个任务做完后,用户或团队能看见什么变化?",
+    "criteria": {
+        "true": "标题用普通人的话描述做完后的可见结果,不需要懂代码、文件名、开关名或内部编号。",
+        "false": "标题是工程师写给自己的诊断或实现步骤:含标识符、路径、内部编号,或把症状、原因、做法塞进一句。",
+    },
+}
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # 3xx 直接失败:默认跟跳会把 Authorization 带到别的域
+
+
+def _post(req: urllib.request.Request):
+    # opener 在调用时建:模块级建会让 TLS 初始化失败搞挂整个 CLI import
+    return urllib.request.build_opener(_NoRedirect).open(req, timeout=3)
+
+
+def _title_hint(title: str) -> str | None:
+    key = os.environ.get("TYPESAFE_API_KEY")
+    if not key:
+        return None
+    body = json.dumps({"state": {"title": title}, "model": "jev-latest",
+                       "questions": {"pm_readable": _TITLE_HINT_Q}}).encode()
+    req = urllib.request.Request(
+        "https://api.typesafe.ai/v1/systemone", data=body,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    # ponytail: timeout 管单次读写不管总时长,服务端滴灌能拖过 3s;真遇到再上线程 + 总超时
+    try:
+        with _post(req) as r:
+            raw = json.load(r)["answers"]["pm_readable"]["noul"]
+        if type(raw) not in (int, float):  # bool / 字符串 = 畸形响应(float(False) 会冒充 0 分)
+            return None
+        p = float(raw)
+    except Exception:  # 外部 API 边界:提示可有可无,响应再怪也不能让已写库的命令报错
+        return None
+    if not 0 <= p < _TITLE_HINT_THRESHOLD:  # NaN / 越界 = 畸形响应,不提示
+        return None
+    return (f"标题可能不是人话(语义判分 {p:.2f} < {_TITLE_HINT_THRESHOLD}):非技术人看不出做完后有什么变化。"
+            "\n  不拦;觉得不对就 workos retitle。示范:\n" + _TITLE_EXAMPLES)
 
 
 # success 用 title 的前三条:文件名 / 路径不拦 —— 「docs/integration/… 存在」是交付位置判据,
@@ -356,6 +405,8 @@ def main(argv: list[str] | None = None) -> int:
                            touches=a.touch or None, epic=a.epic, adr=a.adr,
                            split_from=a.split_from)
             print(f"✓ create {a.task_id}")
+            if hint := _title_hint(a.title):
+                print("⚠ " + hint, file=sys.stderr)
         elif a.verb == "claim":
             owner, sid = _identity(need_session=True)
             if db.claim_task(path, a.task_id, owner=owner, session_id=sid,
@@ -406,6 +457,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise db.WorkosError(err)
             old = db.retitle(path, a.task_id, title=a.title, author=owner, session_id=sid)
             print(f"✓ retitle {a.task_id}\n  旧:{old}\n  新:{a.title}")
+            if hint := _title_hint(a.title):
+                print("⚠ " + hint, file=sys.stderr)
         elif a.verb == "meta":
             owner, sid = _identity(need_session=False)
             db.set_meta(path, a.task_id,
