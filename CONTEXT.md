@@ -128,6 +128,12 @@ An ask for a human assessment of a delivered result against its acceptance crite
 _Avoid_: accept as the English display label; CI success as human acceptance.
 _Current identifiers_: `asks.kind` = `accept`; `asks.hands_on`.
 
+**Evidence hint**(证据提示)
+A non-blocking notice to the author of an Acceptance ask that its evidence may lack an observed result.
+证据提示是提醒验收请求作者其证据可能缺少实际观测结果的非拦截提示。
+_Avoid_: gate, rejection, Readability hint.
+_Current identifiers_: none yet; applies to CLI `ask` for Acceptance.
+
 **Inbox**(收件箱)
 The human-facing queue of asks awaiting a response, together with their resolved history.
 收件箱是供人处理待办请求及查看已处理记录的队列。
@@ -177,6 +183,12 @@ The observable conditions that define whether a task has achieved its intended o
 成功判据是用于判断任务是否实现预期结果的可观察条件。
 _Avoid_: success as the English field label, implementation checklist.
 _Current identifiers_: `tasks.success`.
+
+**Readability hint**(可读性提示)
+A non-blocking notice to the author that a task's written text may not be understood by the non-technical reader it is meant for; the intended reader depends on the field.
+可读性提示是提醒作者任务文字可能读不懂的非拦截提示，目标读者由字段决定。
+_Avoid_: gate, rejection, blocking check.
+_Current identifiers_: stderr warning after CLI `create`, `retitle`.
 
 **Constraints**(约束)
 The boundaries and exclusions that a task's execution must respect.

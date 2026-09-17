@@ -130,28 +130,66 @@ def _post(req: urllib.request.Request):
     return urllib.request.build_opener(_NoRedirect).open(req, timeout=3)
 
 
-def _title_hint(title: str) -> str | None:
+_HINT_DEADLINE_S = 5
+
+
+def _nouls(state: dict, questions: dict) -> dict[str, float]:
+    """一次请求判多题,只回合法的分;无 key / 失败 / 畸形 = 缺席。"""
     key = os.environ.get("TYPESAFE_API_KEY")
     if not key:
-        return None
-    body = json.dumps({"state": {"title": title}, "model": "jev-latest",
-                       "questions": {"pm_readable": _TITLE_HINT_Q}}).encode()
+        return {}
+    body = json.dumps({"state": state, "model": "jev-latest", "questions": questions}).encode()
     req = urllib.request.Request(
         "https://api.typesafe.ai/v1/systemone", data=body,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-    # ponytail: timeout 管单次读写不管总时长,服务端滴灌能拖过 3s;真遇到再上线程 + 总超时
+    out = {}
     try:
+        # socket timeout 只管单次读;滴灌响应靠总截止时间兜住(单次读 3s 内返回,总等待 ≤ 截止 + 3s)
+        deadline, buf = time.monotonic() + _HINT_DEADLINE_S, b""
         with _post(req) as r:
-            raw = json.load(r)["answers"]["pm_readable"]["noul"]
-        if type(raw) not in (int, float):  # bool / 字符串 = 畸形响应(float(False) 会冒充 0 分)
-            return None
-        p = float(raw)
+            while chunk := r.read1(65536):
+                buf += chunk
+                if time.monotonic() > deadline or len(buf) > 1 << 20:
+                    return {}
+        answers = json.loads(buf)["answers"]
+        for name in questions:
+            ans = answers.get(name)
+            raw = ans.get("noul") if isinstance(ans, dict) else None
+            if type(raw) not in (int, float):  # bool / 字符串 = 畸形响应(float(False) 会冒充 0 分)
+                continue
+            try:
+                p = float(raw)
+            except OverflowError:
+                continue
+            if 0 <= p <= 1:  # NaN / 越界 = 畸形响应
+                out[name] = p
     except Exception:  # 外部 API 边界:提示可有可无,响应再怪也不能让已写库的命令报错
-        return None
-    if not 0 <= p < _TITLE_HINT_THRESHOLD:  # NaN / 越界 = 畸形响应,不提示
-        return None
-    return (f"标题可能不是人话(语义判分 {p:.2f} < {_TITLE_HINT_THRESHOLD}):非技术人看不出做完后有什么变化。"
-            "\n  不拦;觉得不对就 workos retitle。示范:\n" + _TITLE_EXAMPLES)
+        return {}
+    return out
+
+
+def _hints(title: str | None = None, success: list[str] | None = None) -> list[str]:
+    success = [s for s in success or [] if isinstance(s, str)]
+    state, qs = {}, {}
+    if title is not None:
+        state["title"], qs["pm_readable"] = title, _TITLE_HINT_Q
+    if success:
+        state["success"] = success
+        qs.update({f"success_{i}": _success_q(i) for i in range(len(success))})
+    if not qs:
+        return []
+    p = _nouls(state, qs)
+    out = []
+    if (t := p.get("pm_readable")) is not None and t < _TITLE_HINT_THRESHOLD:
+        out.append(f"标题可能不是人话(语义判分 {t:.2f} < {_TITLE_HINT_THRESHOLD}):非技术人看不出做完后有什么变化。"
+                   "\n  不拦;觉得不对就 workos retitle。示范:\n" + _TITLE_EXAMPLES)
+    low = [(s, p[f"success_{i}"]) for i, s in enumerate(success)
+           if p.get(f"success_{i}", 1) < _SUCCESS_HINT_THRESHOLD]
+    if low:
+        out.append(f"成功判据可能验收人读不懂或没法抽查(语义判分 < {_SUCCESS_HINT_THRESHOLD}):\n"
+                   + "\n".join(f"  ✗ {s[:60]} ({v:.2f})" for s, v in low)
+                   + "\n  不拦;觉得不对就 workos decide --set-success 改写成能看见、能核对的结果")
+    return out
 
 
 # success 用 title 的前三条:文件名 / 路径不拦 —— 「docs/integration/… 存在」是交付位置判据,
@@ -168,6 +206,23 @@ def _success_gate(items: list[str] | None) -> str | None:
     return ("success 每条要让 PM 能读、能抽查(「面板切开关后真机能打开填表页」),不是实现 todo。查到:\n"
             + "\n".join(f"  ✗ {s[:60]} ← {' · '.join(w)}" for s, w in bad[:3]) + more
             + "\n  标识符 / flag 名 → 换成它对应的用户面现象;实现细节 → origin 或 event")
+
+
+# 语义层同标题:只提醒不拦。2026-09-17 eval:40 条 success(30 差 10 好;33 号 PM 标,其余 39 条 Claude 代标,
+# 衡量的是与同一判据下强模型读者的一致度,不是 PM 真值):正则 → Noul<0.2 准确率 0.95 vs 纯正则 0.75,
+# 好判据误报 0/10(只有 10 个正例,区间很宽);0.25 起开始误报好判据。
+_SUCCESS_HINT_THRESHOLD = 0.2
+
+
+def _success_q(i: int) -> dict:
+    return {
+        "type": "noul",
+        "instructions": f"验收人(非技术产品经理)读到成功判据 `success[{i}]`,能否看懂它要求的可观察结果,并自己去抽查是否达成?",
+        "criteria": {
+            "true": "用普通人的话描述做完后能看见、能核对的结果,不需要懂代码、表名、开关名或内部编号。",
+            "false": "是工程师的实现步骤或内部检查:含标识符、表名、函数名、开关名,或只说改了什么、没说能观察到什么。",
+        },
+    }
 
 
 def _identity(*, need_session: bool) -> tuple[str, str | None]:
@@ -405,7 +460,7 @@ def main(argv: list[str] | None = None) -> int:
                            touches=a.touch or None, epic=a.epic, adr=a.adr,
                            split_from=a.split_from)
             print(f"✓ create {a.task_id}")
-            if hint := _title_hint(a.title):
+            for hint in _hints(a.title, _j(a.success)):
                 print("⚠ " + hint, file=sys.stderr)
         elif a.verb == "claim":
             owner, sid = _identity(need_session=True)
@@ -457,7 +512,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise db.WorkosError(err)
             old = db.retitle(path, a.task_id, title=a.title, author=owner, session_id=sid)
             print(f"✓ retitle {a.task_id}\n  旧:{old}\n  新:{a.title}")
-            if hint := _title_hint(a.title):
+            for hint in _hints(title=a.title):
                 print("⚠ " + hint, file=sys.stderr)
         elif a.verb == "meta":
             owner, sid = _identity(need_session=False)
@@ -497,6 +552,8 @@ def main(argv: list[str] | None = None) -> int:
                       rejected=_j(a.rejected), decided_by=a.by or f"agent:{owner}",
                       adr=a.adr, supersedes=a.supersedes, set_success=_j(a.set_success))
             print(f"✓ decide {a.task_id}")
+            for hint in _hints(success=_j(a.set_success)):
+                print("⚠ " + hint, file=sys.stderr)
         elif a.verb == "link":
             owner, sid = _identity(need_session=False)
             db.link_tasks(path, a.src, a.dst, kind=a.kind, note=a.note, created_by=owner)
