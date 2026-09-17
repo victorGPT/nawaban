@@ -6,8 +6,8 @@
 
 用法:
     INBOX_TRIAGE_ENABLED=1 uv run python -m agent_center.triage --json > /tmp/t.json
-    python3 ~/.claude/foreman/workos/triage_apply.py /tmp/t.json          # dry-run
-    python3 ~/.claude/foreman/workos/triage_apply.py /tmp/t.json --apply  # 真写
+    python3 nawaban/triage_apply.py /tmp/t.json          # dry-run
+    python3 nawaban/triage_apply.py /tmp/t.json --apply  # 真写
 
 默认 dry-run:往人的队列里塞东西跟往代码里塞东西一样,得先看清楚再落。
 """
@@ -21,8 +21,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from workos import db  # noqa: E402
-from workos.migrate_asks import _waiting_since  # noqa: E402
+from nawaban import db  # noqa: E402
+from nawaban.migrate_asks import _waiting_since  # noqa: E402
 
 RAISED_BY = "ac:triage"
 
@@ -73,7 +73,7 @@ def _dup_key(question: str, task_ids: list[str]) -> tuple[str, tuple[str, ...]]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="triage_apply", description="巡检建议落库")
     ap.add_argument("json_file", help="agent_center.triage --json 的输出")
-    ap.add_argument("--db", help="库路径(默认 WORKOS_DB → 就近 .foreman/workos.db)")
+    ap.add_argument("--db", help="库路径(默认 NAWABAN_DB → 就近 .nawaban/nawaban.db)")
     ap.add_argument("--apply", action="store_true", help="真写(缺省只打印)")
     a = ap.parse_args(argv)
 
@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
                     options=p.get("options"), blast=p.get("blast"),
                     hands_on=bool(p.get("hands_on")),
                     confidence=c, confidence_reason=p.get("confidence_reason"))
-            except (db.WorkosError, sqlite3.IntegrityError) as e:
+            except (db.NawabanError, sqlite3.IntegrityError) as e:
                 # 只吞「这一条数据不合法」:业务闸 + DDL 约束。故意不吞 OperationalError
                 # (锁超时/磁盘 IO/库损坏)—— 那是环境坏了,该整个停下来,不是逐条记账继续跑。
                 failed.append(("提", p["question"], str(e)))
@@ -128,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.apply:
             try:
                 db.close_ask(path, aid, closed_as=how, answer=f"巡检:{c['reason']}")
-            except (db.WorkosError, sqlite3.IntegrityError) as e:
+            except (db.NawabanError, sqlite3.IntegrityError) as e:
                 # 最常见:人已经在板上答过它了(close_ask 对已关的 ask 会抛)。
                 # 同样不吞 OperationalError,理由见上。
                 failed.append(("关", f"#{aid}", str(e)))

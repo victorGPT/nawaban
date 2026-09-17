@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把窗口已经不在的卡放回可认领(WORKOS-RECLAIM-STALE-001)。
+"""把窗口已经不在的卡放回可认领(NAWABAN-RECLAIM-STALE-001)。
 
 **为什么不能靠收尾**:实测装了 SessionEnd hook + Stop hook + 两个 wrapup skill,
 仍有 57% 的 claimed/in_progress 卡挂着一个不存在的窗口(最久 9.2 天)。原因是结构性的:
@@ -20,8 +20,8 @@ last_heartbeat_at;我们的 mtime 天然就是那个东西,缺的只是把它写
 它起新 session id,旧 jsonl 从此冻结。
 
 用法:
-    python3 ~/.claude/foreman/workos/reclaim_stale.py            # dry-run
-    python3 ~/.claude/foreman/workos/reclaim_stale.py --apply    # 真写
+    python3 nawaban/reclaim_stale.py            # dry-run
+    python3 nawaban/reclaim_stale.py --apply    # 真写
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from workos import db  # noqa: E402
+from nawaban import db  # noqa: E402
 
 # Session-derived owners use Claude or Codex transcript mtimes.
 # 24h 而不是跟活性三档的 cold(8h)对齐:隔夜回到同一个窗口继续干是常态,
@@ -142,7 +142,7 @@ def sweep(path: Path, *, apply: bool = False) -> list[tuple[str, str, str, str]]
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="reclaim_stale", description="回收窗口已不在的卡")
-    ap.add_argument("--db", help="库路径(默认就近 .foreman/workos.db)")
+    ap.add_argument("--db", help="库路径(默认就近 .nawaban/nawaban.db)")
     ap.add_argument("--apply", action="store_true", help="真写(缺省只打印)")
     a = ap.parse_args(argv)
 
@@ -150,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     tag = "真写" if a.apply else "dry-run(加 --apply 才写)"
     try:
         stale = sweep(path, apply=a.apply)
-    except (db.WorkosError, sqlite3.Error) as e:
+    except (db.NawabanError, sqlite3.Error) as e:
         print(f"✗ 回收没跑成:{e}", file=sys.stderr)
         return 1
     print(f"库:{path}\n{tag} · 判定窗口已不在 {len(stale)} 张"

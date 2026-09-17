@@ -14,8 +14,8 @@
 | 当前进度、证据 | `--now`、event、ref、handoff |
 | 关联决策或模块归组 | 有必要时用 `--adr`、`--epic`；决定经 decide 追加 |
 
-字段细节查 `workos create --help`，不要发明 body/description 字段。success 需要修订时经 decide 留痕，保留原因及实际决策来源。
+字段细节查 `nawaban create --help`，不要发明 body/description 字段。success 需要修订时经 decide 留痕，保留原因及实际决策来源。
 
-阻塞边为 `workos --db <目标库> link <被挡卡> <前置卡> --kind depends_on`；claim 检查前置状态。家谱与阻塞是不同关系，拆自一张卡不自动表示依赖它完成。
+阻塞边为 `nawaban --db <目标库> link <被挡卡> <前置卡> --kind depends_on`；claim 检查前置状态。家谱与阻塞是不同关系，拆自一张卡不自动表示依赖它完成。
 
 epic 地图只在帮助跨卡协调时创建，记录目标、已定决策指针、未决事项与范围；具体事实仍放卡或项目决策文档。

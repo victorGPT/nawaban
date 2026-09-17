@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""WORKOS 重写版 PreToolUse guard(WORKOS-GUARD-001)· 查 workos.db,不读 md 卡。
+"""NAWABAN 重写版 PreToolUse guard(NAWABAN-GUARD-001)· 查 nawaban.db,不读 md 卡。
 
 ✅ 已激活(2026-08-13 切换日):~/.claude/settings.json PreToolUse 已指向本文件,
-md 版 foreman_guard.py 自此退役未接线。注意:无 workos.db 的仓本 guard no-op ——
-仍走 md 轨的其他仓从切换日起零 guard 保护(WORKOS-RETIRE-001 摸底 2026-08-29)。
+md 版 foreman_guard.py 自此退役未接线。注意:无 nawaban.db 的仓本 guard no-op ——
+仍走 md 轨的其他仓从切换日起零 guard 保护(NAWABAN-RETIRE-001 摸底 2026-08-29)。
 
 判定面(FOREMAN-SIMPLIFY-004 起只剩 worktree 闸;touches 占用降为 claim 时 WARN,见 claim_check.py):
 - 验收闸 / done 闸:已迁入库层 db.advance_task(翻 verified 须 waiting_on+acceptance_run;
   done 须 user 拍板行)——新世界卡不是文件,md 版的「卡写闸/验收闸拦 Edit 写卡」失去对象,
-  语义原样活在写入工具里(test_workos_db.py t_status_gates 覆盖)。
+  语义原样活在写入工具里(test_nawaban_db.py t_status_gates 覆盖)。
 - strict uncovered / WARN 快速修口子:同 md 版。
 
-- workos.db 不存在 → no-op(该仓未切换到新板;foreman-pattern md 仓不受伤)。
+- nawaban.db 不存在 → no-op(该仓未切换到新板;foreman-pattern md 仓不受伤)。
 
 MERGE-GATE-PR-CHECKS-001: identified Bash `gh pr merge` calls require all checks
 SUCCESS and a head containing remote main, even without a board. No identity is
@@ -37,6 +37,9 @@ import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from nawaban import db  # noqa: E402
 
 LOCKED = ("claimed", "in_progress")
 
@@ -416,7 +419,7 @@ def _judge_target(payload: dict, owner: str, target: str) -> tuple[int, str]:
     # 树根按**目标文件**认,不按 cwd —— cwd 在 worktree 而 Edit 写主树(反之亦然)都是真实走法。
     tree = enclosing_tree(Path(target))
     tree_root, main_root, in_git = (*tree, True) if tree else (cwd, cwd, False)
-    db_path = main_root / ".foreman" / "workos.db"
+    db_path = db.board_db(main_root)
     if not db_path.is_file():
         return 0, ""  # 该仓未切换到新板(见模块 docstring:删库失明残余挂 CUTOVER 清单)
     try:
@@ -429,7 +432,7 @@ def _judge_target(payload: dict, owner: str, target: str) -> tuple[int, str]:
     if (
         in_git
         and tree_root == main_root
-        and not target_rel.startswith(".foreman/")
+        and not target_rel.startswith((".nawaban/", ".foreman/"))
         and not (main_root / ".foreman" / "ALLOW_MAINTREE_EDIT").exists()
     ):
         tool = payload.get("tool_name") or "Edit"

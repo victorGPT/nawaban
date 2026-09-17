@@ -1,4 +1,4 @@
-# WORKOS webui
+# NAWABAN webui
 
 kibo-ui + shadcn 前端,吃 `board_view.py`(8813)现有的只读 API。深色为默认(D 风格 exact
 hex,见下),不做主题切换。
@@ -8,8 +8,8 @@ proto-dagview/ 目录里只留 8813 ?view=dag 真在用的 index.html + vendor/;
 ## 起
 
 ```bash
-bash ~/.claude/foreman/workos/board-up.sh   # 板没起的话先起(8813)
-cd ~/.claude/foreman/workos/webui
+bash nawaban/board-up.sh   # 板没起的话先起(8813)
+cd nawaban/webui
 npm install
 npm run dev                                  # http://localhost:5173(开发,热更新)
 npm run build                                # 产物进 dist/,8813 的 / 直接吐它 —— 日常只开这一个地址
@@ -23,7 +23,7 @@ npm run build                                # 产物进 dist/,8813 的 / 直接
 
 ## 页面
 
-- **顶部持久导航栏**(`App.tsx`):左 WORKOS 标题,中间全局搜索框(`/` 聚焦、Esc 清空,
+- **顶部持久导航栏**(`App.tsx`):左 NAWABAN 标题,中间全局搜索框(`/` 聚焦、Esc 清空,
   过滤当前视图的卡片:id/标题/owner/epic),右侧 Board/模块/收件箱 三个 nav 项——收件箱
   带未读数徽标(轮询 `/api/inbox.total`)。点任何卡片打开右侧 `TaskDetailSheet`
   (吃 `/api/task?id=`:成功判据/约束/touches/依赖边/决策/事件/引用)。
@@ -41,7 +41,7 @@ npm run build                                # 产物进 dist/,8813 的 / 直接
   (全局)高亮(连线换 accent 色变粗),其余卡与连线压暗到 22% 透明度,再点同一张卡退出。
   头部一行「现在动着的:id(第 n/m 级)」列出该模块里 in_progress/claimed 的卡。
   布局算法(`buildIndex`/`layers`/`isBlocked`/连线测量)是
-  `~/.claude/foreman/workos/board_view.py` MODULES_PAGE 内嵌 JS(index/layers/blocked/wires)
+  `nawaban/board_view.py` MODULES_PAGE 内嵌 JS(index/layers/blocked/wires)
   的直接翻译,没有重新设计;数据仍是现成的 `/api/modules`(`tasks`+`deps`),没碰后端。
 - **收件箱**(`InboxView.tsx`):三组(放行/验收/拍板),字段与交互对齐旧板 INBOX_PAGE 的
   `askHTML()`/`submit()`,**视觉层用 shadcn Card 语言**(与看板同一套 `bg-card #232327` +

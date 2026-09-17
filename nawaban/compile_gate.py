@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""编译闸:纯文本不是终态(WORKOS-COMPILE-GATE-001)。
+"""编译闸:纯文本不是终态(NAWABAN-COMPILE-GATE-001)。
 
 Claude Code **Stop hook** 入口。stdin 收 hook JSON,顶回 = stdout 返
 `{"decision":"block","reason":...}`(2026-08-12 真机 spike 实证:块被挡下,reason 进模型)。
@@ -11,7 +11,7 @@ Claude Code **Stop hook** 入口。stdin 收 hook JSON,顶回 = stdout 返
 「卡死 session 比漏一次编译更糟」):无库/无 claim/锁表/状态文件写不了/任何异常 → 放行。
 
 激活(**属 CUTOVER 切换日清单,现在不装**):settings.json 的 Stop 加一条
-`{"type":"command","command":"python3 ~/.claude/foreman/workos/compile_gate.py"}`。
+`{"type":"command","command":"python3 nawaban/compile_gate.py"}`。
 spike 发现 Stop **每轮**触发(不是 session 末),交互窗口(CLAUDE_CODE_ENTRYPOINT=cli)
 建议不挂,只对 headless(sdk-cli)生效——交互窗口的收尾失守归巡检兜底。
 """
@@ -25,32 +25,25 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from workos import db  # noqa: E402
+from nawaban import db  # noqa: E402
 
 BUDGET = 2          # 顶回上限;第 3 次放行 + 记违规事件
 BUSY_MS = 200       # 撞锁就放行,绝不挂住收尾
-GATE_AUTHOR = "workos-gate"   # 违规是闸判的,不是 worker 自首
+GATE_AUTHOR = "nawaban-gate"   # 违规是闸判的,不是 worker 自首
 VIOLATION_PREFIX = "⚠️ 编译闸违规"
 
-CLI = "python3 ~/.claude/foreman/workos/cli.py"
+CLI = f"python3 {Path(__file__).with_name('cli.py')}"
 
 
 def _db_path(cwd: str | None) -> Path | None:
-    env = os.environ.get("WORKOS_DB")
-    if env:
-        return Path(env).expanduser()
-    if not cwd:
+    if not cwd and not (os.environ.get("NAWABAN_DB") or os.environ.get("WORKOS_DB")):
         return None
-    cur = Path(cwd)
-    for d in (cur, *cur.parents):
-        if (d / ".foreman").is_dir():
-            return d / ".foreman" / "workos.db"
-    return None
+    return db.resolve_db(cwd)
 
 
 def _state_file(session_id: str) -> Path:
     # runtime 状态,不进 DB(编译闸=强化执法不新增存储)。TMPDIR 可被测试重定向。
-    d = Path(tempfile.gettempdir()) / "workos-gate"
+    d = Path(tempfile.gettempdir()) / "nawaban-gate"
     d.mkdir(parents=True, exist_ok=True)
     return d / f"{session_id}.json"
 

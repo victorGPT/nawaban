@@ -69,7 +69,7 @@ function App() {
     <div className="flex h-screen">
       {navOpen && <nav className="flex w-[244px] shrink-0 flex-col bg-panel px-3 pt-4 text-ui">
         <div className="mb-5 flex items-center px-2 font-semibold text-fg-secondary">
-          WORKOS
+          NAWABAN
           <button
             aria-label="收起侧栏([)"
             className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"

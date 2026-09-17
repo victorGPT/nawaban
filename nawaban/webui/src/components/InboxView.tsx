@@ -17,7 +17,7 @@ import { fetchInbox, postAnswer } from "@/lib/api";
 import { ago, cn } from "@/lib/utils";
 import type { AskItem, InboxResponse, SelfApproved } from "@/lib/types";
 
-// 字段与交互对齐 ~/.claude/foreman/workos/board_view.py INBOX_PAGE 的 askHTML()/submit()
+// 字段与交互对齐 nawaban/board_view.py INBOX_PAGE 的 askHTML()/submit()
 // (旧板逐条验证过的形态,本轮只重做视觉层,不碰字段/逻辑)。
 // 布局按 Linear inbox(2026-09-07 真页量):左 400px 列表(种类 · 问题 13/500 · 停了几天 12 三级色 ·
 // 半像素分隔线)+ 右栏当前条目的完整卡(AskCard 原封不动)。列表是索引,右栏是重点。
@@ -201,7 +201,7 @@ function AskCard({
         {ask.kind === "authorize" && (
           <p className="rounded-md border border-[#fbbf24]/40 bg-[#3a2f16] p-2 text-xs leading-relaxed text-[#fbbf24]">
             授权只记录你的决定 —— <b>不会自动执行</b>。动作真跑完之后再收口:
-            <code className="text-foreground">workos fanout {ask.id} --ok</code>(失败用 --failed)
+            <code className="text-foreground">nawaban fanout {ask.id} --ok</code>(失败用 --failed)
           </p>
         )}
         {ask.evidence && (
@@ -290,7 +290,7 @@ function AskCard({
 
 
 function copyReopen(id: string) {
-  const cmd = `workos reopen ${id} --reason "..."`;
+  const cmd = `nawaban reopen ${id} --reason "..."`;
   navigator.clipboard
     .writeText(cmd)
     .then(() => toast.success("已复制", { description: cmd }))
@@ -307,7 +307,7 @@ function SelfApprovedRow({ r }: { r: SelfApproved }) {
       <p className="break-words text-foreground">{r.title}</p>
       {r.evidence && <p className="break-words text-muted-foreground">{r.evidence.slice(0, 160)}</p>}
       <div className="flex items-center gap-2 pt-0.5">
-        <code className="rounded bg-muted px-1.5 py-0.5">workos reopen {r.id} --reason "..."</code>
+        <code className="rounded bg-muted px-1.5 py-0.5">nawaban reopen {r.id} --reason "..."</code>
         <Button className="h-5 px-2 text-[10px]" onClick={() => copyReopen(r.id)} size="sm" variant="outline">
           复制
         </Button>

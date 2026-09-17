@@ -16,15 +16,18 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
+_RUNTIME = Path(__file__).resolve().parents[1] / "nawaban"
 _REGISTRY = Path.home() / ".claude" / "foreman" / "session-registry.json"
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from nawaban import db as _wdb  # noqa: E402
 from foreman_card import CardError, guard_problems, load_card  # noqa: E402
 
 
@@ -110,11 +113,11 @@ def _board_url(port: int = 8813) -> str:
             return f"http://{'127.0.0.1' if host == '*' else host}:{port}/"
     except Exception:
         pass
-    return "板没在跑 → bash ~/.claude/foreman/workos/board-up.sh"
+    return f"板没在跑 → bash {shlex.quote(str(_RUNTIME / 'board-up.sh'))}"
 
 
 def _inbox_banner(foreman_dir: Path, top: int = 3) -> bool:
-    """人侧收件箱摘要(WORKOS-INBOX-HOOK-001)。返回 True = 已接管人侧段。
+    """人侧收件箱摘要(NAWABAN-INBOX-HOOK-001)。返回 True = 已接管人侧段。
 
     这是**最高频的人侧触点** —— 板你一天开几次,这个每开一个窗口撞一次。
     EEMUA 191 的教训在这里最实:开窗那一刻注意力最贵(你正准备把它投给别的事),
@@ -122,12 +125,12 @@ def _inbox_banner(foreman_dir: Path, top: int = 3) -> bool:
     三条你会读,七条你会跳过。
 
     同时收口双事实源:原「催办」读 .foreman/tasks/*/active/*.md 按 sv_at 计时,
-    而板读 workos.db,两边实测差 20+ 张 —— 最高频触点和人侧界面读的是两份数据。
+    而板读 nawaban.db,两边实测差 20+ 张 —— 最高频触点和人侧界面读的是两份数据。
     现在两边同一个 inbox_data() 查询。agent 侧(claim/占用/owner)仍读 md,本卡不碰 CUTOVER。
 
     fail-soft 是硬要求:库缺失/表没建/装载出错一律安静让路,横幅永远不许挡住 session 启动。
     """
-    dbp = foreman_dir / "workos.db"
+    dbp = _wdb.resolve_db(foreman_dir.parent)
     if not dbp.exists():
         return False
     try:
@@ -140,11 +143,11 @@ def _inbox_banner(foreman_dir: Path, top: int = 3) -> bool:
             con.close()
         if not has:
             return False  # 还没迁移的库:安静让路给旧催办段
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from workos import board_view
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from nawaban import board_view
         d = board_view.inbox_data(dbp)
     except Exception:
-        print("📥 收件箱读取失败(不阻塞开工)· python3 ~/.claude/foreman/workos/board_view.py")
+        print(f"📥 收件箱读取失败(不阻塞开工)· python3 {shlex.quote(str(_RUNTIME / 'board_view.py'))}")
         return True
 
     flow = f"本周进 {d['flow']['raised_7d']} · 已清 {d['flow']['closed_7d']}"
@@ -169,9 +172,9 @@ def _inbox_banner(foreman_dir: Path, top: int = 3) -> bool:
 
 
 def _context_banner(mine: list[dict], foreman_dir: Path) -> bool:
-    """WORKOS-CONTEXT-LOADER-001 · 分流点(默认关 = 现行 md 横幅**逐字节等价**)。
+    """NAWABAN-CONTEXT-LOADER-001 · 分流点(默认关 = 现行 md 横幅**逐字节等价**)。
 
-    开(WORKOS_CONTEXT_BANNER=1):本窗口 claim 的卡直接打冷启动装载,替代 md 卡片段。
+    开(NAWABAN_CONTEXT_BANNER=1):本窗口 claim 的卡直接打冷启动装载,替代 md 卡片段。
     关(缺省):返回 False,调用方原样走旧分支 —— 这一条是硬验收,零行为变化。
 
     为什么默认关(2026-08-12 实测):真库是导入时点快照,库里本卡仍 status=open/owner=None
@@ -180,24 +183,24 @@ def _context_banner(mine: list[dict], foreman_dir: Path) -> bool:
 
     fail-soft:库缺失/装载出错一律落回 md 片段。横幅永远不许挡住 session 启动。
     """
-    if os.environ.get("WORKOS_CONTEXT_BANNER") not in ("1", "true", "yes"):
+    if (os.environ.get("NAWABAN_CONTEXT_BANNER") or os.environ.get("WORKOS_CONTEXT_BANNER")) not in ("1", "true", "yes"):
         return False
-    dbp = foreman_dir / "workos.db"
+    dbp = _wdb.resolve_db(foreman_dir.parent)
     if not dbp.exists():
         return False
     try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from workos import context_loader
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from nawaban import context_loader
 
         budget = max(1500, 8192 // max(1, len(mine)))
         for e in mine:
             print(context_loader.build_context(dbp, e["task_id"], budget=budget))
             _print_kin_summary(e)
-        # 判读纪律(CUTOVER 清单⑤ · eval WORKOS-HANDOFF-EVAL-001 的教训):
+        # 判读纪律(CUTOVER 清单⑤ · eval NAWABAN-HANDOFF-EVAL-001 的教训):
         # 事件区是有预算的,视图里那句「还有 N 条未展开」不是装饰——不取全就判「到哪一步」,
         # 正是 A/B eval 里 B 组「下一步」崩到 6/15 的原因。
         print("〔判读纪律〕视图若提示还有未展开事件,判「现在到哪一步 / 下一步做什么」前先取全:"
-              "workos context <卡号> --events N --budget 24000")
+              "nawaban context <卡号> --events N --budget 24000")
         return True
     except Exception as exc:  # noqa: BLE001  # 边界:hook 里任何异常都不能炸掉开工
         print(f"(装载器不可用,落回 md 片段:{type(exc).__name__}: {exc})")
@@ -248,7 +251,7 @@ def _warn_dirty_main_tree(cwd: Path, sep: str) -> None:
 
 
 def _reclaim_stale_owners(foreman_dir: Path) -> None:
-    """开窗口时顺手把「主人已经不在」的卡放回可认领(WORKOS-RECLAIM-STALE-001)。
+    """开窗口时顺手把「主人已经不在」的卡放回可认领(NAWABAN-RECLAIM-STALE-001)。
 
     挂在这里是因为**收尾这条路结构上堵死**:Stop hook 每轮触发不是 session 结束触发,
     SessionEnd 里没有 foreman 动作,而 `/clear` 与关窗是人的动作 —— agent 没有执行收尾的
@@ -258,12 +261,12 @@ def _reclaim_stale_owners(foreman_dir: Path) -> None:
     判据只认转录 mtime 与事件时间(运行时 I/O 的副作用,不靠谁自觉),CAS 带快照值,
     回收对当前窗口无害:此刻它还没 claim 任何卡。
     """
-    dbp = foreman_dir / "workos.db"
+    dbp = _wdb.resolve_db(foreman_dir.parent)
     if not dbp.exists():
         return
     try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from workos.reclaim_stale import sweep
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from nawaban.reclaim_stale import sweep
 
         got = sweep(dbp, apply=True)
     except Exception as e:  # noqa: BLE001  边界:hook 崩了会挡住所有窗口开工
@@ -300,21 +303,21 @@ def main() -> int:
         return 0
 
     cwd = Path(cwd_str)
-    from workos import db as _wdb  # sys.path 已在文件头指向本目录
-    foreman_dir = _wdb.foreman_dir(cwd)  # worktree 里也要找得到主树的板(FOREMAN-SIMPLIFY-004)
-    if foreman_dir is None:
+    from nawaban import db as _wdb  # sys.path 已在文件头指向本目录
+    foreman_dir = _wdb.resolve_db(cwd).parent  # worktree 里也要找得到主树的板(FOREMAN-SIMPLIFY-004)
+    if not foreman_dir.is_dir():
         return 0  # 非 foreman 项目 · 静默退出(session 已注册)
 
     # 人侧收件箱不依赖 md 卡的存在:md 侧清空(CUTOVER 之后必然发生)时,
     # 若跟着 md 一起提前 return,收件箱会**静默消失** —— 一个会突然不见的指示器,
     # 和一个从不触发的指示器一样坏。所以这两条早退路径上都先打人侧段。
-    # CUTOVER(WORKOS-RETIRE-001 batch1 · 2026-08-29):卡真相在 workos.db;md 轨 08-13 冻结,
+    # CUTOVER(NAWABAN-RETIRE-001 batch1 · 2026-08-29):卡真相在 nawaban.db;md 轨 08-13 冻结,
     # 冻结后 claim 的卡**没有 md 文件**——继续读 glob 就是对着持卡窗口说「我的卡:无」,
     # 「别窗持有 N 张」数的全是 owner 已死的冻结卡。db 在则 db 说了算;db 不在(别的仓
     # 仍走 md 轨)才落回 md 路径。
     entries: list[dict] = []
     used_db = False
-    dbp = foreman_dir / "workos.db"
+    dbp = _wdb.resolve_db(foreman_dir.parent)
     if dbp.exists():
         try:
             import sqlite3
@@ -435,7 +438,7 @@ def main() -> int:
     _reclaim_stale_owners(foreman_dir)
     print(sep)
     print(f"共 {len(entries)} 个活跃任务 · 一 pane 一 worktree,claim 时自动提示占用")
-    print("   收件箱/看板:bash ~/.claude/foreman/workos/board-up.sh(幂等 · 会打印实际可用地址)")
+    print(f"   收件箱/看板:bash {shlex.quote(str(_RUNTIME / 'board-up.sh'))}(幂等 · 会打印实际可用地址)")
 
     # 催办(LOOP-FIX · 2026-07-02):staging-verified→done 是全链唯一以「天」计的段
     # (定量摸底:堵 1-7 天占卡生命周期 80%+ · 无人推动)。纯本地扫描,零网络(卡顿体检教训)。
@@ -491,7 +494,7 @@ def main() -> int:
                     ["bash", "-c",
                      # 切换日 2026-08-13:指 DB 版对账器(缺省 dry-run 只报告;
                      # 自动真写 --write 的接电是显式拍板项,不随切换默默激活)
-                     f'python3 "$HOME/.claude/foreman/workos/stale_recon.py" --repo "{cwd_str}" '
+                     f"python3 {shlex.quote(str(_RUNTIME / 'stale_recon.py'))} --repo {shlex.quote(cwd_str)} "
                      f'> "{report}.tmp" 2>&1; mv "{report}.tmp" "{report}"'],
                     stdin=devin, stdout=devout, stderr=devout, start_new_session=True,
                 )

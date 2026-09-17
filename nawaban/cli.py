@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS 政策层 CLI:10 动词 + backup。
+"""NAWABAN 政策层 CLI:10 动词 + backup。
 
 身份铁律:owner/session 只从环境解析(FOREMAN_OWNER / CLAUDE_CODE_SESSION_ID),
 任何子命令不设 --owner/--session 旗标——身份不可伪造(Hermes author-from-runtime 平移)。
@@ -30,9 +30,9 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from workos import board_view, db  # noqa: E402
+from nawaban import board_view, db  # noqa: E402
 
-# ── 提问的写侧闸(WORKOS-INBOX-RAISE-001)──────────────────────────────
+# ── 提问的写侧闸(NAWABAN-INBOX-RAISE-001)──────────────────────────────
 # 材料闸必须在**写侧**:在读侧筛掉「没材料的卡」是事后惩罚人 —— 卡已经堵在队列里了,
 # 筛掉只是让人看不见它。这里让 agent 一开始就提不出没材料的问题。
 #
@@ -189,13 +189,13 @@ def _hints(title: str | None = None, success: list[str] | None = None) -> list[s
     out = []
     if (t := p.get("pm_readable")) is not None and t < _TITLE_HINT_THRESHOLD:
         out.append(f"标题可能不是人话(语义判分 {t:.2f} < {_TITLE_HINT_THRESHOLD}):非技术人看不出做完后有什么变化。"
-                   "\n  不拦;觉得不对就 workos retitle。示范:\n" + _TITLE_EXAMPLES)
+                   "\n  不拦;觉得不对就 nawaban retitle。示范:\n" + _TITLE_EXAMPLES)
     low = [(s, p[f"success_{i}"]) for i, s in enumerate(success)
            if p.get(f"success_{i}", 1) < _SUCCESS_HINT_THRESHOLD]
     if low:
         out.append(f"成功判据可能验收人读不懂或没法抽查(语义判分 < {_SUCCESS_HINT_THRESHOLD}):\n"
                    + "\n".join(f"  ✗ {s[:60]} ({v:.2f})" for s, v in low)
-                   + "\n  不拦;觉得不对就 workos decide --set-success 改写成能看见、能核对的结果")
+                   + "\n  不拦;觉得不对就 nawaban decide --set-success 改写成能看见、能核对的结果")
     return out
 
 
@@ -269,7 +269,7 @@ def _identity(*, need_session: bool) -> tuple[str, str | None]:
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
     owner = os.environ.get("FOREMAN_OWNER") or (f"ac:{sid[:8]}" if sid else None)
     if owner is None or (need_session and not sid):
-        raise db.WorkosError(
+        raise db.NawabanError(
             "身份缺失:需 CLAUDE_CODE_SESSION_ID(或 FOREMAN_OWNER)env——身份只从环境来,不收参数")
     return owner, sid
 
@@ -325,9 +325,9 @@ def _print_kin(data: dict) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="workos", allow_abbrev=False,
-                                 description="WORKOS 本地 Agent Work OS · 写入工具环")
-    ap.add_argument("--db", help="库路径(默认 WORKOS_DB env → 就近 .foreman/workos.db)")
+    ap = argparse.ArgumentParser(prog="nawaban", allow_abbrev=False,
+                                 description="NAWABAN 本地 Agent Work OS · 写入工具环")
+    ap.add_argument("--db", help="库路径(默认 NAWABAN_DB env → 就近 .nawaban/nawaban.db)")
     sub = ap.add_subparsers(dest="verb", required=True)
 
     p = sub.add_parser("create", help="建卡(title=人话:做完后人能看见什么变化)")
@@ -405,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
     for f in db.META_FIELDS:
         p.add_argument(f"--set-{f}", dest=f"set_{f}")
 
-    p = sub.add_parser("letter", help="写信(worker→总监汇报,WORKOS-LETTERS-DB-001)")
+    p = sub.add_parser("letter", help="写信(worker→总监汇报,NAWABAN-LETTERS-DB-001)")
     p.add_argument("task_id")
     p.add_argument("--kind", required=True, choices=list(db.LETTER_KINDS))
     p.add_argument("--msg", required=True)
@@ -476,14 +476,14 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("init", help="显式建库(唯一允许创建 DB 文件的动词)")
 
     a = ap.parse_args(argv)
-    path = Path(a.db).expanduser() if a.db else db.resolve_db()
+    path = Path(a.db).expanduser() if a.db else db.resolve_db(for_init=a.verb == "init")
     if a.verb == "init":
         db.init_db(path)
         print(f"✓ init → {path}")
         return 0
     if not path.exists():
         # 不静默建库:路径错误时空库会让一切「看似成功」(空库备份永绿=错误的成功)
-        print(f"✗ 库不存在:{path}(建新板用 workos init;路径错就修路径)", file=sys.stderr)
+        print(f"✗ 库不存在:{path}(建新板用 nawaban init;路径错就修路径)", file=sys.stderr)
         return 1
     db.migrate_db(path)  # 幂等:退役列 DROP / 新表补建(FOREMAN-SIMPLIFY-003)
 
@@ -491,10 +491,10 @@ def main(argv: list[str] | None = None) -> int:
         if a.verb == "create":
             owner, sid = _identity(need_session=False)
             if a.origin and a.origin_file:
-                raise db.WorkosError("--origin 与 --origin-file 二选一")
+                raise db.NawabanError("--origin 与 --origin-file 二选一")
             origin = Path(a.origin_file).read_text(encoding="utf-8") if a.origin_file else a.origin
             if err := _title_gate(a.title) or _success_gate(_j(a.success)):
-                raise db.WorkosError(err)
+                raise db.NawabanError(err)
             db.create_task(path, task_id=a.task_id, title=a.title, origin=origin,
                            success=_j(a.success), constraints=_j(a.constraints),
                            touches=a.touch or None, epic=a.epic, adr=a.adr,
@@ -549,7 +549,7 @@ def main(argv: list[str] | None = None) -> int:
         elif a.verb == "retitle":
             owner, sid = _identity(need_session=False)
             if err := _title_gate(a.title):
-                raise db.WorkosError(err)
+                raise db.NawabanError(err)
             old = db.retitle(path, a.task_id, title=a.title, author=owner, session_id=sid)
             print(f"✓ retitle {a.task_id}\n  旧:{old}\n  新:{a.title}")
             for hint in _hints(title=a.title):
@@ -587,7 +587,7 @@ def main(argv: list[str] | None = None) -> int:
         elif a.verb == "decide":
             owner, sid = _identity(need_session=False)
             if err := _success_gate(_j(a.set_success)):
-                raise db.WorkosError(err)
+                raise db.NawabanError(err)
             db.decide(path, a.task_id, question=a.question, verdict=a.verdict,
                       rejected=_j(a.rejected), decided_by=a.by or f"agent:{owner}",
                       adr=a.adr, supersedes=a.supersedes, set_success=_j(a.set_success))
@@ -666,7 +666,7 @@ def main(argv: list[str] | None = None) -> int:
                       file=sys.stderr)
                 return 1
             # 收件箱本身就是拍板通道 —— 人在这里点的,不是 agent 代填
-            os.environ["WORKOS_DECISION_CHANNEL"] = "inbox"
+            os.environ["NAWABAN_DECISION_CHANNEL"] = "inbox"
             for t in d["tasks"]:
                 db.decide(path, t["id"], question=d["question"], verdict=a.verdict,
                           rejected=_j(a.rejected), decided_by="user")
@@ -689,8 +689,8 @@ def main(argv: list[str] | None = None) -> int:
                 # 扇出必须钩在动作成功信号上,不是钩在这次点击上 —— 否则失败的部署
                 # 会静默关掉一批卡(写侧信号当成实际效果,verification-close 第 ③ 类形状)。
                 print(f"   {len(d['tasks'])} 张卡**未动**:授权≠已生效。")
-                print(f"   动作成功后跑:workos fanout {a.ask_id} --ok"
-                      f"   失败则:workos fanout {a.ask_id} --failed")
+                print(f"   动作成功后跑:nawaban fanout {a.ask_id} --ok"
+                      f"   失败则:nawaban fanout {a.ask_id} --failed")
         elif a.verb == "fanout":
             owner, sid = _identity(need_session=True)
             d = db.ask_detail(path, a.ask_id)
@@ -703,7 +703,7 @@ def main(argv: list[str] | None = None) -> int:
                              session_id=sid,
                              body=f"ask #{a.ask_id} 授权的动作执行失败 —— 扇出未发生,卡保持原状")
                 return 0
-            os.environ["WORKOS_DECISION_CHANNEL"] = "inbox"
+            os.environ["NAWABAN_DECISION_CHANNEL"] = "inbox"
             closed = []
             for t in d["tasks"]:
                 db.decide(path, t["id"], question=d["question"],
@@ -734,7 +734,7 @@ def main(argv: list[str] | None = None) -> int:
         elif a.verb == "backup":
             dest = db.backup_db(path)
             print(f"✓ backup → {dest}")
-    except db.WorkosError as e:
+    except db.NawabanError as e:
         print(f"✗ {e}", file=sys.stderr)
         return 1
     return 0

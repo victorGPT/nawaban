@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""WORKOS 版 claim-check(WORKOS-GUARD-001)· claim 前查 workos.db 报文件占用冲突。
+"""NAWABAN 版 claim-check(NAWABAN-GUARD-001)· claim 前查 nawaban.db 报文件占用冲突。
 
 claimed/in_progress/staging-verified 算占用 · 自己的卡不算 · herdr 存活探测附注。
 FOREMAN-SIMPLIFY-004 起只 WARN 不拒:一 pane 一 worktree 后同文件并改在 PR merge 时暴露,
-这里只把「谁也在动这些路径」摆出来;`workos claim` 会自动跑一次。
+这里只把「谁也在动这些路径」摆出来;`nawaban claim` 会自动跑一次。
 
 用法:
     claim_check.py <file_or_dir> [...] [--owner NAME] [--repo PATH]
 - --owner 缺省取 env FOREMAN_OWNER(没有则当 "(unset)" · 仍报所有占用)。
-- --repo  缺省取 cwd · 查 <repo>/.foreman/workos.db。
+- --repo  缺省取 cwd · 查 <repo>/.nawaban/nawaban.db。
 退出码:永远 0;有占用 / 锁表不可信只打 WARN。
 """
 
@@ -22,7 +22,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from foreman_liveness import describe as liveness_describe  # noqa: E402
 from foreman_liveness import owner_liveness  # noqa: E402
-from workos.guard import BoardUnreadable, touches_match  # noqa: E402
+from nawaban import db
+from nawaban.guard import BoardUnreadable, touches_match  # noqa: E402
 
 CLAIM_BLOCKING = ("claimed", "in_progress", "staging-verified")
 
@@ -75,9 +76,9 @@ def main() -> int:
     ap.add_argument("--repo", default=os.getcwd())
     args = ap.parse_args()
 
-    db_path = Path(args.repo) / ".foreman" / "workos.db"
+    db_path = db.board_db(Path(args.repo))
     if not db_path.is_file():
-        print("foreman: 无 .foreman/workos.db(该仓未切新板)· claim-check no-op")
+        print("foreman: 无 .nawaban/nawaban.db(该仓未切新板)· claim-check no-op")
         return 0
 
     candidates: list[str] = []
@@ -91,7 +92,7 @@ def main() -> int:
     try:
         cards, broken = _blocking_cards(db_path)
     except BoardUnreadable as e:
-        print(f"⚠️ workos.db 不可读({e})——占用未知,先修库。")
+        print(f"⚠️ nawaban.db 不可读({e})——占用未知,先修库。")
         return 0
     if broken:
         print("⚠️ 不可信锁行(占用判定不全,修一下):")
@@ -126,7 +127,7 @@ def main() -> int:
         if lines:
             print("─ 占路者现在还在不在(herdr):")
             print("\n".join(lines))
-        print("→ 知会对方或错开顺序;对方卡实质完结可 workos release 收窄(locks.md)。")
+        print("→ 知会对方或错开顺序;对方卡实质完结可 nawaban release 收窄(locks.md)。")
         if table is not None and any(
             o.startswith("ac:") and o not in table for o, _ in blockers
         ):

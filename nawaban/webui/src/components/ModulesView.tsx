@@ -6,7 +6,7 @@ import { fetchModules } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { ModuleTask, ModulesResponse } from "@/lib/types";
 
-// 本文件是 ~/.claude/foreman/workos/board_view.py MODULES_PAGE 内嵌 JS(index/rail/layers/
+// 本文件是 nawaban/board_view.py MODULES_PAGE 内嵌 JS(index/rail/layers/
 // blocked/card/wires,逻辑已由用户点验定稿)的直接翻译,不重新设计布局算法。
 
 const ST = ["done", "staging-verified", "in_progress", "claimed", "open"] as const;

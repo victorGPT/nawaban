@@ -1,13 +1,13 @@
 ---
 name: agent-foreman
-description: 认领、推进或恢复 WorkOS 任务，处理工位与状态闸；只查进度时保持只读。
+description: 认领、推进或恢复 nawaban 任务，处理工位与状态闸；只查进度时保持只读。
 metadata:
   version: "6.0.0"
 ---
 
-# WorkOS 任务协作
+# nawaban 任务协作
 
-让任务卡、工作区和交付证据保持一致，完成用户授权的目标。WorkOS 管卡、工位与状态；实现方法和交付范围遵循目标项目。
+让任务卡、工作区和交付证据保持一致，完成用户授权的目标。nawaban 管卡、工位与状态；实现方法和交付范围遵循目标项目。
 
 ## 开始或续做
 
@@ -24,8 +24,8 @@ metadata:
 写操作携带会话提供的 `FOREMAN_OWNER` 和 `CLAUDE_CODE_SESSION_ID`。所有操作保持同一目标库；以下命令中的占位符先替换为已核实的值。
 
 ```bash
-workos --db <目标库绝对路径> claim <ID>
-workos --db <目标库绝对路径> start <ID> --now "<当前要完成的工作>"
+nawaban --db <目标库绝对路径> claim <ID>
+nawaban --db <目标库绝对路径> start <ID> --now "<当前要完成的工作>"
 git worktree add <独立工位路径> -b task/<ID>
 ```
 
@@ -37,7 +37,7 @@ git worktree add <独立工位路径> -b task/<ID>
 
 交付边界由用户和项目决定：本地文件、commit、PR、合并、部署各自需要对应范围的授权。本 Skill 不自动要求开 PR、部署或另接一张卡。未合并工作记录 commit/artifact 和真实交接态，不能为了 done 填造 merge_sha。
 
-结束前按 [交付与收尾](references/cards.md) 同步 status、now、refs 和 handoff；如有待办，留下证据、剩余工作与一个明确下一步。仅需清点本 session 时使用 [workos-wrapup](../workos-wrapup/SKILL.md)。
+结束前按 [交付与收尾](references/cards.md) 同步 status、now、refs 和 handoff；如有待办，留下证据、剩余工作与一个明确下一步。仅需清点本 session 时使用 [nawaban-wrapup](../nawaban-wrapup/SKILL.md)。
 
 ## 按情况读取
 

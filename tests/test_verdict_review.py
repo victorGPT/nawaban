@@ -14,7 +14,7 @@ sys.modules.setdefault("foreman_liveness", types.ModuleType("foreman_liveness"))
 _card = types.ModuleType("foreman_card")
 _card.CardError, _card.parse_card_text = Exception, None
 sys.modules.setdefault("foreman_card", _card)
-from workos import cli, import_md  # noqa: E402
+from nawaban import cli, import_md  # noqa: E402
 
 
 def _plan(*verdicts):

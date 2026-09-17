@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS 机制层:SQLite schema + 全部写入操作(WORKOS-SCHEMA-001)。
+"""NAWABAN 机制层:SQLite schema + 全部写入操作(NAWABAN-SCHEMA-001)。
 
 契约来源:.foreman/artifacts/看板字段设计-v1草案-2026-08-12.md(19 列 6 表 · 四类来源 · 写入规则)。
 分层:本模块 = 机制(显式参数,不读环境);cli.py = 政策(身份只从环境解析,不收参数)。
@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Iterator, Optional, Sequence
 
 
-class WorkosError(Exception):
+class NawabanError(Exception):
     """业务规则拒绝(区别于 sqlite3.IntegrityError = DDL 层拒绝)。"""
 
 
@@ -34,7 +34,7 @@ EVENT_KINDS = ("note", "coord", "handoff", "status_change", "acceptance", "verif
 SESSION_OUTCOMES = ("completed", "handed_off", "blocked", "abandoned")
 REF_KINDS = ("pr", "merge_sha", "issue", "commit", "acceptance_run", "artifact")
 
-# ── 人侧收件箱(WORKOS-INBOX)─────────────────────────────────────
+# ── 人侧收件箱(NAWABAN-INBOX)─────────────────────────────────────
 # ask = 一次待办的**人类动作**,不是一张卡。三个动词穷尽了人的介入形态
 # (实测:对账后 14 张「等拍板」全部落进 authorize/accept,decide 0 张;
 #  全库 357 行决策记录里带被否项的只有 13 行)。ask 的生命周期在人回答
@@ -87,7 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_asks_open      ON asks(closed_at, raised_at);
 CREATE INDEX IF NOT EXISTS idx_ask_tasks_task ON ask_tasks(task_id);
 """
 
-# 信件 = worker→总监的单向汇报(WORKOS-LETTERS-DB-001 · 2026-08-29 用户拍板迁库)。
+# 信件 = worker→总监的单向汇报(NAWABAN-LETTERS-DB-001 · 2026-08-29 用户拍板迁库)。
 # 与 asks 表语义不重叠:asks 是人侧拍板队列(开→关),信件是留言(读/未读)。
 # kind 不设 CHECK:约束在 add_letter 写侧(md 导入的历史值不受限,provenance 可辨)。
 LETTERS_SQL = """
@@ -206,7 +206,7 @@ _ADVANCE = {
     ("in_progress", "done"),               # 直通:CI 绿合并即归档(FOREMAN-SIMPLIFY-002)
     ("staging-verified", "done"),
     ("staging-verified", "in_progress"),  # 驳回返工
-    ("done", "in_progress"),               # 打回(WORKOS-ACCEPT-SELFEVIDENT-001 · reopen_task 专用)
+    ("done", "in_progress"),               # 打回(NAWABAN-ACCEPT-SELFEVIDENT-001 · reopen_task 专用)
 }
 
 
@@ -239,7 +239,7 @@ def migrate_db(path: Path | str) -> list[str]:
     _migrate_add_optional_columns 同款路径)。只加可空列,从不改/删既有列与语义。
     返回本次新加的列名,幂等:已是最新则返回 []。
 
-    一处例外(WORKOS-CANCEL-001):tasks.status 的 CHECK 要**放宽**收 'cancelled'。
+    一处例外(NAWABAN-CANCEL-001):tasks.status 的 CHECK 要**放宽**收 'cancelled'。
     SQLite 改 CHECK 只能整表重建,不在 additive 之列。但放宽对旧代码是兼容的 ——
     旧 CLI 的 _ADVANCE 里没有 cancelled,写不出这个值;旧读侧最多把它当活跃卡显示一阵,
     瞬态无害。放宽 ≠ 收紧:收紧才会让既有行突然违规,那种才是真的不能做。"""
@@ -289,13 +289,13 @@ def migrate_db(path: Path | str) -> list[str]:
                                           "CREATE TABLE tasks_new", 1)
                 new_ddl = new_ddl.replace(_q(STATUSES[:-1]), _q(STATUSES), 1)
                 if _q(STATUSES) not in new_ddl:
-                    raise WorkosError("tasks 重建:CHECK 文本没匹配上,拒绝盲改 DDL")
+                    raise NawabanError("tasks 重建:CHECK 文本没匹配上,拒绝盲改 DDL")
                 con.execute(new_ddl)
                 con.execute(f"INSERT INTO tasks_new({collist}) SELECT {collist} FROM tasks")
                 n_old = con.execute("SELECT count(*) FROM tasks").fetchone()[0]
                 n_new = con.execute("SELECT count(*) FROM tasks_new").fetchone()[0]
                 if n_old != n_new:
-                    raise WorkosError(f"tasks 重建:行数不符 {n_old}→{n_new},回滚")
+                    raise NawabanError(f"tasks 重建:行数不符 {n_old}→{n_new},回滚")
                 con.execute("DROP TABLE tasks")
                 con.execute("ALTER TABLE tasks_new RENAME TO tasks")
                 con.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
@@ -303,7 +303,7 @@ def migrate_db(path: Path | str) -> list[str]:
                             "  ON tasks(owner, status)")
                 bad = con.execute("PRAGMA foreign_key_check").fetchall()
                 if bad:
-                    raise WorkosError(f"tasks 重建:外键校验失败 {bad[:3]},回滚")
+                    raise NawabanError(f"tasks 重建:外键校验失败 {bad[:3]},回滚")
                 con.execute("COMMIT")
                 added.append("tasks.status:+cancelled")
             except BaseException:
@@ -316,35 +316,51 @@ def migrate_db(path: Path | str) -> list[str]:
     return added
 
 
-def foreman_dir(cwd: Path | str | None = None) -> Optional[Path]:
-    """板目录定位:`.foreman/` 只在主 worktree(gitignored,linked worktree 里没有)。
-    先问 git 主库在哪(sibling 布局的 worktree 也答得出),再从 cwd 向上找。找不到 → None。
-    (FOREMAN-SIMPLIFY-004:一 pane 一 worktree 后,cwd 几乎永远不在主树。)"""
-    cur = Path(cwd or Path.cwd())
+def board_db(root: Path, *, for_init: bool = False) -> Path:
+    """Select the new board path, retaining an existing legacy board for reads."""
+    primary = root / ".nawaban" / "nawaban.db"
+    legacy = root / ".foreman" / "workos.db"  # Legacy database fallback.
+    if not for_init and not primary.exists() and legacy.exists():
+        return legacy
+    return primary
+
+
+def _board_roots(cwd: Path | str | None = None) -> list[Path]:
+    """Search the shared Git root first, then the working directory's ancestors."""
+    cur = Path(cwd or Path.cwd()).resolve()
+    roots = []
     try:
         common = subprocess.run(["git", "-C", str(cur), "rev-parse", "--git-common-dir"],
                                 capture_output=True, text=True, timeout=5)
         if common.returncode == 0:
-            root = (cur / common.stdout.strip()).resolve().parent
-            if (root / ".foreman").is_dir():
-                return root / ".foreman"
+            roots.append((cur / common.stdout.strip()).resolve().parent)
     except (OSError, subprocess.SubprocessError):
         pass
-    for d in (cur, *cur.parents):
-        if (d / ".foreman").is_dir():
-            return d / ".foreman"
+    return [*roots, cur, *cur.parents]
+
+
+def foreman_dir(cwd: Path | str | None = None) -> Optional[Path]:
+    """Locate the board directory, including legacy boards in a shared checkout."""
+    for root in _board_roots(cwd):
+        selected = board_db(root)
+        if selected.parent.is_dir():
+            return selected.parent
+        if (root / ".foreman").is_dir():
+            return root / ".foreman"
     return None
 
 
-def resolve_db() -> Path:
-    """DB 定位:WORKOS_DB env → foreman_dir() → .foreman/workos.db。"""
-    env = os.environ.get("WORKOS_DB")
+def resolve_db(cwd: Path | str | None = None, *, for_init: bool = False) -> Path:
+    """Explicit environment, shared board, ancestor board, then a new local board."""
+    env = os.environ.get("NAWABAN_DB") or os.environ.get("WORKOS_DB")  # Legacy env fallback.
     if env:
         return Path(env).expanduser()
-    fd = foreman_dir()
-    if fd is not None:
-        return fd / "workos.db"
-    raise WorkosError("找不到 .foreman/(不在任何板的仓库里);或设 WORKOS_DB 显式指库")
+    roots = _board_roots(cwd)
+    for root in roots:
+        selected = board_db(root)
+        if selected.exists() or (root / ".nawaban").is_dir() or (root / ".foreman").is_dir():
+            return board_db(root, for_init=for_init)
+    return board_db(roots[0], for_init=for_init)
 
 
 @contextlib.contextmanager
@@ -380,7 +396,7 @@ def _task_row(con: sqlite3.Connection, task_id: str) -> sqlite3.Row:
     con.row_factory = sqlite3.Row
     row = con.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
     if row is None:
-        raise WorkosError(f"卡不存在:{task_id}")
+        raise NawabanError(f"卡不存在:{task_id}")
     return row
 
 
@@ -404,7 +420,7 @@ def create_task(path: Path | str, *, task_id: str, title: str,
                 epic: Optional[str] = None, adr: Optional[str] = None,
                 split_from: Optional[str] = None) -> None:
     if not task_id.strip():
-        raise WorkosError("task_id 不得为空")
+        raise NawabanError("task_id 不得为空")
     con = connect(path)
     try:
         with _txn(con):
@@ -449,10 +465,10 @@ def claim_task(path: Path | str, task_id: str, *, owner: str, session_id: str,
                 " ORDER BY e.dst",
                 (task_id,)).fetchall()
             if blockers and not (override or "").strip():
-                raise WorkosError(
+                raise NawabanError(
                     "claim 上游闸:这张卡的 depends_on 上游还没 done ——\n"
                     + "\n".join(f"   ⏸ {r[0]}({r[1]})" for r in blockers)
-                    + f'\n  先做上游;确要强闯:workos claim {task_id} --override "理由"')
+                    + f'\n  先做上游;确要强闯:nawaban claim {task_id} --override "理由"')
             cur = con.execute(
                 "UPDATE tasks SET owner=?, status='claimed'"
                 " WHERE id=? AND owner IS NULL AND status='open'",
@@ -611,9 +627,9 @@ def kin(path: Path | str, task_id: str) -> dict:
 def _check_now(now: str) -> str:
     now = now.strip()
     if not now:
-        raise WorkosError("now 不得为空:板上当前态一句(到哪了 / 下一步)≤200")
+        raise NawabanError("now 不得为空:板上当前态一句(到哪了 / 下一步)≤200")
     if len(now) > 200:
-        raise WorkosError(f"now 超长 {len(now)}/200:一句话,细节进 event body")
+        raise NawabanError(f"now 超长 {len(now)}/200:一句话,细节进 event body")
     return now
 
 
@@ -632,7 +648,7 @@ def start_task(path: Path | str, task_id: str, *, owner: str, session_id: str,
                 (_now(), now, task_id, owner),
             )
             if cur.rowcount != 1:
-                raise WorkosError(f"start 被拒:{task_id} 不在 claimed 态或 owner 不符")
+                raise NawabanError(f"start 被拒:{task_id} 不在 claimed 态或 owner 不符")
             _event(con, task_id, "status_change", "claimed→in_progress", owner, session_id)
     finally:
         con.close()
@@ -647,14 +663,14 @@ def advance_task(path: Path | str, task_id: str, *, to: str,
             row = _task_row(con, task_id)
             frm = row["status"]
             if (frm, to) not in _ADVANCE:
-                raise WorkosError(f"非法转移:{frm}→{to}")
+                raise NawabanError(f"非法转移:{frm}→{to}")
             if frm == "done":
-                raise WorkosError("done 的卡只能经 reopen_task 打回(须带理由),不走 advance")
+                raise NawabanError("done 的卡只能经 reopen_task 打回(须带理由),不走 advance")
             if to == "staging-verified":
                 # staging-verified 是可选路径(FOREMAN-SIMPLIFY-002):有用户可见行为、
                 # 要真机验收或等人的卡才走;纯内部改动 CI 绿合并直接 done。
                 if waiting_on not in WAITING:
-                    raise WorkosError(
+                    raise NawabanError(
                         "翻 verified 必带 waiting_on ∈ decision/prod/observe/external(验收闸);"
                         "不需要验收的卡合并后直接 advance --to done")
                 n = con.execute(
@@ -662,8 +678,8 @@ def advance_task(path: Path | str, task_id: str, *, to: str,
                     (task_id,),
                 ).fetchone()[0]
                 if n == 0:
-                    raise WorkosError("翻 verified 前先 ref 一条 acceptance_run 证据指针(验收闸)")
-                # 入口闸(WORKOS-DECISION-ASK-GATE-001 · 2026-08-24):waiting_on='decision'
+                    raise NawabanError("翻 verified 前先 ref 一条 acceptance_run 证据指针(验收闸)")
+                # 入口闸(NAWABAN-DECISION-ASK-GATE-001 · 2026-08-24):waiting_on='decision'
                 # 的卡,done 闸②只认经 ask→answer 通道落的运行时拍板行。若此刻不挂一条
                 # 未关的 ask,这张卡就等一个**永远不会被问出口的问题** —— 人从没在收件箱
                 # 见过它,拍板行永不出现,卡永久沉底。实测:46 张 decision 卡里 28 张
@@ -676,10 +692,10 @@ def advance_task(path: Path | str, task_id: str, *, to: str,
                         (task_id,),
                     ).fetchone()[0]
                     if m == 0:
-                        raise WorkosError(
+                        raise NawabanError(
                             "decision 闸:翻 verified 且等人拍板,必须先有一条未关的 ask —— "
                             "否则人永远不会在收件箱里见到这张卡。\n"
-                            "  先提问再翻牌:workos ask --kind decide --task " + task_id +
+                            "  先提问再翻牌:nawaban ask --kind decide --task " + task_id +
                             ' --question "..." --evidence "..." --option "选项|后果" --option "..."')
                 con.execute(
                     "UPDATE tasks SET status=?, waiting_on=? WHERE id=?",
@@ -694,18 +710,18 @@ def advance_task(path: Path | str, task_id: str, *, to: str,
                         (task_id,),
                     ).fetchone()[0]
                     if n == 0:
-                        raise WorkosError(
+                        raise NawabanError(
                             "done 闸:直通归档须先 ref 一条 merge_sha —— "
-                            f"workos ref {task_id} --kind merge_sha --value <sha>")
+                            f"nawaban ref {task_id} --kind merge_sha --value <sha>")
                 else:
                     n = con.execute(
                         "SELECT count(*) FROM task_refs WHERE task_id=? AND kind='acceptance_run'",
                         (task_id,),
                     ).fetchone()[0]
                     if n == 0:
-                        raise WorkosError("done 闸:无 acceptance_run 证据不得归档")
+                        raise NawabanError("done 闸:无 acceptance_run 证据不得归档")
                     # done 闸②(no_fabrication 咬合):等拍板的卡必须有一次**真实的、当下的**拍板动作,
-                    # 否则 agent 可静默自批。统一律(WORKOS-COMPILE-GATE-001 · 2026-08-12 三方对齐):
+                    # 否则 agent 可静默自批。统一律(NAWABAN-COMPILE-GATE-001 · 2026-08-12 三方对齐):
                     #   ① 只认**运行时**拍板行 —— `provenance IS NULL` ⟺ 经 decide() 落的行;
                     #      import_task 每行必带 provenance,**历史回放的拍板行永不满足本闸**。
                     #      (原 `COALESCE(锚点,0)` 让无锚点卡退化成「任何历史 user 行都算数」= fail-open 到底。)
@@ -729,7 +745,7 @@ def advance_task(path: Path | str, task_id: str, *, to: str,
                             sql += " AND created_at>?"
                             params += (ts,)
                         if con.execute(sql, params).fetchone()[0] == 0:
-                            raise WorkosError(
+                            raise NawabanError(
                                 "done 闸②:须有一条**运行时**真人拍板行"
                                 + ("(且须晚于翻 staging-verified 的时刻)" if ts is not None
                                    else "(本卡无 →staging-verified 锚点事件)")
@@ -750,20 +766,20 @@ def advance_task(path: Path | str, task_id: str, *, to: str,
 
 def reopen_task(path: Path | str, task_id: str, *, reason: str,
                 owner: str, session_id: str) -> None:
-    """打回已归档的卡(WORKOS-ACCEPT-SELFEVIDENT-001)。
+    """打回已归档的卡(NAWABAN-ACCEPT-SELFEVIDENT-001)。
 
     自证型验收让 agent 能自批归档,这条就是它的对价:人(或任何人)看到 digest 里
     不该归档的那张,一条命令把它推回 in_progress。打回是**安全方向**——不设身份闸,
     只强制留理由与留痕。没有它,自证 lane 就是把验收闸删了。
     """
     if not reason or not reason.strip():
-        raise WorkosError("打回必须带理由(--reason):不写理由的打回,接手的人不知道要改什么")
+        raise NawabanError("打回必须带理由(--reason):不写理由的打回,接手的人不知道要改什么")
     con = connect(path)
     try:
         with _txn(con):
             row = _task_row(con, task_id)
             if row["status"] not in TERMINAL:
-                raise WorkosError(
+                raise NawabanError(
                     f"只有终态(done/cancelled)的卡能打回,{task_id} 现在是 {row['status']}")
             # 作废的卡打回 open 而非 in_progress:它从没被人做过,回去仍是「可认领」。
             back = "open" if row["status"] == "cancelled" else "in_progress"
@@ -778,7 +794,7 @@ def reopen_task(path: Path | str, task_id: str, *, reason: str,
 
 def cancel_task(path: Path | str, task_id: str, *, reason: str,
                 owner: str, session_id: str, supersedes: Optional[str] = None) -> None:
-    """作废一张前提已消失的卡(WORKOS-CANCEL-001 · 2026-08-30 用户拍板)。
+    """作废一张前提已消失的卡(NAWABAN-CANCEL-001 · 2026-08-30 用户拍板)。
 
     为什么不复用 done:done 的语义是**验收过**,库层三道闸都在为它把关。给一张
     「需求本身没了」的卡编一条 acceptance_run 塞进 done,是拿假证据换一个干净的板 ——
@@ -790,7 +806,7 @@ def cancel_task(path: Path | str, task_id: str, *, reason: str,
     反悔走 reopen(cancelled→open,理由必填)。
     """
     if not reason or not reason.strip():
-        raise WorkosError(
+        raise NawabanError(
             "作废必须带理由(--reason):板上少一张卡是小事,"
             "「为什么这活不做了」丢了才是下一个 agent 重走死路的原因")
     con = connect(path)
@@ -798,9 +814,9 @@ def cancel_task(path: Path | str, task_id: str, *, reason: str,
         with _txn(con):
             row = _task_row(con, task_id)
             if row["status"] != "open":
-                raise WorkosError(
+                raise NawabanError(
                     f"只有 open 的卡能作废,{task_id} 现在是 {row['status']}"
-                    + ("(有人正在做:先 workos release 或让 owner 自己决定)"
+                    + ("(有人正在做:先 nawaban release 或让 owner 自己决定)"
                        if row["status"] in ("claimed", "in_progress") else ""))
             if supersedes:
                 _task_row(con, supersedes)  # 幻觉闸:接手卡必须真实存在
@@ -824,11 +840,11 @@ def add_event(path: Path | str, task_id: str, *, kind: str, body: str,
               now: Optional[str] = None) -> None:
     """记事件;带 now 时顺手刷新板面当前态(留痕就是这条事件本身)。
 
-    now 不再只有 handoff 能写(WORKOS-CARD-POLISH-001 ①):收尾后 / 中途都能刷,
+    now 不再只有 handoff 能写(NAWABAN-CARD-POLISH-001 ①):收尾后 / 中途都能刷,
     不要求活的 session leg。
     """
     if kind not in ("note", "coord", "acceptance", "verify"):
-        raise WorkosError(f"event 动词只收 note/coord/acceptance/verify,{kind} 走各自专属工具")
+        raise NawabanError(f"event 动词只收 note/coord/acceptance/verify,{kind} 走各自专属工具")
     if now is not None:
         now = _check_now(now)
     con = connect(path)
@@ -853,13 +869,13 @@ def retitle(path: Path | str, task_id: str, *, title: str, author: str,
     """
     title = title.strip()
     if not title:
-        raise WorkosError("title 不得为空")
+        raise NawabanError("title 不得为空")
     con = connect(path)
     try:
         with _txn(con):
             old = _task_row(con, task_id)["title"]
             if old == title:
-                raise WorkosError(f"title 没变:{task_id}")
+                raise NawabanError(f"title 没变:{task_id}")
             con.execute("UPDATE tasks SET title=? WHERE id=?", (title, task_id))
             _event(con, task_id, "note", f"retitle:旧标题 «{old}»", author, session_id)
     finally:
@@ -875,10 +891,10 @@ def set_meta(path: Path | str, task_id: str, *, fields: dict, author: str,
     """
     bad = [k for k in fields if k not in META_FIELDS]
     if bad:
-        raise WorkosError(f"meta 只收 {META_FIELDS},不认:{bad}")
+        raise NawabanError(f"meta 只收 {META_FIELDS},不认:{bad}")
     fields = {k: v.strip() for k, v in fields.items() if v and v.strip()}
     if not fields:
-        raise WorkosError("meta 没给任何值:--set-epic")
+        raise NawabanError("meta 没给任何值:--set-epic")
     con = connect(path)
     try:
         with _txn(con):
@@ -888,7 +904,7 @@ def set_meta(path: Path | str, task_id: str, *, fields: dict, author: str,
                      if str(row[k] or "").strip()
                      and not (k == "epic" and str(row[k]).strip().lower() == "n/a")]
             if taken:
-                raise WorkosError(
+                raise NawabanError(
                     f"meta 只补空不改写:{taken} 已有值(现值 "
                     + " · ".join(f"{k}={row[k]!r}" for k in taken)
                     + ")。要改走 decide 留痕。")
@@ -909,17 +925,17 @@ def handoff(path: Path | str, task_id: str, *, owner: str, session_id: str,
             release: bool = False) -> None:
     """收尾三件套原子:sessions 收行 + handoff 事件 + tasks.now。含 artifact 保存闸。
 
-    now 必填(WORKOS-COMPILE-GATE-001):schema 无 now 的更新时间戳,「now 未动」无法 diff,
+    now 必填(NAWABAN-COMPILE-GATE-001):schema 无 now 的更新时间戳,「now 未动」无法 diff,
     要 diff 就得新增存储——违背「编译闸=强化执法不新增存储」。改为在唯一写 now 的入口硬性要求,
     三件套才是真原子(缺一件 = 整笔拒,不落半套)。
     """
     if outcome not in SESSION_OUTCOMES:
-        raise WorkosError(f"outcome 必须 ∈ {SESSION_OUTCOMES}")
+        raise NawabanError(f"outcome 必须 ∈ {SESSION_OUTCOMES}")
     if now is None or not now.strip():
-        raise WorkosError("收尾三件套缺 now:--now 必填(板上当前态一句 ≤200)")
+        raise NawabanError("收尾三件套缺 now:--now 必填(板上当前态一句 ≤200)")
     missing = [a for a in (artifacts or []) if not Path(a).expanduser().is_file()]
     if missing:
-        raise WorkosError(f"保存闸:声明的 artifact 不存在,拒绝收尾 → {missing}")
+        raise NawabanError(f"保存闸:声明的 artifact 不存在,拒绝收尾 → {missing}")
     con = connect(path)
     try:
         with _txn(con):
@@ -930,10 +946,10 @@ def handoff(path: Path | str, task_id: str, *, owner: str, session_id: str,
             if outcome == "completed":
                 st = _task_row(con, task_id)["status"]
                 if st not in ("staging-verified", "done"):
-                    raise WorkosError(
+                    raise NawabanError(
                         f"handoff 闸:outcome=completed 但卡还在 {st} —— 先翻牌再收尾:\n"
-                        "  合并即归档:workos ref … --kind merge_sha && advance --to done\n"
-                        "  等人验:workos ask --kind accept … && advance --to staging-verified --waiting-on decision\n"
+                        "  合并即归档:nawaban ref … --kind merge_sha && advance --to done\n"
+                        "  等人验:nawaban ask --kind accept … && advance --to staging-verified --waiting-on decision\n"
                         "  活没到那步:outcome 用 handed_off/blocked 如实收尾")
             cur = con.execute(
                 "UPDATE task_sessions SET ended_at=?, outcome=?, summary=?"
@@ -941,7 +957,7 @@ def handoff(path: Path | str, task_id: str, *, owner: str, session_id: str,
                 (_now(), outcome, summary, task_id, session_id),
             )
             if cur.rowcount != 1:
-                raise WorkosError(f"无未收尾的 session 履历({task_id} × {session_id}):先 claim/start")
+                raise NawabanError(f"无未收尾的 session 履历({task_id} × {session_id}):先 claim/start")
             _event(con, task_id, "handoff", body or summary, owner, session_id)
             con.execute("UPDATE tasks SET now=? WHERE id=?", (now, task_id))
             for a in artifacts or []:
@@ -1013,11 +1029,11 @@ def decide(path: Path | str, task_id: str, *, question: str, verdict: str,
 
     no_fabrication:decided_by='user' 只能由拍板通道产生——tg(TG daemon 自动设)、
     chat(对话转述:agent 须显式设 env 并在 verdict 带用户原话,留下有意为之的痕迹)、
-    inbox(人在收件箱里回答一个 ask · WORKOS-INBOX-WRITE-001,由 cli answer 设)。
+    inbox(人在收件箱里回答一个 ask · NAWABAN-INBOX-WRITE-001,由 cli answer 设)。
     agent 不得凭空代填。
     """
-    if decided_by == "user" and os.environ.get("WORKOS_DECISION_CHANNEL") not in DECISION_CHANNELS:
-        raise WorkosError(
+    if decided_by == "user" and (os.environ.get("NAWABAN_DECISION_CHANNEL") or os.environ.get("WORKOS_DECISION_CHANNEL")) not in DECISION_CHANNELS:
+        raise NawabanError(
             "decided_by=user 只能经拍板通道:TG 回写(tg)、对话转述(chat,verdict 须带用户原话)"
             "或收件箱回答(inbox)")
     con = connect(path)
@@ -1039,11 +1055,11 @@ def decide(path: Path | str, task_id: str, *, question: str, verdict: str,
 
 def add_letter(path: Path | str, task_id: str, *, kind: str, msg: str,
                links: Optional[str] = None, session_id: Optional[str] = None) -> int:
-    """写一封信(WORKOS-LETTERS-DB-001)。写侧闸:卡必须存在,kind 限四态,msg 非空。"""
+    """写一封信(NAWABAN-LETTERS-DB-001)。写侧闸:卡必须存在,kind 限四态,msg 非空。"""
     if kind not in LETTER_KINDS:
-        raise WorkosError(f"letter kind 只收 {LETTER_KINDS},不认:{kind}")
+        raise NawabanError(f"letter kind 只收 {LETTER_KINDS},不认:{kind}")
     if not (msg or "").strip():
-        raise WorkosError("letter 必须有 msg(一句人话汇报)")
+        raise NawabanError("letter 必须有 msg(一句人话汇报)")
     con = connect(path)
     try:
         with _txn(con):
@@ -1094,11 +1110,11 @@ def link_tasks(path: Path | str, src: str, dst: str, *, kind: str,
     try:
         for t in (src, dst):
             if con.execute("SELECT 1 FROM tasks WHERE id=?", (t,)).fetchone() is None:
-                raise WorkosError(f"幻觉闸:卡不存在 → {t}(引用不存在的卡当场拒)")
+                raise NawabanError(f"幻觉闸:卡不存在 → {t}(引用不存在的卡当场拒)")
         if src == dst:
-            raise WorkosError("不许自环")
+            raise NawabanError("不许自环")
         if kind == "depends_on" and _reaches(con, start=dst, target=src):
-            raise WorkosError(f"depends_on 环:{dst} 已(传递)依赖 {src}")
+            raise NawabanError(f"depends_on 环:{dst} 已(传递)依赖 {src}")
         with _txn(con):
             con.execute(
                 "INSERT OR IGNORE INTO task_edges (src, dst, kind, note, created_at, created_by)"
@@ -1127,7 +1143,7 @@ def _reaches(con: sqlite3.Connection, *, start: str, target: str) -> bool:
 def add_ref(path: Path | str, task_id: str, *, kind: str, value: str,
             note: Optional[str] = None) -> None:
     if kind == "artifact" and not Path(value).expanduser().is_file():
-        raise WorkosError(f"保存闸:artifact 文件不存在 → {value}")
+        raise NawabanError(f"保存闸:artifact 文件不存在 → {value}")
     con = connect(path)
     try:
         _task_row(con, task_id)
@@ -1141,7 +1157,7 @@ def add_ref(path: Path | str, task_id: str, *, kind: str, value: str,
         con.close()
 
 
-# ── 人侧收件箱(WORKOS-INBOX-SCHEMA-001)──────────────────────────────
+# ── 人侧收件箱(NAWABAN-INBOX-SCHEMA-001)──────────────────────────────
 
 # 判「有没有真材料」:零宽字符在 str.strip() 和 SQLite trim() 里都不算空白,但人眼看不见。
 # 类别判定自动覆盖全部 Cf(格式控制,含 U+200B/U+2060/U+00AD/TAG 段)与各类空白;
@@ -1183,24 +1199,24 @@ def raise_ask(path: Path | str, *, kind: str, question: str, evidence: str,
     「按停滞排序」当场失效,而那正是用来对抗「把最新的卡捧上首屏」的机制。
     """
     if kind not in ASK_KINDS:
-        raise WorkosError(f"ask kind 只收 {ASK_KINDS},收到 {kind!r}")
+        raise NawabanError(f"ask kind 只收 {ASK_KINDS},收到 {kind!r}")
     if not _visible(evidence):
         # DDL 的 trim 字符集只覆盖 ASCII 空白;零宽空格(U+200B)、不间断空格(U+00A0)
         # 能穿过去,落一条「材料非空但人眼看不见」的 ask —— 那正是材料闸要防的事。
-        raise WorkosError("evidence 去掉不可见字符后是空的 —— 没有材料的问题提不出来")
+        raise NawabanError("evidence 去掉不可见字符后是空的 —— 没有材料的问题提不出来")
     if not _visible(question):
-        raise WorkosError("question 去掉不可见字符后是空的")
+        raise NawabanError("question 去掉不可见字符后是空的")
     if not task_ids:
-        raise WorkosError("ask 必须至少挂一张卡 —— 不挂卡的问题没有上下文")
+        raise NawabanError("ask 必须至少挂一张卡 —— 不挂卡的问题没有上下文")
     if confidence is not None:
         if not 0 <= confidence <= 1:
-            raise WorkosError(f"confidence 要在 0..1,收到 {confidence}")
+            raise NawabanError(f"confidence 要在 0..1,收到 {confidence}")
         if not _visible(confidence_reason):
             # 光给分数不给理由 = 黑盒换黑盒(ADR-0209 原则 6)
-            raise WorkosError("给了 confidence 就必须给 confidence_reason —— 分数不可审计,理由才可以")
+            raise NawabanError("给了 confidence 就必须给 confidence_reason —— 分数不可审计,理由才可以")
     elif _visible(confidence_reason):
         # 反向也得挡:只有 reason 没有分数时读侧按「没有置信度」渲染,这条理由永远见不到人
-        raise WorkosError("给了 confidence_reason 却没给 confidence —— 单独的理由读侧渲染不出来")
+        raise NawabanError("给了 confidence_reason 却没给 confidence —— 单独的理由读侧渲染不出来")
     con = connect(path)
     try:
         with _txn(con):
@@ -1229,17 +1245,17 @@ def close_ask(path: Path | str, ask_id: int, *, closed_as: str,
               decision_id: Optional[int] = None) -> None:
     """关闭一个 ask。四种关闭态缺一不可 —— 少了哪种,那类 ask 就变成新的僵尸。"""
     if closed_as not in ASK_CLOSED:
-        raise WorkosError(f"closed_as 只收 {ASK_CLOSED},收到 {closed_as!r}")
+        raise NawabanError(f"closed_as 只收 {ASK_CLOSED},收到 {closed_as!r}")
     con = connect(path)
     try:
         with _txn(con):
             # connect() 不设 row_factory,按位取
             row = con.execute("SELECT closed_at FROM asks WHERE id=?", (ask_id,)).fetchone()
             if row is None:
-                raise WorkosError(f"ask #{ask_id} 不存在")
+                raise NawabanError(f"ask #{ask_id} 不存在")
             if row[0] is not None:
                 # 并发:两个窗口同时答同一个 ask,第二个拿明确报错而非静默覆盖
-                raise WorkosError(f"ask #{ask_id} 已关闭,不可重复关")
+                raise NawabanError(f"ask #{ask_id} 已关闭,不可重复关")
             con.execute(
                 "UPDATE asks SET closed_at=?,closed_as=?,answer=?,decision_id=? WHERE id=?",
                 (_now(), closed_as, answer, decision_id, ask_id),
@@ -1286,7 +1302,7 @@ def ask_detail(path: Path | str, ask_id: int) -> dict:
     try:
         r = con.execute("SELECT * FROM asks WHERE id=?", (ask_id,)).fetchone()
         if r is None:
-            raise WorkosError(f"ask #{ask_id} 不存在")
+            raise NawabanError(f"ask #{ask_id} 不存在")
         d = dict(r)
         d["options"] = _j(r["options"])
         d["blast"] = _j(r["blast"])
@@ -1299,7 +1315,7 @@ def ask_detail(path: Path | str, ask_id: int) -> dict:
         con.close()
 
 
-# ── 历史导入(WORKOS-IMPORT-001 · 总监 scope+ 批准的第 10 个机制)────────────
+# ── 历史导入(NAWABAN-IMPORT-001 · 总监 scope+ 批准的第 10 个机制)────────────
 
 def import_task(path: Path | str, *, task_id: str, title: str, status: str,
                 created_at: int, owner: Optional[str] = None,
@@ -1388,13 +1404,13 @@ def update_touches(path: Path | str, task_id: str, *, add: Sequence[str],
     你已经在碰 B);悄悄缩 = 把还在碰的文件从防撞面移走。两种静默都不许,所以
     ①只增不减 ②reason 必填 ③事件与字段同一事务落盘,没有「改了但没留痕」的中间态。
     收窄(把已声明的路径摘掉)本函数**不做** —— 那是另一种语义(需确认「真的不再碰了」),
-    今天没有消费者,别提前造(WORKOS-WRAPUP-SKILL-001 施工决策)。
+    今天没有消费者,别提前造(NAWABAN-WRAPUP-SKILL-001 施工决策)。
 
     → 返回合并后的完整 touches。重复路径静默忽略(幂等),但若一条新的都没加则拒:
       空操作还留一条 scope+ 事件,会污染「扩过几次界」的审计。
     """
     if not reason.strip():
-        raise WorkosError("scope+ 必须写理由(它就是留痕的正文,不许空手扩界)")
+        raise NawabanError("scope+ 必须写理由(它就是留痕的正文,不许空手扩界)")
     con = connect(path)
     try:
         with _txn(con):
@@ -1402,7 +1418,7 @@ def update_touches(path: Path | str, task_id: str, *, add: Sequence[str],
             cur: list[str] = json.loads(row["touches"]) if row["touches"] else []
             fresh = [t for t in add if t not in cur]
             if not fresh:
-                raise WorkosError(f"这些路径已在 touches 里,无需扩界:{list(add)}")
+                raise NawabanError(f"这些路径已在 touches 里,无需扩界:{list(add)}")
             merged = cur + fresh
             con.execute("UPDATE tasks SET touches=? WHERE id=?", (_jd(merged), task_id))
             _event(con, task_id, "coord",
@@ -1426,7 +1442,7 @@ def release_touches(path: Path | str, task_id: str, *, drop: Sequence[str],
     留痕行里带 owner,谁收的窄一查便知。
     """
     if not reason.strip():
-        raise WorkosError("scope- 必须写理由(收窄是动别人的防撞面,不许空手摘)")
+        raise NawabanError("scope- 必须写理由(收窄是动别人的防撞面,不许空手摘)")
     con = connect(path)
     try:
         with _txn(con):
@@ -1434,7 +1450,7 @@ def release_touches(path: Path | str, task_id: str, *, drop: Sequence[str],
             cur: list[str] = json.loads(row["touches"]) if row["touches"] else []
             hit = [t for t in drop if t in cur]
             if not hit:
-                raise WorkosError(f"这些路径本就不在 {task_id} 的 touches 里,无需收窄:{list(drop)}")
+                raise NawabanError(f"这些路径本就不在 {task_id} 的 touches 里,无需收窄:{list(drop)}")
             rest = [t for t in cur if t not in hit]
             con.execute("UPDATE tasks SET touches=? WHERE id=?", (_jd(rest), task_id))
             _event(con, task_id, "coord",
@@ -1446,7 +1462,7 @@ def release_touches(path: Path | str, task_id: str, *, drop: Sequence[str],
 
 
 def open_claim_rows(path: Path | str, *, session_id: str) -> list[dict]:
-    """本 session 未收尾的 claim,带**给人看**的字段(WORKOS-WRAPUP-SKILL-001)。
+    """本 session 未收尾的 claim,带**给人看**的字段(NAWABAN-WRAPUP-SKILL-001)。
 
     与 open_claims 的分工:那个是编译闸的热路径,每轮 Stop 都跑,只要数量所以越瘦越好;
     这个供收尾工具一次性展示,可以多查几列。同族两函数,别合并成一个带 flag 的。
@@ -1500,7 +1516,7 @@ def backup_db(path: Path | str, *, keep_days: int = 14) -> Path:
     bdir = src_path.parent / "backups"
     bdir.mkdir(parents=True, exist_ok=True)
     stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest_path = bdir / f"workos-{stamp}.db"
+    dest_path = bdir / f"nawaban-{stamp}.db"
     src = connect(src_path)
     dest = sqlite3.connect(str(dest_path))
     try:
@@ -1509,7 +1525,7 @@ def backup_db(path: Path | str, *, keep_days: int = 14) -> Path:
         dest.close()
         src.close()
     cutoff = time.time() - keep_days * 86400
-    for old in bdir.glob("workos-*.db"):
+    for old in (*bdir.glob("nawaban-*.db"), *bdir.glob("workos-*.db")):  # Legacy backups.
         if old.stat().st_mtime < cutoff:
             old.unlink()
     return dest_path

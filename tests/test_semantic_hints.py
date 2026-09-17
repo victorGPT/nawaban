@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # board_view imports a runtime-only module that this snapshot omits
 sys.modules.setdefault("foreman_liveness", types.ModuleType("foreman_liveness"))
-from workos import cli  # noqa: E402
+from nawaban import cli  # noqa: E402
 
 
 def _answer(noul):
@@ -190,7 +190,7 @@ def test_evidence_hint_no_key_skips_the_call(monkeypatch):
 
 @pytest.mark.parametrize("kind, calls", [("accept", 1), ("decide", 0)])
 def test_only_accept_asks_are_judged(key, monkeypatch, tmp_path, capsys, kind, calls):
-    monkeypatch.setenv("WORKOS_DB", str(tmp_path / "w.db"))
+    monkeypatch.setenv("NAWABAN_DB", str(tmp_path / "w.db"))
     monkeypatch.setenv("FOREMAN_OWNER", "t")
     seen = []
     monkeypatch.setattr(cli, "_evidence_hint", lambda e: seen.append(e) or "提示")

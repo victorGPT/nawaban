@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-INBOX-MIGRATE-001 · 把当前队列映射成首批 ask。
+"""NAWABAN-INBOX-MIGRATE-001 · 把当前队列映射成首批 ask。
 
 **这是不变量 I 的考试**:收件箱条目数必须等于「人的决策数」,不是卡数。
 一次 deploy 授权覆盖几十张卡 = 1 个 ask;IAM2 的 G1–G4 是一个切换决定的四道闸 = 1 个 ask。
@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workos import db  # noqa: E402
+from nawaban import db  # noqa: E402
 
 MAX_ASKS = 20  # 硬上限:超了说明粒度规则塌了,非 0 退出
 
