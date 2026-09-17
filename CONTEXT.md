@@ -218,7 +218,7 @@ _Current identifiers_: `tasks.epic`; CLI `meta`.
 A task's project affiliation, used to filter tasks and human asks within a shared board database.
 项目是任务的归属标记，用于在同一个看板数据库内筛选任务与待办请求。
 _Avoid_: database selection, Epic as an interchangeable grouping.
-_Current identifiers_: `tasks.project`; CLI `create --project`; API `project` query parameter.
+_Current identifiers_: `tasks.project`; CLI `create --project`, `meta --set-project` (fill empty only); API `project` query parameter, `unassigned=1` for cards without a project.
 
 **Owner**(负责人)
 The accountable identity assigned to a task for its current work.
@@ -456,6 +456,7 @@ Exact display templates below are part of the English vocabulary. Braced names a
 | Agent workspace | Agent 工作空间 | Display text only; preserve stored values and user-authored content. |
 | Toggle sidebar | 切换侧栏 | Display text only; preserve stored values and user-authored content. |
 | All projects | 全部项目 | Display text only; preserve stored values and user-authored content. |
+| No project | 无项目 | Cards with a null or empty project; distinct from all projects. |
 | Switch project | 切换项目 | Display text only; preserve stored values and user-authored content. |
 | Agents advance tasks | 任务由 Agent 推进 | Display text only; preserve stored values and user-authored content. |
 | Your decisions are collected in the inbox | 需要你的决定，集中在收件箱 | Display text only; preserve stored values and user-authored content. |

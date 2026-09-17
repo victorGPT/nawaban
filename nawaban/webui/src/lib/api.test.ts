@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { postAnswer, AnswerError, fetchBoard, fetchInbox } from "./api.ts";
+import { postAnswer, AnswerError, fetchBoard, fetchInbox, fetchModules } from "./api.ts";
 
 test("answer preserves exact authority boundary and does not retry unknown outcomes", async () => {
   const original = globalThis.fetch;
@@ -71,10 +71,18 @@ test("project scopes read URLs and all-projects omits the parameter", async () =
     await fetchBoard({ since: "2026-09-01", until: "2026-09-02" }, "example-project");
     await fetchBoard(null, null);
     await fetchInbox("nawaban");
+    await fetchBoard(null, "");
+    await fetchInbox("");
+    await fetchModules("");
+    await fetchBoard(null, "all");
     assert.deepEqual(urls, [
       "/api/board?since=2026-09-01&until=2026-09-02&project=example-project",
       "/api/board",
       "/api/inbox?project=nawaban",
+      "/api/board?unassigned=1",
+      "/api/inbox?unassigned=1",
+      "/api/modules?unassigned=1",
+      "/api/board?project=all",
     ]);
   } finally {
     globalThis.fetch = original;

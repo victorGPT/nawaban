@@ -45,6 +45,8 @@ Launch the board with `bash "$NAWABAN_HOME/nawaban/board-up.sh"`. `NAWABAN_BOARD
 
 Use `create --project <name>` to select a task's project when several repositories share one database. Without this option, a new task derives its project from the current repository's board directory, falling back to the explicit database's board directory; `--split-from` inherits the parent task's project. Project selection filters the board and inbox without changing the selected database.
 
+For legacy cards, use `meta <task-id> --set-project <name>` to fill an empty project with an audit event. Existing projects cannot be overwritten; repeat attempts are rejected without another write. Back up a live board with `backup` before backfilling it. Select **No project** to find unassigned cards and their asks in the board, modules, and inbox. API reads use `?unassigned=1` for this filter; omitted or empty `project` still means all projects.
+
 Task context supplied through `create --context` or `--context-file` must use a Markdown unordered list, with one point per item. This format is checked before the task is written. Existing records remain readable.
 
 ### Optional module suggestions

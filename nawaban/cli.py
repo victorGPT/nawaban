@@ -415,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("task_id")
     p.add_argument("--title", required=True)
 
-    p = sub.add_parser("meta", help="补填 epic(只补空 · 带留痕)")
+    p = sub.add_parser("meta", help="补填 epic/project(只补空 · 带留痕)")
     p.add_argument("task_id")
     for f in db.META_FIELDS:
         p.add_argument(f"--set-{f}", dest=f"set_{f}")
