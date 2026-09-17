@@ -14,7 +14,7 @@ const badgeVariants = cva(
           "bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
         destructive:
           "bg-destructive text-white focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/90",
-        // D 风格「等…」警示 chip:琥珀,不是错误态的红 —— 语义与 destructive 不同,不复用它。
+
         warn: "bg-warn text-warn-foreground",
         outline:
           "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",

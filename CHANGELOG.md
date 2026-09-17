@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add English and Chinese board languages, selected from the browser language and switchable in the sidebar with a saved preference. Preserve existing Chinese wording and stored API values. Show Assigned separately from In progress, and enforce English message registration in CONTEXT.md.
+
 - Prefer `deps`, `transition`, `notify`, `notifications`, and `notify-read`. The old verbs remain hidden aliases with identical output; `fanout` and `wrapup` are unchanged.
 - Rename `tasks.origin` to `context` with an idempotent `ALTER TABLE ... RENAME COLUMN` migration. New boards use `context`; `create --context` and `--context-file` retain `--origin` and `--origin-file` aliases. Board APIs, web UI, context loading, and imports consume `context`; detail headings are unchanged. Existing boards migrate on their next CLI command, so upgrade all readers and writers together; do not point this version at a board still served by the legacy runtime.
 

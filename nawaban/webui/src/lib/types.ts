@@ -1,5 +1,4 @@
-// 与 board_view.py 的只读投影一一对应(board_data / modules_data / inbox_data)。
-// 别在这里加服务端没给的字段 —— 有出入先去读 board_view.py,不要猜。
+// Read-only projections from board_view.py; keep fields aligned with the API.
 
 export type Live = { tier: string; age_s: number | null } | null;
 
@@ -18,7 +17,7 @@ export type BoardTask = {
   active_at: number;
   dep?: { blocked_by?: string[]; blocks?: string[] };
   live?: Live;
-  merged_refs?: string[]; // open 卡却已有 pr/merge_sha 引用(巡检「未开工却有 merged PR」同口径)
+  merged_refs?: string[];
 };
 
 export type BoardColumn = {
@@ -74,12 +73,11 @@ export type InboxResponse = {
   groups: AskGroup[];
   flow: { raised_7d: number; closed_7d: number };
   agent_side: number;
-  self_approved?: SelfApproved[]; // board_view.inbox_data 目前不返回这个键(2026-09-07 实测)
+  self_approved?: SelfApproved[];
 };
 
 export type AnswerResponse = { ok: boolean; out: string; unknown?: boolean };
 
-// task_detail() 的完整投影(board_view.py) —— 卡详情侧栏用。
 export type TaskEdge = {
   kind: string;
   other: string;

@@ -323,3 +323,124 @@ A recoverable copy of a board's persistent records.
 全量备份是可供恢复的看板持久记录副本。
 _Avoid_: source checkout as a backup of live task data.
 _Current identifiers_: CLI `backup`.
+
+### Interface messages
+
+Exact display templates below are part of the English vocabulary. Braced names are interpolation slots; Chinese text preserves the existing interface. These entries govern display only, not stored enum values or user-authored task content.
+
+| English | 中文 | _Avoid_ |
+|---|---|---|
+| Collapse sidebar ([) | 收起侧栏([) | Alternative wording for this interface message. |
+| Collapse sidebar  [ | 收起侧栏  [ | Alternative wording for this interface message. |
+| Expand sidebar ([) | 展开侧栏([) | Alternative wording for this interface message. |
+| Expand sidebar  [ | 展开侧栏  [ | Alternative wording for this interface message. |
+| Search ID / title / owner / epic (/ to focus · Esc to clear) | 搜索 id / 标题 / owner / epic(/ 聚焦 · Esc 清空) | Alternative wording for this interface message. |
+| Workspace | 工作区 | Alternative wording for this interface message. |
+| Filter | 筛选 | Alternative wording for this interface message. |
+| Language | 语言 | Alternative wording for this interface message. |
+| Switch to Chinese | 切换到英文 | Alternative wording for this interface message. |
+| Waiting on observation | 等观察 | Alternative wording for this interface message. |
+| Waiting on external | 等外部 | Alternative wording for this interface message. |
+| Waiting on deploy | 等上线 | Alternative wording for this interface message. |
+| Running | 在跑 | Alternative wording for this interface message. |
+| Session idle | 窗口闲着 | Alternative wording for this interface message. |
+| Session inactive | 窗口早没动静 | Alternative wording for this interface message. |
+| Session not found | 找不到窗口 | Alternative wording for this interface message. |
+| Loading… | 加载中… | Alternative wording for this interface message. |
+| Change status through the CLI | 状态变更走 CLI | Alternative wording for this interface message. |
+| Dragging previews the board; it does not change task status | 看板拖拽仅供预览,不会改变任务状态 | Alternative wording for this interface message. |
+| No sessions running | 无窗口在动 | Alternative wording for this interface message. |
+| Board failed to load: | 看板加载失败: | Alternative wording for this interface message. |
+| ● {count} running | ● {count} 在动 | Alternative wording for this interface message. |
+| {count} idle | {count} 闲着 | Alternative wording for this interface message. |
+| {count} sessions gone | {count} 窗口已不在 | Alternative wording for this interface message. |
+| Inactive for {time} | {time} 没动 | Alternative wording for this interface message. |
+| Existing PR {refs} · awaiting a status decision | 已有 PR {refs} · 状态待人裁定 | Alternative wording for this interface message. |
+| Blocked by {tasks} | 被 {tasks} 挡 | Alternative wording for this interface message. |
+| Today | 今天 | Alternative wording for this interface message. |
+| Yesterday | 昨天 | Alternative wording for this interface message. |
+| This week | 本周 | Alternative wording for this interface message. |
+| Last week | 上周 | Alternative wording for this interface message. |
+| Last 7 days | 最近 7 天 | Alternative wording for this interface message. |
+| Start date | 起始日期 | Alternative wording for this interface message. |
+| End date | 结束日期 | Alternative wording for this interface message. |
+| Updated | 更新时间 | Alternative wording for this interface message. |
+| Acceptance confirmed (one-click inbox) | 验收通过(收件箱一键) | Alternative wording for this interface message. |
+|  · Supplement: |  · 补充: | Alternative wording for this interface message. |
+| Confirm decision | 就这么定 | Alternative wording for this interface message. |
+| Other… | 其他… | Alternative wording for this interface message. |
+| Answer (recorded verbatim in the decision log) | 回答(会原样进决策记录) | Alternative wording for this interface message. |
+| Additional details (optional) | 补充说明(非必填) | Alternative wording for this interface message. |
+| Select an option first | 先选一个选项 | Alternative wording for this interface message. |
+| Reason for requesting changes | 打回理由 | Alternative wording for this interface message. |
+|  (recorded verbatim in the decision log) | (会原样进决策记录) | Alternative wording for this interface message. |
+| Copied | 已复制 | Alternative wording for this interface message. |
+| Copy failed; select the text manually | 复制失败,手动选中吧 | Alternative wording for this interface message. |
+| No decisions waiting | 没有需要你决定的事 | Alternative wording for this interface message. |
+| Select an item for details | 选一条看详情 | Alternative wording for this interface message. |
+| The inbox is empty | 收件箱是空的 | Alternative wording for this interface message. |
+| Try it yourself | 要你亲自点 | Alternative wording for this interface message. |
+| Approval only records your decision —  | 授权只记录你的决定 ——  | Alternative wording for this interface message. |
+| it does not execute automatically | 不会自动执行 | Alternative wording for this interface message. |
+| . Once the action has actually run, report its result: | 。动作真跑完之后再收口: | Alternative wording for this interface message. |
+|  (use --failed for failure) | (失败用 --failed) | Alternative wording for this interface message. |
+| Cancel | 取消 | Alternative wording for this interface message. |
+| Submit | 提交 | Alternative wording for this interface message. |
+| Copy | 复制 | Alternative wording for this interface message. |
+| Inbox failed to load: | 收件箱加载失败: | Alternative wording for this interface message. |
+| #{id} resolved | #{id} 已处理 | Alternative wording for this interface message. |
+| {percent}% confidence | {percent}% 把握 | Alternative wording for this interface message. |
+| 🤖 Self-approved tasks · {count} in the last 7 days ({lane} with evidence{silent} · request changes if needed) | 🤖 自批归档 digest · 近 7 天 {count} 张(自证 lane {lane} 条逐列{silent} · 看着不对就打回) | Alternative wording for this interface message. |
+|  · {count} summarized from the legacy path |  · 旧静默路 {count} 张计数压行 | Alternative wording for this interface message. |
+| The other {count} tasks were closed through deploy/observation/external paths without human participation (existing behavior). | 其余 {count} 张经 prod/observe/external 路无人参与归档(历来如此)。 | Alternative wording for this interface message. |
+| {count} asks waiting · oldest {days} days | {count} 件事等你 · 最久停了 {days} 天 | Alternative wording for this interface message. |
+|  · This week: {raised} received · {closed} resolved |  · 本周进 {raised} · 已清 {closed} | Alternative wording for this interface message. |
+| Ungrouped | 未分组 | Alternative wording for this interface message. |
+| Working now: | 现在动着的: | Alternative wording for this interface message. |
+|  (independent task) | (独立卡) | Alternative wording for this interface message. |
+| No tasks in progress | 没有进行中的卡 | Alternative wording for this interface message. |
+|  · Upstream |  · 上游 | Alternative wording for this interface message. |
+|  · Downstream |  · 下游 | Alternative wording for this interface message. |
+| ▸ Blocked by = unfinished prerequisite | ▸ 被挡 = 上游未 done | Alternative wording for this interface message. |
+| ▸ Blocked by | ▸ 被挡 | Alternative wording for this interface message. |
+| ← Depends on  | ← 依赖  | Alternative wording for this interface message. |
+| Epics failed to load: | 模块加载失败: | Alternative wording for this interface message. |
+| Epic data is currently unavailable | 模块数据当前不可用 | Alternative wording for this interface message. |
+| Epics · sorted by unfinished tasks | 模块 · 按未完成量排序 | Alternative wording for this interface message. |
+| Focus mode · select a task to see its dependencies | 专注模式 · 点卡看它的链 | Alternative wording for this interface message. |
+| This epic has no internal dependency chain; all tasks are independent. | 这个模块内部没有依赖链——所有卡都是独立卡。 | Alternative wording for this interface message. |
+| Independent tasks (outside the chain) ·  | 独立卡(不在链上)·  | Alternative wording for this interface message. |
+| No epic data | 没有模块数据 | Alternative wording for this interface message. |
+|  (stage {stage}/{total}) | (第 {stage}/{total} 级) | Alternative wording for this interface message. |
+| {count} tasks · {percent}% done · Done {done} / Ready for acceptance {ready} / Active {active} / Unassigned {open} · {now} | {count} 卡 · 完成 {percent}% · done {done} / 待验收 {ready} / 进行中 {active} / open {open} · {now} | Alternative wording for this interface message. |
+| Stage {stage} | 第 {stage} 级 | Alternative wording for this interface message. |
+| Just now | 刚刚 | Alternative wording for this interface message. |
+| Collapse | 收起 | Alternative wording for this interface message. |
+| Expand | 展开 | Alternative wording for this interface message. |
+| No epic | 无 epic | Alternative wording for this interface message. |
+| Status | 状态 | Alternative wording for this interface message. |
+| Not waiting | 不等谁 | Alternative wording for this interface message. |
+| Time | 时间 | Alternative wording for this interface message. |
+| Split from | 拆自 | Alternative wording for this interface message. |
+| Split out | 拆出 | Alternative wording for this interface message. |
+| Supersedes | 替代了 | Alternative wording for this interface message. |
+| Superseded by | 被替代 | Alternative wording for this interface message. |
+| Unread | 未读 | Alternative wording for this interface message. |
+| Failed to load: | 加载失败: | Alternative wording for this interface message. |
+| Blocked at  | 真正卡在  | Alternative wording for this interface message. |
+| Unblocks | 放开 | Alternative wording for this interface message. |
+| Rejected: | 否: | Alternative wording for this interface message. |
+| Properties | 属性 | Alternative wording for this interface message. |
+| Relationships | 关系 | Alternative wording for this interface message. |
+| {count} minutes ago | {count} 分钟前 | Alternative wording for this interface message. |
+| {count} hours ago | {count} 小时前 | Alternative wording for this interface message. |
+| {count} days ago | {count} 天前 | Alternative wording for this interface message. |
+| Copy {text} | 复制 {text} | Alternative wording for this interface message. |
+| {count} more | 还有 {count} 条 | Alternative wording for this interface message. |
+| Wrapup · {outcome} | 收尾 · {outcome} | Alternative wording for this interface message. |
+| No {label} | 无 {label} | Alternative wording for this interface message. |
+| Created {time} | 创建 {time} | Alternative wording for this interface message. |
+| Started {time} | 开工 {time} | Alternative wording for this interface message. |
+| Done {time} | 完成 {time} | Alternative wording for this interface message. |
+| {count} others still waiting on prerequisites | 另有 {count} 张还在等别人 | Alternative wording for this interface message. |
+| Close | 关闭 | Alternative wording for this interface message. |

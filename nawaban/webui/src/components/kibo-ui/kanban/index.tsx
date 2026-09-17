@@ -212,8 +212,6 @@ export const KanbanProvider = <
 }: KanbanProviderProps<T, C>) => {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
 
-  // 激活阈值:没有它,任何 mousedown 都会立刻当拖拽处理,卡片上的 onClick(打开详情)
-  // 永远等不到——距离/延迟阈值让一次不移动的普通点击根本不触发拖拽会话。
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
