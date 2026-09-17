@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""done 闸覆盖度实测(WORKOS-DONE-GATE-COVERAGE-001 · 2026-08-26)。
+"""done 闸覆盖度实测(NAWABAN-DONE-GATE-COVERAGE-001 · 2026-08-26)。
 
 存在理由:2026-08-26 才发现 done 闸② 只咬 waiting_on='decision' 一条路,
 prod/observe/external 三条历来放行 —— 闸挂了几个月,没人量过它实际覆盖多少。
@@ -7,7 +7,7 @@ prod/observe/external 三条历来放行 —— 闸挂了几个月,没人量过�
 
 **改任何闸之前先跑这个**:闸的名字不是它的覆盖面。
 
-用法:python3 ~/.claude/foreman/workos/gate_coverage.py [库路径]
+用法:python3 nawaban/gate_coverage.py [库路径]
 """
 from __future__ import annotations
 
@@ -26,8 +26,11 @@ HAS_ACC = ("EXISTS (SELECT 1 FROM task_events e4 WHERE e4.task_id=t.id"
            " AND e4.kind='acceptance')")
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from nawaban import db  # noqa: E402
+
 def main() -> int:
-    p = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.cwd() / ".foreman/workos.db"
+    p = Path(sys.argv[1]) if len(sys.argv) > 1 else db.resolve_db()
     if not p.is_file():
         print(f"✗ 库不存在:{p}", file=sys.stderr)
         return 1

@@ -315,8 +315,8 @@ _Current identifiers_: `tasks.status`.
 **Board initialization**(建库)
 The explicit creation of a new task board's persistent store.
 建库是显式创建一个新任务看板的持久存储。
-_Avoid_: silently replacing a missing existing board.
-_Current identifiers_: CLI `init`.
+_Avoid_: silently replacing a missing existing board; `workos` is the historical runtime name.
+_Current identifiers_: CLI `init`; `.nawaban/nawaban.db`, `NAWABAN_DB`.
 
 **Board backup**(全量备份)
 A recoverable copy of a board's persistent records.

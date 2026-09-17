@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-INBOX-RECON-001 · md↔DB 双源对账。
+"""NAWABAN-INBOX-RECON-001 · md↔DB 双源对账。
 
 两段各自独立,互不依赖:
 
@@ -19,11 +19,15 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import sqlite3
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from nawaban import db as board_db  # noqa: E402
 
 CLI = Path(__file__).with_name("cli.py")
 
@@ -31,12 +35,7 @@ CLI = Path(__file__).with_name("cli.py")
 def _find_db(explicit: str | None) -> Path:
     if explicit:
         return Path(explicit)
-    cur = Path.cwd()
-    for d in (cur, *cur.parents):
-        p = d / ".foreman" / "workos.db"
-        if p.exists():
-            return p
-    raise SystemExit("找不到 .foreman/workos.db,用 --db 指定")
+    return board_db.resolve_db()
 
 
 def _md_state(tasks_dir: Path, task_id: str) -> str | None:
@@ -67,7 +66,7 @@ def emit_approval(zombies: list[tuple[str, str, str]], out: Path) -> None:
     """段①:生成待人执行的批准命令。--by user 必须由人来跑,agent 不代劳。"""
     lines = [
         "#!/usr/bin/env bash",
-        "# WORKOS-INBOX-RECON-001 · 段① 僵尸卡批准关闭",
+        "# NAWABAN-INBOX-RECON-001 · 段① 僵尸卡批准关闭",
         "#",
         "# 这些卡的 md 已在 done/ 归档,但 DB 侧仍挂在你的待拍板队列里。",
         "# done 闸②要求一条运行时真人拍板行,所以这份命令**必须由你执行**——",
@@ -75,12 +74,12 @@ def emit_approval(zombies: list[tuple[str, str, str]], out: Path) -> None:
         "#",
         "# 执行前请过目清单;有任何一张你认为其实还没办完,把那两行删掉即可。",
         "set -euo pipefail",
-        "cd /path/to/project",
+        f"cd {shlex.quote(str(Path.cwd()))}",
         "",
     ]
     # 命令写全,不用 shell 变量:变量里含空格时 zsh 不做 word splitting,
     # 逐行粘贴会 command not found(本脚本作者亲测踩过)。
-    w = f"python3 {CLI}"
+    w = f"python3 {shlex.quote(str(CLI))}"
     for tid, status, waiting in zombies:
         lines += [
             f"# {tid}  (DB: {status}/{waiting or '-'}  · md: done/)",
@@ -117,7 +116,7 @@ def apply_residue(db: Path, residue: list[tuple[str, str]]) -> None:
                     " VALUES(?,?,?,?,?,?)",
                     (tid, None, "recon_md_db", "note",
                      f"对账:清掉 done 卡上的 waiting_on 残留(原值 {w})"
-                     " —— WORKOS-INBOX-RECON-001", now),
+                     " —— NAWABAN-INBOX-RECON-001", now),
                 )
     finally:
         con.close()

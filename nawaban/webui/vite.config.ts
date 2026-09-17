@@ -13,7 +13,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // WORKOS 板的只读 API + 收件箱写通道,由 board_view.py 在 8813 提供
+      // NAWABAN 板的只读 API + 收件箱写通道,由 board_view.py 在 8813 提供
       '/api': {
         target: 'http://127.0.0.1:8813',
         changeOrigin: true,

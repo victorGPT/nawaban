@@ -13,7 +13,7 @@ findings 通过可达调用路径、源码和相关验证判断；严重度不�
 ## 可选 PR helper
 
 ```bash
-bash "$WORKOS_HOME/integrations/foreman/foreman_pr.sh" --task <ID> --title "<标题>" <本次交付文件>...
+bash "$NAWABAN_HOME/integrations/foreman/foreman_pr.sh" --task <ID> --title "<标题>" <本次交付文件>...
 ```
 
 此 helper 会提交、push 并创建 PR，使用前核实授权涵盖这些动作及项目兼容性；不适合只交付本地文件或无远程的仓库。显式列出交付文件，纯删除通过 `--rm <文件>`；参数查脚本帮助，`--reviewed` 只能引用已实际完成的评审。

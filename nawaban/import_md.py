@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""WORKOS-IMPORT-001 · md 卡一次性导入器(格式死,数据活)。
+"""NAWABAN-IMPORT-001 · md 卡一次性导入器(格式死,数据活)。
 
 跑法:
-    python3 ~/.claude/foreman/workos/import_md.py            # dry-run,打对账报告
-    python3 ~/.claude/foreman/workos/import_md.py --apply    # 真导入(幂等)
+    python3 nawaban/import_md.py            # dry-run,打对账报告
+    python3 nawaban/import_md.py --apply    # 真导入(幂等)
     ... --root <repo> --db <path> --report <out.md>
 
 契约:.foreman/artifacts/看板字段设计-v1草案-2026-08-12.md(19 列 6 表)。
-写库只走 workos.db 的 import_task / link_tasks——本文件一行 SQL 都没有(方案 B 已被否决)。
+写库只走 nawaban.db 的 import_task / link_tasks——本文件一行 SQL 都没有(方案 B 已被否决)。
 
 只读旧 md,不改不删(归档归 RETIRE 卡)。解析不出的卡进人工清单,不静默跳过。
 
@@ -35,7 +35,7 @@ FOREMAN = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(FOREMAN))
 
 from foreman_card import CardError, parse_card_text  # noqa: E402
-from workos import db  # noqa: E402
+from nawaban import db  # noqa: E402
 
 TITLE_MAX = 80
 NOW_MAX = 200
@@ -279,7 +279,7 @@ def _decisions(body: str, full_text: str, task_id: str, owner: str, rel_path: st
         by = "user" if USER_VERDICT.search(b) else f"agent:{owner}"
         m = DATE.search(b)
         rows.append({
-            "question": "旧卡「## 对齐」行(WORKOS-IMPORT-001 导入,未拆 question/verdict)",
+            "question": "旧卡「## 对齐」行(NAWABAN-IMPORT-001 导入,未拆 question/verdict)",
             "verdict": b,
             "decided_by": by,
             "created_at": _epoch(m.group(0)) if m else fallback,
@@ -299,7 +299,7 @@ def verdict_review(plans: list[CardPlan]) -> Optional[dict]:
     """返回 {"rows": 意见相左的行, "unjudged": 没拿到合法判分的行数};无 key = None。"""
     if not os.environ.get("TYPESAFE_API_KEY"):
         return None
-    from workos.cli import _answers, _prob  # 懒加载:cli 会拉起 board_view
+    from nawaban.cli import _answers, _prob  # 懒加载:cli 会拉起 board_view
     rows, unjudged = [], 0
     for p in plans:
         if not p.decisions:
@@ -494,7 +494,7 @@ def render_report(root: Path, files: list[Path], plans: list[CardPlan],
                   applied: Optional[dict], epic_notes: list[str],
                   review: Optional[dict] = None) -> str:
     n = len(plans)
-    L = [f"# WORKOS-IMPORT-001 对账报告 · {time.strftime('%Y-%m-%d %H:%M:%S')}", "",
+    L = [f"# NAWABAN-IMPORT-001 对账报告 · {time.strftime('%Y-%m-%d %H:%M:%S')}", "",
          f"源 glob:`{root}/.foreman/tasks/**/*.md` → **{len(files)}** 个文件",
          f"解析成功 **{n}** · YAML/结构失败 **{len(failures)}**"
          f"(和 = {n + len(failures)},与 glob 一致:{n + len(failures) == len(files)})", ""]
@@ -648,9 +648,9 @@ def apply(dbpath: Path, plans: list[CardPlan],
 
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="import_md", allow_abbrev=False,
-                                 description="WORKOS 380± 张 md 卡一次性导入器")
+                                 description="NAWABAN 380± 张 md 卡一次性导入器")
     ap.add_argument("--root", default=".", help="仓库根(含 .foreman/)")
-    ap.add_argument("--db", help="目标库(默认 WORKOS_DB env → 就近 .foreman/workos.db)")
+    ap.add_argument("--db", help="目标库(默认 NAWABAN_DB env → 就近 .nawaban/nawaban.db)")
     ap.add_argument("--apply", action="store_true", help="真写库(缺省 dry-run)")
     ap.add_argument("--report", help="报告落盘路径(缺省打 stdout)")
     ap.add_argument("--json", help="机读明细落盘路径")
@@ -666,7 +666,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if a.apply:
         dbpath = Path(a.db).expanduser() if a.db else db.resolve_db()
         if not dbpath.exists():
-            print(f"✗ 库不存在:{dbpath}(建库用 workos init)", file=sys.stderr)
+            print(f"✗ 库不存在:{dbpath}(建库用 nawaban init)", file=sys.stderr)
             return 1
         applied = apply(dbpath, plans, edges)
 

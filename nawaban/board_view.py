@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""WORKOS-BOARD-VIEW-001 · 人视图:本地只读 web 板(替代 Obsidian 开工看板.md)。
+"""NAWABAN-BOARD-VIEW-001 · 人视图:本地只读 web 板(替代 Obsidian 开工看板.md)。
 
-跑法:python3 ~/.claude/foreman/workos/board_view.py [--db PATH] [--port 8813] [--host 127.0.0.1]
+跑法:python3 nawaban/board_view.py [--db PATH] [--port 8813] [--host 127.0.0.1]
      → http://127.0.0.1:8813/           列表板(Linear 皮 · 字段仍是现卡)
      → http://127.0.0.1:8813/?view=dag&focus=<id>  本卡 ego 子图(卡面 DAG 按钮 / 快捷键 g)
        (?view=dag 无 focus 的全图仍可访问,但 nav 入口已摘——模块视图取代了它,BOARD-REVAMP-DAG-PRUNE-001)
@@ -12,7 +12,7 @@
 物理上不可能写库;人的写操作走 CLI / 对话拍板通道。
 反陈旧:全部历史条目渲染相对年龄("18h ago"),不显示裸时间戳(Hermes 研究 §5)。
 
-排序(WORKOS-BOARD-LIVE-001 起):等拍板钉最前,其余按**最近活动**倒序
+排序(NAWABAN-BOARD-LIVE-001 起):等拍板钉最前,其余按**最近活动**倒序
 (task_events 最后一条 → started_at → created_at),躺着不动的自然沉底。
 存活:owner 窗口在不在经 foreman_liveness(herdr)标在卡上——探测不可用一律不标,
 未知绝不渲染成已死。
@@ -37,7 +37,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import foreman_liveness  # noqa: E402
-from workos import db  # noqa: E402
+from nawaban import db  # noqa: E402
 
 PROTO_DIR = Path(__file__).resolve().parent / "proto-dagview"
 VENDOR_DIR = PROTO_DIR / "vendor"
@@ -352,7 +352,7 @@ def board_data(path: Path | str, live: dict | None = None,
 
 
 def inbox_data(path: Path | str) -> dict:
-    """人侧收件箱投影(WORKOS-INBOX-VIEW-001)。
+    """人侧收件箱投影(NAWABAN-INBOX-VIEW-001)。
 
     看板回答「所有任务什么状态」,收件箱回答「现在轮到我做什么」——
     前者是 agent 需要的,后者是人需要的。整个界面就是 db.open_asks() 一个查询,
@@ -439,7 +439,7 @@ def task_detail(path: Path | str, task_id: str) -> dict:
     try:
         row = con.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
         if row is None:
-            raise db.WorkosError(f"卡不存在:{task_id}")
+            raise db.NawabanError(f"卡不存在:{task_id}")
         d = _card(row)
         d.update({
             "origin": row["origin"], "adr": row["adr"],
@@ -494,7 +494,7 @@ def task_detail(path: Path | str, task_id: str) -> dict:
                 "SELECT * FROM task_sessions WHERE task_id=? ORDER BY started_at DESC",
                 (task_id,))
         ]
-        # 信件(worker→总监汇报,WORKOS-LETTERS-DB-001)只读投影;标已读仍走 cli letter-read
+        # 信件(worker→总监汇报,NAWABAN-LETTERS-DB-001)只读投影;标已读仍走 cli letter-read
         d["letters"] = [
             {"id": r["id"], "kind": r["kind"], "msg": r["msg"], "links": _j(r["links"]),
              "session_id": r["session_id"], "created_at": r["created_at"],
@@ -771,7 +771,7 @@ def graph_data(
     focus = None
     if root:
         if root not in by_id:
-            raise db.WorkosError(f"卡不存在:{root}")
+            raise db.NawabanError(f"卡不存在:{root}")
         keep, focus = _ego_keep(
             root, edges,
             max_depth=max_depth, max_nodes=max_nodes,
@@ -797,7 +797,7 @@ def graph_data(
 
 MODULES_PAGE = r"""<!doctype html>
 <html lang=zh><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>WORKOS 模块</title>
+<title>NAWABAN 模块</title>
 <style>
 :root{
   --bg:#09090b; --panel:#18181b; --panel-2:#2e2e33; --line:#27272a; --ink:#fafafa; --dim:#a1a1aa;
@@ -866,7 +866,7 @@ aside{width:290px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--lin
 @media (max-width:760px){aside{width:170px}.mod .sub{display:none}}
 </style>
 <header>
-  <h1>WORKOS</h1>
+  <h1>NAWABAN</h1>
   <nav class=nav>
     <a href="/">Board</a>
     <a class=on href="/?view=modules">模块</a>
@@ -1049,7 +1049,7 @@ fetch('/api/modules').then(r => r.json()).then(d => {
 """
 
 INBOX_PAGE = r"""<!doctype html>
-<meta charset="utf-8"><title>WORKOS 收件箱</title>
+<meta charset="utf-8"><title>NAWABAN 收件箱</title>
 <style>
 :root{
   --bg:#09090b;--surface:#18181b;--surface-2:#232327;
@@ -1150,7 +1150,7 @@ function askHTML(a){
     + blast + opts
     + (a.kind === "authorize"
         ? '<div class=hint>授权只记录你的决定 —— <b>不会自动执行</b>。'
-          + '动作真跑完之后再收口:<code>workos fanout '+a.id+' --ok</code>(失败用 --failed)</div>'
+          + '动作真跑完之后再收口:<code>nawaban fanout '+a.id+' --ok</code>(失败用 --failed)</div>'
         : "")
     + (a.evidence ? '<div class=ev>'+esc(a.evidence)+'</div>' : "")
     + (a.confidence!=null
@@ -1247,7 +1247,7 @@ fetch("/api/inbox").then(r=>r.json()).then(d=>{
 """
 
 PAGE = r"""<!doctype html>
-<meta charset="utf-8"><title>WORKOS 板</title>
+<meta charset="utf-8"><title>NAWABAN 板</title>
 <style>
 :root{
   --bg:#09090b;--surface:#18181b;--surface-2:#232327;--surface-3:#2e2e33;
@@ -1342,7 +1342,7 @@ kbd{font:10px ui-monospace,monospace;border:1px solid var(--line-2);border-radiu
 .inb{background:var(--accent-soft);border-radius:999px;padding:0 6px;font-size:10px}
 </style>
 <header>
-  <h1>WORKOS</h1>
+  <h1>NAWABAN</h1>
   <nav class=nav>
     <a class=on href="/">Board</a>
     <a href="/?view=modules">模块</a>
@@ -1733,19 +1733,19 @@ class _Handler(BaseHTTPRequestHandler):
                     finally:
                         con.close()
                 self._json(200, g)
-            except db.WorkosError as e:
+            except db.NawabanError as e:
                 self._json(404, {"error": str(e)})
         elif u.path == "/api/task":
             tid = (qs.get("id") or [""])[0]
             try:
                 self._json(200, task_detail(self.db_path, tid))
-            except db.WorkosError as e:
+            except db.NawabanError as e:
                 self._json(404, {"error": str(e)})
         elif u.path == "/api/kin":
             tid = (qs.get("id") or [""])[0]
             try:
                 self._json(200, db.kin(self.db_path, tid))
-            except db.WorkosError as e:
+            except db.NawabanError as e:
                 self._json(404, {"error": str(e)})
         elif u.path.startswith("/assets/") or u.path == "/favicon.svg":
             self._static(WEBUI_DIST, unquote(u.path.lstrip("/")))
@@ -1770,10 +1770,10 @@ class _Handler(BaseHTTPRequestHandler):
     # 信任边界(刻意,不是遗漏):板不做身份校验 —— 能连到这个端口 = 有权代表人拍板。
     # 前提是它只绑 127.0.0.1 或 tailnet IP(board-up.sh 保证),而 tailnet 内全是本人设备。
     # 因此**绝不能**绑 0.0.0.0 / 公网地址;真要多人用,这里得先加共享 token。
-    # 拍板通道闸(decided_by=user 需 WORKOS_DECISION_CHANNEL)在进程身份层生效,拦的是
+    # 拍板通道闸(decided_by=user 需 NAWABAN_DECISION_CHANNEL)在进程身份层生效,拦的是
     # agent 冒充人,不是网络层的伪造 —— 两者防的不是一回事。
     def do_POST(self) -> None:  # noqa: N802
-        """回答一个 ask(WORKOS-INBOX-WRITE-001 · 选型 B)。
+        """回答一个 ask(NAWABAN-INBOX-WRITE-001 · 选型 B)。
 
         **板自己的库连接仍然只读** —— 模块头那条不变量没破。写走 cli 子进程,
         于是自动继承库层全部闸:done 闸(须真人拍板行且严格晚于翻 verified 的秒)、
@@ -1840,7 +1840,7 @@ def serve(path: Path, port: int, host: str = "127.0.0.1") -> None:
 
     servers = [ThreadingHTTPServer((h, port), _Handler) for h in hosts]
     for h in hosts:
-        print(f"WORKOS 板 → http://{h}:{port}/  DAG → /?view=dag[&focus=id]  (库:{path} · 只读)")
+        print(f"NAWABAN 板 → http://{h}:{port}/  DAG → /?view=dag[&focus=id]  (库:{path} · 只读)")
     # 除最后一个外都放后台线程,主线程守着最后一个 —— Ctrl-C 仍能整体退出
     for srv in servers[:-1]:
         threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -1848,10 +1848,11 @@ def serve(path: Path, port: int, host: str = "127.0.0.1") -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="board_view", description="WORKOS 本地只读板")
-    ap.add_argument("--db", help="库路径(默认 WORKOS_DB env → 就近 .foreman/workos.db)")
-    ap.add_argument("--port", type=int, default=8813)
-    ap.add_argument("--host", default=os.environ.get("DAGVIEW_HOST", "127.0.0.1"),
+    ap = argparse.ArgumentParser(prog="board_view", description="NAWABAN 本地只读板")
+    ap.add_argument("--db", help="库路径(默认 NAWABAN_DB env → 就近 .nawaban/nawaban.db)")
+    ap.add_argument("--port", type=int, default=int(os.environ.get("NAWABAN_BOARD_PORT") or os.environ.get("WORKOS_BOARD_PORT") or "8813"))
+    ap.add_argument("--host", default=(os.environ.get("NAWABAN_BOARD_HOST") or os.environ.get("WORKOS_BOARD_HOST")
+                                     or os.environ.get("DAGVIEW_HOST", "127.0.0.1")),
                     help="监听地址,逗号分隔可给多个(如 127.0.0.1,100.x.x.x)")
     a = ap.parse_args(argv)
     path = Path(a.db).expanduser() if a.db else db.resolve_db()

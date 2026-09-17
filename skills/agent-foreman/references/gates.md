@@ -13,4 +13,4 @@
 
 库层校验由 CLI 实施，编辑与分支保护需要调用方实际安装对应 hooks。touches 冲突为 WARN；旧 grill/design/flag、Markdown done-gate 不属于现行 DB 保护。
 
-源码依据：`$WORKOS_HOME/src/workos/db.py`、`src/workos/guard.py` 与 `integrations/claude-code/hooks/foreman_branch_gate.py`；相关回归见项目 `tests/test_workos_db.py`、`test_workos_guard.py`、`test_branch_gate.py`。只检查实际遇到的闸，不需要为了普通改动遍历全部实现。
+源码依据：`$NAWABAN_HOME/nawaban/db.py`、`nawaban/guard.py` 与 `integrations/claude-code/hooks/foreman_branch_gate.py`；相关回归见项目 `tests/test_nawaban_db.py`、`test_nawaban_guard.py`、`test_branch_gate.py`。只检查实际遇到的闸，不需要为了普通改动遍历全部实现。

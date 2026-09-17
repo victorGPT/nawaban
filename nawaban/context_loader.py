@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""WORKOS-CONTEXT-LOADER-001 · 冷启动装载器(agent 视图)。
+"""NAWABAN-CONTEXT-LOADER-001 · 冷启动装载器(agent 视图)。
 
 跑法:
-    python3 ~/.claude/foreman/workos/context_loader.py <task-id>
+    python3 nawaban/context_loader.py <task-id>
     ... --budget 8192 --events 10 --db <path>
 
 定位:同一份数据的**两个投影**之一(字段草案 §五)——人视图是板(board_view.py),
@@ -14,7 +14,7 @@
   · 头部免责:这是时点快照不是实况,拿它当现状之前先回源复核。
   · 超预算不静默丢:旧条目折叠成计数行,截断留可见标记。
 
-导入期一手知识(WORKOS-IMPORT-001 同窗施工,写进呈现层免得下一个 agent 踩):
+导入期一手知识(NAWABAN-IMPORT-001 同窗施工,写进呈现层免得下一个 agent 踩):
   · 标题:395 张全部产于旧标题制,带 needs_retitle 事件 → 标出来,别把它当人话标题信。
   · now:144/395 张为空(旧 notes >200 字全文进 origin)→ 空态明说去 origin 找,别当没上下文。
   · decisions:带 provenance 的是历史回放(归属由文本推断,可能误标),无 provenance 的才是
@@ -35,13 +35,13 @@ from typing import Optional
 FOREMAN = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(FOREMAN))
 
-from workos import board_view, db  # noqa: E402
+from nawaban import board_view, db  # noqa: E402
 
 BUDGET = 8192          # 输出上限(Hermes KANBAN_GUIDANCE <8000 同量级 · prompt-cache 友好)
 EVENTS = 24            # 取回的事件条数上限(实际展示由字节预算决定)
 DECISIONS = 12
 LENS_K = 5             # 检索区 top-k
-# G1(eval WORKOS-HANDOFF-EVAL-001):事件区底额。修前事件只拿到 7.8% 预算,
+# G1(eval NAWABAN-HANDOFF-EVAL-001):事件区底额。修前事件只拿到 7.8% 预算,
 # 「下一步正确」维度 A14:B6 崩塌。事件流是每次接手都变的部分,必须先分。
 EVENT_SHARE = 0.50     # 事件区最低预算占比
 EVENT_FLOOR = 900      # 小预算下的绝对底额(B)
@@ -76,7 +76,7 @@ def _bullets(lines: list[str], indent: str = "  ") -> list[str]:
 
 def _head(d: dict, now_ts: int) -> list[str]:
     L = [RULE,
-         "WORKOS 冷启动装载 · 时点快照,不是实况。",
+         "NAWABAN 冷启动装载 · 时点快照,不是实况。",
          "所有年龄相对**此刻**;拿任何一条当现状之前,先回源复核(代码/PR/prod 自己说了算)。",
          RULE, ""]
     wait = f" · 等{d['waiting_on']}" if d.get("waiting_on") else ""
@@ -250,7 +250,7 @@ def _events(rows: list[dict], now_ts: int, task_id: str, *, total: int = -1,
     left = total - shown
     if left:
         L.append(f"  ⚠ 还有 {left} 条更早事件未展开。判断「现在到哪一步 / 下一步做什么」前,"
-                 f"**先取全**:workos context {task_id} --events {total} --budget 24000")
+                 f"**先取全**:nawaban context {task_id} --events {total} --budget 24000")
     return L
 
 
@@ -475,7 +475,7 @@ def _not_found_hint(root: Path, task_id: str) -> str:
     hits = list((root / ".foreman" / "tasks").rglob(f"{task_id}.md")) if root else []
     if hits:
         return (f"✗ 卡不在库里,但源 md 存在:{hits[0]}\n"
-                "  → 这是 WORKOS-IMPORT-001 人工清单里 YAML 解析失败的 14 张之一"
+                "  → 这是 NAWABAN-IMPORT-001 人工清单里 YAML 解析失败的 14 张之一"
                 "(全在 done/),导入时按契约不静默跳过、也未入库。\n"
                 "  → 要它进板:先修 md 的 YAML,再 import_md.py --apply(幂等,只补新卡)。")
     return f"✗ 卡不存在:{task_id}"
@@ -483,7 +483,7 @@ def _not_found_hint(root: Path, task_id: str) -> str:
 
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="context_loader", allow_abbrev=False,
-                                 description="WORKOS 冷启动装载器(agent 视图)")
+                                 description="NAWABAN 冷启动装载器(agent 视图)")
     ap.add_argument("task_id")
     ap.add_argument("--db")
     ap.add_argument("--budget", type=int, default=BUDGET)
@@ -498,8 +498,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         print(build_context(path, a.task_id, budget=a.budget, events=a.events,
                             lens_k=a.lens))
-    except db.WorkosError:
-        root = path.parent.parent if path.parent.name == ".foreman" else Path.cwd()
+    except db.NawabanError:
+        root = path.parent.parent if path.parent.name in (".nawaban", ".foreman") else Path.cwd()
         print(_not_found_hint(root, a.task_id), file=sys.stderr)
         return 1
     return 0

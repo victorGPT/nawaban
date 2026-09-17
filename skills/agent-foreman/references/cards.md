@@ -21,15 +21,15 @@
 示例（先替换已核实的库、卡号与 SHA）：
 
 ```bash
-workos --db <目标库> ref <ID> --kind merge_sha --value <实际合并SHA>
-workos --db <目标库> advance <ID> --to done
+nawaban --db <目标库> ref <ID> --kind merge_sha --value <实际合并SHA>
+nawaban --db <目标库> advance <ID> --to done
 ```
 
 状态的合法转换由 CLI/库校验。`waiting_on` 不是可任意编辑的字段；staging-verified 不能通过同态 advance 切换等待类型，按实际允许的返工/再验证路径处理，保留原证据。
 
 ## 需要用户动作时
 
-已有授权覆盖的工作继续执行。仅当缺少必要决定、授权或项目要求真人验收时，使用 `workos ask --help` 构造一个具体问题，提供可审阅材料。
+已有授权覆盖的工作继续执行。仅当缺少必要决定、授权或项目要求真人验收时，使用 `nawaban ask --help` 构造一个具体问题，提供可审阅材料。
 
 - `decide`：至少两个带后果的选项。
 - `authorize`：说明将做的动作、影响范围与失败/回退方式。
@@ -42,11 +42,11 @@ workos --db <目标库> advance <ID> --to done
 ## 记录本次尝试
 
 ```bash
-workos --db <目标库> handoff <ID> --outcome handed_off \
+nawaban --db <目标库> handoff <ID> --outcome handed_off \
   --summary "<完成内容、证据和剩余工作>" --now "<当前状态与下一步>"
 ```
 
 - outcome 选真实结果。`completed` 仅用于 staging-verified/done，且不表示已经真人验收；仍待合并/执行时用 `handed_off`，有具体阻塞用 `blocked`。
 - `--artifact` 指向已保存且实际存在的文件；`--now` 必填。
 - handoff 结束本 session 的认领记录，不自动推进到 done。明确放弃 owner 时加 `--release`；它会让 claimed/in_progress 回到 open，其他状态保留而清 owner。
-- 完成授权范围内的工作后，按 [workos-wrapup](../../workos-wrapup/SKILL.md) 查遗漏。恢复身份见 [运行入口](runtime.md)。
+- 完成授权范围内的工作后，按 [nawaban-wrapup](../../nawaban-wrapup/SKILL.md) 查遗漏。恢复身份见 [运行入口](runtime.md)。

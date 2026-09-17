@@ -20,7 +20,7 @@ cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
 sid=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null)
 [ -n "$cwd" ] || exit 0
 [ -d "$cwd/.git" ] || exit 0                      # 只看主 worktree(linked 的 .git 是文件)
-[ -f "$cwd/.foreman/workos.db" ] || exit 0        # 只在上了 foreman 板的仓生效
+[ -f "$cwd/.nawaban/nawaban.db" ] || [ -f "$cwd/.foreman/workos.db" ] || exit 0  # Legacy fallback.        # 只在上了 foreman 板的仓生效
 
 # 计数用 wc 不用 `grep -c . || echo 0` —— grep 零匹配退出码 1,`||` 会再吐一个 0,
 # 变量成了两行 "0\n0",后面整数比较当场报错,而 stderr 被吞 = 看门狗静默失效。
