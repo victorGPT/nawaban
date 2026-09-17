@@ -4,8 +4,9 @@ import type {
   InboxResponse,
   KinResponse,
   ModulesResponse,
+  ProjectsResponse,
   TaskDetail,
-} from "./types";
+} from "./types.ts";
 
 async function getJSON<T>(path: string): Promise<T> {
   const r = await fetch(path);
@@ -14,22 +15,59 @@ async function getJSON<T>(path: string): Promise<T> {
 }
 
 export type DateRange = { since: string; until: string };
-export const fetchBoard = (range?: DateRange | null) =>
+/** null = all projects. */
+export type Project = string | null;
+const withProject = (path: string, project: Project, params = new URLSearchParams()) => {
+  if (project) params.set("project", project);
+  const qs = params.toString();
+  return qs ? `${path}?${qs}` : path;
+};
+export const fetchBoard = (range?: DateRange | null, project: Project = null) =>
   getJSON<BoardResponse>(
-    range ? `/api/board?since=${range.since}&until=${range.until}` : "/api/board"
+    withProject("/api/board", project, new URLSearchParams(range ?? {})),
   );
-export const fetchModules = () => getJSON<ModulesResponse>("/api/modules");
-export const fetchInbox = () => getJSON<InboxResponse>("/api/inbox");
-export const fetchTask = (id: string) => getJSON<TaskDetail>(`/api/task?id=${encodeURIComponent(id)}`);
-export const fetchKin = (id: string) => getJSON<KinResponse>(`/api/kin?id=${encodeURIComponent(id)}`);
+export const fetchModules = (project: Project = null) =>
+  getJSON<ModulesResponse>(withProject("/api/modules", project));
+export const fetchInbox = (project: Project = null) =>
+  getJSON<InboxResponse>(withProject("/api/inbox", project));
+export const fetchProjects = () => getJSON<ProjectsResponse>("/api/projects");
+export const fetchTask = (id: string) =>
+  getJSON<TaskDetail>(`/api/task?id=${encodeURIComponent(id)}`);
+export const fetchKin = (id: string) =>
+  getJSON<KinResponse>(`/api/kin?id=${encodeURIComponent(id)}`);
 
-export async function postAnswer(ask_id: number, verdict: string, reject: boolean): Promise<AnswerResponse> {
-  const r = await fetch("/api/answer", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ask_id, verdict, reject }),
-  });
-  const body = (await r.json()) as AnswerResponse;
-  if (!r.ok) throw new Error(body.out || `HTTP ${r.status}`);
+export class AnswerError extends Error {
+  unknown: boolean;
+  constructor(message: string, unknown = false) {
+    super(message);
+    this.unknown = unknown;
+  }
+}
+
+export async function postAnswer(
+  ask_id: number,
+  verdict: string,
+  reject: boolean,
+): Promise<AnswerResponse> {
+  // A transport or JSON failure after POST cannot prove that no decision was recorded.
+  let r: Response;
+  let body: AnswerResponse;
+  try {
+    r = await fetch("/api/answer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ask_id, verdict, reject }),
+    });
+    body = (await r.json()) as AnswerResponse;
+  } catch {
+    throw new AnswerError("处理结果未知，请先刷新核对，不要重复提交。", true);
+  }
+  if (!r.ok || !body.ok)
+    throw new AnswerError(
+      body.unknown
+        ? "处理结果未知，请先刷新核对，不要重复提交。"
+        : body.out || `HTTP ${r.status}`,
+      body.unknown === true,
+    );
   return body;
 }

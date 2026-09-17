@@ -2,7 +2,7 @@
 """NAWABAN-INBOX-MIGRATE-001 · 把当前队列映射成首批 ask。
 
 **这是不变量 I 的考试**:收件箱条目数必须等于「人的决策数」,不是卡数。
-一次 deploy 授权覆盖几十张卡 = 1 个 ask;IAM2 的 G1–G4 是一个切换决定的四道闸 = 1 个 ask。
+一次部署授权覆盖多张任务时仍只生成一个待办请求。
 若生成数接近卡数,说明粒度规则没落实 —— 脚本会以非 0 退出码拦住,此刻发现比上线后便宜。
 
 用法:
@@ -24,29 +24,10 @@ from nawaban import db  # noqa: E402
 
 MAX_ASKS = 20  # 硬上限:超了说明粒度规则塌了,非 0 退出
 
-# ── 合并规则:哪些卡属于**同一个**人的决策 ──────────────────────────
-# 一次性迁移,分组由人工判读得出(见方案页 v3 §映射表),不是启发式猜的。
-# 卡不在库里/已关掉 → 自动跳过,组内一张都不剩就整条不生成。
-GROUPS = [
-    {
-        "kind": "authorize",
-        "question": "IAM2 组织读开关能不能切 prod?",
-        "blast": {"who": "全员组织归属读路径", "what": "读开关切换",
-                  "rollback": "有 flag 可回滚"},
-        "tasks": [
-            "IAM2-PROD-CUTOVER-RECON-001",      # G1/G2 盘点
-            "IAM2-OWNER-DIRECT-BACKFILL-001",   # G3 补权限
-            "IAM2-ORG-READSWITCH-ADMISSION-001",# G4 判定
-            "IAM2-ORG-STALE-CONCUR-CLEAN-001",  # 解开 G4
-        ],
-    },
-]
-
-# 不进收件箱:等的是一个自然事件,不是人的动作。
-# 只报告不改状态 —— 改 waiting_on 没有 cli 动词,越界裸写 SQL 违反本卡 constraints。
-DEFER = {
-    "IAM2-MOVE-CAMPAIGN-PATHS-001": "真机留到下次真实组织调整时顺带验 —— 等事件,建议退回 observe",
-}
+# Operator-defined groups share one human decision; public defaults contain no board data.
+GROUPS: list[dict] = []
+# Deferred tasks await an external event. This script reports them without changing state.
+DEFER: dict[str, str] = {}
 
 # hands_on 启发式:卡的验收材料里明说要人去点。命中即标记,没命中不代表不用点。
 HANDS_ON_HINTS = ("真机点按", "人真机", "亲自", "手工验", "人工点", "真人点")

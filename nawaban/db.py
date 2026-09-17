@@ -116,7 +116,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     waiting_on   TEXT CHECK (waiting_on IS NULL OR waiting_on IN ({_q(WAITING)})),
     owner        TEXT,
     epic         TEXT,
-    context       TEXT,
+    project      TEXT,
+    context      TEXT,
     now          TEXT CHECK (now IS NULL OR length(now) <= 200),
     success      TEXT,
     constraints_ TEXT,
@@ -235,15 +236,20 @@ def init_db(path: Path | str) -> None:
 
 
 def migrate_db(path: Path | str) -> list[str]:
-    """Migrate the board schema; return applied changes, or [] when current.
+    """Upgrade the board schema and return labels of applied changes.
 
-    NAWABAN-VERBS-003 renames tasks.origin to context in one ALTER TABLE.
-    This requires the matching runtime; do not run it on a legacy live board.
+    Legacy tasks.origin is renamed to context in one serialized ALTER TABLE.
 
-    一处例外(NAWABAN-CANCEL-001):tasks.status 的 CHECK 要**放宽**收 'cancelled'。
-    SQLite 改 CHECK 只能整表重建,不在 additive 之列。但放宽对旧代码是兼容的 ——
-    旧 CLI 的 _ADVANCE 里没有 cancelled,写不出这个值;旧读侧最多把它当活跃卡显示一阵,
-    瞬态无害。放宽 ≠ 收紧:收紧才会让既有行突然违规,那种才是真的不能做。"""
+    Adds missing decision provenance, ask fields/tables, and letters; drops retired
+    task columns and rebuilds the tasks table when its status CHECK lacks cancelled.
+    This is not an additive-only or whole-call atomic migration: earlier changes
+    can remain committed on failure. The tasks rebuild alone is transactional and
+    checks row counts and foreign keys before commit.
+
+    Each change detects its existing state, so reruns skip completed work and an
+    up-to-date schema returns []. Unknown tasks CHECK text raises NawabanError
+    instead of guessing a rebuild. Dropping columns requires SQLite 3.35 or later.
+    """
     added = []
     con = connect(path)
     try:
@@ -253,8 +259,6 @@ def migrate_db(path: Path | str) -> list[str]:
             if "origin" in columns:
                 con.execute("ALTER TABLE tasks RENAME COLUMN origin TO context")
                 added.append("tasks.origin→context")
-        # 四个对齐指针列退役(FOREMAN-SIMPLIFY-003):免检率 50-90% 的闸是表单不是闸。
-        # 工具本地单版本,所有窗口读同一份代码,直接 DROP(sqlite ≥3.35)。
         tcols = {r[1] for r in con.execute("PRAGMA table_info(tasks)")}
         for col in ("grill", "design", "capability", "flag"):
             if col in tcols:
@@ -264,25 +268,26 @@ def migrate_db(path: Path | str) -> list[str]:
         if "provenance" not in cols:
             con.execute("ALTER TABLE task_decisions ADD COLUMN provenance TEXT")
             added.append("task_decisions.provenance")
-        # 新表走同一条 additive 路径:SCHEMA_SQL 只在 init_db 跑,老库要靠这里补。
         have = {r[0] for r in con.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('asks','ask_tasks')")}
         if len(have) < 2:
             con.executescript(ASKS_SQL)
             added += [t for t in ("asks", "ask_tasks") if t not in have]
         else:
-            # 已有 asks 表的老库:补置信度两列(ALTER 加列带 CHECK 在 SQLite 里不支持,
-            # 所以这里只加裸列 —— 约束由 raise_ask 在写侧保证)
+            # Legacy added columns rely on raise_ask for confidence validation.
             cols = {r[1] for r in con.execute("PRAGMA table_info(asks)")}
             for col, typ in (("confidence", "REAL"), ("confidence_reason", "TEXT")):
                 if col not in cols:
                     con.execute(f"ALTER TABLE asks ADD COLUMN {col} {typ}")
                     added.append(f"asks.{col}")
+        if "project" not in tcols:
+            con.execute("ALTER TABLE tasks ADD COLUMN project TEXT")
+            added.append("tasks.project")
         if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
                            " AND name='letters'").fetchone():
             con.executescript(LETTERS_SQL)
             added.append("letters")
-        # tasks.status CHECK 放宽收 'cancelled'(整表重建 · 幂等:读 DDL 文本判断)
+        # SQLite requires a table rebuild to change an existing CHECK constraint.
         ddl = con.execute("SELECT sql FROM sqlite_master WHERE type='table'"
                           " AND name='tasks'").fetchone()
         if ddl and "'cancelled'" not in ddl[0]:
@@ -324,10 +329,10 @@ def migrate_db(path: Path | str) -> list[str]:
 
 
 def board_db(root: Path, *, for_init: bool = False) -> Path:
-    """Select the new board path, retaining an existing legacy board for reads."""
+    """Reuse an existing board for reads and initialization; new boards use nawaban."""
     primary = root / ".nawaban" / "nawaban.db"
     legacy = root / ".foreman" / "workos.db"  # Legacy database fallback.
-    if not for_init and not primary.exists() and legacy.exists():
+    if not primary.exists() and legacy.exists():
         return legacy
     return primary
 
@@ -425,24 +430,35 @@ def create_task(path: Path | str, *, task_id: str, title: str,
                 constraints: Optional[Sequence[str]] = None,
                 touches: Optional[Sequence[str]] = None,
                 epic: Optional[str] = None, adr: Optional[str] = None,
-                split_from: Optional[str] = None) -> None:
+                split_from: Optional[str] = None,
+                project: Optional[str] = None) -> None:
+    """Create an open, unowned task, optionally with a split-from lineage edge.
+
+    The task and edge commit together. A supplied parent must exist; its epic and
+    project are each inherited only when None. Empty content sequences are stored as NULL.
+    Task IDs must contain non-whitespace text but are stored without trimming;
+    readability policy belongs to task_content. Duplicate IDs raise a SQLite error,
+    so this operation does not silently treat retries as successful creation.
+    """
     if not task_id.strip():
         raise NawabanError("task_id 不得为空")
     con = connect(path)
     try:
         with _txn(con):
             if split_from:
-                parent = _task_row(con, split_from)  # 幻觉闸:父卡必须真实存在
+                parent = _task_row(con, split_from)
                 if epic is None:
                     epic = parent["epic"]
+                if project is None:
+                    project = parent["project"]
             con.execute(
                 "INSERT INTO tasks (id, title, status, context, success, constraints_,"
-                " touches, epic, adr, created_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                " touches, epic, adr, created_at, project)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (task_id, title, "open", context, _jd(list(success) if success else None),
                  _jd(list(constraints) if constraints else None),
                  _jd(list(touches) if touches else None),
-                 epic, adr, _now()),
+                 epic, adr, _now(), project),
             )
             if split_from:
                 con.execute(
@@ -1001,8 +1017,7 @@ def reclaim_task(path: Path | str, task_id: str, *, expected_owner: Optional[str
     库外面算的(读转录 mtime、比时间戳),算完到写进去之间隔着一段没握锁的时间。这期间
     那张卡可能已经被回收并被**另一个窗口重新 claim** —— 用旧快照去写就会把活人正在干的
     卡踢成无主,而板上还显示它可被认领。用 `IS` 而不是 `=` 是因为 owner 可空,
-    `owner = NULL` 在 SQL 里恒不匹配。(形态借自 Hermes 的回收守卫,他们为此踩过一次
-    "卡显示 Ready、worker 还在跑"的生产事故。)
+    `owner = NULL` 在 SQL 里恒不匹配。
 
     状态必须跟着 owner 一起退:只清 owner 会造出「匿名 + in_progress」的行,那是
     guard 判为「不可信锁行」的形状,一行就让整块板 fail-closed(判例 PR-SWEEP-STALE-001)。

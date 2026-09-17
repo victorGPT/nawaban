@@ -13,7 +13,7 @@
 | 情况 | 记录与动作 |
 |---|---|
 | 未合并或仅交付文件/commit | 保存 artifact/commit ref；用 handed_off 或 blocked 写真实进展。当前状态机没有“未合并内部任务直通 done”的路径。 |
-| 内部任务已按授权实际合并且验证通过 | 登记实际 `merge_sha` ref，再从 in_progress advance 到 done。 |
+| 内部任务已按授权实际合并且验证通过 | 登记实际 `merge_sha` ref，再从 in_progress transition 到 done。 |
 | 项目要求目标运行环境验收 | 验证后登记 `acceptance_run`，再进入 staging-verified；`waiting_on` 按实际依赖选 decision/prod/observe/external。 |
 | 需要真人验收或决定 | 按下节使用 ask；进入 decision 等待前必须已有未关闭的关联 ask。 |
 | 还在等观察窗口、外部动作或部署 | 保留等待态与下一次核查条件；时间经过或取得授权不能代替动作与效果证据。 |
@@ -22,10 +22,10 @@
 
 ```bash
 nawaban --db <目标库> ref <ID> --kind merge_sha --value <实际合并SHA>
-nawaban --db <目标库> advance <ID> --to done
+nawaban --db <目标库> transition <ID> --to done
 ```
 
-状态的合法转换由 CLI/库校验。`waiting_on` 不是可任意编辑的字段；staging-verified 不能通过同态 advance 切换等待类型，按实际允许的返工/再验证路径处理，保留原证据。
+状态的合法转换由 CLI/库校验。`waiting_on` 不是可任意编辑的字段；staging-verified 不能通过同态 transition 切换等待类型，按实际允许的返工/再验证路径处理，保留原证据。
 
 ## 需要用户动作时
 

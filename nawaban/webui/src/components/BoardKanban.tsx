@@ -1,213 +1,178 @@
-import { t, type TranslationKey } from "@/i18n";
-// Five display columns map directly to the API lifecycle states.
-import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { useCallback, useState } from "react";
+import { RiLayoutColumnLine, RiListCheck } from "@remixicon/react";
+import { Button } from "@/components/base/buttons/button";
+import { Chip } from "@/components/base/badges/chip";
+import { Badge } from "@/components/base/badges/badge";
 import {
-  KanbanBoard,
-  KanbanCard,
-  KanbanCards,
-  KanbanHeader,
-  KanbanProvider,
-} from "@/components/kibo-ui/kanban";
-import { Badge } from "@/components/ui/badge";
-import { fetchBoard, type DateRange } from "@/lib/api";
-import { ago } from "@/lib/utils";
-import type { BoardResponse, BoardTask } from "@/lib/types";
-
-type Col = { id: string; name: string; color: string; from: string[] };
-
-const COLS: (Col & { name: TranslationKey })[] = [
-  { id: "open", name: "unassigned", color: "#8a8a8a", from: ["open"] },
-  { id: "claimed", name: "assigned", color: "#8a5cf6", from: ["claimed"] },
-  { id: "in_progress", name: "inProgress", color: "#3b82f6", from: ["in_progress"] },
-  { id: "staging-verified", name: "ready", color: "#c0392b", from: ["staging-verified"] },
-  { id: "done", name: "recentDone", color: "#2e9e5b", from: ["done"] },
-];
-
-type KanbanItem = BoardTask & { name: string; column: string };
-
-const WAIT: Record<string, TranslationKey> = { decision: "waitDecision", observe: "waitObserve", external: "waitExternal", prod: "waitDeploy" };
-
-const LIVE: Record<string, { dot: string; label: TranslationKey }> = {
-  working: { dot: "bg-emerald-400", label: "running" },
-  idle: { dot: "bg-amber-400", label: "idleWindow" },
-  cold: { dot: "bg-zinc-500", label: "coldWindow" },
-  "no-window": { dot: "bg-zinc-600", label: "missingWindow" },
-};
-
-function tallyOf(board: BoardResponse, col: Col) {
-  const tally = { working: 0, idle: 0, gone: 0 };
-  for (const c of board.columns) {
-    if (!col.from.includes(c.key) || !c.live_tally) continue;
-    tally.working += c.live_tally.working ?? 0;
-    tally.idle += c.live_tally.idle ?? 0;
-    tally.gone += (c.live_tally.cold ?? 0) + (c.live_tally["no-window"] ?? 0);
-  }
-  return tally;
-}
-
-function toItems(board: BoardResponse): KanbanItem[] {
-  const byKey = new Map(board.columns.map((c) => [c.key, c.tasks]));
-  const items: KanbanItem[] = [];
-  for (const col of COLS) {
-    for (const src of col.from) {
-      for (const t of byKey.get(src) ?? []) {
-        items.push({ ...t, name: t.title, column: col.id });
-      }
-    }
-  }
-  return items;
-}
-
-function matches(item: KanbanItem, q: string) {
-  const s = q.toLowerCase();
-  return (
-    item.id.toLowerCase().includes(s) ||
-    item.title.toLowerCase().includes(s) ||
-    (item.owner ?? "").toLowerCase().includes(s) ||
-    (item.epic ?? "").toLowerCase().includes(s)
-  );
-}
+  Table,
+  TableHeader,
+  TableColumn,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableEmpty,
+} from "@/components/base/table/table";
+import { ModuleSelect } from "@/components/base/select/module-select";
+import { LoadState } from "@/components/NawabanUI";
+import { OverflowText } from "@/components/OverflowText";
+import { fetchBoard, type DateRange, type Project } from "@/lib/api";
+import { boardItems, STAGES } from "@/lib/nawaban-model";
+import { TaskCard, TaskTag, WindowStatus, StatusLegend } from "@/components/TaskCard";
+import { useReadOnlyData } from "@/lib/use-read-only-data";
 
 export function BoardKanban({
   query,
   range,
+  project,
   onSelectTask,
+  onDecision,
+  decisionTasks,
 }: {
   query: string;
   range: DateRange | null;
+  project: Project;
   onSelectTask: (id: string) => void;
+  onDecision: (id: string) => void;
+  decisionTasks: Set<string>;
 }) {
-  const [board, setBoard] = useState<BoardResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const [items, setItems] = useState<KanbanItem[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = () =>
-      fetchBoard(range)
-        .then((d) => {
-          if (cancelled) return;
-          setBoard(d);
-          setItems(toItems(d));
-          setError(null);
-        })
-        .catch((e) => !cancelled && setError(String(e)));
-    load();
-    const iv = setInterval(load, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(iv);
-    };
-  }, [range]);
-
-  const visible = useMemo(
-    () => (query.trim() ? items.filter((it) => matches(it, query.trim())) : items),
-    [items, query]
+  const loadBoard = useCallback(() => fetchBoard(range, project), [range, project]);
+  const { data: board, error } = useReadOnlyData(loadBoard);
+  const [layout, setLayout] = useState(() =>
+    new URLSearchParams(location.search).get("layout") === "list"
+      ? "list"
+      : "board",
   );
-
-  const counts = useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const it of visible) m[it.column] = (m[it.column] ?? 0) + 1;
-    return m;
-  }, [visible]);
-
-  if (error) return <p className="p-4 text-sm text-destructive">{t("boardError")}{error}</p>;
-  if (!board) return <p className="p-4 text-sm text-muted-foreground">{t("loading")}</p>;
-
+  const [module, setModule] = useState("all");
+  if (error) return <LoadState error>{error}</LoadState>;
+  if (!board) return <LoadState>正在读取任务…</LoadState>;
+  const tasks = boardItems(board);
+  const modules = [...new Set(tasks.map((t) => t.epic || "未分组"))].sort();
+  const q = query.trim().toLowerCase();
+  const visible = tasks.filter(
+    (t) =>
+      (module === "all" || (t.epic || "未分组") === module) &&
+      [t.id, t.title, t.owner ?? "", t.epic ?? ""].some((s) =>
+        s.toLowerCase().includes(q),
+      ),
+  );
+  const changeLayout = (value: string) => {
+    setLayout(value);
+    const url = new URL(location.href);
+    url.searchParams.set("layout", value);
+    history.replaceState(null, "", url);
+  };
   return (
-    <KanbanProvider<KanbanItem, Col>
-      className="h-full px-6 py-4"
-      columns={COLS.map((col) => ({ ...col, name: t(col.name) }))}
-      data={visible}
-      onDataChange={setItems}
-      onDragEnd={(event) => {
-
-        // Dragging is a preview; lifecycle changes must still pass the CLI gates.
-        if (event.active.id === event.over?.id) return;
-        setItems(toItems(board));
-        toast(t("changeViaCli"), { description: t("dragPreview") });
-      }}
-    >
-      {(col) => (
-        <KanbanBoard id={col.id} key={col.id}>
-          <KanbanHeader className="flex h-12 shrink-0 flex-col items-start justify-center gap-1">
-            <span className="flex items-center gap-2">
-              <span className="inline-block size-2 rounded-full" style={{ background: col.color }} />
-              {col.name}
-              <span className="font-normal">{counts[col.id] ?? 0}</span>
+    <div className="board-view">
+      <div className="overview-strip">
+        {STAGES.map((s) => (
+          <div key={s.id}>
+            <Chip
+              color={s.id === "staging-verified" ? "yellow" : "soft"}
+              variant="caption"
+            >
+              {s.label}
+            </Chip>
+            <span className="text-body-medium">
+              {tasks.filter((t) => t.column === s.id).length}
             </span>
-            {(col.id === "in_progress" || col.id === "claimed") && (counts[col.id] ?? 0) > 0 && (() => {
-              const tally = tallyOf(board, col);
-              return (
-                <span className="flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
-                  <span className={tally.working ? "text-emerald-400" : ""}>
-                    {tally.working ? t("workingCount", { count: tally.working }) : t("noRunning")}
-                  </span>
-                  {tally.idle > 0 && <span>· {t("idleCount", { count: tally.idle })}</span>}
-                  {tally.gone > 0 && <span className="opacity-60">· {t("goneCount", { count: tally.gone })}</span>}
-                </span>
-              );
-            })()}
-          </KanbanHeader>
-          <KanbanCards id={col.id}>
-            {(item: KanbanItem) => {
-              return (
-                <KanbanCard column={col.id} id={item.id} key={item.id} name={item.name}>
-                  <div
-                    className="flex flex-col gap-1.5"
-                    onClick={() => onSelectTask(item.id)}
-                    role="presentation"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate font-mono text-xs text-muted-foreground">
-                        {item.id}
-                      </span>
-                      {item.waiting_on && WAIT[item.waiting_on] && (
-                        <span className="shrink-0 text-xs text-warn-foreground">{t(WAIT[item.waiting_on])}</span>
-                      )}
-                    </div>
-                    <p className="m-0 text-ui leading-5 font-medium text-fg-secondary">{item.title}</p>
-                    {(item.column === "in_progress" || item.column === "claimed") && (
-                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                        {item.live?.tier && LIVE[item.live.tier] && (
-                          <span className="flex items-center gap-1">
-                            <span className={`inline-block size-1.5 rounded-full ${LIVE[item.live.tier].dot}`} />
-                            {t(LIVE[item.live.tier].label)}
-                          </span>
-                        )}
-                        {item.live?.tier && item.live.tier !== "working" && (
-                          <span>· {t("inactiveFor", { time: ago(item.active_at) })}</span>
-                        )}
-                      </div>
-                    )}
-                    {(item.column === "in_progress" || item.column === "claimed") && item.now && (
-                      <p className="m-0 line-clamp-2 text-xs leading-4 text-muted-foreground">{item.now}</p>
-                    )}
-                    {item.merged_refs?.length ? (
-                      <span className="truncate text-[11px] text-warn-foreground" title={item.merged_refs.join(" · ")}>
-                        {t("existingPr", { refs: item.merged_refs.join(" · ") })}
-                      </span>
-                    ) : null}
-                    {item.dep?.blocked_by?.length ? (
-                      <span className="truncate text-[11px] text-warn-foreground">
-                        {t("blockedByTasks", { tasks: item.dep.blocked_by.join(", ") })}
-                      </span>
-                    ) : null}
-
-                    {item.epic && (
-                      <Badge className="self-start border-border text-[11px] text-muted-foreground" variant="outline">
-                        {item.epic}
-                      </Badge>
-                    )}
-                  </div>
-                </KanbanCard>
-              );
-            }}
-          </KanbanCards>
-        </KanbanBoard>
+          </div>
+        ))}
+      </div>
+      <div className="board-toolbar">
+        <div className="view-toggle">
+          <Button
+            size="small"
+            variant={layout === "board" ? "secondary" : "ghost"}
+            className={
+              layout !== "board"
+                ? "bg-transparent text-text-secondary"
+                : undefined
+            }
+            leadingIcon={RiLayoutColumnLine}
+            aria-pressed={layout === "board"}
+            onClick={() => changeLayout("board")}
+          >
+            看板
+          </Button>
+          <Button
+            size="small"
+            variant={layout === "list" ? "secondary" : "ghost"}
+            className={
+              layout !== "list"
+                ? "bg-transparent text-text-secondary"
+                : undefined
+            }
+            leadingIcon={RiListCheck}
+            aria-pressed={layout === "list"}
+            onClick={() => changeLayout("list")}
+          >
+            列表
+          </Button>
+        </div>
+        <ModuleSelect modules={modules} value={module} onValueChange={setModule} />
+        <span className="text-body-regular text-text-secondary">
+          {visible.length} 项任务
+        </span>
+      </div>
+      <StatusLegend available={board.liveness.available} />
+      {layout === "list" ? (
+        <Table
+          size="sm"
+          aria-label="任务列表"
+          className="task-table"
+        >
+          <TableHeader>
+            <TableColumn>编号</TableColumn>
+            <TableColumn>
+              标题
+            </TableColumn>
+            <TableColumn>模块名</TableColumn>
+            <TableColumn>状态</TableColumn>
+          </TableHeader>
+          <TableBody>
+            {visible.length === 0 && <TableEmpty colSpan={4}>没有匹配的任务</TableEmpty>}
+            {visible.map((t) => (
+              <TableRow key={t.id} aria-label={`${t.id} ${t.title}`} onAction={() => onSelectTask(t.id)}>
+                <TableCell>
+                  <OverflowText as="code" className="task-id" text={t.id} />
+                </TableCell>
+                <TableCell>
+                  <OverflowText className="task-list-title" text={t.title} />
+                </TableCell>
+                <TableCell>
+                  <TaskTag label={t.epic || "未分组"} />
+                </TableCell>
+                <TableCell>
+                  <WindowStatus
+                    task={t}
+                    hasAsk={decisionTasks.has(t.id)}
+                    onDecision={() => onDecision(t.id)}
+                  />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : (
+        <div className="kanban">
+          {STAGES.map((s) => (
+            <section className="board-column" key={s.id}>
+              <h2 className="text-body-medium">
+                {s.label}
+                <Badge>{visible.filter((t) => t.column === s.id).length}</Badge>
+              </h2>
+              <div className="task-stack">
+                {visible
+                  .filter((t) => t.column === s.id)
+                  .map((t) => (
+                    <TaskCard key={t.id} task={t} hasAsk={decisionTasks.has(t.id)}
+                      onSelect={() => onSelectTask(t.id)} onDecision={() => onDecision(t.id)} />
+                  ))}
+              </div>
+            </section>
+          ))}
+        </div>
       )}
-    </KanbanProvider>
+    </div>
   );
 }

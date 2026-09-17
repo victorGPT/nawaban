@@ -39,7 +39,7 @@ def test_legacy_column_migrates_losslessly_and_only_once(board):
 
 @pytest.mark.parametrize("option", ["--context", "--origin", "--context-file", "--origin-file"])
 def test_create_context_options_write_context(board, tmp_path, option):
-    text = "原文\nSecond line\n"
+    text = "- 原文\n- Second line\n"
     value = text
     if option.endswith("-file"):
         source = tmp_path / "context.md"

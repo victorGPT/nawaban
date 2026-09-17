@@ -1,53 +1,152 @@
-import { t, useLocale, setLocale } from "@/i18n";
-import { useEffect, useRef, useState } from "react";
-import { Inbox, LayoutGrid, ListFilter, Network, PanelLeft } from "lucide-react";
+import { useEffect, useReducer, useRef, useState } from "react";
+import {
+  RiInbox2Line,
+  RiLayoutColumnLine,
+  RiGitBranchLine,
+  RiSideBarLine,
+  RiSearchLine,
+  RiFilter3Line,
+} from "@remixicon/react";
+import { Button } from "@/components/base/buttons/button";
+import { Badge } from "@/components/base/badges/badge";
+import { LinkButton } from "@/components/base/buttons/link-button";
+import { Input } from "@/components/base/input/input";
+import { NavItem } from "@/components/application/navigation/nav-item";
+import { ThemeToggle } from "@/components/application/theme/theme-toggle";
 import { BoardFilterBar } from "@/components/BoardFilterBar";
 import { BoardKanban } from "@/components/BoardKanban";
-import { InboxView } from "@/components/InboxView";
 import { ModulesView } from "@/components/ModulesView";
+import { InboxView } from "@/components/InboxView";
 import { TaskDetailSheet } from "@/components/TaskDetailSheet";
-import { cn } from "@/lib/utils";
-import { fetchInbox, type DateRange } from "@/lib/api";
+import { ModuleSelect } from "@/components/base/select/module-select";
+import {
+  fetchInbox,
+  fetchProjects,
+  type DateRange,
+  type Project,
+} from "@/lib/api";
+import { navigateTask } from "@/lib/nawaban-model";
+import { cx } from "@/utils/cx";
 
 type View = "board" | "modules" | "inbox";
-
-function App() {
-  const locale = useLocale();
-  const NAV: { id: View; label: string; icon: typeof Inbox }[] = [
-    { id: "board", label: t("board"), icon: LayoutGrid },
-    { id: "modules", label: t("epic"), icon: Network },
-    { id: "inbox", label: t("inbox"), icon: Inbox },
-  ];
-  const [view, setView] = useState<View>("board");
+const NAV = [
+  { id: "board", label: "任务看板", icon: RiLayoutColumnLine },
+  { id: "modules", label: "工作模块", icon: RiGitBranchLine },
+  { id: "inbox", label: "收件箱", icon: RiInbox2Line },
+] as const;
+export default function App() {
+  const [view, setView] = useState<View>(() => {
+    const v = new URLSearchParams(location.search).get("view");
+    return v === "modules" || v === "inbox" ? v : "board";
+  });
   const [query, setQuery] = useState("");
-
+  const [project, setProject] = useState<Project>(() => {
+    const p = new URLSearchParams(location.search).get("project");
+    if (p !== null) return p || null;
+    try {
+      return localStorage.getItem("project") || null;
+    } catch {
+      return null;
+    }
+  });
+  const [projects, setProjects] = useState<string[]>([]);
   const [range, setRange] = useState<DateRange | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [inboxTotal, setInboxTotal] = useState<number | null>(null);
-  const [selectedTask, setSelectedTask] = useState<string | null>(null);
-
-  const [navOpen, setNavOpen] = useState(() => {
-    try { return localStorage.getItem("navOpen") !== "0"; } catch { return true; }
+  const [decisionTasks, setDecisionTasks] = useState(new Set<string>());
+  const [path, dispatch] = useReducer(navigateTask, [], () => {
+    const id = new URLSearchParams(location.search).get("task");
+    return id ? [id] : [];
   });
+  const selectedTask = path.at(-1) ?? null;
+  const [navOpen, setNavOpen] = useState(() => {
+    try {
+      return localStorage.getItem("navOpen") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const searchRef = useRef<HTMLInputElement>(null);
   const toggleNav = () =>
     setNavOpen((o) => {
-      try { localStorage.setItem("navOpen", o ? "0" : "1"); } catch { /* Storage unavailable. */ }
+      try {
+        localStorage.setItem("navOpen", o ? "0" : "1");
+      } catch {
+        /* Private browsing can disable preference storage. */
+      }
       return !o;
     });
-  const searchRef = useRef<HTMLInputElement>(null);
-
+  const selectTask = (id: string) => dispatch({ type: "open", id });
+  const changeProject = (value: string) => {
+    const next = value === "all" ? null : value;
+    setProject(next);
+    try {
+      localStorage.setItem("project", next ?? "");
+    } catch {
+      /* Private browsing can disable preference storage. */
+    }
+    const url = new URL(location.href);
+    url.searchParams.set("project", next ?? "");
+    history.replaceState(null, "", url);
+  };
   useEffect(() => {
-    const load = () => fetchInbox().then((d) => setInboxTotal(d.total)).catch(() => {});
-    load();
-    const iv = setInterval(load, 30_000);
-    return () => clearInterval(iv);
+    fetchProjects()
+      .then((d) =>
+        // Unassigned cards stay reachable under "all projects".
+        setProjects(d.projects.flatMap((p) => (p.name ? [p.name] : []))),
+      )
+      .catch(() => setProjects([]));
   }, []);
-
+  const navigate = (next: View) => {
+    setView(next);
+    setQuery("");
+    const url = new URL(location.href);
+    url.searchParams.set("view", next);
+    history.replaceState(null, "", url);
+  };
+  const openDecision = (id: string) => {
+    navigate("inbox");
+    setQuery(id);
+  };
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    const url = new URL(location.href);
+    if (selectedTask) url.searchParams.set("task", selectedTask);
+    else url.searchParams.delete("task");
+    history.replaceState(null, "", url);
+  }, [selectedTask]);
+  useEffect(() => {
+    let active = true;
+    const load = () =>
+      fetchInbox(project)
+        .then((d) => {
+          if (active) {
+            setInboxTotal(d.unavailable ? null : d.total);
+            setDecisionTasks(
+              new Set(
+                d.groups.flatMap((g) => g.items.flatMap((a) => a.task_ids)),
+              ),
+            );
+          }
+        })
+        .catch(() => {
+          if (active) setInboxTotal(null);
+        });
+    load();
+    const timer = setInterval(load, 30000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [project]);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
-      const typing = el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable;
-      if (e.key === "/" && !typing) {
+      const typing =
+        ["INPUT", "TEXTAREA"].includes(el.tagName) || el.isContentEditable;
+      if (
+        (e.key === "/" && !typing) ||
+        ((e.metaKey || e.ctrlKey) && e.key === "k")
+      ) {
         e.preventDefault();
         searchRef.current?.focus();
       } else if (e.key === "[" && !typing) {
@@ -58,106 +157,156 @@ function App() {
         searchRef.current?.blur();
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
   }, []);
-
   const title = NAV.find((n) => n.id === view)!.label;
-
   return (
-    <div className="flex h-screen">
-      {navOpen && <nav className="flex w-[244px] shrink-0 flex-col bg-panel px-3 pt-4 text-ui">
-        <div className="mb-5 flex items-center px-2 font-semibold text-fg-secondary">
-          NAWABAN
-          <button
-            aria-label={t("collapseSidebarLabel")}
-            className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+    <div className="nawaban-shell">
+      <aside
+        className={cx("nawaban-sidebar", !navOpen && "collapsed")}
+        aria-label="主导航"
+      >
+        <div className="nawaban-brand">
+          <span className="brand-mark">
+            <RiLayoutColumnLine />
+          </span>
+          {navOpen && (
+            <div>
+              <strong className="text-title-3-semibold">NAWABAN</strong>
+              <p className="text-body-regular">Agent 工作空间</p>
+            </div>
+          )}
+          <Button
+            variant="ghost"
+            size="xs"
+            iconOnly
+            leadingIcon={RiSideBarLine}
             onClick={toggleNav}
-            title={t("collapseSidebar")}
-            type="button"
-          >
-            <PanelLeft className="size-4" />
-          </button>
-        </div>
-        <div className="mb-2 px-2 text-xs font-medium text-muted-foreground">{t("workspace")}</div>
-        {NAV.map((n) => (
-          <button
-            className={cn(
-              "flex h-8 items-center gap-2 rounded-md px-2 font-medium",
-              view === n.id ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
-            )}
-            key={n.id}
-            onClick={() => setView(n.id)}
-            type="button"
-          >
-            <n.icon className="size-4" />
-            {n.label}
-            {n.id === "inbox" && inboxTotal != null && inboxTotal > 0 && (
-              <span className="ml-auto text-xs text-muted-foreground">{inboxTotal}</span>
-            )}
-          </button>
-        ))}
-        <button
-          className="mt-auto mb-4 flex h-8 items-center justify-between rounded-md px-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-          type="button"
-          aria-label={t("switchLanguage")}
-          onClick={() => setLocale(locale === "en" ? "zh-CN" : "en")}
-        >
-          <span>{t("switchLanguage")}</span>
-        </button>
-      </nav>}
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-11 shrink-0 items-center gap-4 border-b px-4 text-ui">
-          {!navOpen && (
-            <button
-              aria-label={t("expandSidebarLabel")}
-              className="-ml-1 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-              onClick={toggleNav}
-              title={t("expandSidebar")}
-              type="button"
-            >
-              <PanelLeft className="size-4" />
-            </button>
-          )}
-          <span className="font-medium text-fg-secondary">{title}</span>
-          {view === "board" && (
-            <button
-              aria-expanded={filterOpen || !!range}
-              className={cn(
-                "flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
-                range ? "border-card-hover-border text-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-              onClick={() => setFilterOpen((o) => !o)}
-              type="button"
-            >
-              <ListFilter className="size-3.5" />
-              {t("filter")}{range && " · 1"}
-            </button>
-          )}
-          <input
-            className="ml-auto h-7 w-full max-w-xs rounded-md border bg-transparent px-2.5 outline-none placeholder:text-muted-foreground focus:border-card-hover-border"
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("search")}
-            ref={searchRef}
-            value={query}
+            aria-label="切换侧栏"
           />
+        </div>
+        {navOpen && (
+          <ModuleSelect
+            modules={projects}
+            value={project ?? "all"}
+            onValueChange={changeProject}
+            allLabel="全部项目"
+            ariaLabel="切换项目"
+            className="project-select"
+          />
+        )}
+        {navOpen && <p className="sidebar-label text-body-medium">工作区</p>}
+        <nav>
+          {NAV.map((n) => (
+            <NavItem
+              key={n.id}
+              icon={n.icon}
+              label={n.label}
+              href={`?view=${n.id}`}
+              onClick={() => navigate(n.id)}
+              collapsed={!navOpen}
+              isSelected={view === n.id}
+              badge={
+                n.id === "inbox" && inboxTotal != null ? (
+                  <Badge>{inboxTotal}</Badge>
+                ) : undefined
+              }
+            />
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <ThemeToggle collapsed={!navOpen} />
+          {navOpen && (
+            <p className="text-body-regular">
+              任务由 Agent 推进
+              <br />
+              需要你的决定，集中在收件箱
+            </p>
+          )}
+        </div>
+      </aside>
+      <div className="nawaban-main">
+        <header className="workspace-topbar">
+          <span className="text-body-regular">
+            {project ?? "全部项目"} ／ {title}
+          </span>
+          <LinkButton
+            variant="secondary"
+            size="small"
+            leadingIcon={RiInbox2Line}
+            onClick={() => navigate("inbox")}
+          >
+            待我处理
+            {inboxTotal != null && <Badge className="ml-2">{inboxTotal}</Badge>}
+          </LinkButton>
         </header>
-        {view === "board" && (filterOpen || range) && <BoardFilterBar onChange={setRange} range={range} />}
-        <main className="min-h-0 flex-1">
-          {view === "board" && <BoardKanban onSelectTask={setSelectedTask} query={query} range={range} />}
-          {view === "modules" && <ModulesView onSelectTask={setSelectedTask} query={query} />}
-          {view === "inbox" && <InboxView onSelectTask={setSelectedTask} query={query} />}
+        <div className="page-heading">
+          <h1 className="text-title-1-semibold">{title}</h1>
+          <div className="page-controls">
+            {view === "board" && (
+              <Button
+                variant={range ? "secondary" : "ghost"}
+                className={
+                  !range ? "bg-transparent text-text-secondary" : undefined
+                }
+                size="small"
+                leadingIcon={RiFilter3Line}
+                aria-expanded={filterOpen}
+                onClick={() => setFilterOpen(!filterOpen)}
+              >
+                更新时间
+              </Button>
+            )}
+            <Input
+              ref={searchRef}
+              size="small"
+              fieldClassName="border border-border-button-default bg-background-primary-default shadow-xs"
+              leadingIcon={RiSearchLine}
+              aria-label="搜索任务"
+              placeholder={
+                view === "modules"
+                  ? "搜索编号、标题、模块…"
+                  : view === "inbox"
+                    ? "搜索问题、关联任务…"
+                    : "搜索编号、标题、负责人…"
+              }
+              value={query}
+              onChange={setQuery}
+            />
+          </div>
+        </div>
+        {view === "board" && (filterOpen || range) && (
+          <BoardFilterBar range={range} onChange={setRange} />
+        )}
+        <main className="view-content">
+          {view === "board" && (
+            // Remounting per project drops its module filter and in-flight results.
+            <BoardKanban
+              key={project}
+              query={query}
+              range={range}
+              project={project}
+              onSelectTask={selectTask}
+              onDecision={openDecision}
+              decisionTasks={decisionTasks}
+            />
+          )}{" "}
+          {view === "modules" && (
+            <ModulesView query={query} project={project} onSelectTask={selectTask}
+              onDecision={openDecision} decisionTasks={decisionTasks} />
+          )}{" "}
+          {view === "inbox" && (
+            <InboxView key={project} query={query} project={project} onSelectTask={selectTask} />
+          )}
         </main>
       </div>
-
       <TaskDetailSheet
-        onOpenChange={(open) => !open && setSelectedTask(null)}
-        onSelectTask={setSelectedTask}
         taskId={selectedTask}
+        onSelectTask={selectTask}
+        onOpenChange={(open) => !open && dispatch({ type: "close" })}
+        onBack={path.length > 1 ? () => dispatch({ type: "back" }) : undefined}
       />
     </div>
   );
 }
-
-export default App;

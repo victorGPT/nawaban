@@ -34,7 +34,7 @@ from typing import Any, Iterable, Optional
 FOREMAN = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(FOREMAN))
 
-from foreman_card import CardError, parse_card_text  # noqa: E402
+from nawaban.foreman_card import CardError, parse_card_text  # noqa: E402
 from nawaban import db  # noqa: E402
 
 TITLE_MAX = 80
@@ -135,7 +135,7 @@ def _as_list(v: Any) -> list[str]:
 
 
 def _clip(s: str, limit: int) -> tuple[str, bool]:
-    """超限可见截断(Hermes 同款标记),绝不静默切。"""
+    """超限可见截断,绝不静默切。"""
     if len(s) <= limit:
         return s, False
     keep = limit - 40
@@ -299,7 +299,7 @@ def verdict_review(plans: list[CardPlan]) -> Optional[dict]:
     """返回 {"rows": 意见相左的行, "unjudged": 没拿到合法判分的行数};无 key = None。"""
     if not os.environ.get("TYPESAFE_API_KEY"):
         return None
-    from nawaban.cli import _answers, _prob  # 懒加载:cli 会拉起 board_view
+    from nawaban.cli import _answers, _prob  # Reuse the optional semantic-hint client.
     rows, unjudged = [], 0
     for p in plans:
         if not p.decisions:

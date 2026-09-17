@@ -7,7 +7,8 @@
 # 幂等是重点:已经在跑就直接告诉你地址,不会起第二个也不会打断正在用的那个。
 # 进程用 nohup 脱离终端 —— 关掉起它的窗口不会带走板(否则「打开无效」就是这么来的)。
 set -u
-DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve directory and file symlinks before deriving the package import root.
+DIR="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().parent)' "$0")"
 PORT="${NAWABAN_BOARD_PORT:-${WORKOS_BOARD_PORT:-8813}}" # Legacy env fallback.
 LOG="$DIR/board.log"
 
@@ -15,7 +16,7 @@ LOG="$DIR/board.log"
 # 绑死 127.0.0.1 的话,从别的设备(手机/另一台 Mac)打开 127.0.0.1:8813 指的是**那台设备自己**,
 # 必然 connection refused。这正是 2026-08-14 那次「打开无效」的真因。
 # 不绑 0.0.0.0:那会把板一并暴露给整个局域网;tailnet 只有你自己的设备。
-# 本机那条永远绑上:tailnet 断线时(实测 macbook-air 掉线过)localhost 仍能开板。
+# Keep localhost available when the optional tailnet interface disconnects.
 HOST="${NAWABAN_BOARD_HOST:-${WORKOS_BOARD_HOST:-}}" # Legacy env fallback.
 if [ -z "$HOST" ]; then
   TS_IP="$(ifconfig 2>/dev/null | awk '/inet 100\./{print $2; exit}')"
@@ -79,6 +80,7 @@ if [ "$code" = "200" ]; then
   [ -n "$URL_TS" ] && echo "  手机/其他设备(需在 tailnet 上)→ $URL_TS"
   echo "  库 $DB"
   [ -n "$URL_TS" ] && echo "  (本机两个地址都能开;tailnet 那条在别的设备上才有意义)"
+  exit 0
 else
   echo "board 起了但实拉返回 $code —— 看日志:tail $LOG" >&2
   exit 1

@@ -8,7 +8,7 @@
 定位:同一份数据的**两个投影**之一(字段草案 §五)——人视图是板(board_view.py),
 本模块是 agent 视图。读侧只读(`mode=ro`),一个字节都不写库。
 
-反陈旧(Hermes 研究 §5「相对年龄」平移,不是重新发明):
+反陈旧:
   · 所有历史条目渲染相对年龄("18h ago")而非裸时间戳 —— 裸时间戳不会让 LLM 去想
     「这还新鲜吗」,相对年龄会。
   · 头部免责:这是时点快照不是实况,拿它当现状之前先回源复核。
@@ -37,7 +37,7 @@ sys.path.insert(0, str(FOREMAN))
 
 from nawaban import board_view, db  # noqa: E402
 
-BUDGET = 8192          # 输出上限(Hermes KANBAN_GUIDANCE <8000 同量级 · prompt-cache 友好)
+BUDGET = 8192          # Context output budget.
 EVENTS = 24            # 取回的事件条数上限(实际展示由字节预算决定)
 DECISIONS = 12
 LENS_K = 5             # 检索区 top-k
@@ -112,7 +112,7 @@ def _state(d: dict, ev: list[dict], now_ts: int) -> list[str]:
     return L
 
 
-def _origin(d: dict, *, fold: bool = False) -> list[str]:
+def _context(d: dict, *, fold: bool = False) -> list[str]:
     """建卡缘由 —— write-once,**最不变**的一段,所以它让位给判据而不是反过来。
 
     判例(2026-08-12):它原本长在 `_state` 里被当成硬区,小预算下把验收判据挤出了输出。
@@ -444,7 +444,7 @@ def build_context(path: Path | str, task_id: str, *, budget: int = BUDGET,
 
     # ③ 其余按「每次接手会不会变」排序贪心填充:变的排前面,不变的可折叠
     rest: list[tuple[list[str], list[str]]] = [
-        (_origin(d), _origin(d, fold=True)),
+        (_context(d), _context(d, fold=True)),
         (_decisions(d.get("decisions") or [], now_ts, DECISIONS),
          _decisions(d.get("decisions") or [], now_ts, 3)),
         (_attempts(d.get("sessions") or [], now_ts), []),

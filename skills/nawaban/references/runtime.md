@@ -9,11 +9,13 @@ export NAWABAN_HOME="<已核实的 nawaban 根绝对路径>"
 nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
 ```
 
-作为 Claude Code 插件安装时，`NAWABAN_HOME` 取插件根目录（钩子进程里的 `CLAUDE_PLUGIN_ROOT`）。`NAWABAN_HOME` 用于找到源码与可选 helpers，不选择任务数据库。需要安装或配置 hooks 时才读 [安装与集成](../../../integrations/README.md)。安装不足时说明缺少的入口；普通任务不会自动改全局配置。
+作为 Claude Code 插件安装时，`NAWABAN_HOME` 取插件根目录（钩子进程里的 `CLAUDE_PLUGIN_ROOT`）。`NAWABAN_HOME` 用于找到源码与可选 helpers，不选择任务数据库。需要安装或配置 hooks 时才读 [安装与集成](../../../README.md#install-as-a-plugin)。安装不足时说明缺少的入口；普通任务不会自动改全局配置。
 
 ## 选择目标板
 
-项目声明的任务库是事实来源。CLI 优先级是显式 `--db` → `NAWABAN_DB` → Git 共享主树的 `.nawaban/nawaban.db` → 当前目录向上查找的板目录。跨项目或安装目录调用时使用 `--db <目标库绝对路径>`，避免误连安装项目自己的板。
+项目声明的任务库是事实来源。CLI 优先级是显式 `--db` → `NAWABAN_DB` → 兼容的 `WORKOS_DB` → Git 共享主树的 `.nawaban/nawaban.db`（不存在时回退 `.foreman/workos.db`）→ 当前目录向上查找的板目录。跨项目或安装目录调用时使用 `--db <目标库绝对路径>`，避免误连安装项目自己的板。
+
+多个项目共用一份库时，建卡显式传 `--project <项目名>`；未指定时优先按当前仓库板目录的所属目录名推导，再回退显式数据库的板目录，拆卡继承父卡项目。Web 项目筛选只选择当前展示范围，不会切换数据库。
 
 当前卡与数据库结构可通过现有 Web/API 或 SQLite `mode=ro` 读取；查询前按需要查看 schema。CLI 没有 `show` 动词。多数 CLI 动词会先执行 schema 升级，严格只读检查用只读连接；`--help` 不打开数据库。
 

@@ -10,12 +10,8 @@ findings 通过可达调用路径、源码和相关验证判断；严重度不�
 
 项目要求的独立评审缺失或执行失败时标明缺口，不能报告已评审。额外二次意见用于尚未解决、会影响交付的疑点；不按固定次数或阶段例行调用。
 
-## 可选 PR helper
+## 提交与开 PR
 
-```bash
-bash "$NAWABAN_HOME/integrations/foreman/foreman_pr.sh" --task <ID> --title "<标题>" <本次交付文件>...
-```
+授权涵盖 commit、push 和开 PR 时，在本卡 worktree 使用项目规定的 Git 与 GitHub 入口。逐项核对实际 diff，暂存本次交付文件；commit 后将本分支 push 到已核实的远程，再用 `gh pr create` 或项目提供的工具创建 PR。PR 描述包含具体行为变化、验证结果和未完成项。
 
-此 helper 会提交、push 并创建 PR，使用前核实授权涵盖这些动作及项目兼容性；不适合只交付本地文件或无远程的仓库。显式列出交付文件，纯删除通过 `--rm <文件>`；参数查脚本帮助，`--reviewed` 只能引用已实际完成的评审。
-
-删除行确认、临时 index 和最终 diff 校验由 helper 实施；确认前逐项检查实际 diff。追加 PR 提交或遇到冲突时读 [Git 协作](git-shared-tree.md)。以当前被审版本为准，旧 verdict 不覆盖后续改变。
+项目自带 helper 时先核实它的提交、历史修改和外部操作行为；nawaban 不随附 PR helper，也不依赖个人安装的脚本。追加 PR 提交或遇到冲突时读 [Git 协作](git-shared-tree.md)。以当前被审版本为准，旧 verdict 不覆盖后续改变。

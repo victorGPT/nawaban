@@ -1,12 +1,12 @@
-# git:foreman_pr 之后与撞车之后
+# Git 协作与冲突
 
 一 pane 一 worktree,branch 与 index 各归各的;只剩两处要小心。
 
-## foreman_pr.sh 之后追加 commit
+## 向已有 PR 追加 commit
 
-PR head 是脚本在当时最新 origin/main 上 squash 出来的,worktree 分支基线更旧。追加前先
-先保护未提交修改并 rebase 到已核实的 PR head，再追加普通 commit;push 前 `git diff --stat origin/main HEAD` 消除非本卡文件。
-拿旧 worktree 树 `commit-tree -p <PR head>` 会把别人刚合进 main 的改动静默回退进 PR（历史问题）。
+先核对当前 worktree 分支与远程 PR head，保护未提交修改。PR head 已被其他执行者或项目 helper 更新时，按项目协作规则同步后再追加普通 commit；涉及历史重写先确认授权。push 前核对相对于 PR base 的完整 diff，确保只包含本任务交付。
+
+以旧 worktree 的完整树配合 `commit-tree -p <PR head>` 会覆盖 PR head 新增的内容；同步时保留双方已提交的实际改动。
 
 ## 真撞了:意图还原
 

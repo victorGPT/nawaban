@@ -62,7 +62,7 @@ def scan_residue(con: sqlite3.Connection) -> list[tuple[str, str]]:
     ).fetchall()
 
 
-def emit_approval(zombies: list[tuple[str, str, str]], out: Path) -> None:
+def emit_approval(zombies: list[tuple[str, str, str]], out: Path, selected_db: Path) -> None:
     """段①:生成待人执行的批准命令。--by user 必须由人来跑,agent 不代劳。"""
     lines = [
         "#!/usr/bin/env bash",
@@ -74,19 +74,18 @@ def emit_approval(zombies: list[tuple[str, str, str]], out: Path) -> None:
         "#",
         "# 执行前请过目清单;有任何一张你认为其实还没办完,把那两行删掉即可。",
         "set -euo pipefail",
-        f"cd {shlex.quote(str(Path.cwd()))}",
         "",
     ]
     # 命令写全,不用 shell 变量:变量里含空格时 zsh 不做 word splitting,
     # 逐行粘贴会 command not found(本脚本作者亲测踩过)。
-    w = f"python3 {shlex.quote(str(CLI))}"
+    w = shlex.join([sys.executable, str(CLI), "--db", str(selected_db.expanduser().resolve())])
     for tid, status, waiting in zombies:
         lines += [
             f"# {tid}  (DB: {status}/{waiting or '-'}  · md: done/)",
-            f"{w} decide {tid} --by user \\",
+            f"{w} decide {shlex.quote(tid)} --by user \\",
             f'  --question "md 侧已归档,DB 侧仍在待拍板队列——确认这件事已经办完了吗?" \\',
             f'  --verdict "已办完,对账关闭(md 侧 done/ 为准)"',
-            f"{w} advance {tid} --to done",
+            f"{w} advance {shlex.quote(tid)} --to done",
             "",
         ]
     lines.append('echo "--- 段① 完成 ---"')
@@ -155,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if a.emit:
         out = Path(a.emit)
-        emit_approval(zombies, out)
+        emit_approval(zombies, out, db)
         print(f"段①:批准命令已写到 {out}(过目后执行)")
     if a.apply:
         apply_residue(db, residue)

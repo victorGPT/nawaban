@@ -11,8 +11,7 @@ inventory is unavailable, the sweep defers reclamation. Otherwise, Claude and
 Codex transcript mtimes retain the existing age thresholds below.
 
 **信号从哪来**:转录 jsonl 的 mtime —— 它是运行时 I/O 的副作用,不是谁的自觉动作,
-所以不会因为 agent 忘了收尾而失真。(同款判断见 Hermes:他们把每次 API 活动桥接进
-last_heartbeat_at;我们的 mtime 天然就是那个东西,缺的只是把它写回卡这一步。)
+所以不会因为 agent 忘了收尾而失真。mtime 直接记录最近的转录活动。
 
 **已知漏网,刻意接受**:mtime 是「窗口活性」不是「任务活性」—— 同一个窗口 claim 了卡 A
 不收尾、接着在同一 session 里干别的,jsonl 一直在长,卡 A 就一直判活。硬补的代价

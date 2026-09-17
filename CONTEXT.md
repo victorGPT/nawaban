@@ -214,6 +214,12 @@ A grouping of related tasks pursuing a shared destination, accompanied by a map 
 _Avoid_: parent task as a synonym, milestone as an interchangeable grouping.
 _Current identifiers_: `tasks.epic`; CLI `meta`.
 
+**Project**(项目)
+A task's project affiliation, used to filter tasks and human asks within a shared board database.
+项目是任务的归属标记，用于在同一个看板数据库内筛选任务与待办请求。
+_Avoid_: database selection, Epic as an interchangeable grouping.
+_Current identifiers_: `tasks.project`; CLI `create --project`; API `project` query parameter.
+
 **Owner**(负责人)
 The accountable identity assigned to a task for its current work.
 负责人是承担任务当前工作责任的身份。
