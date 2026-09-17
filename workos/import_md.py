@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -289,6 +290,41 @@ def _decisions(body: str, full_text: str, task_id: str, owner: str, rel_path: st
     return rows
 
 
+# 归属仍只认明写(USER_VERDICT);TypeSafe Choice 只找可能判反的行列进报告给人核,不改 decided_by(2026-09-17 拍板)
+_VERDICT_CRITERIA = {"user": "文本写明或清楚表明由用户拍板、下令或选定(含引用用户原话)",
+                     "agent": "agent 自己的判断、结论或记录;文本没有表明是用户定的"}
+
+
+def verdict_review(plans: list[CardPlan]) -> Optional[dict]:
+    """返回 {"rows": 意见相左的行, "unjudged": 没拿到合法判分的行数};无 key = None。"""
+    if not os.environ.get("TYPESAFE_API_KEY"):
+        return None
+    from workos.cli import _answers, _prob  # 懒加载:cli 会拉起 board_view
+    rows, unjudged = [], 0
+    for p in plans:
+        if not p.decisions:
+            continue
+        qs = {f"d{i}": {"type": "choice", "criteria": _VERDICT_CRITERIA,
+                        "instructions": f"这条决策记录 `verdicts[{i}]` 是谁拍板的?"}
+              for i in range(len(p.decisions))}
+        ans = _answers({"verdicts": [d["verdict"] for d in p.decisions]}, qs)
+        for i, d in enumerate(p.decisions):
+            a = ans.get(f"d{i}")
+            probs = a.get("probabilities") if isinstance(a, dict) else None
+            pu = _prob(probs.get("user")) if isinstance(probs, dict) else None
+            pa = _prob(probs.get("agent")) if isinstance(probs, dict) else None
+            if pu is None or pa is None or pu == pa or set(probs) != set(_VERDICT_CRITERIA):
+                unjudged += 1
+                continue
+            model = "user" if pu > pa else "agent"
+            rule = "user" if d["decided_by"] == "user" else "agent"
+            if model != rule:
+                rows.append({"task_id": p.task_id, "file": d["provenance"]["file"],
+                             "line": d["provenance"]["line"], "rule": rule, "model": model,
+                             "p": max(pu, pa), "verdict": d["verdict"]})
+    return {"rows": rows, "unjudged": unjudged}
+
+
 def _refs(fm: dict, path: Path, ts: int) -> list[dict]:
     out = []
     for fkey, kind in REF_FIELDS.items():
@@ -455,7 +491,8 @@ def epic_edges(root: Path, known: set[str]) -> tuple[list[tuple[str, str, str]],
 
 def render_report(root: Path, files: list[Path], plans: list[CardPlan],
                   failures: list[Failure], edges: list[tuple[str, str, str]],
-                  applied: Optional[dict], epic_notes: list[str]) -> str:
+                  applied: Optional[dict], epic_notes: list[str],
+                  review: Optional[dict] = None) -> str:
     n = len(plans)
     L = [f"# WORKOS-IMPORT-001 对账报告 · {time.strftime('%Y-%m-%d %H:%M:%S')}", "",
          f"源 glob:`{root}/.foreman/tasks/**/*.md` → **{len(files)}** 个文件",
@@ -547,6 +584,15 @@ def render_report(root: Path, files: list[Path], plans: list[CardPlan],
         L.append("")
     else:
         L += ["## 真导入结果", "", "_dry-run:未写库。加 `--apply` 执行。_", ""]
+    if review is None:
+        L += ["## 决策归属复核", "", "未设 TYPESAFE_API_KEY,跳过(归属照旧只认 USER_VERDICT)", ""]
+    else:
+        L += [f"## 决策归属复核:规则与语义判断相左 {len(review['rows'])} 条(只列不改,人核)", "",
+              f"未拿到合法判分 {review['unjudged']} 条(服务失败/畸形响应,这些行没复核)", ""]
+        for r in review["rows"]:
+            L.append(f"- `{r['task_id']}` {r['file']}:{r['line']} · 规则={r['rule']} · 语义={r['model']}"
+                     f"({r['p']:.2f})· {r['verdict'][:80]}")
+        L.append("")
     return "\n".join(L)
 
 
@@ -624,7 +670,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 1
         applied = apply(dbpath, plans, edges)
 
-    report = render_report(root, files, plans, failures, edges, applied, epic_notes)
+    report = render_report(root, files, plans, failures, edges, applied, epic_notes,
+                           verdict_review(plans))
     if a.report:
         Path(a.report).expanduser().write_text(report, encoding="utf-8")
         print(f"✓ 报告 → {a.report}")
