@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-LETTERS-DB-001 · letters 表回归自检 · 零依赖。
+"""workos letters db regression · letters 表回归自检 · 零依赖。
 
 跑法:python3 tests/upstream/test_letters.py → OK / exit 1。
 覆盖:写信落库 · kind/msg/卡存在三闸 · unread 过滤 · 标已读幂等 · migrate_db 老库补表。

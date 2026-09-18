@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""branch gate 判定体(BRANCH-GATE-001 · FOREMAN-BRANCHGATE-HANG-001 拆出)。
+"""branch gate 判定体(BRANCH-GATE-001 · foreman branchgate hang regression 拆出)。
 
 原先这段是 foreman_branch_gate.sh 里的 heredoc。bash 5.x 在 exec 子命令**之前**
 把 heredoc 写进 pipe,而 macOS 的 pipe 初始容量只有 512 字节 —— 这段 3.6KB 的正文
@@ -39,7 +39,7 @@ gitdir, common = git("rev-parse", "--git-dir"), git("rev-parse", "--git-common-d
 if gitdir and common and os.path.abspath(gitdir) != os.path.abspath(common):
     sys.exit(0)                      # 已在 worktree 里 · 放行
 
-# 段 = 按 ;&|、&&、||、换行切开;正则**锚在段首**(FOREMAN-BRANCH-GATE-ANCHOR-001):
+# 段 = 按 ;&|、&&、||、换行切开;正则**锚在段首**(foreman branch gate anchor regression):
 # 引号/heredoc/卡标题里引用切分支原文时,段首是引号或别的词,不再误拦。
 # ponytail: 已知天花板——heredoc 内某行**顶格**就是切分支命令时仍会误拦;真解析 shell 不值得。
 _SEGMENT = re.compile(r"(?:^|[;&|\n]|&&|\|\|)\s*([^;&|\n]+)")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-BOARD-VIEW-001 回归自检 · 零依赖(不需 pytest)。
+"""workos board view regression 回归自检 · 零依赖(不需 pytest)。
 
 跑法:python3 tests/upstream/test_workos_board_view.py → 全绿 OK / 任一失败 exit 1。
 覆盖(对照卡 success):五列分栏+等拍板排前 · 最近完成限 12 · 边双向且对端 status 实时
@@ -116,7 +116,7 @@ def main() -> int:  # noqa: C901, PLR0915
         assert col(d, "open")["tasks"][0]["epic"] == "E1"
 
     def t_no_precutover_wording():
-        """切换后板不许再说自己是预览:workos.db 就是唯一真相(WORKOS-BOARD-CUTOVER-001)。"""
+        """切换后板不许再说自己是预览:workos.db 就是唯一真相(workos board cutover regression)。"""
         for bad in ("切换前", "非真相", "预览", ".foreman/tasks"):
             assert bad not in bv.PAGE, f"页面残留切换前字样:{bad}"
         assert "banner" not in bv.board_data(fresh(tmp)), "board 载荷不该再带 banner 字段"
@@ -260,7 +260,7 @@ def main() -> int:  # noqa: C901, PLR0915
     def t_live_fail_soft():
         """存活判定:未知必须留白 —— 渲染成「已关」会让人放心收窄一把真在用的锁。
 
-        BOARD-LIVENESS-TRUTH-001 起活性直接从转录 mtime 算,不再经 herdr
+        board liveness truth regression 起活性直接从转录 mtime 算,不再经 herdr
         (它没装/没跑时整张表 None,会让**所有**卡退化成未知)。
         """
         idx = {"alive123": time.time()}

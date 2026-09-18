@@ -1,4 +1,4 @@
-"""WORKOS-PROJECT-001:卡按项目归属,看板/模块/收件箱可按项目收窄。"""
+"""workos project regression:卡按项目归属,看板/模块/收件箱可按项目收窄。"""
 
 from __future__ import annotations
 

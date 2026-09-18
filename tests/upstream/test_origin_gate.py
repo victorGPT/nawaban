@@ -1,4 +1,4 @@
-"""WORKOS-ORIGIN-GATE-001:建卡来由必须是无序列表。"""
+"""workos origin gate regression:建卡来由必须是无序列表。"""
 
 from __future__ import annotations
 

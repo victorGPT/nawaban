@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BOARD-REVAMP-WF-HANDOFF-GATE-001 · handoff completed 闸自检 · 零依赖。
+"""board revamp wf handoff gate regression · handoff completed 闸自检 · 零依赖。
 
 跑法:python3 tests/upstream/test_handoff_completed_gate.py → OK / exit 1。
 覆盖:completed 且卡未翻牌 → 拒且零写入;handed_off/blocked 不受限;

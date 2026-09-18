@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-COMPILE-GATE-001 回归自检 · 零依赖(不需 pytest)。
+"""workos compile gate regression 回归自检 · 零依赖(不需 pytest)。
 
 跑法:python3 tests/upstream/test_workos_gate.py → 全绿 OK / 任一失败 exit 1。
 闸走**真进程**(subprocess 喂 stdin JSON),不是 import 后调函数——Stop hook 的真实调用形态。

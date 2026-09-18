@@ -64,7 +64,7 @@ def case(name: str, cmd: str, cwd: Path, expect: int) -> None:
 
 
 def t_no_oversized_heredoc() -> None:
-    """任何 hook 脚本都不许内联 >512 字节的 heredoc(FOREMAN-BRANCHGATE-HANG-001)。
+    """任何 hook 脚本都不许内联 >512 字节的 heredoc(foreman branchgate hang regression)。
 
     bash 5.x 在 exec 子命令**之前**把 heredoc 写进 pipe;macOS 的 pipe 初始容量是
     **512 字节**,超了就在 write() 上永久阻塞 —— 读端还没被 exec 出来。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BOARD-REVAMP-WF-CLAIMGATE-IMPL-001 · claim 上游闸回归自检 · 零依赖(不需 pytest)。
+"""board revamp wf claimgate impl regression · claim 上游闸回归自检 · 零依赖(不需 pytest)。
 
 跑法:python3 tests/upstream/test_claim_upstream_gate.py → 全绿 OK / 任一失败 exit 1。
 覆盖(对照卡 success):上游未 done 被拒且报错列上游 · 上游全 done 可 claim ·

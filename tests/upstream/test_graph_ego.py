@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-DAGVIEW-EGO-001 · graph_data 子图契约。
+"""workos dagview ego regression · graph_data 子图契约。
 
 需求:
   - focus 根 + depends 双向 1-hop + 下游传递

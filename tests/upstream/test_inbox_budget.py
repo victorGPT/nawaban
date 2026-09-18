@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-INBOX-BUDGET-001 判据验证 · 构造四种局面各跑一次 lint。
+"""workos inbox budget regression 判据验证 · 构造四种局面各跑一次 lint。
 
 判据全部**验能力不验快照**:自己造局,不依赖真库当时有多少条。
 """

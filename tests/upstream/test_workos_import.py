@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-IMPORT-001 回归自检 · 零依赖(不需 pytest)· 格式照 test_workos_db.py。
+"""workos import regression 回归自检 · 零依赖(不需 pytest)· 格式照 test_workos_db.py。
 
 跑法:python3 tests/upstream/test_workos_import.py → 全绿 OK / 任一失败 exit 1。
 隔离:每例造临时仓 + 临时库(WORKOS_DB 指过去),真库 .foreman/workos.db 一个字节都不碰。

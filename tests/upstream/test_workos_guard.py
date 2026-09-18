@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-GUARD-001 回归自检:guard(DB 版)+ claim_check(DB 版)· 零依赖。
+"""workos guard regression 回归自检:guard(DB 版)+ claim_check(DB 版)· 零依赖。
 
 跑法:python3 tests/upstream/test_workos_guard.py → 全绿 OK / 任一失败 exit 1。
 移植 test_foreman_guard.py 的语义矩阵到 DB 夹具(「语义与现版一致」的实证):
@@ -98,7 +98,7 @@ def main() -> int:  # noqa: C901, PLR0915
     tmp = Path(tempfile.mkdtemp(prefix="workos-guard-test-"))
     print(f"[workos guard 自检] tmp={tmp}")
 
-    # ── touches 锁退役(FOREMAN-SIMPLIFY-004):guard 不再按占用拦 ──
+    # ── touches 锁退役(foreman simplify regression):guard 不再按占用拦 ──
     def t_other_no_block():
         r = board(tmp); mk(r, owner="other")
         expect(r, CODE_FILE, 0, absent="foreman 锁")
