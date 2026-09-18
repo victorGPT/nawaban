@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -303,7 +304,17 @@ def _dependency_hint(path: Path, task_id: str) -> str | None:
     title = next(t["title"] for t in candidates if t["id"] == best)
     # JSON escaping keeps persisted user text on one terminal line.
     label = json.dumps(f"{best}: {title}", ensure_ascii=False)
-    return f"前置建议：这张卡可能需要先完成 {label}（判分 {scores[best]:.2f}）；仅提示，未自动连线。"
+    # Keep the active interpreter, installation entrypoint and board when pasted elsewhere.
+    args = [str(Path(__file__).absolute()), "--db", str(path.absolute()),
+            "link", "--kind", "depends_on", "--", task_id, best]
+    command = shlex.join([sys.executable, *args])
+    if not command.isprintable():
+        # Persisted IDs and filesystem paths may contain terminal control characters.
+        script = (f"import runpy,sys; sys.argv={ascii(args)}; "
+                  "runpy.run_path(sys.argv[0], run_name='__main__')")
+        command = shlex.join([sys.executable, "-c", script])
+    return (f"前置建议：这张卡可能需要先完成 {label}（判分 {scores[best]:.2f}）；仅提示，未自动连线。"
+            f"\n  {command}")
 
 
 def _create_hints(path: Path, task_id: str, title: str, context: str | None,
