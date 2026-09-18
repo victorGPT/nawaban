@@ -11,5 +11,7 @@ Board and module cards display the waiting reason and elapsed task inactivity in
 - Frontend build and lint passed (existing component lint warnings and bundle-size warning remain).
 - Node model/API tests: 26 passed. Dev-proxy test: 1 passed.
 - Component tests: 61 passed, including six new cases for thresholds, waiting reasons, live translation, terminal/fresh/missing activity, keyboard selection, module data, and the shared clock.
-- Python suite: initially 372 passed / 3 skipped with one new fixture failure (missing required event author); after fixing the fixture, the focused activity projection test passed.
+- `uv run --no-project --python 3.12 --with pytest python -m pytest -q tests`: 373 passed, 3 skipped, 9 subtests passed.
+- `uv run --no-project --python 3.12 --with pytest --with pyyaml python tests/run.py`: 34 runner groups passed; embedded pytest: 295 passed.
+- Isolated temporary-database HTTP smoke: Python serves built HTML, JS and CSS with HTTP 200; `/api/board` and `/api/modules` both preserve the fixture's 1/3/7-day ages and waiting reasons. This is HTTP integration evidence, not visual acceptance.
 - Browser visual verification is unavailable: Aside daemon is unreachable and the computer-use provider reports no available browser. No screenshot or human acceptance is claimed.
