@@ -58,7 +58,7 @@ from Display, or use **Show all columns / 显示全部列** if every column is h
 
 Display preferences are stored locally (`nawaban.boardDisplay`) and in URL parameters
 `boardColumns`, `boardSort`, `boardDensity`, and `boardFields`. Explicit URL values take precedence
-over local values. A nonempty column preference with no recognized IDs restores all columns.
+over local values. Nonempty column or field preferences with no recognized IDs restore all columns or fields, respectively.
 An empty `boardColumns=` hides every board column; an empty `boardFields=` hides
 optional fields. Task titles and decision actions remain available. Preferences do not change task data.
 

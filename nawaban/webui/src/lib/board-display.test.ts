@@ -38,6 +38,23 @@ test("nonempty unknown column preferences fall back to all columns without poiso
   assert.deepEqual(readBoardDisplay("?boardColumns=unknown,done", null).columns, ["done"]);
 });
 
+test("nonempty unknown field preferences restore all fields and remain valid after persistence", () => {
+  for (const [search, saved] of [
+    ["?boardFields=zzz", null],
+    ["?boardFields=zzz", "boardFields=id"],
+    ["", "boardFields=zzz"],
+    ["?boardFields=,", null],
+  ] as const) {
+    const display = readBoardDisplay(search, saved);
+    assert.deepEqual(display.fields, ["id", "module"]);
+    const persisted = writeBoardDisplay(new URLSearchParams(), display).toString();
+    assert.deepEqual(readBoardDisplay("", persisted).fields, ["id", "module"]);
+  }
+  assert.deepEqual(readBoardDisplay("?boardFields=", "boardFields=id").fields, []);
+  assert.deepEqual(readBoardDisplay("", "boardFields=").fields, []);
+  assert.deepEqual(readBoardDisplay("?boardFields=zzz,module", null).fields, ["module"]);
+});
+
 test("sorts preserve task identity and do not mutate the backend order", () => {
   const tasks = [
     { id: "A", title: "Zulu", active_at: 1, created_at: 3 },

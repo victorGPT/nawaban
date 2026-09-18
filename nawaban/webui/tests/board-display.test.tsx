@@ -41,6 +41,23 @@ test("an invalid column URL cannot persist an empty board on a later clean visit
   expect(revisit.container.querySelectorAll(".board-column")).toHaveLength(4);
 });
 
+test("an invalid field URL keeps both optional fields visible on a later clean visit", async () => {
+  history.replaceState(null, "", "/?boardFields=zzz");
+  const first = render(<BoardKanban {...props} />);
+  await screen.findByText("Title open");
+  const card = first.container.querySelector('[data-card-id="TASK-open"]')!;
+  expect(card.querySelector(".task-meta")?.textContent).toBe("TASK-open");
+  expect(card.querySelector(".task-tag-label")?.textContent).toBe("Example");
+  expect(new URLSearchParams(localStorage.getItem(BOARD_DISPLAY_STORAGE)!).get("boardFields")).toBe("id,module");
+  first.unmount();
+  history.replaceState(null, "", "/");
+  const revisit = render(<BoardKanban {...props} />);
+  await screen.findByText("Title open");
+  const restored = revisit.container.querySelector('[data-card-id="TASK-open"]')!;
+  expect(restored.querySelector(".task-meta")?.textContent).toBe("TASK-open");
+  expect(restored.querySelector(".task-tag-label")?.textContent).toBe("Example");
+});
+
 test("restore-all is disabled when nothing is hidden and the English count works for one or more lanes", async () => {
   setLocale("en");
   const user = userEvent.setup();
