@@ -1,6 +1,6 @@
 /* NAWABAN reading surfaces share BoardUI body typography. */
 .detail-task-title {
-  @apply text-title-1-semibold;
+  @apply text-title-2-medium;
 }
 .detail-section-title {
   @apply text-body-medium;
@@ -12,7 +12,7 @@
 .detail-reading,
 .detail-properties-rail,
 .detail-body {
-  @apply text-body-regular;
+  @apply text-reference-body;
   color: var(--ink);
 }
 .detail-meta,
@@ -95,7 +95,7 @@
 }
 
 .nawaban-prose {
-  @apply text-body-regular;
+  @apply text-reference-body;
   color: var(--ink);
   overflow-wrap: anywhere;
 }

@@ -21,7 +21,7 @@ The explicit `/?view=legacy` board remains separate. Missing builds retain the e
 
 ## Language
 
-The sidebar switches between English and Simplified Chinese. The saved `nawaban.locale` preference wins on reload; without a valid saved preference, the browser language selects Chinese for `zh` and English otherwise. Switching still works when browser storage is unavailable. UI labels and dates follow the selected language; task content, API identifiers and stored lifecycle values retain their original meaning. Assigned and In progress remain separate board columns.
+The sidebar switches between English and Simplified Chinese. The saved `nawaban.locale` preference wins on reload; without a valid saved preference, the browser language selects Chinese for `zh` and English otherwise. Switching still works when browser storage is unavailable. UI labels and dates follow the selected language; task content, API identifiers and stored lifecycle values retain their original meaning. The four visual board lanes match the reference-kanban prototype: Assigned and In progress share a lane, while each task keeps its backend status and assigned cards display an explicit label. List mode and task details retain module names. The 238px sidebar and 1000px detail sheet use the same light canvas and surface tokens; details stack below 800px. Dark mode remains available.
 
 English and Chinese messages live in `src/i18n/en.json` and `src/i18n/zh-CN.json`. English terms are registered in the repository's `CONTEXT.md` glossary. `tests/test_glossary.py` checks matching keys and placeholders, glossary coverage, and the absence of hardcoded Chinese in frontend TypeScript.
 

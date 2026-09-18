@@ -67,13 +67,23 @@ const NAV = [
   const selectedTask = path.at(-1) ?? null;
   const [navOpen, setNavOpen] = useState(() => {
     try {
-      return localStorage.getItem("navOpen") !== "0";
+      return window.innerWidth > 650 && localStorage.getItem("navOpen") !== "0";
     } catch {
       return true;
     }
   });
   const searchRef = useRef<HTMLInputElement>(null);
-  const toggleNav = () =>
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const topbarToggleRef = useRef<HTMLButtonElement>(null);
+  const restoreNavFocus = useRef(false);
+  useEffect(() => {
+    if (restoreNavFocus.current) {
+      (navOpen ? sidebarToggleRef : topbarToggleRef).current?.focus();
+      restoreNavFocus.current = false;
+    }
+  }, [navOpen]);
+  const toggleNav = () => {
+    restoreNavFocus.current = true;
     setNavOpen((o) => {
       try {
         localStorage.setItem("navOpen", o ? "0" : "1");
@@ -82,6 +92,7 @@ const NAV = [
       }
       return !o;
     });
+  };
   const selectTask = (id: string) => dispatch({ type: "open", id });
   const changeProject = (value: string) => {
     const next = value === "all" ? null : value.slice("project:".length);
@@ -107,6 +118,7 @@ const NAV = [
   }, []);
   const navigate = (next: View) => {
     setView(next);
+    if (window.innerWidth <= 650) setNavOpen(false);
     setQuery("");
     const url = new URL(location.href);
     url.searchParams.set("view", next);
@@ -169,23 +181,49 @@ const NAV = [
     return () => window.removeEventListener("keydown", key);
   }, []);
   const title = NAV.find((n) => n.id === view)!.label;
+  const controls = (
+          <div className="page-controls">
+            {view === "board" && (
+              <Button
+                variant={range ? "secondary" : "ghost"}
+                className={
+                  !range ? "bg-transparent text-text-secondary" : undefined
+                }
+                size="small"
+                leadingIcon={RiFilter3Line}
+                aria-expanded={filterOpen}
+                onClick={() => setFilterOpen(!filterOpen)}
+              >{tr("updated")}</Button>
+            )}
+            <Input
+              ref={searchRef}
+              size="small"
+              fieldClassName="border border-border-button-default bg-background-primary-default shadow-xs"
+              leadingIcon={RiSearchLine}
+              aria-label={tr("searchTasks")}
+              placeholder={
+                view === "modules"
+                  ? tr("searchModules")
+                  : view === "inbox"
+                    ? tr("searchInbox")
+                    : tr("searchBoard")
+              }
+              value={query}
+              onChange={setQuery}
+            />
+          </div>
+  );
   return (
     <div className="nawaban-shell">
       <aside
         className={cx("nawaban-sidebar", !navOpen && "collapsed")}
         aria-label={tr("mainNavigation")}
+        hidden={!navOpen}
       >
         <div className="nawaban-brand">
-          <span className="brand-mark">
-            <RiLayoutColumnLine />
-          </span>
-          {navOpen && (
-            <div>
-              <strong className="text-title-3-semibold">NAWABAN</strong>
-              <p className="text-body-regular">{tr("agentWorkspace")}</p>
-            </div>
-          )}
+          <strong className="brand-name">nawaban</strong>
           <Button
+            ref={sidebarToggleRef}
             variant="ghost"
             size="xs"
             iconOnly
@@ -195,6 +233,8 @@ const NAV = [
           />
         </div>
         {navOpen && (
+          <div className="sidebar-project-picker">
+          <span className="text-caption-1-regular">{tr("switchProject")}</span>
           <ModuleSelect
             modules={[...projects, ""].map((p) => `project:${p}`)}
             value={project === null ? "all" : `project:${project}`}
@@ -204,6 +244,7 @@ const NAV = [
             ariaLabel={tr("switchProject")}
             className="project-select"
           />
+          </div>
         )}
         {navOpen && <p className="sidebar-label text-body-medium">{tr("workspace")}</p>}
         <nav>
@@ -237,9 +278,12 @@ const NAV = [
       </aside>
       <div className="nawaban-main">
         <header className="workspace-topbar">
-          <span className="text-body-regular">
-            {project === "" ? tr("noProject") : project ?? tr("allProjects")} ／ {title}
+          {!navOpen && <Button ref={topbarToggleRef} variant="ghost" size="xs" iconOnly leadingIcon={RiSideBarLine}
+            onClick={toggleNav} aria-label={tr("toggleSidebar")} />}
+          <span className="workspace-crumb text-body-regular">
+            {project === "" ? tr("noProject") : project ?? tr("allProjects")} ／
           </span>
+          <h1 className="text-body-medium">{title}</h1>
           <LinkButton
             variant="secondary"
             size="small"
@@ -248,47 +292,14 @@ const NAV = [
           >{tr("needsAttention")}{inboxTotal != null && <Badge className="ml-2">{inboxTotal}</Badge>}
           </LinkButton>
         </header>
-        <div className="page-heading">
-          <h1 className="text-title-1-semibold">{title}</h1>
-          <div className="page-controls">
-            {view === "board" && (
-              <Button
-                variant={range ? "secondary" : "ghost"}
-                className={
-                  !range ? "bg-transparent text-text-secondary" : undefined
-                }
-                size="small"
-                leadingIcon={RiFilter3Line}
-                aria-expanded={filterOpen}
-                onClick={() => setFilterOpen(!filterOpen)}
-              >{tr("updated")}</Button>
-            )}
-            <Input
-              ref={searchRef}
-              size="small"
-              fieldClassName="border border-border-button-default bg-background-primary-default shadow-xs"
-              leadingIcon={RiSearchLine}
-              aria-label={tr("searchTasks")}
-              placeholder={
-                view === "modules"
-                  ? tr("searchModules")
-                  : view === "inbox"
-                    ? tr("searchInbox")
-                    : tr("searchBoard")
-              }
-              value={query}
-              onChange={setQuery}
-            />
-          </div>
-        </div>
-        {view === "board" && (filterOpen || range) && (
-          <BoardFilterBar range={range} onChange={setRange} />
-        )}
+        {view !== "board" && <div className="page-heading">{controls}</div>}
         <main className="view-content">
           {view === "board" && (
             // Remounting per project drops its module filter and in-flight results.
             <BoardKanban
               key={project}
+              controls={controls}
+              filters={(filterOpen || range) && <BoardFilterBar range={range} onChange={setRange} />}
               query={query}
               range={range}
               project={project}

@@ -1,9 +1,8 @@
 import { UNGROUPED_EPIC } from "@/lib/modules-model";
-import { t as tr, useLocale } from "@/i18n";
-import { useCallback, useState } from "react";
+import { t as tr, useLocale, statusLabel } from "@/i18n";
+import { Fragment, useCallback, useState, type ReactNode } from "react";
 import { RiLayoutColumnLine, RiListCheck } from "@remixicon/react";
 import { Button } from "@/components/base/buttons/button";
-import { Chip } from "@/components/base/badges/chip";
 import { Badge } from "@/components/base/badges/badge";
 import {
   Table,
@@ -18,11 +17,13 @@ import { ModuleSelect } from "@/components/base/select/module-select";
 import { LoadState } from "@/components/NawabanUI";
 import { OverflowText } from "@/components/OverflowText";
 import { fetchBoard, type DateRange, type Project } from "@/lib/api";
-import { boardItems, STAGES } from "@/lib/nawaban-model";
+import { boardItems, BOARD_COLUMNS } from "@/lib/nawaban-model";
 import { TaskCard, TaskTag, WindowStatus, StatusLegend } from "@/components/TaskCard";
 import { useReadOnlyData } from "@/lib/use-read-only-data";
 
 export function BoardKanban({
+  controls,
+  filters,
   query,
   range,
   project,
@@ -30,6 +31,8 @@ export function BoardKanban({
   onDecision,
   decisionTasks,
 }: {
+  controls?: ReactNode;
+  filters?: ReactNode;
   query: string;
   range: DateRange | null;
   project: Project;
@@ -46,9 +49,7 @@ export function BoardKanban({
       : "board",
   );
   const [module, setModule] = useState("all");
-  if (error) return <LoadState error>{error}</LoadState>;
-  if (!board) return <LoadState>{tr("loadingTasks")}</LoadState>;
-  const tasks = boardItems(board);
+  const tasks = board ? boardItems(board) : [];
   const modules = [...new Set(tasks.map((t) => t.epic || UNGROUPED_EPIC))].sort();
   const q = query.trim().toLowerCase();
   const visible = tasks.filter(
@@ -66,21 +67,6 @@ export function BoardKanban({
   };
   return (
     <div className="board-view">
-      <div className="overview-strip">
-        {STAGES.map((s) => (
-          <div key={s.id}>
-            <Chip
-              color={s.id === "staging-verified" ? "yellow" : "soft"}
-              variant="caption"
-            >
-              {s.label}
-            </Chip>
-            <span className="text-body-medium">
-              {tasks.filter((t) => t.column === s.id).length}
-            </span>
-          </div>
-        ))}
-      </div>
       <div className="board-toolbar">
         <div className="view-toggle">
           <Button
@@ -108,60 +94,66 @@ export function BoardKanban({
             onClick={() => changeLayout("list")}
           >{tr("list")}</Button>
         </div>
+        {controls}
         <ModuleSelect modules={modules} value={module} onValueChange={setModule}
           getLabel={(value) => value === UNGROUPED_EPIC ? tr("ungrouped") : value} />
-        <span className="text-body-regular text-text-secondary">
-          {tr("taskCount", { count: visible.length })}
-        </span>
       </div>
-      <StatusLegend available={board.liveness.available} />
-      {layout === "list" ? (
+      {filters}
+      <div className="board-source-line text-caption-1-regular" role="status">
+        {board ? tr("taskCount", { count: visible.length }) : tr("loadingTasks")}
+      </div>
+      <div className="board-scroll">
+      {error ? <LoadState error>{error}</LoadState> : !board ? <LoadState>{tr("loadingTasks")}</LoadState> : layout === "list" ? (
         <Table
           size="sm"
           aria-label={tr("taskList")}
           className="task-table"
         >
-          <TableHeader>
-            <TableColumn>{tr("taskId")}</TableColumn>
+          <colgroup><col /><col /><col /><col /></colgroup>
+          <TableHeader className="sr-only">
             <TableColumn>{tr("taskTitle")}</TableColumn>
+            <TableColumn>{tr("taskId")}</TableColumn>
             <TableColumn>{tr("epicName")}</TableColumn>
             <TableColumn>{tr("status")}</TableColumn>
           </TableHeader>
           <TableBody>
-            {visible.length === 0 && <TableEmpty colSpan={4}>{tr("noMatchingTasks")}</TableEmpty>}
-            {visible.map((t) => (
-              <TableRow key={t.id} aria-label={`${t.id} ${t.title}`} onAction={() => onSelectTask(t.id)}>
-                <TableCell>
-                  <OverflowText as="code" className="task-id" text={t.id} />
-                </TableCell>
-                <TableCell>
-                  <OverflowText className="task-list-title" text={t.title} />
-                </TableCell>
-                <TableCell>
-                  <TaskTag label={t.epic || tr("ungrouped")} />
-                </TableCell>
-                <TableCell>
-                  <WindowStatus
-                    task={t}
-                    hasAsk={decisionTasks.has(t.id)}
-                    onDecision={() => onDecision(t.id)}
-                  />
-                </TableCell>
-              </TableRow>
-            ))}
+            {BOARD_COLUMNS.map((column) => {
+              const group = visible.filter((task) => column.states.some((state) => state === task.column));
+              return <Fragment key={column.id}>
+                <tr className="task-list-group" data-stage={column.id}>
+                  <th colSpan={4} scope="rowgroup">
+                    <h2 className="text-body-medium"><span className="column-status" aria-hidden="true" />{column.label}<Badge>{group.length}</Badge></h2>
+                  </th>
+                </tr>
+                {group.length === 0 && <TableEmpty colSpan={4}>{tr("noMatchingTasks")}</TableEmpty>}
+                {group.map((task) => (
+                  <TableRow key={task.id} aria-label={`${task.id} ${task.title}`} onAction={() => onSelectTask(task.id)}>
+                    <TableCell><OverflowText className="task-list-title" text={task.title} /></TableCell>
+                    <TableCell><OverflowText as="code" className="task-id" text={task.id} /></TableCell>
+                    <TableCell><TaskTag label={task.epic || tr("ungrouped")} />
+                      {task.status === "claimed" && <TaskTag label={statusLabel(task.status)} />}
+                    </TableCell>
+                    <TableCell><WindowStatus task={task} hasAsk={decisionTasks.has(task.id)} onDecision={() => onDecision(task.id)} /></TableCell>
+                  </TableRow>
+                ))}
+              </Fragment>;
+            })}
           </TableBody>
         </Table>
       ) : (
         <div className="kanban">
-          {STAGES.map((s) => (
-            <section className="board-column" key={s.id}>
+          {BOARD_COLUMNS.map((s) => (
+            <section className="board-column" key={s.id} data-stage={s.id}>
               <h2 className="text-body-medium">
+                <span className="column-status" aria-hidden="true" />
                 {s.label}
-                <Badge>{visible.filter((t) => t.column === s.id).length}</Badge>
+                <Badge>{visible.filter((t) => s.states.some((state) => state === t.column)).length}</Badge>
               </h2>
               <div className="task-stack">
+                {!visible.some((t) => s.states.some((state) => state === t.column)) &&
+                  <p className="column-empty text-caption-1-regular">{tr("noMatchingTasks")}</p>}
                 {visible
-                  .filter((t) => t.column === s.id)
+                  .filter((t) => s.states.some((state) => state === t.column))
                   .map((t) => (
                     <TaskCard key={t.id} task={t} hasAsk={decisionTasks.has(t.id)}
                       onSelect={() => onSelectTask(t.id)} onDecision={() => onDecision(t.id)} />
@@ -171,6 +163,8 @@ export function BoardKanban({
           ))}
         </div>
       )}
+      </div>
+      <StatusLegend available={board?.liveness.available} />
     </div>
   );
 }

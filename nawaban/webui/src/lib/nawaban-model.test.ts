@@ -61,7 +61,7 @@ test("task history supports related task navigation and back without duplicate e
   assert.deepEqual(navigateTask(path, { type: "back" }), ["A"]);
   assert.deepEqual(navigateTask(path, { type: "close" }), []);
 });
-test("board preserves Assigned as a separate column and source status", () => {
+test("board data preserves Assigned as a separate source column and status", () => {
   const tasks = boardItems({
     columns: [
       { key: "claimed", tasks: [{ id: "A", status: "claimed" }] },

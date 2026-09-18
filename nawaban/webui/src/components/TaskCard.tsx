@@ -1,4 +1,4 @@
-import { t as tr, useLocale } from "@/i18n";
+import { t as tr, useLocale, statusLabel } from "@/i18n";
 import type { ReactNode } from "react";
 import { Button } from "@/components/base/buttons/button";
 import { Chip, type ChipProps } from "@/components/base/badges/chip";
@@ -85,14 +85,16 @@ export function TaskCard({ task, hasAsk, onSelect, onDecision, className, childr
       <Surface className={cx("task-card", className)}>
         <ContentButton className="task-card-open" onClick={onSelect}
           aria-label={tr("viewTask", { id: task.id, title: task.title })}>
+          <OverflowText className="task-title" text={task.title} />
           <span className="task-meta">
             <OverflowText as="code" text={task.id} />
-            <TaskTag label={task.epic || tr("ungrouped")} />
           </span>
-          <OverflowText className="task-title text-body-regular" text={task.title} />
         </ContentButton>
-        <WindowStatus task={task} hasAsk={hasAsk} onDecision={onDecision} />
-        {children && <div className="mt-2 flex flex-wrap items-center gap-1.5">{children}</div>}
+        <div className="task-card-footer">
+          {task.status === "claimed" && !children && <TaskTag label={statusLabel(task.status)} />}
+          {children}
+          <WindowStatus task={task} hasAsk={hasAsk} onDecision={onDecision} />
+        </div>
       </Surface>
     </div>
   );
