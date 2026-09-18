@@ -2,6 +2,9 @@
 
 import io
 import json
+from pathlib import Path
+import shlex
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -10,7 +13,7 @@ import time
 
 import pytest
 
-from nawaban import cli, db
+from nawaban import board_view, cli, db
 
 
 @pytest.fixture
@@ -65,7 +68,70 @@ def test_threshold_and_explicit_module_still_allows_dependency_hint(board, monke
     assert create(board, "--epic", "LOGIN") == 0
     out = capsys.readouterr()
     assert ("前置建议" in out.err) == shown
+    assert ("--kind depends_on" in out.err) == shown
     assert "模块建议" not in out.err
+
+
+@pytest.mark.parametrize("entry", ["source", "legacy_symlink", "plugin"])
+def test_printed_command_runs_unchanged_on_the_same_board(board, monkeypatch, capsys, tmp_path, entry):
+    source = Path(cli.__file__).absolute()
+    if entry == "plugin":
+        package = tmp_path / "plugin space's $dir" / "nawaban"
+        shutil.copytree(source.parent, package,
+                        ignore=shutil.ignore_patterns("webui", "__pycache__"))
+        entrypoint = package / "cli.py"
+        monkeypatch.setattr(cli, "__file__", str(entrypoint))
+    elif entry == "legacy_symlink":
+        entrypoint = tmp_path / f"{entry} space's $dir" / "cli.py"
+        entrypoint.parent.mkdir()
+        entrypoint.symlink_to(source)
+        monkeypatch.setattr(cli, "__file__", str(entrypoint))
+    else:
+        entrypoint = source
+    selected = tmp_path / "board space's $(false).db"
+    selected.symlink_to(board)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "_hints", lambda *args: [])
+    monkeypatch.setattr(cli, "_answers", lambda *args: {"candidate_0": {"noul": .8}})
+    assert create(Path(selected.name), "--epic", "LOGIN") == 0
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) == 2
+    command = lines[1].strip()
+    assert shlex.split(command) == [sys.executable, str(entrypoint), "--db", str(selected),
+                                   "link", "--kind", "depends_on", "--", "NEW", "PRE"]
+    with sqlite3.connect(board) as con:
+        assert con.execute("SELECT count(*) FROM task_edges").fetchone()[0] == 0
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    result = subprocess.run(command, shell=True, cwd=elsewhere, text=True,
+                            capture_output=True, timeout=5)
+    assert result.returncode == 0, result.stderr
+    with sqlite3.connect(board) as con:
+        assert con.execute("SELECT src,dst,kind FROM task_edges").fetchall() == [
+            ("NEW", "PRE", "depends_on")]
+    graph = board_view.graph_data(board)
+    assert any(edge["source"] == "PRE" and edge["target"] == "NEW"
+               and edge["kind"] == "depends_on" for edge in graph["links"])
+
+
+@pytest.mark.parametrize("prerequisite,task_id", [
+    ("PRE-账户🧭\n\x1b[31m", "NEW\t\x7f"), ("-PRE", "-NEW"),
+])
+def test_special_ids_round_trip_without_terminal_controls(board, monkeypatch, tmp_path,
+                                                         prerequisite, task_id):
+    with sqlite3.connect(board) as con:
+        con.execute("UPDATE tasks SET id=? WHERE id='PRE'", (prerequisite,))
+    db.create_task(board, task_id=task_id, title="用户可以登录账户", project="p")
+    monkeypatch.setattr(cli, "_answers", lambda *args: {"candidate_0": {"noul": .8}})
+    hint = cli._dependency_hint(board, task_id)
+    command = hint.partition("\n")[2].strip()
+    assert command.isprintable()
+    result = subprocess.run(command, shell=True, cwd=tmp_path, text=True,
+                            capture_output=True, timeout=5)
+    assert result.returncode == 0, result.stderr
+    with sqlite3.connect(board) as con:
+        assert con.execute("SELECT src,dst,kind FROM task_edges").fetchall() == [
+            (task_id, prerequisite, "depends_on")]
 
 
 def test_cap_same_project_and_only_unfinished_candidates(board, monkeypatch, capsys):

@@ -64,6 +64,14 @@ after the new task commits. Candidates stay within the same project, prefer the
 same module, then recent activity, and are capped at 25. A top Noul score of at
 least 0.60 is required. The command only prints a suggestion; it never adds an edge.
 
+Each prerequisite suggestion includes a shell-quoted command on the next line.
+Paste it to add `link --kind depends_on -- <new-task> <prerequisite>`: the prerequisite
+is upstream. The command uses the running Python interpreter, the installed CLI
+file, and an explicit absolute `--db` path, so it targets the same board even from
+another directory. Run it with the usual `FOREMAN_OWNER` or
+`CLAUDE_CODE_SESSION_ID` identity environment, as required by `link`.
+No prerequisite suggestion means no link command.
+
 Title/success, module, and prerequisite suggestions share one five-second waiting
 budget. Missing credentials, unavailable services, and uncertain or expired hint
 stages stay silent and leave the created task intact; already-completed hints
