@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把巡检 agent 的建议落进 asks 表(INBOX-TRIAGE-AGENT-001 的收口)。
+"""把巡检 agent 的建议落进 asks 表(inbox triage agent regression 的收口)。
 
 分工是刻意的:**巡检包(产品层)连写路径都没有**,它只出 JSON;写库这一步在这里,
 在人这一侧。所以「agent 能改什么」在结构上就封死了,不靠它自觉。

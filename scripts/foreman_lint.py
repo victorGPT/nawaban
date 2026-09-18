@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""foreman 卡片 lint · 多人写卡的格式守门(FOREMAN-MULTIUSER-PARSE-001)。
+"""foreman 卡片 lint · 多人写卡的格式守门(foreman multiuser parse regression)。
 
 guard 的 fail-closed 只在 Edit 热路径拦「安全最小」问题;本脚本做完整卫生检查,
 写卡后/被 guard 拦到时手跑,未来 tasks/ 进共享仓后挂 CI。
@@ -104,7 +104,7 @@ def lint_card(path: Path, state: str) -> tuple[list[str], list[str], str]:
     return errors, warnings, task_id
 
 
-# ── 注意力预算(WORKOS-INBOX-BUDGET-001)──────────────────────────────
+# ── 注意力预算(workos inbox budget regression)──────────────────────────────
 # EEMUA 191 给操作员定的是硬数(平均<6 条/小时 · 峰值<10 条/10 分钟 · 期望响应<10 分钟)。
 # 该抄的不是数值,是**「预算可以被违反、被检测、被修」**这个态度 —— 定性说「太多了」
 # 永远修不掉,定量说「超了 3 条」才修得掉。

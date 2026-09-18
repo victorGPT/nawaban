@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-CONTEXT-LOADER-001 回归自检 · 零依赖 · 格式照 test_workos_db.py。
+"""workos context loader regression 回归自检 · 零依赖 · 格式照 test_workos_db.py。
 
 跑法:python3 tests/upstream/test_workos_loader.py
 隔离:临时库(WORKOS_DB / 显式 --db),真库 .foreman/workos.db 一个字节都不碰。
@@ -234,7 +234,7 @@ def main() -> int:  # noqa: C901, PLR0915
         assert "状态 done" in t
         assert "20d ago" in t
 
-    # ── G1-G4:事件预算(eval WORKOS-HANDOFF-EVAL-001 缺口)──────────
+    # ── G1-G4:事件预算(eval workos handoff eval regression 缺口)──────────
 
     def _many_events_db() -> Path:
         """Exercise a synthetic task with many densely spaced events."""
@@ -353,7 +353,7 @@ def main() -> int:  # noqa: C901, PLR0915
         assert buf.getvalue() == "", f"默认关却打了字:{buf.getvalue()!r}"
 
     def t_默认关_端到端仍是db横幅() -> None:
-        """md 轨已退役(WORKOS-RETIRE-001):默认关时横幅读 db 出卡,不走装载器。"""
+        """md 轨已退役(workos retire regression):默认关时横幅读 db 出卡,不走装载器。"""
         out = run_hook(mkrepo("r-off", with_db=True), flag=None)
         assert "T-BANNER-001" in out, f"该有 db 横幅卡行\n{out}"
         assert "冷启动装载" not in out, "默认关不该出现装载器输出"

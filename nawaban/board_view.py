@@ -114,7 +114,7 @@ def fold_key(task_id: str, epic: str | None,
              hints: dict[str, str] | None = None) -> str:
     """卡 → 折叠组名。同一功能的不同写法必须落到同一个键上。
 
-    epic 是**自由文本**(capability 列退役后由它承担分组 · FOREMAN-SIMPLIFY-003),同一功能有多种写法:
+    epic 是**自由文本**(capability 列退役后由它承担分组 · foreman simplify regression),同一功能有多种写法:
         运维开关面板(加载提速 · stale-while-revalidate)
         运维开关面板(新版 · 版本开关分区)
     直接 GROUP BY 会把本该一组的拆开。所以截到第一个分隔符 —— 后面那串全是
@@ -368,10 +368,10 @@ def board_data(path: Path | str, live: dict | None = None,
 
 def modules_data(path: Path | str, idx: dict[str, float] | None = None,
                  project: str | None = None) -> dict:
-    """模块(epic)聚合视图数据(BOARD-REVAMP-DAG-IMPL-001)。
+    """模块(epic)聚合视图数据(board revamp dag impl regression)。
 
     全量卡 + depends_on 边,分组/分层/进度全在前端算——766 卡量级一次传输 <100KB,
-    比在服务端做聚合再开 N 个细化端点省(形态定稿见 BOARD-REVAMP-DAG-PROTO-001 decide 行)。
+    比在服务端做聚合再开 N 个细化端点省(形态定稿见 board revamp dag proto regression decide 行)。
     """
     con = _ro(path)
     try:
@@ -604,7 +604,7 @@ _ROLE_RANK = ("decision", "blocked", "frontier", "active", "staging", "open", "d
 
 
 def fold_graph(g: dict, hints: dict[str, str]) -> dict:
-    """把卡级图折成功能级图(DAG-FOLD-001)。
+    """把卡级图折成功能级图(dag fold regression)。
 
     实测 435 节点 419 边平铺时糊成屏幕中间一小片,任何关系都读不出来;而按功能折叠后
     真正的跨功能流转只有个位数条 —— 那才是能一眼看懂的图。组内边(实测占 90%+)是实现细节,

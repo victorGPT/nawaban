@@ -5,7 +5,7 @@
 md 版 foreman_guard.py 自此退役未接线。注意:无 nawaban.db 的仓本 guard no-op ——
 仍走 md 轨的其他仓从切换日起零 guard 保护(NAWABAN-RETIRE-001 摸底 2026-08-29)。
 
-判定面(FOREMAN-SIMPLIFY-004 起只剩 worktree 闸;touches 占用降为 claim 时 WARN,见 claim_check.py):
+判定面(foreman simplify regression 起只剩 worktree 闸;touches 占用降为 claim 时 WARN,见 claim_check.py):
 - 验收闸 / done 闸:已迁入库层 db.advance_task(翻 verified 须 waiting_on+acceptance_run;
   done 须 user 拍板行)——新世界卡不是文件,md 版的「卡写闸/验收闸拦 Edit 写卡」失去对象,
   语义原样活在写入工具里(test_nawaban_db.py t_status_gates 覆盖)。
@@ -13,7 +13,7 @@ md 版 foreman_guard.py 自此退役未接线。注意:无 nawaban.db 的仓本 
 
 - nawaban.db 不存在 → no-op(该仓未切换到新板;foreman-pattern md 仓不受伤)。
 
-MERGE-GATE-PR-CHECKS-001: identified Bash `gh pr merge` calls require all checks
+merge gate pr checks regression: identified Bash `gh pr merge` calls require all checks
 SUCCESS and a head containing remote main, even without a board. No identity is
 still a no-op; failed queries and empty checks deny. Queries are read-only;
 compound commands must be split. Scripts/eval/API merges and direct pushes are
@@ -462,7 +462,7 @@ def _judge_target(payload: dict, owner: str, target: str) -> tuple[int, str]:
             "   真要写主树(极罕):touch .foreman/ALLOW_MAINTREE_EDIT(用完删掉)\n"
         )
 
-    return 0, ""  # touches 锁退役(FOREMAN-SIMPLIFY-004):占用只在 claim 时 WARN
+    return 0, ""  # touches 锁退役(foreman simplify regression):占用只在 claim 时 WARN
 
 
 

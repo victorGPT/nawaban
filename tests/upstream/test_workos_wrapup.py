@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-WRAPUP-SKILL-001 自检 · 零依赖(不需 pytest)。
+"""workos wrapup skill regression 自检 · 零依赖(不需 pytest)。
 
 跑法:python3 tests/upstream/test_workos_wrapup.py → 全绿 OK / 任一失败 exit 1。
 两个动词都走**真 CLI 进程**(身份从 env),这才是它们被真实使用的形态。

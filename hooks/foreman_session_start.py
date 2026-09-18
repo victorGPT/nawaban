@@ -424,7 +424,7 @@ def main() -> int:
     print(sep)
     _warn_dirty_main_tree(cwd, sep)
 
-    # 渐进披露(CTX-ENGINEERING-001 · 2026-08-04):全量列卡曾占 ~13KB/session(80 张卡),
+    # 渐进披露(ctx engineering regression · 2026-08-04):全量列卡曾占 ~13KB/session(80 张卡),
     # 但「别窗有没有占我要改的文件」的真判据是 claim 时跑 foreman_claim_check.py,不是启动时
     # 把整张锁表背一遍。横幅只留当场必须知道的三类,其余按需读卡。
     broken = [e for e in entries if e["status"] == "🧨不可机读"]
@@ -465,7 +465,7 @@ def main() -> int:
     now = time.time()
     # 人侧段:asks 表在 → 收件箱接管;不在 → 落回下面的 md 催办(未迁移的库/别的仓库)。
     if not _inbox_banner(foreman_dir):
-        # 分流(LOOP-TAIL-FASTLANE-001):只催 waiting_on=decision(等用户拍板;缺失视为 decision)。
+        # 分流(loop tail fastlane regression):只催 waiting_on=decision(等用户拍板;缺失视为 decision)。
         # prod/observe/external 各有各的等,催了也 done 不了——混装队列造 alarm fatigue。
         stuck = [
             e for e in entries
@@ -485,7 +485,7 @@ def main() -> int:
             print("⏳ 其余 verified(不催·各有各的等):"
                   + " · ".join(f"{k}×{v}" for k, v in sorted(parked.items())))
 
-    # stale_check 接电(LOOP-HYGIENE-001):gh 网络调用绝不进启动热路径——日一次后台跑,
+    # stale_check 接电(loop hygiene regression):gh 网络调用绝不进启动热路径——日一次后台跑,
     # 横幅带【上一次】的发现;报告文件由后台进程写完整体替换。任何失败吞掉(增强件)。
     try:
         state_dir = _STATE

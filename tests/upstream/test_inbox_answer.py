@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-INBOX-WRITE-001 回归自检 · 零依赖。
+"""workos inbox write regression 回归自检 · 零依赖。
 
 选型 B(板只读,写走 cli 子进程)后,写路径全部落在 cli —— 所以测试直接驱动 cli,
 跑的就是板将来 fork 的那条命令。
@@ -138,7 +138,7 @@ def main() -> int:  # noqa: C901
         assert "未动" in out and "fanout" in out, f"应提示扇出待动作成功:\n{out}"
 
     def t_fanout_ok_closes_all():
-        """成功后扇出:ask 挂的卡全部关(flag 分流随 flag 列退役 · FOREMAN-SIMPLIFY-003)。"""
+        """成功后扇出:ask 挂的卡全部关(flag 分流随 flag 列退役 · foreman simplify regression)。"""
         p = fresh(tmp, "fan")
         mkcard(p, "T-F-A")
         mkcard(p, "T-F-B")

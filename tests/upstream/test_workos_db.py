@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-SCHEMA-001 回归自检 · 零依赖(不需 pytest)。
+"""workos schema regression 回归自检 · 零依赖(不需 pytest)。
 
 跑法:python3 tests/upstream/test_workos_db.py → 全绿 OK / 任一失败 exit 1。
 覆盖(对照卡 success):DDL CHECK 生效 · CAS 并发恰一胜 · 身份从环境(CLI 层)·
@@ -373,7 +373,7 @@ def main() -> int:  # noqa: C901, PLR0915
         else:
             raise AssertionError("无 user 拍板行的 done 未被拦")
         os.environ["WORKOS_DECISION_CHANNEL"] = "chat"
-        # 拍板须**严格晚于**锚点秒(WORKOS-COMPILE-GATE-001 修掉 `>=` 的同秒 fail-open:
+        # 拍板须**严格晚于**锚点秒(workos compile gate regression 修掉 `>=` 的同秒 fail-open:
         # created_at 秒级,同秒先后不可分辨 → 不认)。真人拍板要先说话,真机天然满足;
         # 这里是机器速度把三步压进同一秒,睡过秒界即可,断言与契约语义不变。
         time.sleep(1.1)
@@ -432,7 +432,7 @@ def main() -> int:  # noqa: C901, PLR0915
         assert r.returncode == 0, r.stderr
         assert bogus.exists(), "显式 init 应建库"
 
-    # ── 12 · 直通 done(FOREMAN-SIMPLIFY-002):merge_sha 即归档;verified 路不要 acceptance 正文 ──
+    # ── 12 · 直通 done(foreman simplify regression):merge_sha 即归档;verified 路不要 acceptance 正文 ──
     def t_direct_done():
         adv = dict(owner="ac:tester", session_id="s1")
         p = fresh(tmp)
@@ -488,7 +488,7 @@ def main() -> int:  # noqa: C901, PLR0915
         p = fresh(tmp)
         mk(p)
         for kw in ({"epic": "   "},           # 全空白:等于没给
-                   {"grill": "退役列"},        # 白名单外(FOREMAN-SIMPLIFY-003 退役)
+                   {"grill": "退役列"},        # 白名单外(foreman simplify regression 退役)
                    {"owner": "不是 meta 列"}):  # 白名单外
             try:
                 db.set_meta(p, "T-XX-001", fields=kw, author="ac:tester")

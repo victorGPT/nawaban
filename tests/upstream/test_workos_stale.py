@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-GUARD-001 回归自检:STALE 对账器 · 零依赖。
+"""workos guard regression 回归自检:STALE 对账器 · 零依赖。
 
 跑法:python3 tests/upstream/test_workos_stale.py → 全绿 OK / 任一失败 exit 1。
 覆盖:merge_sha ref+coord 事件留痕 · 有验收证据自动推 staging-verified(waiting_on=decision

@@ -204,7 +204,7 @@ BEGIN SELECT RAISE(ABORT, 'task_decisions is append-only'); END;
 # 状态机:合法转移 → (需要闸)。open→claimed 只走 claim_task,claimed→in_progress 只走 start_task。
 _ADVANCE = {
     ("in_progress", "staging-verified"),
-    ("in_progress", "done"),               # 直通:CI 绿合并即归档(FOREMAN-SIMPLIFY-002)
+    ("in_progress", "done"),               # 直通:CI 绿合并即归档(foreman simplify regression)
     ("staging-verified", "done"),
     ("staging-verified", "in_progress"),  # 驳回返工
     ("done", "in_progress"),               # 打回(NAWABAN-ACCEPT-SELFEVIDENT-001 · reopen_task 专用)
@@ -473,7 +473,7 @@ def claim_task(path: Path | str, task_id: str, *, owner: str, session_id: str,
                override: Optional[str] = None) -> bool:
     """CAS:恰一胜。胜者原子拿到 owner + session 履历行 + status_change 事件。
 
-    claim 上游闸(BOARD-REVAMP-WF-CLAIMGATE-001 · 2026-08-29 用户拍板):
+    claim 上游闸(board revamp wf claimgate regression · 2026-08-29 用户拍板):
     上游 depends_on 未 done 就接卡 = 在半成品上开工。只挡 depends_on
     (split_from/supersedes 不挡);override 带理由强闯,理由落 coord 事件可审计。
     """
@@ -690,7 +690,7 @@ def advance_task(path: Path | str, task_id: str, *, to: str,
             if frm == "done":
                 raise NawabanError("done 的卡只能经 reopen_task 打回(须带理由),不走 advance")
             if to == "staging-verified":
-                # staging-verified 是可选路径(FOREMAN-SIMPLIFY-002):有用户可见行为、
+                # staging-verified 是可选路径(foreman simplify regression):有用户可见行为、
                 # 要真机验收或等人的卡才走;纯内部改动 CI 绿合并直接 done。
                 if waiting_on not in WAITING:
                     raise NawabanError(
@@ -726,7 +726,7 @@ def advance_task(path: Path | str, task_id: str, *, to: str,
                 )
             elif to == "done":
                 if frm == "in_progress":
-                    # 直通 done(FOREMAN-SIMPLIFY-002):CI 绿是合并前提,不另证;
+                    # 直通 done(foreman simplify regression):CI 绿是合并前提,不另证;
                     # 只要一条 merge_sha 指针 —— 冷启动要知道 done 指向哪次合并。
                     n = con.execute(
                         "SELECT count(*) FROM task_refs WHERE task_id=? AND kind='merge_sha'",
@@ -994,7 +994,7 @@ def handoff(path: Path | str, task_id: str, *, owner: str, session_id: str,
                 # 不变量:**claimed/in_progress ⇒ owner 非空**。原来只清 owner 不动 status,
                 # 造出「匿名 + in_progress」的行 —— 那正是 guard.load_locked_cards 判为
                 # 「不可信锁行」的形状,一行就让整块板 fail-closed、所有窗口的 Edit 全被拦。
-                # (判例 PR-SWEEP-STALE-001:活其实干完了,--release 之后板子哑火,
+                # (判例 pr sweep stale regression:活其实干完了,--release 之后板子哑火,
                 #  因为 worktree 读不到板才一直没人发现。)
                 # 降到 open 而不是拒绝 --release:--release 的语义就是「放出来给人接力」,
                 # 无主可接 = open,这是唯一自洽的状态。
@@ -1020,7 +1020,7 @@ def reclaim_task(path: Path | str, task_id: str, *, expected_owner: Optional[str
     `owner = NULL` 在 SQL 里恒不匹配。
 
     状态必须跟着 owner 一起退:只清 owner 会造出「匿名 + in_progress」的行,那是
-    guard 判为「不可信锁行」的形状,一行就让整块板 fail-closed(判例 PR-SWEEP-STALE-001)。
+    guard 判为「不可信锁行」的形状,一行就让整块板 fail-closed(判例 pr sweep stale regression)。
     """
     con = connect(path)
     try:

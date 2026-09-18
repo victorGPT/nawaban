@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""WORKOS-RECLAIM-STALE-001 自检 · 零依赖。
+"""workos reclaim stale regression 自检 · 零依赖。
 
 守四件事:
   ① **dry-run 真的不写** —— 自动改别人的卡,默认不写是唯一的安全前提。
   ② **CAS 挡得住陈旧决策** —— 判据在库外面算,算完到写进去之间那张卡可能已被别人重新
      claim;拿旧快照去写就会把活人正在干的卡踢成无主。这是唯一会毁数据的地方。
   ③ **owner 与 status 一起退** —— 只清 owner 会造出「匿名 + in_progress」的不可信锁行,
-     guard 会 fail-closed 拦掉所有窗口的 Edit(判例 PR-SWEEP-STALE-001)。
+     guard 会 fail-closed 拦掉所有窗口的 Edit(判例 pr sweep stale regression)。
   ④ **判据分档** —— 认得的 owner 看转录 mtime,不认得的退到「最后一条事件」,都不豁免。
 """
 

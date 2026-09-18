@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WORKOS-INBOX-SCHEMA-001 回归自检 · 零依赖(不需 pytest),风格同 test_workos_db.py。
+"""workos inbox schema regression 回归自检 · 零依赖(不需 pytest),风格同 test_workos_db.py。
 
 跑法:python3 tests/upstream/test_workos_asks.py → 全绿 OK / 任一失败 exit 1。
 
