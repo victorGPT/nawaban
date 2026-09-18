@@ -264,5 +264,19 @@
   "syncingTasks": "Syncing…",
   "syncedAt": "Synced at {time}",
   "refreshEvery": "Refresh every {seconds} seconds",
-  "boardSyncFailed": "Sync failed"
+  "boardSyncFailed": "Sync failed",
+  "boardFilter": "Filter",
+  "boardDisplay": "Display",
+  "boardSort": "Sort by",
+  "boardSort_default": "Default order",
+  "boardSort_updated": "Recently updated",
+  "boardSort_created": "Recently created",
+  "boardSort_title": "Title (A–Z)",
+  "boardCompact": "Compact density",
+  "boardFields": "Visible fields",
+  "boardColumns": "Board columns",
+  "boardColumnsHint": "Hidden columns keep their tasks. The list still shows every matching task.",
+  "boardShowAllColumns": "Show all columns",
+  "boardNoColumns": "All board columns are hidden.",
+  "boardHiddenColumns": "{count} columns hidden · Restore them in Display"
 }

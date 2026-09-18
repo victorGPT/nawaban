@@ -70,6 +70,7 @@ test("a failed read keeps search and date controls available for recovery", asyn
   expect(screen.getByRole("status").textContent).toContain(zh.boardSyncFailed);
   expect(screen.getByRole("status").textContent).not.toContain(zh.loadingTasks);
   expect(screen.getByText("Search controls")).toBeTruthy();
+  await userEvent.setup().click(screen.getByRole("button", { name: zh.boardFilter }));
   expect(screen.getByText("Date controls")).toBeTruthy();
 });
 
@@ -85,23 +86,24 @@ test("toolbar filters waiting items, reports the visible scope, and translates i
   expect(source.textContent).toContain(`workos / ${zh.allEpics} · 5 张任务`);
   expect(source.textContent).toContain("每 30 秒刷新");
   expect(container.querySelector(".board-sync-time")!.closest('[role="status"]')).toBeNull();
-  const filter = screen.getByRole("button", { name: zh.filterWaiting });
+  const filter = screen.getByRole("button", { name: zh.boardFilter });
   await user.click(filter);
-  await user.click(await screen.findByRole("menuitem", { name: zh.waitDecision }));
+  await user.click(screen.getByRole("combobox", { name: zh.filterWaiting }));
+  await user.click(await screen.findByRole("option", { name: zh.waitDecision }));
   expect(container.querySelectorAll("[data-card-id]")).toHaveLength(1);
   expect(source.textContent).toContain("1 张任务");
-  await waitFor(() => expect(document.activeElement).toBe(filter));
-  await user.click(filter);
-  await screen.findByRole("menu");
   await user.keyboard("{Escape}");
   await waitFor(() => expect(document.activeElement).toBe(filter));
+  await user.click(filter);
   await user.click(screen.getByRole("combobox", { name: zh.filterEpic }));
   await user.click(await screen.findByRole("option", { name: "Example", exact: true }));
   expect(source.textContent).toContain("workos / Example · 1 张任务");
-  await user.click(screen.getByRole("button", { name: zh.toggleCompact }));
+  await user.keyboard("{Escape}");
+  await user.click(screen.getByRole("button", { name: zh.boardDisplay }));
+  await user.click(screen.getByRole("checkbox", { name: zh.boardCompact }));
   expect(container.querySelector(".board-compact")).toBeTruthy();
   act(() => setLocale("en"));
-  expect(screen.getByRole("button", { name: en.toggleCompact }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("checkbox", { name: en.boardCompact }).getAttribute("aria-checked")).toBe("true");
   expect(source.textContent).toContain("Refresh every 30 seconds");
   rerender(<BoardKanban project="workos" range={null} query="no-match"
     onSelectTask={() => {}} onDecision={() => {}} decisionTasks={new Set()} />);

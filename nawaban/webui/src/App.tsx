@@ -6,7 +6,6 @@ import {
   RiGitBranchLine,
   RiSideBarLine,
   RiSearchLine,
-  RiCalendarLine,
 } from "@remixicon/react";
 import { Button } from "@/components/base/buttons/button";
 import { Badge } from "@/components/base/badges/badge";
@@ -57,7 +56,6 @@ const NAV = [
   });
   const [projects, setProjects] = useState<string[]>([]);
   const [range, setRange] = useState<DateRange | null>(null);
-  const [filterOpen, setFilterOpen] = useState(false);
   const [inboxTotal, setInboxTotal] = useState<number | null>(null);
   const [decisionTasks, setDecisionTasks] = useState(new Set<string>());
   const [path, dispatch] = useReducer(navigateTask, [], () => {
@@ -183,18 +181,6 @@ const NAV = [
   const title = NAV.find((n) => n.id === view)!.label;
   const controls = (
           <div className="page-controls">
-            {view === "board" && (
-              <Button
-                variant={range ? "secondary" : "ghost"}
-                className={
-                  !range ? "bg-transparent text-text-secondary" : undefined
-                }
-                size="small"
-                leadingIcon={RiCalendarLine}
-                aria-expanded={filterOpen}
-                onClick={() => setFilterOpen(!filterOpen)}
-              >{tr("updated")}</Button>
-            )}
             <div className="search-control">
             <Input
               ref={searchRef}
@@ -303,7 +289,7 @@ const NAV = [
             <BoardKanban
               key={project}
               controls={controls}
-              filters={(filterOpen || range) && <BoardFilterBar range={range} onChange={setRange} />}
+              filters={<BoardFilterBar range={range} onChange={setRange} />}
               query={query}
               range={range}
               project={project}

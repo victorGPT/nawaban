@@ -166,6 +166,7 @@ test("an active ungrouped board filter survives a language change", async () => 
     ...board.columns[0], tasks: [task, { ...task, id: "DEMO-I18N-003", title: "Ungrouped example task", epic: null }],
   }] });
   render(<Notices><App /></Notices>);
+  await user.click(await screen.findByRole("button", { name: zh.boardFilter }));
   const filter = await screen.findByRole("combobox", { name: zh.filterEpic });
   await user.click(filter);
   await user.click(await screen.findByRole("option", { name: zh.ungrouped }));
@@ -173,6 +174,7 @@ test("an active ungrouped board filter survives a language change", async () => 
   expect(screen.queryByText(task.title)).toBeNull();
 
   await user.click(screen.getByRole("button", { name: zh.switchLanguage }));
+  await user.click(screen.getByRole("button", { name: en.boardFilter }));
   expect(screen.getByRole("combobox", { name: en.filterEpic }).textContent).toContain(en.ungrouped);
   expect(screen.getByText("Ungrouped example task")).toBeTruthy();
   expect(screen.queryByText(task.title)).toBeNull();

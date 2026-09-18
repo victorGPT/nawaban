@@ -71,13 +71,14 @@ export function TaskTag({ label, color = "soft" }: {
   );
 }
 
-export function TaskCard({ task, hasAsk, onSelect, onDecision, className, children }: {
+export function TaskCard({ task, hasAsk, onSelect, onDecision, className, children, fields = ["id"] }: {
   task: TaskCardData;
   hasAsk: boolean;
   onSelect: () => void;
   onDecision: () => void;
   className?: string;
   children?: ReactNode;
+  fields?: readonly string[];
 }) {
   useLocale();
   return (
@@ -86,12 +87,13 @@ export function TaskCard({ task, hasAsk, onSelect, onDecision, className, childr
         <ContentButton className="task-card-open" onClick={onSelect}
           aria-label={tr("viewTask", { id: task.id, title: task.title })}>
           <OverflowText className="task-title" text={task.title} />
-          <span className="task-meta">
+          {fields.includes("id") && <span className="task-meta">
             <OverflowText as="code" text={task.id} />
-          </span>
+          </span>}
         </ContentButton>
         <div className="task-card-footer">
           {task.status === "claimed" && !children && <TaskTag label={statusLabel(task.status)} />}
+          {fields.includes("module") && <TaskTag label={task.epic || tr("ungrouped")} />}
           {children}
           <WindowStatus task={task} hasAsk={hasAsk} onDecision={onDecision} />
         </div>

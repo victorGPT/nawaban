@@ -336,6 +336,19 @@ Exact display templates below are part of the English vocabulary. Braced names a
 
 | English | 中文 | _Avoid_ |
 |---|---|---|
+| Display | 显示 | Board display preferences; presentation only, never task mutation. |
+| Sort by | 排序 | Board display preferences; presentation only, never task mutation. |
+| Default order | 默认顺序 | Board display preferences; presentation only, never task mutation. |
+| Recently updated | 最近更新 | Board display preferences; presentation only, never task mutation. |
+| Recently created | 最近创建 | Board display preferences; presentation only, never task mutation. |
+| Title (A–Z) | 标题顺序 | Board display preferences; presentation only, never task mutation. |
+| Compact density | 紧凑密度 | Board display preferences; presentation only, never task mutation. |
+| Visible fields | 显示字段 | Board display preferences; presentation only, never task mutation. |
+| Board columns | 看板列 | Board display preferences; presentation only, never task mutation. |
+| Hidden columns keep their tasks. The list still shows every matching task. | 收起列不会更改任务；列表仍显示全部符合筛选的任务。 | Board display preferences; presentation only, never task mutation. |
+| Show all columns | 显示全部列 | Board display preferences; presentation only, never task mutation. |
+| All board columns are hidden. | 所有看板列已收起。 | Board display preferences; presentation only, never task mutation. |
+| {count} columns hidden · Restore them in Display | 已收起 {count} 列 · 可在「显示」中恢复 | Board display preferences; presentation only, never task mutation. |
 | Refresh tasks | 刷新真实数据 | Board toolbar and synchronization status |
 | Filter waiting items | 筛选等待事项 | Board toolbar and synchronization status |
 | All waiting items | 全部等待事项 | Board toolbar and synchronization status |
@@ -350,7 +363,7 @@ Exact display templates below are part of the English vocabulary. Braced names a
 | Expand sidebar  [ | 展开侧栏  [ | A control label that describes an action different from what the control performs. |
 | Search ID / title / owner / epic (/ to focus · Esc to clear) | 搜索 id / 标题 / owner / epic(/ 聚焦 · Esc 清空) | A control label that describes an action different from what the control performs. |
 | Workspace | 工作区 | Runtime enum values as display labels or a different action sharing this label. |
-| Filter | 筛选 | A control label that describes an action different from what the control performs. |
+| Filter | 筛选 | Narrows the task collection by module, waiting reason, or updated date. |
 | Language | 语言 | Runtime enum values as display labels or a different action sharing this label. |
 | Switch to Chinese | 切换到英文 | Runtime enum values as display labels or a different action sharing this label. |
 | Waiting on observation | 等观察 | Runtime enum values as display labels or a different action sharing this label. |

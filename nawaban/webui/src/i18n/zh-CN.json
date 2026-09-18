@@ -264,5 +264,19 @@
   "syncingTasks": "同步中…",
   "syncedAt": "同步于 {time}",
   "refreshEvery": "每 {seconds} 秒刷新",
-  "boardSyncFailed": "同步失败"
+  "boardSyncFailed": "同步失败",
+  "boardFilter": "筛选",
+  "boardDisplay": "显示",
+  "boardSort": "排序",
+  "boardSort_default": "默认顺序",
+  "boardSort_updated": "最近更新",
+  "boardSort_created": "最近创建",
+  "boardSort_title": "标题顺序",
+  "boardCompact": "紧凑密度",
+  "boardFields": "显示字段",
+  "boardColumns": "看板列",
+  "boardColumnsHint": "收起列不会更改任务；列表仍显示全部符合筛选的任务。",
+  "boardShowAllColumns": "显示全部列",
+  "boardNoColumns": "所有看板列已收起。",
+  "boardHiddenColumns": "已收起 {count} 列 · 可在「显示」中恢复"
 }

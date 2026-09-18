@@ -1,8 +1,8 @@
 import { UNGROUPED_EPIC } from "@/lib/modules-model";
-import { t as tr, useLocale, statusLabel, waitingLabel } from "@/i18n";
-import { Fragment, useCallback, useState, type ReactNode } from "react";
-import { RiLayoutColumnLine, RiListCheck, RiRefreshLine, RiFilter3Line, RiLayoutRightLine } from "@remixicon/react";
-import { Button, buttonStyles } from "@/components/base/buttons/button";
+import { t as tr, useLocale, statusLabel } from "@/i18n";
+import { Fragment, useCallback, useEffect, useState, type ReactNode, type CSSProperties } from "react";
+import { RiLayoutColumnLine, RiListCheck, RiRefreshLine } from "@remixicon/react";
+import { Button } from "@/components/base/buttons/button";
 import { Badge } from "@/components/base/badges/badge";
 import {
   Table,
@@ -13,7 +13,8 @@ import {
   TableCell,
   TableEmpty,
 } from "@/components/base/table/table";
-import { ModuleSelect } from "@/components/base/select/module-select";
+import { BoardOptions } from "@/components/BoardOptions";
+import { BOARD_DISPLAY_STORAGE, readBoardDisplay, writeBoardDisplay, sortBoardTasks } from "@/lib/board-display";
 import { LoadState } from "@/components/NawabanUI";
 import { OverflowText } from "@/components/OverflowText";
 import { fetchBoard, type DateRange, type Project } from "@/lib/api";
@@ -21,7 +22,6 @@ import { boardItems, BOARD_COLUMNS } from "@/lib/nawaban-model";
 import { TaskCard, TaskTag, WindowStatus, StatusLegend } from "@/components/TaskCard";
 import { useReadOnlyData } from "@/lib/use-read-only-data";
 import { TASK_REFRESH_MS } from "@/lib/poll-read-only";
-import { Dropdown, DropdownTrigger, DropdownPopover, DropdownItem } from "@/components/base/dropdown/dropdown";
 import { cx } from "@/utils/cx";
 
 export function BoardKanban({
@@ -53,18 +53,34 @@ export function BoardKanban({
   );
   const [module, setModule] = useState("all");
   const [waiting, setWaiting] = useState("");
-  const [compact, setCompact] = useState(false);
+  const [display, setDisplay] = useState(() => {
+    let saved: string | null = null;
+    // Browser privacy settings may deny local storage; URL preferences still work.
+    try { saved = localStorage.getItem(BOARD_DISPLAY_STORAGE); } catch { /* URL only. */ }
+    return readBoardDisplay(location.search, saved);
+  });
+  useEffect(() => {
+    const url = new URL(location.href);
+    writeBoardDisplay(url.searchParams, display);
+    history.replaceState(null, "", url);
+    try { localStorage.setItem(BOARD_DISPLAY_STORAGE, writeBoardDisplay(new URLSearchParams(), display).toString()); }
+    catch { /* The URL remains shareable when local storage is unavailable. */ }
+  }, [display]);
+  const columns = BOARD_COLUMNS.filter((column) => display.columns.includes(column.id));
+  const showId = display.fields.includes("id");
+  const showModule = display.fields.includes("module");
+  const tableColumns = 2 + Number(showId) + Number(showModule);
   const tasks = board ? boardItems(board) : [];
   const modules = [...new Set(tasks.map((t) => t.epic || UNGROUPED_EPIC))].sort();
   const q = query.trim().toLowerCase();
-  const visible = tasks.filter(
+  const visible = sortBoardTasks(tasks.filter(
     (t) =>
       (module === "all" || (t.epic || UNGROUPED_EPIC) === module) &&
       (!waiting || t.waiting_on === waiting) &&
       [t.id, t.title, t.owner ?? "", t.epic ?? ""].some((s) =>
         s.toLowerCase().includes(q),
       ),
-  );
+  ), display.sort, locale);
   const changeLayout = (value: string) => {
     setLayout(value);
     const url = new URL(location.href);
@@ -72,7 +88,7 @@ export function BoardKanban({
     history.replaceState(null, "", url);
   };
   return (
-    <div className={cx("board-view", compact && "board-compact")}>
+    <div className={cx("board-view", display.compact && "board-compact")}>
       <div className="board-toolbar">
         <div className="view-toggle">
           <Button
@@ -104,27 +120,10 @@ export function BoardKanban({
           aria-label={tr("refreshTasks")} title={tr("refreshTasks")}
           disabled={refreshing} onClick={refresh} />
         {controls}
-        <Dropdown>
-          <DropdownTrigger className={cx(buttonStyles.base, buttonStyles.size.small,
-            buttonStyles.variant.secondary, buttonStyles.iconOnlySize.small, waiting && "board-tool-active")}
-            aria-label={tr("filterWaiting")} title={tr("filterWaiting")}>
-            <RiFilter3Line className={buttonStyles.icon.small} aria-hidden />
-          </DropdownTrigger>
-          <DropdownPopover aria-label={tr("filterWaiting")}>
-            {["", "decision", "prod", "observe", "external"].map((value) =>
-              <DropdownItem key={value} selected={waiting === value} onSelect={() => setWaiting(value)}>
-                {value ? waitingLabel(value) : tr("allWaiting")}
-              </DropdownItem>)}
-          </DropdownPopover>
-        </Dropdown>
-        <ModuleSelect modules={modules} value={module} onValueChange={setModule}
-          getLabel={(value) => value === UNGROUPED_EPIC ? tr("ungrouped") : value} />
-        <Button variant="secondary" size="small" iconOnly leadingIcon={RiLayoutRightLine}
-          className={cx(compact && "board-tool-active")}
-          aria-label={tr("toggleCompact")} title={tr("toggleCompact")}
-          aria-pressed={compact} onClick={() => setCompact(!compact)} />
+        <BoardOptions modules={modules} module={module} onModuleChange={setModule}
+          waiting={waiting} onWaitingChange={setWaiting} dateFilters={filters} dateActive={!!range}
+          display={display} onDisplayChange={setDisplay} />
       </div>
-      {filters}
       <div className="board-source-line text-caption-1-regular">
         <span className="board-source-scope" role="status">
           {project === null ? tr("allProjects") : project || tr("noProject")} / {module === "all" ? tr("allEpics") : module === UNGROUPED_EPIC ? tr("ungrouped") : module}
@@ -135,6 +134,8 @@ export function BoardKanban({
           {" · "}{tr("refreshEvery", { seconds: TASK_REFRESH_MS / 1000 })}
         </span>
       </div>
+      {layout === "board" && columns.length < BOARD_COLUMNS.length &&
+        <p className="px-5 py-2 text-caption-1-regular text-text-secondary">{tr("boardHiddenColumns", { count: BOARD_COLUMNS.length - columns.length })}</p>}
       <div className="board-scroll">
       {error ? <LoadState error>{error}</LoadState> : !board ? <LoadState>{tr("loadingTasks")}</LoadState> : layout === "list" ? (
         <Table
@@ -142,11 +143,11 @@ export function BoardKanban({
           aria-label={tr("taskList")}
           className="task-table"
         >
-          <colgroup><col /><col /><col /><col /></colgroup>
+          <colgroup><col className="task-col-title" />{showId && <col className="task-col-id" />}{showModule && <col className="task-col-module" />}<col className="task-col-status" /></colgroup>
           <TableHeader className="sr-only">
             <TableColumn>{tr("taskTitle")}</TableColumn>
-            <TableColumn>{tr("taskId")}</TableColumn>
-            <TableColumn>{tr("epicName")}</TableColumn>
+            {showId && <TableColumn>{tr("taskId")}</TableColumn>}
+            {showModule && <TableColumn>{tr("epicName")}</TableColumn>}
             <TableColumn>{tr("status")}</TableColumn>
           </TableHeader>
           <TableBody>
@@ -154,18 +155,18 @@ export function BoardKanban({
               const group = visible.filter((task) => column.states.some((state) => state === task.column));
               return <Fragment key={column.id}>
                 <tr className="task-list-group" data-stage={column.id}>
-                  <th colSpan={4} scope="rowgroup">
+                  <th colSpan={tableColumns} scope="rowgroup">
                     <h2 className="text-body-medium"><span className="column-status" aria-hidden="true" />{column.label}<Badge>{group.length}</Badge></h2>
                   </th>
                 </tr>
-                {group.length === 0 && <TableEmpty colSpan={4}>{tr("noMatchingTasks")}</TableEmpty>}
+                {group.length === 0 && <TableEmpty colSpan={tableColumns}>{tr("noMatchingTasks")}</TableEmpty>}
                 {group.map((task) => (
                   <TableRow key={task.id} aria-label={`${task.id} ${task.title}`} onAction={() => onSelectTask(task.id)}>
-                    <TableCell><OverflowText className="task-list-title" text={task.title} /></TableCell>
-                    <TableCell><OverflowText as="code" className="task-id" text={task.id} /></TableCell>
-                    <TableCell><TaskTag label={task.epic || tr("ungrouped")} />
+                    <TableCell><OverflowText className="task-list-title" text={task.title} />
                       {task.status === "claimed" && <TaskTag label={statusLabel(task.status)} />}
                     </TableCell>
+                    {showId && <TableCell><OverflowText as="code" className="task-id" text={task.id} /></TableCell>}
+                    {showModule && <TableCell><TaskTag label={task.epic || tr("ungrouped")} /></TableCell>}
                     <TableCell><WindowStatus task={task} hasAsk={decisionTasks.has(task.id)} onDecision={() => onDecision(task.id)} /></TableCell>
                   </TableRow>
                 ))}
@@ -173,9 +174,15 @@ export function BoardKanban({
             })}
           </TableBody>
         </Table>
+      ) : columns.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 p-8 text-text-secondary">
+          <p>{tr("boardNoColumns")}</p>
+          <Button variant="secondary" size="small" onClick={() => setDisplay({ ...display,
+            columns: BOARD_COLUMNS.map((column) => column.id) })}>{tr("boardShowAllColumns")}</Button>
+        </div>
       ) : (
-        <div className="kanban">
-          {BOARD_COLUMNS.map((s) => (
+        <div className="kanban" style={{ "--board-column-count": columns.length } as CSSProperties}>
+          {columns.map((s) => (
             <section className="board-column" key={s.id} data-stage={s.id}>
               <h2 className="text-body-medium">
                 <span className="column-status" aria-hidden="true" />
@@ -188,7 +195,7 @@ export function BoardKanban({
                 {visible
                   .filter((t) => s.states.some((state) => state === t.column))
                   .map((t) => (
-                    <TaskCard key={t.id} task={t} hasAsk={decisionTasks.has(t.id)}
+                    <TaskCard key={t.id} task={t} fields={display.fields} hasAsk={decisionTasks.has(t.id)}
                       onSelect={() => onSelectTask(t.id)} onDecision={() => onDecision(t.id)} />
                   ))}
               </div>
