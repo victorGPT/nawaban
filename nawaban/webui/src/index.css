@@ -275,6 +275,14 @@ input, textarea { caret-color: var(--color-accent-500); }
 }
 .task-card-open > span > .task-meta { margin-top: 18px; }
 .task-meta code { @apply text-reference-caption; }
+/* Keep the footer slot when the display controls hide the task ID. */
+.kanban .task-card-open > span:not(:has(.task-meta))::after {
+  @apply text-reference-caption;
+  content: "";
+  display: block;
+  height: 1lh;
+  margin-top: 18px;
+}
 .task-card-footer { position: absolute; right: 12px; bottom: 14px; display: flex; align-items: center; gap: 4px; }
 .task-card:has(.task-tag) .task-meta { padding-right: 104px; }
 .task-card .task-meta { padding-right: 24px; }
@@ -282,6 +290,9 @@ input, textarea { caret-color: var(--color-accent-500); }
 .module-graph-scroll .task-card .task-meta { padding-right: 0; }
 .task-card-footer .signal-button { margin-left: auto; flex-shrink: 0; }
 .task-card-footer .task-tag-label { @apply text-reference-caption; }
+.task-attention { min-width: 0; max-width: 100%; flex: 0 1 auto; }
+.kanban .task-card:has(.task-tag, [data-task-attention]) .task-card-footer { left: 40%; min-width: 0; flex-wrap: nowrap; }
+.kanban .task-card:has(.task-tag, [data-task-attention]) .task-meta { width: 35%; padding-right: 0; }
 .task-card:hover { box-shadow: var(--shadow-sm); }
 
 .signal-button {
@@ -834,6 +845,4 @@ a:focus-visible {
 .board-options-panel .date-filter > div { max-width: 100%; }
 .board-toolbar { flex-wrap: wrap; }
 
-.kanban .task-card-footer { position: static; padding: 0 14px 8px; min-width: 0; }
-.kanban .task-card .task-meta { padding-right: 0; }
 .kanban .task-card-footer .task-tag { max-width: 65%; }

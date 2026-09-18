@@ -605,3 +605,5 @@ Exact display templates below are part of the English vocabulary. Braced names a
 | {types} (max {size}) | {types}（最大 {size}） | Display text only; preserve stored values and user-authored content. |
 | Uploading {size}… | 正在上传 {size}… | Display text only; preserve stored values and user-authored content. |
 | Uploaded successfully! | 上传成功！ | Display text only; preserve stored values and user-authored content. |
+| No updates for {count} days | {count} 天没动静 | Task event inactivity, independent of session liveness. |
+| No updates for {count} day | {count} 天没动静 | Singular task inactivity duration. |

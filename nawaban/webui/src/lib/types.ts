@@ -38,7 +38,7 @@ export type BoardResponse = {
 export type ProjectsResponse = {
   projects: { name: string | null; open: number; total: number }[];
 };
-export type ModuleTask = { i: string; t: string; s: string; e: string; live?: Live; waiting_on?: string | null };
+export type ModuleTask = { i: string; t: string; s: string; e: string; live?: Live; waiting_on?: string | null; active_at?: number };
 export type ModulesResponse = { tasks: ModuleTask[]; deps: [string, string][]; liveness?: BoardResponse["liveness"]; unavailable?: boolean };
 
 export type AskItem = {

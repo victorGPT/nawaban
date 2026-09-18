@@ -377,10 +377,13 @@ def modules_data(path: Path | str, idx: dict[str, float] | None = None,
     try:
         tasks = [{"i": r["id"], "t": r["title"] or "", "s": r["status"],
                   "e": r["epic"] or "", "waiting_on": r["waiting_on"],
+                  "active_at": r["last_event_at"] or r["started_at"] or r["created_at"],
                   "live": _live_of(r["owner"], idx) if r["status"] in LIVE_COLUMNS else None}
                  for r in con.execute(
-                     "SELECT id, title, status, epic, owner, waiting_on FROM tasks"
-                     " WHERE :project IS NULL OR COALESCE(project, '') = :project", {"project": project})]
+                     "SELECT t.*, MAX(e.created_at) AS last_event_at"
+                     " FROM tasks t LEFT JOIN task_events e ON e.task_id = t.id"
+                     " WHERE :project IS NULL OR COALESCE(t.project, '') = :project"
+                     " GROUP BY t.id", {"project": project})]
         ids = {t["i"] for t in tasks}
         # 跨项目的依赖边两端不全在本项目里,只留两端都在的
         deps = [[r["src"], r["dst"]] for r in con.execute(

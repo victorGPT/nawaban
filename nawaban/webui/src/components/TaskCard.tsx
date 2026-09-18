@@ -1,4 +1,4 @@
-import { t as tr, useLocale, statusLabel } from "@/i18n";
+import { t as tr, useLocale, statusLabel, waitingLabel } from "@/i18n";
 import type { ReactNode } from "react";
 import { Button } from "@/components/base/buttons/button";
 import { Chip, type ChipProps } from "@/components/base/badges/chip";
@@ -7,6 +7,8 @@ import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { ContentButton, Surface } from "@/components/NawabanUI";
 import { OverflowText } from "@/components/OverflowText";
 import { liveAge, taskSignal } from "@/lib/nawaban-model";
+import { taskStaleness } from "@/lib/task-staleness";
+import { useTaskClock } from "@/lib/use-task-clock";
 import type { BoardTask } from "@/lib/types";
 import { cx } from "@/utils/cx";
 
@@ -57,7 +59,25 @@ export function WindowStatus({
     </TooltipTrigger>
   );
 }
-export type TaskCardData = Pick<BoardTask, "id" | "title" | "epic" | "status" | "live" | "waiting_on">;
+export type TaskCardData = Pick<BoardTask, "id" | "title" | "epic" | "status" | "live" | "waiting_on">
+  & { active_at?: number };
+
+function TaskAttention({ task }: { task: TaskCardData }) {
+  const now = useTaskClock();
+  if (task.status === "done" || task.status === "cancelled") return null;
+  const stale = taskStaleness(task.active_at, now);
+  if (!stale && !task.waiting_on) return null;
+  const label = [
+    task.waiting_on && waitingLabel(task.waiting_on),
+    stale && tr(stale.days === 1 ? "taskInactiveDay" : "taskInactiveDays", { count: stale.days }),
+  ].filter(Boolean).join(" · ");
+  return (
+    <Chip className="task-attention" variant="caption" data-task-attention data-stale-level={stale?.level}
+      color={stale?.level === "critical" ? "rose" : stale?.level === "warning" ? "yellow" : "soft"}>
+      <OverflowText className="task-tag-label" text={label} />
+    </Chip>
+  );
+}
 
 export function TaskTag({ label, color = "soft" }: {
   label: string;
@@ -95,6 +115,7 @@ export function TaskCard({ task, hasAsk, onSelect, onDecision, className, childr
           {task.status === "claimed" && !children && <TaskTag label={statusLabel(task.status)} />}
           {fields.includes("module") && <TaskTag label={task.epic || tr("ungrouped")} />}
           {children}
+          <TaskAttention task={task} />
           <WindowStatus task={task} hasAsk={hasAsk} onDecision={onDecision} />
         </div>
       </Surface>
