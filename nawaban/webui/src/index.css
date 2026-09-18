@@ -148,6 +148,9 @@ input, textarea { caret-color: var(--color-accent-500); }
 .page-controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 .page-controls > div { width: 190px; }
 .page-controls > button { order: 1; }
+.search-control { position: relative; }
+.search-control input { padding-right: 24px; }
+.search-shortcut { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; pointer-events: none; }
 .view-content { flex: 1; min-height: 0; overflow: hidden; }
 .board-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .view-toggle { display: flex; gap: 0; padding: 3px; border-radius: 10px; background: var(--color-background-tertiary-default); }
@@ -157,7 +160,13 @@ input, textarea { caret-color: var(--color-accent-500); }
 .view-toggle button svg { display: none; }
 .sidebar-bottom > button, .nawaban-brand > button, .signal-button { background: transparent; box-shadow: none; }
 .board-toolbar > [role="combobox"] { max-width: 180px; }
-.board-source-line { padding: 6px 20px; min-height: 30px; border-bottom: 1px solid var(--line); color: var(--muted); }
+.board-source-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 20px; min-height: 30px; border-bottom: 1px solid var(--line); color: var(--muted); }
+.board-source-scope { color: var(--color-text-secondary); }
+.board-sync-time { margin-left: auto; }
+.board-tool-active { color: var(--color-accent-500); border-color: var(--color-accent-500); }
+.board-compact .task-stack { gap: 8px; }
+.board-compact .task-card-open { padding-block: 10px !important; }
+.board-compact .task-table td { padding-block: 6px; }
 .board-scroll { flex: 1; min-height: 0; overflow: auto; }
 .board-scroll, .module-graph-scroll, .module-rail, .detail-reading, .detail-properties-rail, .inbox-detail {
   scrollbar-width: thin;

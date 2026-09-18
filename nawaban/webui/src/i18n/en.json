@@ -256,5 +256,13 @@
   "uploadTooLarge": "That file is larger than {size}",
   "uploadLimit": "{types} (max {size})",
   "uploadProgress": "Uploading {size}…",
-  "uploadSuccess": "Uploaded successfully!"
+  "uploadSuccess": "Uploaded successfully!",
+  "refreshTasks": "Refresh tasks",
+  "filterWaiting": "Filter waiting items",
+  "allWaiting": "All waiting items",
+  "toggleCompact": "Toggle compact spacing",
+  "syncingTasks": "Syncing…",
+  "syncedAt": "Synced at {time}",
+  "refreshEvery": "Refresh every {seconds} seconds",
+  "boardSyncFailed": "Sync failed"
 }

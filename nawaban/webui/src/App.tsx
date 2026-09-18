@@ -6,7 +6,7 @@ import {
   RiGitBranchLine,
   RiSideBarLine,
   RiSearchLine,
-  RiFilter3Line,
+  RiCalendarLine,
 } from "@remixicon/react";
 import { Button } from "@/components/base/buttons/button";
 import { Badge } from "@/components/base/badges/badge";
@@ -190,17 +190,19 @@ const NAV = [
                   !range ? "bg-transparent text-text-secondary" : undefined
                 }
                 size="small"
-                leadingIcon={RiFilter3Line}
+                leadingIcon={RiCalendarLine}
                 aria-expanded={filterOpen}
                 onClick={() => setFilterOpen(!filterOpen)}
               >{tr("updated")}</Button>
             )}
+            <div className="search-control">
             <Input
               ref={searchRef}
               size="small"
               fieldClassName="border border-border-button-default bg-background-primary-default shadow-xs"
               leadingIcon={RiSearchLine}
               aria-label={tr("searchTasks")}
+              aria-keyshortcuts="/ Control+k Meta+k"
               placeholder={
                 view === "modules"
                   ? tr("searchModules")
@@ -211,6 +213,8 @@ const NAV = [
               value={query}
               onChange={setQuery}
             />
+            <kbd className="search-shortcut text-caption-1-regular" aria-hidden="true">/</kbd>
+            </div>
           </div>
   );
   return (

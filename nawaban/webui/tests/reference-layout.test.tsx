@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import { BoardKanban } from "@/components/BoardKanban";
@@ -67,6 +67,68 @@ test("a failed read keeps search and date controls available for recovery", asyn
     onDecision={() => {}} decisionTasks={new Set()}
     controls={<span>Search controls</span>} filters={<span>Date controls</span>} />);
   await screen.findByText("Error: Read failed");
+  expect(screen.getByRole("status").textContent).toContain(zh.boardSyncFailed);
+  expect(screen.getByRole("status").textContent).not.toContain(zh.loadingTasks);
   expect(screen.getByText("Search controls")).toBeTruthy();
   expect(screen.getByText("Date controls")).toBeTruthy();
+});
+
+test("toolbar filters waiting items, reports the visible scope, and translates immediately", async () => {
+  const user = userEvent.setup();
+  const waitingBoard = structuredClone(board);
+  waitingBoard.columns[1].tasks[0].waiting_on = "decision";
+  vi.mocked(fetchBoard).mockResolvedValue(waitingBoard);
+  const { container, rerender } = render(<BoardKanban project="workos" range={null} query=""
+    onSelectTask={() => {}} onDecision={() => {}} decisionTasks={new Set()} />);
+  await screen.findByText("Task claimed");
+  const source = container.querySelector(".board-source-line")!;
+  expect(source.textContent).toContain(`workos / ${zh.allEpics} · 5 张任务`);
+  expect(source.textContent).toContain("每 30 秒刷新");
+  expect(container.querySelector(".board-sync-time")!.closest('[role="status"]')).toBeNull();
+  const filter = screen.getByRole("button", { name: zh.filterWaiting });
+  await user.click(filter);
+  await user.click(await screen.findByRole("menuitem", { name: zh.waitDecision }));
+  expect(container.querySelectorAll("[data-card-id]")).toHaveLength(1);
+  expect(source.textContent).toContain("1 张任务");
+  await waitFor(() => expect(document.activeElement).toBe(filter));
+  await user.click(filter);
+  await screen.findByRole("menu");
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(document.activeElement).toBe(filter));
+  await user.click(screen.getByRole("combobox", { name: zh.filterEpic }));
+  await user.click(await screen.findByRole("option", { name: "Example", exact: true }));
+  expect(source.textContent).toContain("workos / Example · 1 张任务");
+  await user.click(screen.getByRole("button", { name: zh.toggleCompact }));
+  expect(container.querySelector(".board-compact")).toBeTruthy();
+  act(() => setLocale("en"));
+  expect(screen.getByRole("button", { name: en.toggleCompact }).getAttribute("aria-pressed")).toBe("true");
+  expect(source.textContent).toContain("Refresh every 30 seconds");
+  rerender(<BoardKanban project="workos" range={null} query="no-match"
+    onSelectTask={() => {}} onDecision={() => {}} decisionTasks={new Set()} />);
+  expect(source.textContent).toContain("0 tasks");
+});
+
+test("manual refresh exposes pending and failure states and can recover without changing layout", async () => {
+  const user = userEvent.setup();
+  const { container } = render(<BoardKanban project="" range={null} query=""
+    onSelectTask={() => {}} onDecision={() => {}} decisionTasks={new Set()} />);
+  await screen.findByText("Task claimed");
+  expect(container.querySelector(".board-source-line")!.textContent).toContain(zh.noProject);
+  await user.click(screen.getByRole("button", { name: zh.list, exact: true }));
+  let reject!: (reason: Error) => void;
+  vi.mocked(fetchBoard).mockReturnValueOnce(new Promise((_, fail) => { reject = fail; }));
+  const refresh = screen.getByRole("button", { name: zh.refreshTasks });
+  await user.click(refresh);
+  expect(refresh.hasAttribute("disabled")).toBe(true);
+  expect(container.querySelector(".board-sync-time")!.textContent).toContain(zh.syncingTasks);
+  await act(async () => reject(new Error("offline")));
+  expect(container.querySelector(".board-sync-time")!.textContent).toContain(zh.boardSyncFailed);
+  expect(container.querySelector(".board-sync-time")!.textContent).not.toContain("同步于");
+  let resolve!: (value: BoardResponse) => void;
+  vi.mocked(fetchBoard).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+  await user.click(refresh);
+  expect(container.querySelector(".board-sync-time")!.textContent).toContain(zh.syncingTasks);
+  await act(async () => resolve(board));
+  await waitFor(() => expect(screen.getByRole("table")).toBeTruthy());
+  expect(container.querySelector(".board-sync-time")!.textContent).toContain("同步于");
 });

@@ -336,6 +336,14 @@ Exact display templates below are part of the English vocabulary. Braced names a
 
 | English | 中文 | _Avoid_ |
 |---|---|---|
+| Refresh tasks | 刷新真实数据 | Board toolbar and synchronization status |
+| Filter waiting items | 筛选等待事项 | Board toolbar and synchronization status |
+| All waiting items | 全部等待事项 | Board toolbar and synchronization status |
+| Toggle compact spacing | 切换紧凑间距 | Board toolbar and synchronization status |
+| Syncing… | 同步中… | Board toolbar and synchronization status |
+| Synced at {time} | 同步于 {time} | Board toolbar and synchronization status |
+| Refresh every {seconds} seconds | 每 {seconds} 秒刷新 | Board toolbar and synchronization status |
+| Sync failed | 同步失败 | Board toolbar and synchronization status |
 | Collapse sidebar ([) | 收起侧栏([) | A control label that describes an action different from what the control performs. |
 | Collapse sidebar  [ | 收起侧栏  [ | A control label that describes an action different from what the control performs. |
 | Expand sidebar ([) | 展开侧栏([) | A control label that describes an action different from what the control performs. |
@@ -466,7 +474,7 @@ Exact display templates below are part of the English vocabulary. Braced names a
 | Search questions, related tasks… | 搜索问题、关联任务… | Display text only; preserve stored values and user-authored content. |
 | Search ID, title, owner… | 搜索编号、标题、负责人… | Display text only; preserve stored values and user-authored content. |
 | List | 列表 | Display text only; preserve stored values and user-authored content. |
-| {count} tasks | {count} 项任务 | Display text only; preserve stored values and user-authored content. |
+| {count} tasks | {count} 张任务 | Display text only; preserve stored values and user-authored content. |
 | Task list | 任务列表 | Display text only; preserve stored values and user-authored content. |
 | ID | 编号 | Display text only; preserve stored values and user-authored content. |
 | Title | 标题 | Display text only; preserve stored values and user-authored content. |
