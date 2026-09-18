@@ -56,4 +56,6 @@ The HTTP creation boundary now requires a 36-character ID before building argv; 
 - `uv run --no-project --python 3.12 --with pytest --with pyyaml python tests/run.py`: **34 passed, 0 failed, 0 skipped** (33 inherited scripts plus **347 pytest tests**).
 - Claude CLI (`claude-fable-5-1`) reviewed this focused code/test diff: **PASS**, source-only. Its conditional NUL/surrogate concern is already covered by `captures.validate_text` and the passing transport-input regressions; no additional fallback was added.
 
-This follow-up changes only the two HTTP boundaries, their regressions, and this evidence document. No live database migration or deployment was performed.
+CI run `35350895765` exposed an affected Vite proxy fixture using the non-UUID ID `fixture`; the new boundary correctly returned 400. Updated that input to a canonical UUID while preserving every same-origin and hostile-origin assertion. `npm --prefix nawaban/webui run test:proxy`: **1 passed**. No production guard was relaxed.
+
+This follow-up changes only the two HTTP boundaries, their regressions, the affected proxy fixture, and this evidence document. No live database migration or deployment was performed.

@@ -10,7 +10,7 @@ import { createServer } from "vite";
 
 function send(url: string, headers: Record<string, string | string[]>, method = "POST") {
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
-    const payload = method === "POST" ? JSON.stringify(url.endsWith("/api/captures") ? { id: "fixture", content: "An idea" } : { ask_id: 1, verdict: "Test only" }) : "";
+    const payload = method === "POST" ? JSON.stringify(url.endsWith("/api/captures") ? { id: "12345678-1234-4234-8234-123456789abc", content: "An idea" } : { ask_id: 1, verdict: "Test only" }) : "";
     const rawHeaders = Object.entries({ Host: new URL(url).host, "Content-Length": String(Buffer.byteLength(payload)), ...headers })
       .flatMap(([name, value]) => (Array.isArray(value) ? value : [value]).flatMap((item) => [name, item]));
     const req = request(url, { method, headers: rawHeaders }, (response) => {
