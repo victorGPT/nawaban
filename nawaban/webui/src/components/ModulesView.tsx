@@ -1,4 +1,4 @@
-import { t as tr, useLocale, statusLabel } from "@/i18n";
+import { t as tr, useLocale } from "@/i18n";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Chip } from "@/components/base/badges/chip";
 import { TaskCard, TaskTag, StatusLegend } from "@/components/TaskCard";
@@ -23,23 +23,6 @@ import {
   layers,
   type Index,
 } from "@/lib/modules-model";
-type Status = (typeof ST)[number];
-const STATUS_COLOR = {
-  done: "soft",
-  "staging-verified": "yellow",
-  in_progress: "blue",
-  claimed: "soft",
-  open: "soft",
-} as const;
-const isStatus = (s: string): s is Status =>
-  (ST as readonly string[]).includes(s);
-function StageTag({ status }: { status: string }) {
-  useLocale();
-  return <Chip color={isStatus(status) ? STATUS_COLOR[status] : "soft"} variant="bold">
-    {statusLabel(status)}
-  </Chip>;
-}
-
 function matches(t: ModuleTask, q: string) {
   const s = q.toLowerCase();
   return (
@@ -84,7 +67,6 @@ function Card({
       hasAsk={hasAsk} onSelect={onClick} onDecision={onDecision}
       className={cn("transition-opacity", hot && "ring-1 ring-border-focus-ring", dim && "opacity-[.22]")}
     >
-      <StageTag status={t.s} />
       {blocked && <Chip color="yellow" variant="bold">{tr("blocked")}</Chip>}
       {[...xdep].map((e) => <TaskTag label={`${tr("dependencyPrefix")}${e}`} key={e} />)}
     </TaskCard>

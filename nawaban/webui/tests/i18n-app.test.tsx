@@ -84,6 +84,28 @@ test("the sidebar language control updates the mounted board, module network, an
   expect(screen.getAllByText("Review this result").length).toBeGreaterThan(0);
 });
 
+test("module cards retain blocked and cross-epic dependency tags without lifecycle badges", async () => {
+  const user = userEvent.setup();
+  vi.mocked(fetchModules).mockResolvedValue({ tasks: [
+    { i: "CHILD", t: "Dependent task", s: "claimed", e: "A" },
+    { i: "ROOT", t: "Upstream task", s: "open", e: "B" },
+  ], deps: [["CHILD", "ROOT"]] });
+  const { container } = render(<Notices><App /></Notices>);
+  await screen.findByText(task.title);
+  expect(container.querySelector(".search-shortcut")!.textContent).toBe("/");
+  await user.keyboard("/");
+  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: zh.searchTasks }));
+  await user.click(screen.getByRole("link", { name: zh.epic }));
+  await screen.findByText("Dependent task");
+  const card = container.querySelector('[data-card-id="CHILD"]') as HTMLElement;
+  expect(within(card).getByText(zh.blocked)).toBeTruthy();
+  expect(within(card).getByText(`${zh.dependencyPrefix}B`)).toBeTruthy();
+  expect(within(card).queryByText(zh.assigned)).toBeNull();
+  act(() => setLocale("en"));
+  expect(within(card).queryByText(en.assigned)).toBeNull();
+  expect(within(card).getByText(`${en.dependencyPrefix}B`)).toBeTruthy();
+});
+
 test("a mounted detail sheet translates immediately while preserving task content and loaded data", async () => {
   render(<Notices><TaskDetailSheet taskId={task.id} onSelectTask={() => {}} onOpenChange={() => {}} /></Notices>);
   const dialog = await screen.findByRole("dialog");

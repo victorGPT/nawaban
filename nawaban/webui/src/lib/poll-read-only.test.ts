@@ -45,3 +45,36 @@ test("leaving a view discards its in-flight response and schedules no more reads
   assert.deepEqual(values, []);
   assert.equal(calls, 1);
 });
+
+test("manual refresh coalesces pending reads and resets the automatic refresh deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let calls = 0;
+  let resolve!: (value: number) => void;
+  const values: number[] = [], busy: boolean[] = [];
+  const stop = pollReadOnly(() => {
+    calls++;
+    return new Promise<number>((done) => { resolve = done; });
+  }, (value) => values.push(value), assert.fail, (value) => busy.push(value));
+  await stop.refresh();
+  assert.equal(calls, 1);
+  resolve(1);
+  await Promise.resolve();
+  t.mock.timers.tick(20_000);
+  const manual = stop.refresh();
+  assert.equal(calls, 2);
+  t.mock.timers.tick(10_000);
+  assert.equal(calls, 2);
+  resolve(2);
+  await manual;
+  t.mock.timers.tick(29_999);
+  assert.equal(calls, 2);
+  t.mock.timers.tick(1);
+  assert.equal(calls, 3);
+  stop();
+  resolve(3);
+  await Promise.resolve();
+  await stop.refresh();
+  assert.equal(calls, 3);
+  assert.deepEqual(values, [1, 2]);
+  assert.deepEqual(busy, [true, false, true, false, true]);
+});

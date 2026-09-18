@@ -158,7 +158,7 @@
   "searchInbox": "搜索问题、关联任务…",
   "searchBoard": "搜索编号、标题、负责人…",
   "list": "列表",
-  "taskCount": "{count} 项任务",
+  "taskCount": "{count} 张任务",
   "taskList": "任务列表",
   "taskId": "编号",
   "taskTitle": "标题",
@@ -256,5 +256,13 @@
   "uploadTooLarge": "文件大小超过 {size}",
   "uploadLimit": "{types}（最大 {size}）",
   "uploadProgress": "正在上传 {size}…",
-  "uploadSuccess": "上传成功！"
+  "uploadSuccess": "上传成功！",
+  "refreshTasks": "刷新真实数据",
+  "filterWaiting": "筛选等待事项",
+  "allWaiting": "全部等待事项",
+  "toggleCompact": "切换紧凑间距",
+  "syncingTasks": "同步中…",
+  "syncedAt": "同步于 {time}",
+  "refreshEvery": "每 {seconds} 秒刷新",
+  "boardSyncFailed": "同步失败"
 }
