@@ -49,8 +49,8 @@ test("waiting reasons are visible without staleness and translate immediately", 
   }
   rerender(card({ waiting_on: "decision", active_at: now - thresholds.critical }));
   act(() => setLocale("en"));
-  expect(screen.getByText("Waiting on decision")).toBeTruthy();
-  expect(screen.getByText("No updates for 7 days")).toBeTruthy();
+  expect(screen.getByText("Waiting on decision · No updates for 7 days")).toBeTruthy();
+  expect(screen.getByText("Waiting on decision · No updates for 7 days")).toBeTruthy();
 });
 
 test("terminal tasks and absent or future timestamps do not manufacture inactivity", () => {
@@ -88,8 +88,8 @@ test("module cards consume the API activity timestamp and waiting reason", async
   }], deps: [] });
   render(<ModulesView project={null} query="" decisionTasks={new Set()}
     onSelectTask={vi.fn()} onDecision={vi.fn()} />);
-  expect(await screen.findByText("3 天没动静")).toBeTruthy();
-  expect(screen.getByText("等观察")).toBeTruthy();
+  expect(await screen.findByText("等观察 · 3 天没动静")).toBeTruthy();
+  expect(screen.getByText("等观察 · 3 天没动静")).toBeTruthy();
 });
 
 test("one shared clock advances idle cards without a fetch and is cleaned up on unmount", () => {
@@ -103,4 +103,29 @@ test("one shared clock advances idle cards without a fetch and is cleaned up on 
   unmount();
   expect(vi.getTimerCount()).toBe(0);
   vi.useRealTimers();
+});
+
+test("unknown waiting values remain visible in one footer chip without adding a content row", () => {
+  vi.spyOn(Date, "now").mockReturnValue(now * 1000);
+  const unknown = "waiting_for_a_very_long_external_identifier";
+  const { container, rerender } = render(card({ waiting_on: unknown, active_at: now - thresholds.warning }));
+  expect(screen.getByText(`${unknown} · 3 天没动静`)).toBeTruthy();
+  expect(container.querySelectorAll(".task-card-footer [data-task-attention]")).toHaveLength(1);
+  expect(container.querySelector(".task-card-open [data-task-attention]")).toBeNull();
+  act(() => setLocale("en"));
+  expect(screen.getByText(`${unknown} · No updates for 3 days`)).toBeTruthy();
+  rerender(card({ waiting_on: unknown }));
+  expect(screen.getByText(unknown)).toBeTruthy();
+  expect(container.querySelectorAll(".task-card-footer [data-task-attention]")).toHaveLength(1);
+});
+
+test("English uses singular from 24 hours until 48 hours and plural afterwards", () => {
+  vi.spyOn(Date, "now").mockReturnValue(now * 1000);
+  setLocale("en");
+  const { rerender } = render(card({ active_at: now - 86400 }));
+  expect(screen.getByText("No updates for 1 day")).toBeTruthy();
+  rerender(card({ active_at: now - 172799 }));
+  expect(screen.getByText("No updates for 1 day")).toBeTruthy();
+  rerender(card({ active_at: now - 172800 }));
+  expect(screen.getByText("No updates for 2 days")).toBeTruthy();
 });

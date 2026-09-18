@@ -67,14 +67,15 @@ function TaskAttention({ task }: { task: TaskCardData }) {
   if (task.status === "done" || task.status === "cancelled") return null;
   const stale = taskStaleness(task.active_at, now);
   if (!stale && !task.waiting_on) return null;
+  const label = [
+    task.waiting_on && waitingLabel(task.waiting_on),
+    stale && tr(stale.days === 1 ? "taskInactiveDay" : "taskInactiveDays", { count: stale.days }),
+  ].filter(Boolean).join(" · ");
   return (
-    <span className="mt-2 flex flex-wrap gap-1" data-task-attention>
-      {task.waiting_on && <Chip variant="caption" color="soft">{waitingLabel(task.waiting_on)}</Chip>}
-      {stale && <Chip variant="caption" data-stale-level={stale.level}
-        color={stale.level === "critical" ? "rose" : stale.level === "warning" ? "yellow" : "soft"}>
-        {tr("taskInactiveDays", { count: stale.days })}
-      </Chip>}
-    </span>
+    <Chip className="task-attention" variant="caption" data-task-attention data-stale-level={stale?.level}
+      color={stale?.level === "critical" ? "rose" : stale?.level === "warning" ? "yellow" : "soft"}>
+      <OverflowText className="task-tag-label" text={label} />
+    </Chip>
   );
 }
 
@@ -106,7 +107,6 @@ export function TaskCard({ task, hasAsk, onSelect, onDecision, className, childr
         <ContentButton className="task-card-open" onClick={onSelect}
           aria-label={tr("viewTask", { id: task.id, title: task.title })}>
           <OverflowText className="task-title" text={task.title} />
-          <TaskAttention task={task} />
           {fields.includes("id") && <span className="task-meta">
             <OverflowText as="code" text={task.id} />
           </span>}
@@ -115,6 +115,7 @@ export function TaskCard({ task, hasAsk, onSelect, onDecision, className, childr
           {task.status === "claimed" && !children && <TaskTag label={statusLabel(task.status)} />}
           {fields.includes("module") && <TaskTag label={task.epic || tr("ungrouped")} />}
           {children}
+          <TaskAttention task={task} />
           <WindowStatus task={task} hasAsk={hasAsk} onDecision={onDecision} />
         </div>
       </Surface>

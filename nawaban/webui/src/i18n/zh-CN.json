@@ -15,6 +15,7 @@
   "inProgress": "进行中",
   "ready": "待验收",
   "recentDone": "最近完成",
+  "taskInactiveDay": "{count} 天没动静",
   "taskInactiveDays": "{count} 天没动静",
   "waitDecision": "等你拍板",
   "waitObserve": "等观察",

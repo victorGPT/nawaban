@@ -1,0 +1,1113 @@
+{
+  "before": {
+    "locale": "zh-CN",
+    "rows": [
+      {
+        "id": "940-fresh",
+        "height": 123.5,
+        "width": 208
+      },
+      {
+        "id": "940-stale",
+        "height": 155.5,
+        "width": 208
+      },
+      {
+        "id": "940-waiting",
+        "height": 155.5,
+        "width": 208
+      },
+      {
+        "id": "940-both",
+        "height": 155.5,
+        "width": 208
+      },
+      {
+        "id": "940-deploy",
+        "height": 155.5,
+        "width": 208
+      },
+      {
+        "id": "940-observe",
+        "height": 155.5,
+        "width": 208
+      },
+      {
+        "id": "940-external",
+        "height": 155.5,
+        "width": 208
+      },
+      {
+        "id": "940-unknown-long",
+        "height": 183.5,
+        "width": 209
+      },
+      {
+        "id": "1280-fresh",
+        "height": 123.5,
+        "width": 293
+      },
+      {
+        "id": "1280-stale",
+        "height": 155.5,
+        "width": 293
+      },
+      {
+        "id": "1280-waiting",
+        "height": 155.5,
+        "width": 293
+      },
+      {
+        "id": "1280-both",
+        "height": 155.5,
+        "width": 293
+      },
+      {
+        "id": "1280-deploy",
+        "height": 155.5,
+        "width": 293
+      },
+      {
+        "id": "1280-observe",
+        "height": 155.5,
+        "width": 293
+      },
+      {
+        "id": "1280-external",
+        "height": 155.5,
+        "width": 293
+      },
+      {
+        "id": "1280-unknown-long",
+        "height": 183.5,
+        "width": 294
+      },
+      {
+        "id": "1600-fresh",
+        "height": 123.5,
+        "width": 373
+      },
+      {
+        "id": "1600-stale",
+        "height": 155.5,
+        "width": 373
+      },
+      {
+        "id": "1600-waiting",
+        "height": 155.5,
+        "width": 373
+      },
+      {
+        "id": "1600-both",
+        "height": 155.5,
+        "width": 373
+      },
+      {
+        "id": "1600-deploy",
+        "height": 155.5,
+        "width": 373
+      },
+      {
+        "id": "1600-observe",
+        "height": 155.5,
+        "width": 373
+      },
+      {
+        "id": "1600-external",
+        "height": 155.5,
+        "width": 373
+      },
+      {
+        "id": "1600-unknown-long",
+        "height": 183.5,
+        "width": 374
+      }
+    ]
+  },
+  "after": [
+    {
+      "locale": "zh-CN",
+      "theme": "light",
+      "rows": [
+        {
+          "id": "940-fresh",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "940-stale",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "1 天没动静",
+          "level": "stale"
+        },
+        {
+          "id": "940-waiting",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板",
+          "level": null
+        },
+        {
+          "id": "940-both",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "940-deploy",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等上线 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "940-observe",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等观察 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "940-external",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等外部 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "940-unknown-long",
+          "width": 209,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1280-fresh",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "1280-stale",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "1 天没动静",
+          "level": "stale"
+        },
+        {
+          "id": "1280-waiting",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板",
+          "level": null
+        },
+        {
+          "id": "1280-both",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1280-deploy",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等上线 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "1280-observe",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等观察 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1280-external",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等外部 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "1280-unknown-long",
+          "width": 294,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1600-fresh",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "1600-stale",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "1 天没动静",
+          "level": "stale"
+        },
+        {
+          "id": "1600-waiting",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板",
+          "level": null
+        },
+        {
+          "id": "1600-both",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1600-deploy",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等上线 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "1600-observe",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等观察 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1600-external",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等外部 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "1600-unknown-long",
+          "width": 374,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · 7 天没动静",
+          "level": "critical"
+        }
+      ]
+    },
+    {
+      "locale": "en",
+      "theme": "light",
+      "rows": [
+        {
+          "id": "940-fresh",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "940-stale",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "No updates for 1 day",
+          "level": "stale"
+        },
+        {
+          "id": "940-waiting",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision",
+          "level": null
+        },
+        {
+          "id": "940-both",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "940-deploy",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on deploy · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "940-observe",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on observation · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "940-external",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on external · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "940-unknown-long",
+          "width": 209,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1280-fresh",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "1280-stale",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "No updates for 1 day",
+          "level": "stale"
+        },
+        {
+          "id": "1280-waiting",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision",
+          "level": null
+        },
+        {
+          "id": "1280-both",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1280-deploy",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on deploy · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "1280-observe",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on observation · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1280-external",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on external · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "1280-unknown-long",
+          "width": 294,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1600-fresh",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "1600-stale",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "No updates for 1 day",
+          "level": "stale"
+        },
+        {
+          "id": "1600-waiting",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision",
+          "level": null
+        },
+        {
+          "id": "1600-both",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1600-deploy",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on deploy · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "1600-observe",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on observation · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1600-external",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on external · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "1600-unknown-long",
+          "width": 374,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · No updates for 7 days",
+          "level": "critical"
+        }
+      ]
+    },
+    {
+      "locale": "en",
+      "theme": "dark",
+      "rows": [
+        {
+          "id": "940-fresh",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "940-stale",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "No updates for 1 day",
+          "level": "stale"
+        },
+        {
+          "id": "940-waiting",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision",
+          "level": null
+        },
+        {
+          "id": "940-both",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "940-deploy",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on deploy · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "940-observe",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on observation · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "940-external",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on external · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "940-unknown-long",
+          "width": 209,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1280-fresh",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "1280-stale",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "No updates for 1 day",
+          "level": "stale"
+        },
+        {
+          "id": "1280-waiting",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision",
+          "level": null
+        },
+        {
+          "id": "1280-both",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1280-deploy",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on deploy · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "1280-observe",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on observation · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1280-external",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on external · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "1280-unknown-long",
+          "width": 294,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1600-fresh",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "1600-stale",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "No updates for 1 day",
+          "level": "stale"
+        },
+        {
+          "id": "1600-waiting",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision",
+          "level": null
+        },
+        {
+          "id": "1600-both",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on decision · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1600-deploy",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on deploy · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "1600-observe",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on observation · No updates for 7 days",
+          "level": "critical"
+        },
+        {
+          "id": "1600-external",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "Waiting on external · No updates for 3 days",
+          "level": "warning"
+        },
+        {
+          "id": "1600-unknown-long",
+          "width": 374,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · No updates for 7 days",
+          "level": "critical"
+        }
+      ]
+    },
+    {
+      "locale": "zh-CN",
+      "theme": "dark",
+      "rows": [
+        {
+          "id": "940-fresh",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "940-stale",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "1 天没动静",
+          "level": "stale"
+        },
+        {
+          "id": "940-waiting",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板",
+          "level": null
+        },
+        {
+          "id": "940-both",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "940-deploy",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等上线 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "940-observe",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等观察 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "940-external",
+          "width": 208,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等外部 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "940-unknown-long",
+          "width": 209,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1280-fresh",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "1280-stale",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "1 天没动静",
+          "level": "stale"
+        },
+        {
+          "id": "1280-waiting",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板",
+          "level": null
+        },
+        {
+          "id": "1280-both",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1280-deploy",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等上线 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "1280-observe",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等观察 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1280-external",
+          "width": 293,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等外部 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "1280-unknown-long",
+          "width": 294,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1600-fresh",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": null,
+          "text": null,
+          "level": null
+        },
+        {
+          "id": "1600-stale",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "1 天没动静",
+          "level": "stale"
+        },
+        {
+          "id": "1600-waiting",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板",
+          "level": null
+        },
+        {
+          "id": "1600-both",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等你拍板 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1600-deploy",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等上线 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "1600-observe",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等观察 · 7 天没动静",
+          "level": "critical"
+        },
+        {
+          "id": "1600-external",
+          "width": 373,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "等外部 · 3 天没动静",
+          "level": "warning"
+        },
+        {
+          "id": "1600-unknown-long",
+          "width": 374,
+          "height": 124,
+          "footerInside": true,
+          "metaClear": true,
+          "chipHeight": 24.5,
+          "text": "waiting_for_a_very_long_external_identifier · 7 天没动静",
+          "level": "critical"
+        }
+      ]
+    }
+  ]
+}
