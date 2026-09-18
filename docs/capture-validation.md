@@ -45,3 +45,15 @@ Claude CLI (`claude-fable-5-1`, observed in the returned model usage) reviewed t
 The first bare Claude invocation could not access login credentials and returned “Not logged in”; the normal authenticated CLI produced the two review verdicts. Neither a failed invocation nor a model recommendation to merge was treated as merge authorization.
 
 Final narrow resolution-text regression: `uv run --no-project --python 3.12 --with pytest python -m pytest -q tests/test_captures.py tests/test_http_write_security.py` — **139 passed**.
+
+## PR #22 director review fixes
+
+The two nits from verify event 7871 were reproduced against `61f46ac992906bf338532b165600c057d1bb1a39`: a 2 MiB capture ID caused a real subprocess `OSError: [Errno 7] Argument list too long`, and an invalid SQLite file caused `sqlite3.DatabaseError`. Both closed the HTTP connection without a response. The two new tests ran over IPv4 and IPv6: **4 failed** before repair.
+
+The HTTP creation boundary now requires a 36-character ID before building argv; the CLI retains canonical UUID validation. GET storage exceptions return complete JSON with HTTP 500, `unavailable`, and error details. The non-2xx status lets the existing frontend display a read error instead of treating an unavailable store as an empty queue. Invalid query status still returns 400.
+
+- `uv run --no-project --python 3.12 --with pytest --with pyyaml python -m pytest -q tests/test_http_write_security.py tests/test_captures.py`: **143 passed** after repair.
+- `uv run --no-project --python 3.12 --with pytest --with pyyaml python tests/run.py`: **34 passed, 0 failed, 0 skipped** (33 inherited scripts plus **347 pytest tests**).
+- Claude CLI (`claude-fable-5-1`) reviewed this focused code/test diff: **PASS**, source-only. Its conditional NUL/surrogate concern is already covered by `captures.validate_text` and the passing transport-input regressions; no additional fallback was added.
+
+This follow-up changes only the two HTTP boundaries, their regressions, and this evidence document. No live database migration or deployment was performed.

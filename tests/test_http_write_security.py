@@ -258,6 +258,36 @@ def test_capture_malformed_request_cannot_reach_cli(board, body):
     assert board.calls == []
 
 
+def test_capture_oversized_id_is_rejected_before_cli(board, monkeypatch):
+    def run(command, **kwargs):
+        board.calls.append(command)
+        return _REAL_RUN(command, **kwargs)
+
+    monkeypatch.setattr(board_view.subprocess, "run", run)
+    status, result = post(board, path="/api/captures",
+                          body={"id": "x" * (2 * 1024 * 1024), "content": "Idea"})
+    assert status == 400 and result["ok"] is False
+    assert not result.get("unknown", False)
+    assert board.calls == []
+    assert not board.server.RequestHandlerClass.db_path.exists()
+
+
+def test_capture_get_database_failure_returns_json(board):
+    board.server.RequestHandlerClass.db_path.write_bytes(b"invalid SQLite database" * 10)
+    conn = http.client.HTTPConnection(board.address, board.port, timeout=3)
+    try:
+        conn.request("GET", "/api/captures")
+        response = conn.getresponse()
+        assert response.status == 500
+        assert response.getheader("Content-Type").startswith("application/json")
+        result = json.loads(response.read())
+        assert result["unavailable"] is True
+        assert result["items"] == []
+        assert "DatabaseError" in result["error"]
+    finally:
+        conn.close()
+
+
 def test_capture_timeout_exposes_unknown_without_retry(board, monkeypatch):
     import uuid
     def timeout(command, **kwargs):

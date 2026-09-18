@@ -1673,6 +1673,9 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(200, {"items": items})
             except db.NawabanError as e:
                 self._json(400, {"error": str(e)})
+            except Exception as e:  # noqa: BLE001  # Keep storage failures inside the HTTP boundary.
+                self._json(500, {"items": [], "unavailable": True,
+                                 "error": f"{type(e).__name__}: {e}"})
         elif u.path == "/api/inbox":
             try:
                 self._json(200, project_inbox(self.db_path, inbox_data(self.db_path), project))
@@ -1843,7 +1846,7 @@ class _Handler(BaseHTTPRequestHandler):
         # Only creation is exposed to the browser. Agent resolution stays in the CLI.
         content, capture_id, project = body.get("content"), body.get("id"), body.get("project")
         if (not isinstance(content, str) or not 1 <= len(content.strip()) <= 4000
-                or not isinstance(capture_id, str)
+                or not isinstance(capture_id, str) or len(capture_id) != 36
                 or (project is not None and (not isinstance(project, str) or len(project) > 200))):
             self._json(400, {"ok": False, "out": "捕捉内容、ID 或项目格式不正确"})
             return
