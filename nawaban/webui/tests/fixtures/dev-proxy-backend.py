@@ -14,7 +14,7 @@ calls = []
 
 def run(command, **kwargs):
     calls.append(command)
-    return SimpleNamespace(returncode=0, stdout="review fixture", stderr="")
+    return SimpleNamespace(returncode=0, stdout=json.dumps({"id": "fixture"}) if "capture" in command else "review fixture", stderr="")
 
 
 board_view.subprocess.run = run

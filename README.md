@@ -141,3 +141,7 @@ Run `uv run --no-project --python 3.12 --with pytest python -m pytest -q tests` 
 To verify an existing board without migrating it, run `python3 scripts/verify_database_copy.py /path/to/board.db`. It opens the source read-only, migrates a temporary backup twice, and verifies exact schema and row preservation plus integrity and foreign keys. A separate disposable copy exercises create, claim, the context detail API, and project filters.
 
 Session registry and reconciliation reports use `NAWABAN_STATE_DIR`, then the legacy `WORKOS_STATE_DIR`, then `~/.local/state/nawaban`. When the new registry is absent, session lookup reads the previous `~/.claude/foreman/session-registry.json`; the next registration preserves its entries in the new file without modifying the old one.
+
+## 捕捉想法
+
+侧栏「捕捉」记录独立于任务的一句话想法。Agent 通过 CLI 转卡或写原因作废，保留双向来源与处理历史。用法、存储及重试边界见 [捕捉想法](docs/capture.md)。

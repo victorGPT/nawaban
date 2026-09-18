@@ -33,7 +33,7 @@ from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from nawaban import db, dependency_hints, inbox, task_content  # noqa: E402
+from nawaban import captures, db, dependency_hints, inbox, task_content  # noqa: E402
 
 # Compatibility names delegate to the shared hard-policy implementation.
 _TITLE_EXAMPLES = task_content._TITLE_EXAMPLES
@@ -434,6 +434,25 @@ def main(argv: list[str] | None = None) -> int:
     for f in ("epic", "adr"):
         p.add_argument(f"--{f}")
 
+    p = sub.add_parser("capture", help="独立捕捉:记录想法、列待处理、关联正式卡或作废")
+    capture_sub = p.add_subparsers(dest="capture_action", required=True)
+    add = capture_sub.add_parser("add", help="记录想法,不建任务")
+    add.add_argument("--content", required=True)
+    add.add_argument("--project", help="可选项目;省略则为未归属")
+    add.add_argument("--id", help="可选 UUID 重试键;相同材料重复保存不新增")
+    listing = capture_sub.add_parser("list", help="默认只列待处理")
+    listing.add_argument("--status", choices=["pending", "converted", "discarded", "all"])
+    scope = listing.add_mutually_exclusive_group()
+    scope.add_argument("--project")
+    scope.add_argument("--unassigned", action="store_true")
+    listing.add_argument("--task", help="按正式卡回看来源;默认列出所有状态")
+    convert = capture_sub.add_parser("convert", help="关联已通过正式建卡流程的任务")
+    convert.add_argument("capture_id")
+    convert.add_argument("--task", required=True)
+    discard = capture_sub.add_parser("discard", help="作废并保留原因")
+    discard.add_argument("capture_id")
+    discard.add_argument("--reason", required=True)
+
     p = sub.add_parser("claim", help="CAS 认领(身份从环境;上游未 done 会被闸)")
     p.add_argument("task_id")
     p.add_argument("--override", help="强闯上游闸的理由(落 coord 事件可审计)")
@@ -588,7 +607,19 @@ def main(argv: list[str] | None = None) -> int:
     db.migrate_db(path)
 
     try:
-        if a.verb == "create":
+        if a.verb == "capture":
+            owner, _ = _identity(need_session=False)
+            if a.capture_action == "add":
+                result = captures.add(path, content=a.content, project=a.project, owner=owner, capture_id=a.id)
+            elif a.capture_action == "list":
+                result = captures.read(path, status=a.status or ("all" if a.task else "pending"),
+                                       project="" if a.unassigned else a.project, task_id=a.task)
+            elif a.capture_action == "convert":
+                result = captures.resolve(path, a.capture_id, owner=owner, task_id=a.task)
+            else:
+                result = captures.resolve(path, a.capture_id, owner=owner, reason=a.reason)
+            print(json.dumps(result, ensure_ascii=False))
+        elif a.verb == "create":
             owner, sid = _identity(need_session=False)
             if a.context and a.context_file:
                 raise db.NawabanError("--context 与 --context-file 二选一")

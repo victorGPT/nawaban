@@ -10,7 +10,7 @@ import { createServer } from "vite";
 
 function send(url: string, headers: Record<string, string | string[]>, method = "POST") {
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
-    const payload = method === "POST" ? JSON.stringify({ ask_id: 1, verdict: "Test only" }) : "";
+    const payload = method === "POST" ? JSON.stringify(url.endsWith("/api/captures") ? { id: "fixture", content: "An idea" } : { ask_id: 1, verdict: "Test only" }) : "";
     const rawHeaders = Object.entries({ Host: new URL(url).host, "Content-Length": String(Buffer.byteLength(payload)), ...headers })
       .flatMap(([name, value]) => (Array.isArray(value) ? value : [value]).flatMap((item) => [name, item]));
     const req = request(url, { method, headers: rawHeaders }, (response) => {
@@ -42,7 +42,8 @@ test("the real Vite proxy forwards only same-origin browser answers to the board
     await vite.listen();
     const origin = `http://127.0.0.1:${(vite.httpServer!.address() as AddressInfo).port}`;
     const json = { "Content-Type": "application/json" };
-    const valid = await send(`${origin}/api/answer`, { ...json, Origin: origin, "Sec-Fetch-Site": "same-origin" });
+    for (const path of ["/api/answer", "/api/captures"]) {
+    const valid = await send(`${origin}${path}`, { ...json, Origin: origin, "Sec-Fetch-Site": "same-origin" });
     assert.equal(valid.status, 200, valid.body);
     for (const headers of [
       { Origin: "http://attacker.invalid" },
@@ -53,14 +54,15 @@ test("the real Vite proxy forwards only same-origin browser answers to the board
       { Origin: [origin, "null"] },
       { Origin: origin, Host: [new URL(origin).host, "attacker.invalid"] },
     ] as Record<string, string | string[]>[]) {
-      const rejected = await send(`${origin}/api/answer`, { ...json, ...headers });
+      const rejected = await send(`${origin}${path}`, { ...json, ...headers });
       assert.equal(rejected.status, 403, JSON.stringify({ headers, ...rejected }));
+    }
     }
     const reads = await send(`${origin}/api/review-requests`, {}, "GET");
     assert.equal(reads.status, 200);
     const observed = JSON.parse(reads.body);
-    assert.equal(observed.calls, 1);
-    assert.equal(observed.requests.length, 1);
+    assert.equal(observed.calls, 2);
+    assert.equal(observed.requests.length, 2);
     assert.equal(observed.requests[0].origin, target);
     assert.equal(observed.requests[0].host, new URL(target).host);
     assert.equal((await send(`${target}/api/answer`, json)).status, 200, "Direct loopback CLI remains supported");
