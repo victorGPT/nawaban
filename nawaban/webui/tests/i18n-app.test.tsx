@@ -155,3 +155,15 @@ test("an active ungrouped board filter survives a language change", async () => 
   expect(screen.getByText("Ungrouped example task")).toBeTruthy();
   expect(screen.queryByText(task.title)).toBeNull();
 });
+
+test("sidebar toggles restore focus to the visible control in both directions", async () => {
+  const user = userEvent.setup();
+  render(<Notices><App /></Notices>);
+  await screen.findByText(task.title);
+  await user.click(screen.getByRole("button", { name: zh.toggleSidebar }));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: zh.toggleSidebar }));
+  expect(screen.queryByRole("navigation")).toBeNull();
+  await user.keyboard("[[");
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: zh.toggleSidebar }));
+  expect(screen.getByRole("link", { name: zh.board })).toBeTruthy();
+});

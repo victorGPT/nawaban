@@ -184,7 +184,7 @@
   "activityDaysAgo": "最后活动 {count} 天前",
   "viewTask": "查看 {id} {title}",
   "statusLegend": "状态图例",
-  "cardSignalLegend": "卡片右上角的灯：",
+  "cardSignalLegend": "卡片状态灯：",
   "workingSignal": "正在工作",
   "idleSignal": "窗口空闲",
   "unresponsiveSignal": "窗口无响应",

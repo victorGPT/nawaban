@@ -7,6 +7,13 @@ export const STAGES = [
   { id: "staging-verified", get label() { return statusLabel("staging-verified"); } },
   { id: "done", get label() { return tr("recentDone"); } },
 ] as const;
+// Four visual lanes preserve the backend lifecycle states without rewriting tasks.
+export const BOARD_COLUMNS = [
+  { id: "open", states: ["open"], get label() { return statusLabel("open"); } },
+  { id: "in_progress", states: ["claimed", "in_progress"], get label() { return statusLabel("in_progress"); } },
+  { id: "staging-verified", states: ["staging-verified"], get label() { return statusLabel("staging-verified"); } },
+  { id: "done", states: ["done"], get label() { return tr("recentDone"); } },
+] as const;
 export const WAIT: Record<string, string> = {
   get decision() { return waitingLabel("decision"); },
   get prod() { return waitingLabel("prod"); },

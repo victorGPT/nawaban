@@ -392,7 +392,7 @@ export function TaskDetailSheet({
               )}
 
               {success.length || constraints.length ? (
-                <section className="grid gap-6 md:grid-cols-2">
+                <section className="detail-criteria">
                   {success.length > 0 && (
                     <div>
                       <H n={success.length}>{tr("criteria")}</H>
