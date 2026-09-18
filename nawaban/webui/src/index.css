@@ -273,7 +273,6 @@ input, textarea { caret-color: var(--color-accent-500); }
   height: 2lh;
   overflow: hidden;
 }
-.kanban .task-card { height: 124px; }
 .task-card-open > span > .task-meta { margin-top: 18px; }
 .task-meta code { @apply text-reference-caption; }
 .task-card-footer { position: absolute; right: 12px; bottom: 14px; display: flex; align-items: center; gap: 4px; }
