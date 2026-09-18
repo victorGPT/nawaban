@@ -6,6 +6,7 @@ import {
   RiGitBranchLine,
   RiSideBarLine,
   RiSearchLine,
+  RiLightbulbLine,
 } from "@remixicon/react";
 import { Button } from "@/components/base/buttons/button";
 import { Badge } from "@/components/base/badges/badge";
@@ -16,6 +17,7 @@ import { ThemeToggle } from "@/components/application/theme/theme-toggle";
 import { BoardFilterBar } from "@/components/BoardFilterBar";
 import { BoardKanban } from "@/components/BoardKanban";
 import { ModulesView } from "@/components/ModulesView";
+import { CaptureView } from "@/components/CaptureView";
 import { InboxView } from "@/components/InboxView";
 import { TaskDetailSheet } from "@/components/TaskDetailSheet";
 import { ModuleSelect } from "@/components/base/select/module-select";
@@ -28,18 +30,19 @@ import {
 import { navigateTask } from "@/lib/nawaban-model";
 import { cx } from "@/utils/cx";
 
-type View = "board" | "modules" | "inbox";
+type View = "board" | "modules" | "inbox" | "capture";
 export default function App() {
   const locale = useLocale();
 const NAV = [
   { id: "board", label: tr("board"), icon: RiLayoutColumnLine },
   { id: "modules", label: tr("epic"), icon: RiGitBranchLine },
+  { id: "capture", label: tr("capture"), icon: RiLightbulbLine },
   { id: "inbox", label: tr("inbox"), icon: RiInbox2Line },
 ] as const;
 
   const [view, setView] = useState<View>(() => {
     const v = new URLSearchParams(location.search).get("view");
-    return v === "modules" || v === "inbox" ? v : "board";
+    return v === "modules" || v === "inbox" || v === "capture" ? v : "board";
   });
   const [query, setQuery] = useState("");
   const [project, setProject] = useState<Project>(() => {
@@ -187,14 +190,14 @@ const NAV = [
               size="small"
               fieldClassName="border border-border-button-default bg-background-primary-default shadow-xs"
               leadingIcon={RiSearchLine}
-              aria-label={tr("searchTasks")}
+              aria-label={tr(view === "capture" ? "searchCaptures" : "searchTasks")}
               aria-keyshortcuts="/ Control+k Meta+k"
               placeholder={
                 view === "modules"
                   ? tr("searchModules")
                   : view === "inbox"
                     ? tr("searchInbox")
-                    : tr("searchBoard")
+                    : view === "capture" ? tr("searchCaptures") : tr("searchBoard")
               }
               value={query}
               onChange={setQuery}
@@ -302,6 +305,7 @@ const NAV = [
             <ModulesView query={query} project={project} onSelectTask={selectTask}
               onDecision={openDecision} decisionTasks={decisionTasks} />
           )}{" "}
+          {view === "capture" && <CaptureView key={project} project={project} query={query} onSelectTask={selectTask} />}
           {view === "inbox" && (
             <InboxView key={project} query={query} project={project} onSelectTask={selectTask} />
           )}

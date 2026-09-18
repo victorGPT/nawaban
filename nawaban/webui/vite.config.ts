@@ -12,7 +12,7 @@ export default defineConfig({
       name: 'nawaban-same-origin-answers',
       configureServer(server) {
         server.middlewares.use((request, response, next) => {
-          if (request.method !== 'POST' || request.url?.split('?')[0] !== '/api/answer') {
+          if (request.method !== 'POST' || !['/api/answer', '/api/captures'].includes(request.url?.split('?')[0] ?? '')) {
             next()
             return
           }

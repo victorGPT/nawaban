@@ -1,3 +1,4 @@
+import { CaptureSource } from "@/components/CaptureView";
 import { t as tr, statusLabel, useLocale } from "@/i18n";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -379,6 +380,10 @@ export function TaskDetailSheet({
                 )}
               </div>
 
+              {!!d.captures?.length && <section>
+                <H>{tr("captureOrigin")}</H>
+                <div className="flex flex-col gap-4">{d.captures.map((item) => <CaptureSource key={item.id} item={item} />)}</div>
+              </section>}
               {d.context && d.context !== d.now && (
                 <section>
                   <H>{tr("context")}</H>

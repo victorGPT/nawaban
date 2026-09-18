@@ -222,3 +222,104 @@ def test_scoped_ipv6_peer_requires_origin(board, monkeypatch, address, origin, e
         monkeypatch.setattr(board_view.ipaddress, "ip_address", reject_scope)
     assert post(board, origin=origin)[0] == expected
     assert len(board.calls) == (1 if expected == 200 else 0)
+
+
+def test_capture_same_origin_save_is_idempotent_and_does_not_create_a_task(board, monkeypatch):
+    import uuid
+    from nawaban import captures
+    path = board.server.RequestHandlerClass.db_path
+    db.init_db(path)
+    monkeypatch.setattr(board_view.subprocess, "run", _REAL_RUN)
+    body = {"id": str(uuid.uuid4()), "content": "--a literal idea", "project": "demo"}
+    status, result = post(board, path="/api/captures", body=body)
+    assert status == 200 and result["item"]["content"] == body["content"]
+    assert post(board, path="/api/captures", body=body) == (status, result)
+    assert len(captures.read(path)) == 1
+    with db.connect(path) as con:
+        assert con.execute("SELECT count(*) FROM tasks").fetchone()[0] == 0
+    conn = http.client.HTTPConnection(board.address, board.port, timeout=3)
+    conn.request("GET", "/api/captures?project=demo")
+    response = conn.getresponse()
+    assert response.status == 200
+    assert json.loads(response.read())["items"] == [result["item"]]
+    conn.close()
+
+
+@pytest.mark.parametrize("origin", ["null", "http://attacker.invalid"])
+def test_capture_cross_origin_request_cannot_reach_cli(board, origin):
+    assert post(board, path="/api/captures", origin=origin)[0] == 403
+    assert board.calls == []
+
+
+@pytest.mark.parametrize("body", [None, [], {}, {"content": None}, {"content": "idea", "id": 2},
+                                    {"content": "idea", "id": "key", "project": []}])
+def test_capture_malformed_request_cannot_reach_cli(board, body):
+    assert post(board, path="/api/captures", body=body)[0] == 400
+    assert board.calls == []
+
+
+def test_capture_oversized_id_is_rejected_before_cli(board, monkeypatch):
+    def run(command, **kwargs):
+        board.calls.append(command)
+        return _REAL_RUN(command, **kwargs)
+
+    monkeypatch.setattr(board_view.subprocess, "run", run)
+    status, result = post(board, path="/api/captures",
+                          body={"id": "x" * (2 * 1024 * 1024), "content": "Idea"})
+    assert status == 400 and result["ok"] is False
+    assert not result.get("unknown", False)
+    assert board.calls == []
+    assert not board.server.RequestHandlerClass.db_path.exists()
+
+
+def test_capture_get_database_failure_returns_json(board):
+    board.server.RequestHandlerClass.db_path.write_bytes(b"invalid SQLite database" * 10)
+    conn = http.client.HTTPConnection(board.address, board.port, timeout=3)
+    try:
+        conn.request("GET", "/api/captures")
+        response = conn.getresponse()
+        assert response.status == 500
+        assert response.getheader("Content-Type").startswith("application/json")
+        result = json.loads(response.read())
+        assert result["unavailable"] is True
+        assert result["items"] == []
+        assert "DatabaseError" in result["error"]
+    finally:
+        conn.close()
+
+
+def test_capture_timeout_exposes_unknown_without_retry(board, monkeypatch):
+    import uuid
+    def timeout(command, **kwargs):
+        board.calls.append(command)
+        raise subprocess.TimeoutExpired(command, 30)
+    monkeypatch.setattr(board_view.subprocess, "run", timeout)
+    status, result = post(board, path="/api/captures", body={"id": str(uuid.uuid4()), "content": "Idea"})
+    assert status == 504 and result["unknown"] is True
+    assert len(board.calls) == 1
+
+
+@pytest.mark.parametrize("field,value", [("content", "idea\x00text"), ("content", "idea\ud800"),
+                                        ("project", "demo\x00"), ("project", "demo\ud800")])
+def test_capture_untransportable_text_is_a_known_rejection(board, monkeypatch, field, value):
+    import uuid
+    path = board.server.RequestHandlerClass.db_path
+    db.init_db(path)
+    monkeypatch.setattr(board_view.subprocess, "run", _REAL_RUN)
+    body = {"id": str(uuid.uuid4()), "content": "Idea", "project": "demo", field: value}
+    status, result = post(board, path="/api/captures", body=body)
+    assert status == 400 and not result.get("unknown", False)
+
+
+def test_capture_unassigned_http_filter_does_not_leak_other_projects(board, monkeypatch):
+    from nawaban import captures
+    path = board.server.RequestHandlerClass.db_path
+    db.init_db(path)
+    captures.add(path, content="Assigned", project="demo", owner="test")
+    unassigned = captures.add(path, content="Unassigned", project=None, owner="test")
+    conn = http.client.HTTPConnection(board.address, board.port, timeout=3)
+    conn.request("GET", "/api/captures?status=all&unassigned=1")
+    response = conn.getresponse()
+    assert response.status == 200
+    assert json.loads(response.read())["items"] == [unassigned]
+    conn.close()

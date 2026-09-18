@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nawaban import foreman_liveness  # noqa: E402
-from nawaban import db  # noqa: E402
+from nawaban import captures, db  # noqa: E402
 # Preserve the public Web projection name without keeping a second implementation.
 from nawaban.inbox import read as inbox_data  # noqa: E402
 from nawaban.paths import web_dist  # noqa: E402
@@ -434,6 +434,7 @@ def task_detail(path: Path | str, task_id: str) -> dict:
             "success": _j(row["success"]), "constraints": _j(row["constraints_"]),
             "touches": _j(row["touches"]),
         })
+        d["captures"] = captures.read(path, status="all", task_id=task_id)
         d["edges_out"] = [
             {"kind": e["kind"], "other": e["dst"], "dir": "out", "note": e["note"],
              "other_title": e["title"], "other_status": e["status"],
@@ -1666,6 +1667,15 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001  # 叠加层坏了也得给合法响应,看板不陪葬
                 self._json(200, {"tasks": [], "deps": [], "unavailable": True,
                                  "error": f"{type(e).__name__}: {e}"})
+        elif u.path == "/api/captures":
+            try:
+                items = captures.read(self.db_path, status=(qs.get("status") or ["pending"])[0], project=project)
+                self._json(200, {"items": items})
+            except db.NawabanError as e:
+                self._json(400, {"error": str(e)})
+            except Exception as e:  # noqa: BLE001  # Keep storage failures inside the HTTP boundary.
+                self._json(500, {"items": [], "unavailable": True,
+                                 "error": f"{type(e).__name__}: {e}"})
         elif u.path == "/api/inbox":
             try:
                 self._json(200, project_inbox(self.db_path, inbox_data(self.db_path), project))
@@ -1786,7 +1796,7 @@ class _Handler(BaseHTTPRequestHandler):
         重实现一遍或绕过,而它们恰恰刚实测证明了会拦住 agent 自批。
         """
         u = urlparse(self.path)
-        if u.path != "/api/answer":
+        if u.path not in ("/api/answer", "/api/captures"):
             self._json(404, {"error": "no such path"})
             return
         if problem := self._write_request_problem():
@@ -1801,6 +1811,9 @@ class _Handler(BaseHTTPRequestHandler):
                 raise TypeError("body 必须是 JSON 对象")
         except (ValueError, TypeError):
             self._json(400, {"error": "body 不是合法 JSON"})
+            return
+        if u.path == "/api/captures":
+            self._capture(body)
             return
         try:
             aid = int(body.get("ask_id") or 0)
@@ -1828,6 +1841,37 @@ class _Handler(BaseHTTPRequestHandler):
         out = (r.stdout + r.stderr).strip()
         self._json(200 if r.returncode == 0 else 400,
                    {"ok": r.returncode == 0, "out": out})
+
+    def _capture(self, body: dict) -> None:
+        # Only creation is exposed to the browser. Agent resolution stays in the CLI.
+        content, capture_id, project = body.get("content"), body.get("id"), body.get("project")
+        if (not isinstance(content, str) or not 1 <= len(content.strip()) <= 4000
+                or not isinstance(capture_id, str) or len(capture_id) != 36
+                or (project is not None and (not isinstance(project, str) or len(project) > 200))):
+            self._json(400, {"ok": False, "out": "捕捉内容、ID 或项目格式不正确"})
+            return
+        try:
+            captures.validate_text(content, capture_id, project or "")
+        except db.NawabanError as e:
+            self._json(400, {"ok": False, "out": str(e)})
+            return
+        cmd = [sys.executable, str(Path(__file__).with_name("cli.py")),
+               "--db", str(self.db_path), "capture", "add", "--id=" + capture_id,
+               "--content=" + content]
+        if project:
+            cmd.append("--project=" + project)
+        env = dict(os.environ, FOREMAN_OWNER="capture-ui",
+                   CLAUDE_CODE_SESSION_ID=f"capture-ui-{os.getpid()}")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=30)
+        except subprocess.TimeoutExpired:
+            self._json(504, {"ok": False, "unknown": True,
+                             "out": "保存结果未知,可用相同捕捉 ID 重试"})
+            return
+        if result.returncode:
+            self._json(400, {"ok": False, "out": (result.stdout + result.stderr).strip()})
+            return
+        self._json(200, {"ok": True, "item": json.loads(result.stdout)})
 
     def log_message(self, fmt: str, *args) -> None:
         pass  # 本地只读板,访问日志无消费者

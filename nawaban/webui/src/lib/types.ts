@@ -156,6 +156,7 @@ export type TaskLetter = {
 };
 
 export type TaskDetail = BoardTask & {
+  captures?: import("./captures-api").Capture[];
   context: string | null;
   adr: string | null;
   success: string[] | string | null;

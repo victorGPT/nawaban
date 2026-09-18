@@ -231,6 +231,8 @@ def init_db(path: Path | str) -> None:
         con.executescript(SCHEMA_SQL)
         con.executescript(ASKS_SQL)
         con.executescript(LETTERS_SQL)
+        from nawaban.captures import SCHEMA_SQL as CAPTURES_SQL
+        con.executescript(CAPTURES_SQL)
     finally:
         con.close()
 
@@ -253,6 +255,10 @@ def migrate_db(path: Path | str) -> list[str]:
     added = []
     con = connect(path)
     try:
+        from nawaban.captures import SCHEMA_SQL as CAPTURES_SQL
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='captures'").fetchone():
+            con.executescript(CAPTURES_SQL)
+            added.append("captures")
         # Serialize the schema check and rename across concurrent CLI starts.
         with _txn(con):
             columns = {r[1] for r in con.execute("PRAGMA table_info(tasks)")}
