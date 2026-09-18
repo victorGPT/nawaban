@@ -1,4 +1,4 @@
-import { t as tr, useLocale, statusLabel } from "@/i18n";
+import { t as tr, useLocale, statusLabel, waitingLabel } from "@/i18n";
 import type { ReactNode } from "react";
 import { Button } from "@/components/base/buttons/button";
 import { Chip, type ChipProps } from "@/components/base/badges/chip";
@@ -7,6 +7,8 @@ import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { ContentButton, Surface } from "@/components/NawabanUI";
 import { OverflowText } from "@/components/OverflowText";
 import { liveAge, taskSignal } from "@/lib/nawaban-model";
+import { taskStaleness } from "@/lib/task-staleness";
+import { useTaskClock } from "@/lib/use-task-clock";
 import type { BoardTask } from "@/lib/types";
 import { cx } from "@/utils/cx";
 
@@ -57,7 +59,24 @@ export function WindowStatus({
     </TooltipTrigger>
   );
 }
-export type TaskCardData = Pick<BoardTask, "id" | "title" | "epic" | "status" | "live" | "waiting_on">;
+export type TaskCardData = Pick<BoardTask, "id" | "title" | "epic" | "status" | "live" | "waiting_on">
+  & { active_at?: number };
+
+function TaskAttention({ task }: { task: TaskCardData }) {
+  const now = useTaskClock();
+  if (task.status === "done" || task.status === "cancelled") return null;
+  const stale = taskStaleness(task.active_at, now);
+  if (!stale && !task.waiting_on) return null;
+  return (
+    <span className="mt-2 flex flex-wrap gap-1" data-task-attention>
+      {task.waiting_on && <Chip variant="caption" color="soft">{waitingLabel(task.waiting_on)}</Chip>}
+      {stale && <Chip variant="caption" data-stale-level={stale.level}
+        color={stale.level === "critical" ? "rose" : stale.level === "warning" ? "yellow" : "soft"}>
+        {tr("taskInactiveDays", { count: stale.days })}
+      </Chip>}
+    </span>
+  );
+}
 
 export function TaskTag({ label, color = "soft" }: {
   label: string;
@@ -87,6 +106,7 @@ export function TaskCard({ task, hasAsk, onSelect, onDecision, className, childr
         <ContentButton className="task-card-open" onClick={onSelect}
           aria-label={tr("viewTask", { id: task.id, title: task.title })}>
           <OverflowText className="task-title" text={task.title} />
+          <TaskAttention task={task} />
           {fields.includes("id") && <span className="task-meta">
             <OverflowText as="code" text={task.id} />
           </span>}

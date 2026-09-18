@@ -15,6 +15,7 @@
   "inProgress": "In progress",
   "ready": "Ready for acceptance",
   "recentDone": "Done",
+  "taskInactiveDays": "No updates for {count} days",
   "waitDecision": "Waiting on decision",
   "waitObserve": "Waiting on observation",
   "waitExternal": "Waiting on external",
