@@ -260,7 +260,6 @@
   "refreshTasks": "刷新真实数据",
   "filterWaiting": "筛选等待事项",
   "allWaiting": "全部等待事项",
-  "toggleCompact": "切换紧凑间距",
   "syncingTasks": "同步中…",
   "syncedAt": "同步于 {time}",
   "refreshEvery": "每 {seconds} 秒刷新",

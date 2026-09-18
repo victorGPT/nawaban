@@ -20,6 +20,24 @@ test("unknown and duplicate values cannot introduce columns or fields", () => {
   assert.deepEqual(readBoardDisplay("", "invalid-old-value").columns, ["open", "in_progress", "staging-verified", "done"]);
 });
 
+test("nonempty unknown column preferences fall back to all columns without poisoning persistence", () => {
+  const allColumns = ["open", "in_progress", "staging-verified", "done"];
+  for (const [search, saved] of [
+    ["?boardColumns=unknown", null],
+    ["?boardColumns=unknown", "boardColumns=done"],
+    ["", "boardColumns=unknown"],
+    ["?boardColumns=,", null],
+  ] as const) {
+    const display = readBoardDisplay(search, saved);
+    assert.deepEqual(display.columns, allColumns);
+    const persisted = writeBoardDisplay(new URLSearchParams(), display).toString();
+    assert.deepEqual(readBoardDisplay("", persisted).columns, allColumns);
+  }
+  assert.deepEqual(readBoardDisplay("?boardColumns=", "boardColumns=done").columns, []);
+  assert.deepEqual(readBoardDisplay("", "boardColumns=").columns, []);
+  assert.deepEqual(readBoardDisplay("?boardColumns=unknown,done", null).columns, ["done"]);
+});
+
 test("sorts preserve task identity and do not mutate the backend order", () => {
   const tasks = [
     { id: "A", title: "Zulu", active_at: 1, created_at: 3 },

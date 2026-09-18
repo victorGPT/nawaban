@@ -13,6 +13,7 @@ export type BoardDisplay = {
 
 // URL and persisted preferences are user-controlled input. Explicit empty lists
 // mean "hide all"; absent values retain defaults, and obsolete IDs are ignored.
+// A nonempty column preference with no recognized IDs falls back to all columns.
 export function readBoardDisplay(search: string, saved: string | null): BoardDisplay {
   const url = new URLSearchParams(search);
   const local = new URLSearchParams(saved ?? "");
@@ -22,8 +23,9 @@ export function readBoardDisplay(search: string, saved: string | null): BoardDis
     const raw = value(key);
     return raw === null ? [...allowed] : allowed.filter((id) => raw.split(",").includes(id));
   };
+  const selectedColumns = selected("boardColumns", columns);
   return {
-    columns: selected("boardColumns", columns),
+    columns: value("boardColumns") !== "" && selectedColumns.length === 0 ? columns : selectedColumns,
     sort: SORT_OPTIONS.find((sort) => sort === value("boardSort")) ?? "default",
     compact: value("boardDensity") === "compact",
     fields: selected("boardFields", DISPLAY_FIELDS),

@@ -348,11 +348,10 @@ Exact display templates below are part of the English vocabulary. Braced names a
 | Hidden columns keep their tasks. The list still shows every matching task. | 收起列不会更改任务；列表仍显示全部符合筛选的任务。 | Board display preferences; presentation only, never task mutation. |
 | Show all columns | 显示全部列 | Board display preferences; presentation only, never task mutation. |
 | All board columns are hidden. | 所有看板列已收起。 | Board display preferences; presentation only, never task mutation. |
-| {count} columns hidden · Restore them in Display | 已收起 {count} 列 · 可在「显示」中恢复 | Board display preferences; presentation only, never task mutation. |
+| Hidden columns: {count} · Restore them in Display | 已收起 {count} 列 · 可在「显示」中恢复 | Board display preferences; presentation only, never task mutation. |
 | Refresh tasks | 刷新真实数据 | Board toolbar and synchronization status |
 | Filter waiting items | 筛选等待事项 | Board toolbar and synchronization status |
 | All waiting items | 全部等待事项 | Board toolbar and synchronization status |
-| Toggle compact spacing | 切换紧凑间距 | Board toolbar and synchronization status |
 | Syncing… | 同步中… | Board toolbar and synchronization status |
 | Synced at {time} | 同步于 {time} | Board toolbar and synchronization status |
 | Refresh every {seconds} seconds | 每 {seconds} 秒刷新 | Board toolbar and synchronization status |

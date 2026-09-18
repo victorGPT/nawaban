@@ -7,6 +7,7 @@ import { fetchBoard } from "@/lib/api";
 import { BOARD_DISPLAY_STORAGE } from "@/lib/board-display";
 import { BOARD_COLUMNS } from "@/lib/nawaban-model";
 import zh from "@/i18n/zh-CN.json";
+import { setLocale } from "@/i18n";
 import type { BoardResponse } from "@/lib/types";
 
 vi.mock("@/lib/api", async (original) => ({
@@ -25,6 +26,38 @@ const board: BoardResponse = {
 beforeEach(() => vi.mocked(fetchBoard).mockResolvedValue(board));
 const props = { project: null, range: null, query: "", onSelectTask: vi.fn(),
   onDecision: vi.fn(), decisionTasks: new Set<string>() };
+
+test("an invalid column URL cannot persist an empty board on a later clean visit", async () => {
+  history.replaceState(null, "", "/?boardColumns=unknown");
+  const first = render(<BoardKanban {...props} />);
+  await screen.findByText("Title open");
+  expect(first.container.querySelectorAll(".board-column")).toHaveLength(4);
+  expect(new URLSearchParams(localStorage.getItem(BOARD_DISPLAY_STORAGE)!).get("boardColumns"))
+    .toBe("open,in_progress,staging-verified,done");
+  first.unmount();
+  history.replaceState(null, "", "/");
+  const revisit = render(<BoardKanban {...props} />);
+  await screen.findByText("Title open");
+  expect(revisit.container.querySelectorAll(".board-column")).toHaveLength(4);
+});
+
+test("restore-all is disabled when nothing is hidden and the English count works for one or more lanes", async () => {
+  setLocale("en");
+  const user = userEvent.setup();
+  render(<BoardKanban {...props} />);
+  await screen.findByText("Title open");
+  await user.click(screen.getByRole("button", { name: "Display" }));
+  const restore = screen.getByRole("button", { name: "Show all columns" }) as HTMLButtonElement;
+  expect(restore.disabled).toBe(true);
+  await user.click(screen.getByRole("checkbox", { name: BOARD_COLUMNS[0].label }));
+  expect(restore.disabled).toBe(false);
+  expect(screen.getByText("Hidden columns: 1 · Restore them in Display")).toBeTruthy();
+  await user.click(screen.getByRole("checkbox", { name: BOARD_COLUMNS[1].label }));
+  expect(screen.getByText("Hidden columns: 2 · Restore them in Display")).toBeTruthy();
+  await user.click(restore);
+  expect(restore.disabled).toBe(true);
+  expect(screen.queryByText(/Hidden columns:/)).toBeNull();
+});
 
 test("hiding a lane persists locally and in the URL without filtering tasks or refetching", async () => {
   const user = userEvent.setup();

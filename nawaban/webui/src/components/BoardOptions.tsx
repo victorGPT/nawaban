@@ -89,7 +89,8 @@ export function BoardOptions({ modules, module, onModuleChange, waiting, onWaiti
           onChange={(checked) => toggle("columns", column.id, checked)}>{column.label}</Checkbox>)}
       </fieldset>
       <p className="text-caption-1-regular text-text-tertiary">{tr("boardColumnsHint")}</p>
-      <Button variant="ghost" size="small" onClick={() => onDisplayChange({ ...display,
+      <Button variant="ghost" size="small" disabled={display.columns.length === BOARD_COLUMNS.length}
+        onClick={() => onDisplayChange({ ...display,
         columns: BOARD_COLUMNS.map((column) => column.id) })}>{tr("boardShowAllColumns")}</Button>
     </OptionsPanel>
   </>;

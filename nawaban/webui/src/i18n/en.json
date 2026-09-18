@@ -260,7 +260,6 @@
   "refreshTasks": "Refresh tasks",
   "filterWaiting": "Filter waiting items",
   "allWaiting": "All waiting items",
-  "toggleCompact": "Toggle compact spacing",
   "syncingTasks": "Syncing…",
   "syncedAt": "Synced at {time}",
   "refreshEvery": "Refresh every {seconds} seconds",
@@ -278,5 +277,5 @@
   "boardColumnsHint": "Hidden columns keep their tasks. The list still shows every matching task.",
   "boardShowAllColumns": "Show all columns",
   "boardNoColumns": "All board columns are hidden.",
-  "boardHiddenColumns": "{count} columns hidden · Restore them in Display"
+  "boardHiddenColumns": "Hidden columns: {count} · Restore them in Display"
 }
