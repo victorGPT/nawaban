@@ -128,7 +128,7 @@ export function BoardKanban({
       <div className="board-source-line text-caption-1-regular">
         <span className="board-source-scope" role="status">
           {project === null ? tr("allProjects") : project || tr("noProject")} / {module === "all" ? tr("allEpics") : module === UNGROUPED_EPIC ? tr("ungrouped") : module}
-          {" · "}{board ? tr("taskCount", { count: visible.length }) : tr("loadingTasks")}
+          {" · "}{board ? tr("taskCount", { count: visible.length }) : error && !refreshing ? tr("boardSyncFailed") : tr("loadingTasks")}
         </span>
         <span className="board-sync-time">
           {refreshing ? tr("syncingTasks") : error ? tr("boardSyncFailed") : updatedAt && tr("syncedAt", { time: updatedAt.toLocaleTimeString(locale, { hour12: false }) })}

@@ -67,6 +67,8 @@ test("a failed read keeps search and date controls available for recovery", asyn
     onDecision={() => {}} decisionTasks={new Set()}
     controls={<span>Search controls</span>} filters={<span>Date controls</span>} />);
   await screen.findByText("Error: Read failed");
+  expect(screen.getByRole("status").textContent).toContain(zh.boardSyncFailed);
+  expect(screen.getByRole("status").textContent).not.toContain(zh.loadingTasks);
   expect(screen.getByText("Search controls")).toBeTruthy();
   expect(screen.getByText("Date controls")).toBeTruthy();
 });
