@@ -1,7 +1,7 @@
 import { t as tr, useLocale } from "@/i18n";
 import { parseDate } from "@internationalized/date";
-import { DateRangePicker } from "@/components/base/date-picker/date-range-picker";
-import { Button } from "@/components/base/buttons/button";
+import { DateRangePicker } from "@/components/application/date-picker/date-range-picker";
+import { Button } from "@/components/ui/button";
 import type { DateRange } from "@/lib/api";
 
 // Preserve updated-date filtering and Monday-based weeks using BoardUI controls.
@@ -69,13 +69,12 @@ export function BoardFilterBar({
       {PRESETS.map((p) => (
         <Button
           key={p.id}
-          variant={activePreset === p.id ? "secondary" : "ghost"}
+          variant={activePreset === p.id ? "outline" : "ghost"}
           className={
             activePreset !== p.id
               ? "bg-transparent text-text-secondary"
               : undefined
           }
-          size="small"
           aria-pressed={activePreset === p.id}
           onClick={() => onChange(activePreset === p.id ? null : p.range())}
         >
@@ -102,7 +101,6 @@ export function BoardFilterBar({
         <Button
           variant="ghost"
           className="bg-transparent text-text-secondary"
-          size="small"
           onClick={() => onChange(null)}
         >{tr("clearFilters")}</Button>
       )}

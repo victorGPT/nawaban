@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Button } from "@/components/base/buttons/button";
+import { Button } from "@/components/ui/button";
 import { NawabanDialog, Notices, useNotice } from "@/components/NawabanUI";
-import { Checkbox } from "@/components/base/checkbox/checkbox";
-import { RadioGroup, Radio } from "@/components/base/radio/radio";
-import { Textarea } from "@/components/base/textarea/textarea";
-import { Tabs, TabList, Tab, TabPanel } from "@/components/base/tabs/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Textarea } from "@/components/ui/textarea";
 import "@/index.css";
 
 // Isolated component fixture: no NAWABAN API calls or persisted business data.
@@ -16,10 +16,9 @@ function Fixture() {
     <h1 className="text-title-1-medium">Interaction verification</h1>
     <Button onClick={() => setOpen(true)}>Dialog</Button>
     <Button onClick={() => notice("\u4fdd\u5b58\u6210\u529f", "success", "\u72ec\u7acb\u4ea4\u4e92\u6d4b\u8bd5")}>Notification</Button>
-    <Checkbox>Checkbox</Checkbox>
-    <RadioGroup aria-label="Decision" defaultValue="first"><Radio value="first">First</Radio><Radio value="second">Second</Radio></RadioGroup>
-    <Textarea label="Notes" placeholder="Enter a note" />
-    <Tabs defaultSelectedKey="first"><TabList aria-label="Sections"><Tab id="first">Overview</Tab><Tab id="second">Details</Tab></TabList><TabPanel id="first">Overview panel</TabPanel><TabPanel id="second">Details panel</TabPanel></Tabs>
+    <label className="group/field-label flex items-center gap-2"><Checkbox />Checkbox</label>
+    <RadioGroup aria-label="Decision" defaultValue="first"><label className="group/field-label flex items-center gap-2"><RadioGroupItem value="first" />First</label><label className="group/field-label flex items-center gap-2"><RadioGroupItem value="second" />Second</label></RadioGroup>
+    <div className="flex flex-col gap-1.5"><Label htmlFor="notes">Notes</Label><Textarea id="notes" placeholder="Enter a note" /></div>
     <NawabanDialog open={open} onClose={() => setOpen(false)} title="Interaction dialog">
       <Button onClick={() => setOpen(false)}>Close dialog</Button>
     </NawabanDialog>

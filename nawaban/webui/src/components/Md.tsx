@@ -1,6 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { LinkButton } from "@/components/base/buttons/link-button";
+import { Button } from "@/components/ui/button";
 import { SettingsCard } from "@/components/application/settings/settings-rows";
 import { taskIdFromHref } from "@/lib/nawaban-model";
 import { cn } from "@/lib/utils";
@@ -29,9 +29,10 @@ export function Md({
             const taskId = taskIdFromHref(href);
             if (!href) return <span>{children}</span>;
             return (
-              <LinkButton
-                href={href}
-                size="small"
+              <Button
+                variant="link"
+                size="link"
+                render={<a href={href} />}
                 className="markdown-link"
                 onClick={(event) => {
                   if (
@@ -48,7 +49,7 @@ export function Md({
                 }}
               >
                 {children}
-              </LinkButton>
+              </Button>
             );
           },
           ...(callouts

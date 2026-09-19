@@ -8,10 +8,9 @@ import {
   RiSearchLine,
   RiLightbulbLine,
 } from "@remixicon/react";
-import { Button } from "@/components/base/buttons/button";
-import { Badge } from "@/components/base/badges/badge";
-import { LinkButton } from "@/components/base/buttons/link-button";
-import { Input } from "@/components/base/input/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { NavItem } from "@/components/application/navigation/nav-item";
 import { ThemeToggle } from "@/components/application/theme/theme-toggle";
 import { BoardFilterBar } from "@/components/BoardFilterBar";
@@ -20,7 +19,7 @@ import { ModulesView } from "@/components/ModulesView";
 import { CaptureView } from "@/components/CaptureView";
 import { InboxView } from "@/components/InboxView";
 import { TaskDetailSheet } from "@/components/TaskDetailSheet";
-import { ModuleSelect } from "@/components/base/select/module-select";
+import { ModuleSelect } from "@/components/application/select/module-select";
 import {
   fetchInbox,
   fetchProjects,
@@ -185,11 +184,13 @@ const NAV = [
   const controls = (
           <div className="page-controls">
             <div className="search-control">
+            <RiSearchLine
+              className="pointer-events-none absolute top-1/2 left-2 size-[18px] -translate-y-1/2 text-foreground-icon-secondary"
+              aria-hidden="true"
+            />
             <Input
               ref={searchRef}
-              size="small"
-              fieldClassName="border border-border-button-default bg-background-primary-default shadow-xs"
-              leadingIcon={RiSearchLine}
+              className="rounded-2lg pl-8 text-body-medium bg-background-primary-default shadow-xs"
               aria-label={tr(view === "capture" ? "searchCaptures" : "searchTasks")}
               aria-keyshortcuts="/ Control+k Meta+k"
               placeholder={
@@ -200,7 +201,7 @@ const NAV = [
                     : view === "capture" ? tr("searchCaptures") : tr("searchBoard")
               }
               value={query}
-              onChange={setQuery}
+              onChange={(event) => setQuery(event.target.value)}
             />
             <kbd className="search-shortcut text-caption-1-regular" aria-hidden="true">/</kbd>
             </div>
@@ -217,13 +218,13 @@ const NAV = [
           <strong className="brand-name">nawaban</strong>
           <Button
             ref={sidebarToggleRef}
-            variant="ghost"
-            size="xs"
-            iconOnly
-            leadingIcon={RiSideBarLine}
+            variant="soft"
+            size="icon-xs"
             onClick={toggleNav}
             aria-label={tr("toggleSidebar")}
-          />
+          >
+            <RiSideBarLine aria-hidden="true" />
+          </Button>
         </div>
         {navOpen && (
           <div className="sidebar-project-picker">
@@ -252,7 +253,7 @@ const NAV = [
               isSelected={view === n.id}
               badge={
                 n.id === "inbox" && inboxTotal != null ? (
-                  <Badge>{inboxTotal}</Badge>
+                  <Badge variant="count" size="count">{inboxTotal}</Badge>
                 ) : undefined
               }
             />
@@ -260,7 +261,7 @@ const NAV = [
         </nav>
         <div className="sidebar-bottom">
           <ThemeToggle collapsed={!navOpen} />
-          <Button variant="ghost" size="small" aria-label={tr("switchLanguage")}
+          <Button variant="soft" aria-label={tr("switchLanguage")}
             title={tr("language")} onClick={() => setLocale(locale === "en" ? "zh-CN" : "en")}>
             {tr("languageShort")}
           </Button>
@@ -271,19 +272,22 @@ const NAV = [
       </aside>
       <div className="nawaban-main">
         <header className="workspace-topbar">
-          {!navOpen && <Button ref={topbarToggleRef} variant="ghost" size="xs" iconOnly leadingIcon={RiSideBarLine}
-            onClick={toggleNav} aria-label={tr("toggleSidebar")} />}
+          {!navOpen && <Button ref={topbarToggleRef} variant="soft" size="icon-xs"
+            onClick={toggleNav} aria-label={tr("toggleSidebar")}>
+            <RiSideBarLine aria-hidden="true" />
+          </Button>}
           <span className="workspace-crumb text-body-regular">
             {project === "" ? tr("noProject") : project ?? tr("allProjects")} ／
           </span>
           <h1 className="text-body-medium">{title}</h1>
-          <LinkButton
-            variant="secondary"
-            size="small"
-            leadingIcon={RiInbox2Line}
+          <Button
+            variant="link-muted"
+            size="link"
             onClick={() => navigate("inbox")}
-          >{tr("needsAttention")}{inboxTotal != null && <Badge className="ml-2">{inboxTotal}</Badge>}
-          </LinkButton>
+          >
+            <RiInbox2Line aria-hidden="true" />
+            <span>{tr("needsAttention")}{inboxTotal != null && <Badge variant="count" size="count" className="ml-2">{inboxTotal}</Badge>}</span>
+          </Button>
         </header>
         {view !== "board" && <div className="page-heading">{controls}</div>}
         <main className="view-content">

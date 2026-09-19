@@ -1,7 +1,7 @@
 import { t as tr, useLocale } from "@/i18n";
 import { useState } from "react";
 import { Md } from "@/components/Md";
-import { LinkButton } from "@/components/base/buttons/link-button";
+import { Button } from "@/components/ui/button";
 import { contextMarkdown, contextPresentation } from "@/lib/nawaban-model";
 import type { TaskDecision } from "@/lib/types";
 
@@ -27,15 +27,15 @@ export function TaskContext({
       />
       {formatted && (
         <>
-          <LinkButton
-            size="xs"
+          <Button
+            size="link-xs"
             className="detail-action"
-            variant="secondary"
+            variant="link-muted"
             aria-expanded={showOriginal}
             onClick={() => setShowOriginal(!showOriginal)}
           >
             {showOriginal ? tr("collapseOriginal") : tr("viewOriginal")}
-          </LinkButton>
+          </Button>
           {showOriginal && (
             <div className="context-original">
               <Md text={context} onSelectTask={onSelectTask} />

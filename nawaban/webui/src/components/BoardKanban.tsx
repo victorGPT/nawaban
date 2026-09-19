@@ -2,17 +2,17 @@ import { UNGROUPED_EPIC } from "@/lib/modules-model";
 import { t as tr, useLocale, statusLabel } from "@/i18n";
 import { Fragment, useCallback, useEffect, useState, type ReactNode, type CSSProperties } from "react";
 import { RiLayoutColumnLine, RiListCheck, RiRefreshLine } from "@remixicon/react";
-import { Button } from "@/components/base/buttons/button";
-import { Badge } from "@/components/base/badges/badge";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableHeader,
-  TableColumn,
+  TableHead,
   TableBody,
   TableRow,
   TableCell,
-  TableEmpty,
-} from "@/components/base/table/table";
+} from "@/components/ui/table";
+import { ActionRow } from "@/components/application/table/action-row";
 import { BoardOptions } from "@/components/BoardOptions";
 import { BOARD_DISPLAY_STORAGE, readBoardDisplay, writeBoardDisplay, sortBoardTasks } from "@/lib/board-display";
 import { LoadState } from "@/components/NawabanUI";
@@ -92,33 +92,31 @@ export function BoardKanban({
       <div className="board-toolbar">
         <div className="view-toggle">
           <Button
-            size="small"
-            variant={layout === "board" ? "secondary" : "ghost"}
+            variant={layout === "board" ? "outline" : "ghost"}
             className={
               layout !== "board"
                 ? "bg-transparent text-text-secondary"
                 : undefined
             }
-            leadingIcon={RiLayoutColumnLine}
             aria-pressed={layout === "board"}
             onClick={() => changeLayout("board")}
-          >{tr("board")}</Button>
+          ><RiLayoutColumnLine aria-hidden="true" />{tr("board")}</Button>
           <Button
-            size="small"
-            variant={layout === "list" ? "secondary" : "ghost"}
+            variant={layout === "list" ? "outline" : "ghost"}
             className={
               layout !== "list"
                 ? "bg-transparent text-text-secondary"
                 : undefined
             }
-            leadingIcon={RiListCheck}
             aria-pressed={layout === "list"}
             onClick={() => changeLayout("list")}
-          >{tr("list")}</Button>
+          ><RiListCheck aria-hidden="true" />{tr("list")}</Button>
         </div>
-        <Button variant="secondary" size="small" iconOnly leadingIcon={RiRefreshLine}
+        <Button variant="outline" size="icon"
           aria-label={tr("refreshTasks")} title={tr("refreshTasks")}
-          disabled={refreshing} onClick={refresh} />
+          disabled={refreshing} onClick={refresh}>
+          <RiRefreshLine aria-hidden="true" />
+        </Button>
         {controls}
         <BoardOptions modules={modules} module={module} onModuleChange={setModule}
           waiting={waiting} onWaitingChange={setWaiting} dateFilters={filters} dateActive={!!range}
@@ -139,16 +137,17 @@ export function BoardKanban({
       <div className="board-scroll">
       {error ? <LoadState error>{error}</LoadState> : !board ? <LoadState>{tr("loadingTasks")}</LoadState> : layout === "list" ? (
         <Table
-          size="sm"
           aria-label={tr("taskList")}
-          className="task-table"
+          className="bui-table bui-table-sm task-table"
         >
           <colgroup><col className="task-col-title" />{showId && <col className="task-col-id" />}{showModule && <col className="task-col-module" />}<col className="task-col-status" /></colgroup>
           <TableHeader className="sr-only">
-            <TableColumn>{tr("taskTitle")}</TableColumn>
-            {showId && <TableColumn>{tr("taskId")}</TableColumn>}
-            {showModule && <TableColumn>{tr("epicName")}</TableColumn>}
-            <TableColumn>{tr("status")}</TableColumn>
+            <TableRow>
+              <TableHead>{tr("taskTitle")}</TableHead>
+              {showId && <TableHead>{tr("taskId")}</TableHead>}
+              {showModule && <TableHead>{tr("epicName")}</TableHead>}
+              <TableHead>{tr("status")}</TableHead>
+            </TableRow>
           </TableHeader>
           <TableBody>
             {BOARD_COLUMNS.map((column) => {
@@ -156,19 +155,19 @@ export function BoardKanban({
               return <Fragment key={column.id}>
                 <tr className="task-list-group" data-stage={column.id}>
                   <th colSpan={tableColumns} scope="rowgroup">
-                    <h2 className="text-body-medium"><span className="column-status" aria-hidden="true" />{column.label}<Badge>{group.length}</Badge></h2>
+                    <h2 className="text-body-medium"><span className="column-status" aria-hidden="true" />{column.label}<Badge variant="count" size="count">{group.length}</Badge></h2>
                   </th>
                 </tr>
-                {group.length === 0 && <TableEmpty colSpan={tableColumns}>{tr("noMatchingTasks")}</TableEmpty>}
+                {group.length === 0 && <TableRow><TableCell colSpan={tableColumns}>{tr("noMatchingTasks")}</TableCell></TableRow>}
                 {group.map((task) => (
-                  <TableRow key={task.id} aria-label={`${task.id} ${task.title}`} onAction={() => onSelectTask(task.id)}>
+                  <ActionRow key={task.id} aria-label={`${task.id} ${task.title}`} onAction={() => onSelectTask(task.id)}>
                     <TableCell><OverflowText className="task-list-title" text={task.title} />
                       {task.status === "claimed" && <TaskTag label={statusLabel(task.status)} />}
                     </TableCell>
                     {showId && <TableCell><OverflowText as="code" className="task-id" text={task.id} /></TableCell>}
                     {showModule && <TableCell>{task.epic && <TaskTag label={task.epic} />}</TableCell>}
                     <TableCell><WindowStatus task={task} hasAsk={decisionTasks.has(task.id)} onDecision={() => onDecision(task.id)} /></TableCell>
-                  </TableRow>
+                  </ActionRow>
                 ))}
               </Fragment>;
             })}
@@ -177,7 +176,7 @@ export function BoardKanban({
       ) : columns.length === 0 ? (
         <div className="flex flex-col items-center gap-3 p-8 text-text-secondary">
           <p>{tr("boardNoColumns")}</p>
-          <Button variant="secondary" size="small" onClick={() => setDisplay({ ...display,
+          <Button variant="outline" onClick={() => setDisplay({ ...display,
             columns: BOARD_COLUMNS.map((column) => column.id) })}>{tr("boardShowAllColumns")}</Button>
         </div>
       ) : (
@@ -187,7 +186,7 @@ export function BoardKanban({
               <h2 className="text-body-medium">
                 <span className="column-status" aria-hidden="true" />
                 {s.label}
-                <Badge>{visible.filter((t) => s.states.some((state) => state === t.column)).length}</Badge>
+                <Badge variant="count" size="count">{visible.filter((t) => s.states.some((state) => state === t.column)).length}</Badge>
               </h2>
               <div className="task-stack">
                 {!visible.some((t) => s.states.some((state) => state === t.column)) &&

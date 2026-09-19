@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CalendarDate } from "@internationalized/date";
-import { daysInRange, formatChipDate, fromPickerDate, parseChipDate, toPickerDate } from "../components/base/date-picker/dates.ts";
+import { daysInRange, formatChipDate, fromPickerDate, parseChipDate, toPickerDate } from "./date-picker.ts";
 
 test("date chips reject impossible dates instead of silently changing the chosen day", () => {
   for (const input of ["30/02/2026", "29/02/2025", "31/04/2026", "00/01/2026", "01/13/2026", "2026-09-13", "01/01/0000"]) {

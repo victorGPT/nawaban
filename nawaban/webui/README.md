@@ -1,6 +1,6 @@
 # NAWABAN webui
 
-NAWABAN uses BoardUI source components with React, TypeScript, Vite and Tailwind CSS. The project selector, task board/list, module DAG, task detail and inbox read the backend APIs. Task creation remains a CLI operation.
+NAWABAN uses shadcn/ui (Base UI registry) source components with React, TypeScript, Vite and Tailwind CSS. The project selector, task board/list, module DAG, task detail and inbox read the backend APIs. Task creation remains a CLI operation.
 
 ## Build and run
 
@@ -47,4 +47,4 @@ npm run test:proxy
 
 All business data comes from backend APIs. The only write is `POST /api/answer`; backend permissions, compare-and-set behavior and CLI gates remain authoritative. Unknown submission outcomes are not retried automatically. Component tests use isolated fixtures and do not write the live database.
 
-See [BOARDUI.md](BOARDUI.md) for component provenance and UI contracts.
+See [UI.md](UI.md) for component provenance and UI contracts.

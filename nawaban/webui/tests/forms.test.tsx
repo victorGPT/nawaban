@@ -2,22 +2,32 @@ import { useState } from "react";
 import { expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Input, InputBase } from "@/components/base/input/input";
-import { Textarea } from "@/components/base/textarea/textarea";
-import { Checkbox } from "@/components/base/checkbox/checkbox";
-import { RadioGroup, Radio } from "@/components/base/radio/radio";
-import { RadioCard } from "@/components/base/radio/radio-card";
-import { Switch } from "@/components/base/switch/switch";
-import { Tabs, TabList, Tab, TabPanel } from "@/components/base/tabs/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { RadioCard } from "@/components/application/radio/radio-card";
+import { Switch } from "@/components/ui/switch";
 
 function Fields() {
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
-  return <><Input label="Name" hint="Use a full name" value={name} onChange={setName} isRequired />
-    <Textarea id="description-control" label="Description" hint="Explain the issue" value={body} onChange={setBody} showCount maxLength={20} />
-    <Input label="Read only" value="Fixed" isReadOnly />
-    <Input label="Invalid" hint="Required field" isInvalid />
-    <Input label="Disabled" isDisabled />
+  return <>
+    <Label htmlFor="name-control">Name</Label>
+    <Input id="name-control" aria-describedby="name-hint" required value={name}
+      onChange={(event) => setName(event.target.value)} />
+    <p id="name-hint">Use a full name</p>
+    <Label htmlFor="description-control">Description</Label>
+    <Textarea id="description-control" aria-describedby="description-hint" value={body}
+      onChange={(event) => setBody(event.target.value)} maxLength={20} />
+    <p id="description-hint">Explain the issue</p>
+    <Label htmlFor="readonly-control">Read only</Label>
+    <Input id="readonly-control" value="Fixed" readOnly onChange={() => {}} />
+    <Label htmlFor="invalid-control">Invalid</Label>
+    <Input id="invalid-control" aria-invalid />
+    <Label htmlFor="disabled-control">Disabled</Label>
+    <Input id="disabled-control" disabled />
   </>;
 }
 test("fields associate labels and hints, edit controlled values, and expose readonly/invalid/disabled states", async () => {
@@ -38,7 +48,6 @@ test("fields associate labels and hints, edit controlled values, and expose read
   expect(document.getElementById(textarea.getAttribute("aria-describedby")!)?.textContent).toBe("Explain the issue");
   await user.type(textarea, "Line 1{Enter}Line 2");
   expect(textarea.value).toBe("Line 1\nLine 2");
-  expect(screen.getByText("13/20")).toBeTruthy();
   const fixed = screen.getByRole("textbox", { name: "Read only" }) as HTMLInputElement;
   await user.type(fixed, "change");
   expect(fixed.value).toBe("Fixed");
@@ -46,26 +55,34 @@ test("fields associate labels and hints, edit controlled values, and expose read
   expect((screen.getByRole("textbox", { name: "Disabled" }) as HTMLInputElement).disabled).toBe(true);
 });
 
-test("standalone InputBase keeps native change events and textarea supports uncontrolled input", async () => {
+test("input keeps native change events and textarea supports uncontrolled input", async () => {
   const user = userEvent.setup();
   const change = vi.fn();
-  render(<><InputBase aria-label="Search" onChange={(event) => change(event.target.value)} />
-    <Textarea label="Draft" defaultValue="A" showCount /></>);
+  render(<><Input aria-label="Search" onChange={(event) => change(event.target.value)} />
+    <Label htmlFor="draft-control">Draft</Label>
+    <Textarea id="draft-control" defaultValue="A" /></>);
   await user.type(screen.getByRole("textbox", { name: "Search" }), "ab");
   expect(change.mock.calls).toEqual([["a"], ["ab"]]);
   await user.type(screen.getByRole("textbox", { name: "Draft" }), "B");
   expect((screen.getByRole("textbox", { name: "Draft" }) as HTMLTextAreaElement).value).toBe("AB");
-  expect(screen.getByText("2")).toBeTruthy();
 });
 
 function Choices({ checkboxChange, switchChange }: { checkboxChange: (value: boolean) => void; switchChange: (value: boolean) => void }) {
   const [checked, setChecked] = useState(false);
   const [on, setOn] = useState(false);
-  return <><Checkbox isSelected={checked} onChange={(value) => { setChecked(value); checkboxChange(value); }}>Accept</Checkbox>
-    <Checkbox isIndeterminate aria-label="Partial" />
-    <Checkbox isReadOnly isSelected>Locked</Checkbox>
-    <Checkbox isDisabled>Unavailable</Checkbox>
-    <Switch isSelected={on} onChange={(value) => { setOn(value); switchChange(value); }}>Focus mode</Switch></>;
+  return <>
+    <Checkbox id="accept" checked={checked}
+      onCheckedChange={(value) => { setChecked(value === true); checkboxChange(value === true); }} />
+    <Label htmlFor="accept">Accept</Label>
+    <Checkbox indeterminate aria-label="Partial" />
+    <Checkbox id="locked" readOnly checked />
+    <Label htmlFor="locked">Locked</Label>
+    <Checkbox id="unavailable" disabled />
+    <Label htmlFor="unavailable">Unavailable</Label>
+    <Switch id="focus-mode" checked={on}
+      onCheckedChange={(value) => { setOn(value); switchChange(value); }} />
+    <Label htmlFor="focus-mode">Focus mode</Label>
+  </>;
 }
 test("checkbox and switch labels activate once, Space toggles, and mixed/readonly/disabled state is preserved", async () => {
   const user = userEvent.setup();
@@ -90,8 +107,9 @@ test("checkbox and switch labels activate once, Space toggles, and mixed/readonl
 
 function Radios() {
   const [value, setValue] = useState("a");
-  return <RadioGroup aria-label="Decision" value={value} onChange={setValue}>
-    <Radio value="a">First</Radio><Radio value="b" isDisabled>Unavailable</Radio>
+  return <RadioGroup aria-label="Decision" value={value} onValueChange={(next) => setValue(String(next))}>
+    <label className="group/field-label"><RadioGroupItem value="a" />First</label>
+    <label className="group/field-label"><RadioGroupItem value="b" disabled />Unavailable</label>
     <RadioCard value="c" title="Third" description="Use this option" />
   </RadioGroup>;
 }
@@ -106,22 +124,4 @@ test("radio group arrows skip disabled items and card labels select with one tab
   expect(third.getAttribute("aria-checked")).toBe("true");
   await user.click(screen.getByText("First"));
   expect(screen.getByRole("radio", { name: "First" }).getAttribute("aria-checked")).toBe("true");
-});
-
-test("tabs associate their panels and automatically activate on keyboard navigation", async () => {
-  const user = userEvent.setup();
-  render(<Tabs defaultSelectedKey="one"><TabList aria-label="Sections">
-    <Tab id="one">One</Tab><Tab id="disabled" isDisabled>Disabled</Tab><Tab id="two" count={2}>Two</Tab>
-  </TabList><TabPanel id="one">First panel</TabPanel><TabPanel id="two">Second panel</TabPanel></Tabs>);
-  const first = screen.getByRole("tab", { name: "One" });
-  expect(first.getAttribute("aria-selected")).toBe("true");
-  expect(document.getElementById(first.getAttribute("aria-controls")!)?.textContent).toBe("First panel");
-  await user.tab();
-  await user.keyboard("{ArrowRight}");
-  expect(screen.getByRole("tab", { name: "Disabled" }).getAttribute("aria-selected")).toBe("false");
-  await user.keyboard("{ArrowRight}");
-  const second = screen.getByRole("tab", { name: /Two.*2/ });
-  expect(document.activeElement).toBe(second);
-  expect(second.getAttribute("aria-selected")).toBe("true");
-  expect(screen.getByRole("tabpanel").textContent).toBe("Second panel");
 });

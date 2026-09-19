@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t, useLocale } from "@/i18n";
-import { Button } from "@/components/base/buttons/button";
-import { LinkButton } from "@/components/base/buttons/link-button";
-import { Textarea } from "@/components/base/textarea/textarea";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { LoadState, Surface } from "@/components/NawabanUI";
 import { fetchCaptures, postCapture, newCaptureId, CaptureError, type Capture, type CaptureDraft } from "@/lib/captures-api";
 import type { Project } from "@/lib/api";
@@ -75,10 +75,14 @@ export function CaptureView({ project, query, onSelectTask }: {
   return <section className="flex flex-col gap-6 p-6" aria-label={t("capture")}>
     <Surface className="flex flex-col gap-4 p-4">
       <p className="text-body-regular text-text-secondary">{t("captureIntro")}</p>
-      <Textarea ref={textarea} label={t("captureIdea")} value={content} onChange={setContent}
-        disabled={busy || unknown} maxLength={4000} rows={3} />
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="capture-idea">{t("captureIdea")}</Label>
+        <Textarea id="capture-idea" ref={textarea} value={content}
+          onChange={(event) => setContent(event.target.value)}
+          disabled={busy || unknown} maxLength={4000} rows={3} />
+      </div>
       <div className="flex items-center gap-3">
-        <Button onClick={() => void save()} disabled={busy || !content.trim()}>
+        <Button size="lg" onClick={() => void save()} disabled={busy || !content.trim()}>
           {busy ? t("captureSaving") : unknown ? t("captureRetry") : t("captureSave")}
         </Button>
         <span className="text-caption-1-regular text-text-tertiary">
@@ -91,7 +95,7 @@ export function CaptureView({ project, query, onSelectTask }: {
     </Surface>
     <div className="flex items-center justify-between gap-3">
       <h2 className="text-headline-medium">{history ? t("captureAll") : t("capturePending")}</h2>
-      <Button variant="secondary" aria-pressed={history} onClick={() => setHistory(!history)}>
+      <Button variant="outline" size="lg" aria-pressed={history} onClick={() => setHistory(!history)}>
         {history ? t("captureShowPending") : t("captureShowHistory")}
       </Button>
     </div>
@@ -104,7 +108,7 @@ export function CaptureView({ project, query, onSelectTask }: {
         <span>{ago(item.created_at)}</span>
         <span>{item.project || t("noProject")}</span>
         <span>{t(item.status === "pending" ? "capturePending" : item.status === "converted" ? "captureConverted" : "captureDiscarded")}</span>
-        {item.task_id && <LinkButton onClick={() => onSelectTask(item.task_id!)}>{item.task_id}</LinkButton>}
+        {item.task_id && <Button variant="link" size="link" onClick={() => onSelectTask(item.task_id!)}>{item.task_id}</Button>}
       </div>
       {item.reason && <p className="whitespace-pre-wrap break-words text-body-regular text-text-secondary">{t("captureReason", { reason: item.reason })}</p>}
     </Surface>)}

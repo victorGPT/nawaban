@@ -179,7 +179,10 @@ input, textarea { caret-color: var(--color-accent-500); }
 [data-stage="done"] .column-status { background: var(--color-status-lime-text); }
 .task-stack { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 13px; align-content: start; }
 .column-empty { text-align: center; padding: 24px 8px; color: var(--muted); }
-:where(.nawaban-shell, .nawaban-modal) * { border-color: var(--line); }
+/* In the base layer so border-* utilities (e.g. shadcn's border-transparent) still win. */
+@layer base {
+  :where(.nawaban-shell, .nawaban-modal) * { border-color: var(--line); }
+}
 .content-button {
   color: var(--ink);
   height: auto !important;
@@ -391,25 +394,6 @@ input, textarea { caret-color: var(--color-accent-500); }
   border: 1px solid var(--line);
   border-radius: 24px;
   gap: 12px;
-}
-.nawaban-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: color-mix(in srgb, var(--color-text-primary) 18%, transparent);
-}
-.nawaban-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px;
-}
-.nawaban-overlay-sheet {
-  justify-content: flex-end;
-  padding: 0;
 }
 .nawaban-modal {
   width: min(560px, 100%);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // Text inside a task button must not introduce another interactive element.
 export function OverflowText({ text, className, as: Element = "span" }: {
@@ -18,22 +18,35 @@ export function OverflowText({ text, className, as: Element = "span" }: {
     return () => document.removeEventListener("keydown", dismiss);
   }, [open]);
   return (
-    <TooltipTrigger isOpen={open} onOpenChange={setOpen}>
-      <Element
-        ref={ref}
-        className={className}
-        onMouseEnter={(event) => {
-          const el = event.currentTarget;
-          setOpen(el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight);
-        }}
-        onMouseLeave={() => setOpen(false)}
-        onPointerDown={() => setOpen(false)}
-      >
+    <Tooltip
+      open={open}
+      disableHoverablePopup
+      // This component measures clipping itself before opening, so Base UI's
+      // own hover/focus opens are ignored.
+      onOpenChange={(next, details) => {
+        if (next && (details.reason === "trigger-hover" || details.reason === "trigger-focus")) return;
+        setOpen(next);
+      }}
+    >
+      <TooltipTrigger
+        render={
+          <Element
+            ref={ref}
+            className={className}
+            onMouseEnter={(event) => {
+              const el = event.currentTarget;
+              setOpen(el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight);
+            }}
+            onMouseLeave={() => setOpen(false)}
+            onPointerDown={() => setOpen(false)}
+          >
+            {text}
+          </Element>
+        }
+      />
+      <TooltipContent side="top" className="nawaban-text-tooltip">
         {text}
-      </Element>
-      <Tooltip triggerRef={ref} size="md" placement="top" className="nawaban-text-tooltip">
-        {text}
-      </Tooltip>
-    </TooltipTrigger>
+      </TooltipContent>
+    </Tooltip>
   );
 }

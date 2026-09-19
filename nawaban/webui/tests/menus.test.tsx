@@ -2,23 +2,33 @@ import { useState } from "react";
 import { expect, test, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Select, SelectItem } from "@/components/base/select/select";
-import { ModuleSelect } from "@/components/base/select/module-select";
-import { Dropdown, DropdownTrigger, DropdownPopover, DropdownItem } from "@/components/base/dropdown/dropdown";
-import { TooltipTrigger, Tooltip } from "@/components/base/tooltip/tooltip";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ModuleSelect } from "@/components/application/select/module-select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { OverflowText } from "@/components/OverflowText";
-import { Button } from "@/components/base/buttons/button";
+import { Button } from "@/components/ui/button";
 import { NawabanDialog } from "@/components/NawabanUI";
+
+const PROVIDERS = [
+  { value: "alpha", label: "Alpha" },
+  { value: "beta", label: "Beta" },
+  { value: "gamma", label: "Gamma" },
+];
 
 function Options({ changed, disabled = false }: { changed: (value: string) => void; disabled?: boolean }) {
   const [value, setValue] = useState("alpha");
-  return <Select aria-label="Provider" selectedKey={value} isDisabled={disabled} disabledKeys={["beta"]} onSelectionChange={(key) => {
+  return <Select items={PROVIDERS} value={value} disabled={disabled} onValueChange={(key) => {
     setValue(String(key));
     changed(String(key));
   }}>
-    <SelectItem id="alpha">Alpha</SelectItem>
-    <SelectItem id="beta">Beta</SelectItem>
-    <SelectItem id="gamma">Gamma</SelectItem>
+    <SelectTrigger aria-label="Provider"><SelectValue /></SelectTrigger>
+    <SelectContent align="start" alignItemWithTrigger={false}>
+      {PROVIDERS.map((provider) => (
+        <SelectItem key={provider.value} value={provider.value} disabled={provider.value === "beta"}>
+          {provider.label}
+        </SelectItem>
+      ))}
+    </SelectContent>
   </Select>;
 }
 
@@ -45,7 +55,7 @@ test("select keyboard navigation cannot activate disabled options and commits on
   expect(changed).not.toHaveBeenCalled();
   await user.keyboard("{Enter}");
   await waitFor(() => expect(changed).toHaveBeenCalledExactlyOnceWith("gamma"));
-  expect(trigger.textContent).toBe("Gamma");
+  expect(trigger.textContent).toContain("Gamma");
   await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
   await waitFor(() => expect(document.activeElement).toBe(trigger));
 });
@@ -62,29 +72,12 @@ test("disabled select cannot open or change through pointer or keyboard", async 
   expect(changed).not.toHaveBeenCalled();
 });
 
-test("dropdown Escape restores its trigger without an action; keyboard activation runs once", async () => {
-  const user = userEvent.setup();
-  const action = vi.fn();
-  render(<Dropdown><DropdownTrigger>Actions</DropdownTrigger>
-    <DropdownPopover aria-label="Actions menu"><DropdownItem onSelect={action}>Archive</DropdownItem></DropdownPopover>
-  </Dropdown>);
-  const trigger = screen.getByRole("button", { name: "Actions" });
-  await user.click(trigger);
-  await screen.findByRole("menu");
-  await user.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-  await waitFor(() => expect(document.activeElement).toBe(trigger));
-  expect(action).not.toHaveBeenCalled();
-  await user.keyboard("{ArrowDown}");
-  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Archive" })));
-  await user.keyboard("{Enter}");
-  expect(action).toHaveBeenCalledTimes(1);
-  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-});
-
 test("tooltip keeps its trigger label, opens on hover and focus, and closes with Escape", async () => {
   const user = userEvent.setup();
-  render(<TooltipTrigger><Button aria-label="Helpful details">Help</Button><Tooltip>Helpful details</Tooltip></TooltipTrigger>);
+  render(<Tooltip>
+    <TooltipTrigger render={<Button aria-label="Helpful details">Help</Button>} />
+    <TooltipContent>Helpful details</TooltipContent>
+  </Tooltip>);
   const trigger = screen.getByRole("button", { name: "Helpful details" });
   await user.hover(trigger);
   const tooltip = await screen.findByText("Helpful details");
@@ -145,12 +138,12 @@ test("project switcher offers all projects first and commits the chosen project"
   const user = userEvent.setup();
   const changed = vi.fn();
   render(<ModuleSelect modules={["example-project", "nawaban"]} value="all" onValueChange={changed}
-    allLabel={"\u5168\u90e8\u9879\u76ee"} ariaLabel={"\u5207\u6362\u9879\u76ee"} />);
-  const trigger = screen.getByRole("combobox", { name: "\u5207\u6362\u9879\u76ee" });
-  expect(trigger.textContent).toContain("\u5168\u90e8\u9879\u76ee");
+    allLabel={"全部项目"} ariaLabel={"切换项目"} />);
+  const trigger = screen.getByRole("combobox", { name: "切换项目" });
+  expect(trigger.textContent).toContain("全部项目");
   await user.click(trigger);
   await screen.findByRole("listbox");
-  expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["\u5168\u90e8\u9879\u76ee", "example-project", "nawaban"]);
+  expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["全部项目", "example-project", "nawaban"]);
   await user.click(screen.getByRole("option", { name: "nawaban" }));
   expect(changed).toHaveBeenCalledWith("nawaban");
 });

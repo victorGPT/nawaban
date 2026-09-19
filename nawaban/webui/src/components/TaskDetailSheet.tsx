@@ -11,8 +11,7 @@ import { OverflowText } from "@/components/OverflowText";
 import { TaskContext } from "@/components/TaskContext";
 import { Md } from "@/components/Md";
 import { NawabanDialog, LoadState, useNotice } from "@/components/NawabanUI";
-import { Button } from "@/components/base/buttons/button";
-import { LinkButton } from "@/components/base/buttons/link-button";
+import { Button } from "@/components/ui/button";
 import {
   SettingsCard,
   SettingsRow,
@@ -47,7 +46,9 @@ function CopyBtn({ text, label }: { text: string; label?: string }) {
   const [ok, setOk] = useState(false);
   const notice = useNotice();
   return (
-    <LinkButton
+    <Button
+      variant="link"
+      size="link"
       className="inline-flex items-center gap-1 detail-action hover:text-text-primary"
       onClick={() => {
         navigator.clipboard
@@ -63,7 +64,7 @@ function CopyBtn({ text, label }: { text: string; label?: string }) {
     >
       {ok ? <Check className="size-3" /> : <Copy className="size-3" />}
       {label}
-    </LinkButton>
+    </Button>
   );
 }
 
@@ -76,13 +77,15 @@ function IdLink({
 }) {
   useLocale();
   return (
-    <LinkButton
+    <Button
+      variant="link"
+      size="link"
       className="detail-code-link"
       onClick={() => onSelect(id)}
       type="button"
     >
       {id}
-    </LinkButton>
+    </Button>
   );
 }
 
@@ -102,13 +105,15 @@ function Fold<T>({
     <>
       {shown.map(render)}
       {items.length > n && (
-        <LinkButton
+        <Button
+          variant="link"
+          size="link"
           className="detail-action self-start"
           onClick={() => setAll((v) => !v)}
           type="button"
         >
           {all ? tr("collapse") : tr("moreItems", { count: items.length - n })}
-        </LinkButton>
+        </Button>
       )}
     </>
   );
@@ -121,13 +126,15 @@ function Clamp({ text }: { text: string }) {
   return (
     <div>
       <Md className={open ? "" : "line-clamp-3"} text={text} />
-      <LinkButton
+      <Button
+        variant="link"
+        size="link"
         className="detail-action"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
         {open ? tr("collapse") : tr("expandFullText")}
-      </LinkButton>
+      </Button>
     </div>
   );
 }
@@ -354,9 +361,8 @@ export function TaskDetailSheet({
             <Button
               variant="ghost"
               size="xs"
-              leadingIcon={RiArrowLeftLine}
               onClick={onBack}
-            >{tr("back")}</Button>
+            ><RiArrowLeftLine aria-hidden="true" />{tr("back")}</Button>
           )}
           <span>{d?.epic ?? tr("task")} / </span>
           <code>{taskId}</code>
@@ -504,15 +510,14 @@ export function TaskDetailSheet({
                       render={(r, i) => (
                         <div className="detail-entry" key={i}>
                           {isUrl(r.value) ? (
-                            <LinkButton
-                              size="xs"
+                            <Button
+                              variant="link"
+                              size="link-xs"
                               className="detail-code-link whitespace-normal break-all justify-start"
-                              href={r.value}
-                              rel="noreferrer"
-                              target="_blank"
+                              render={<a href={r.value} rel="noreferrer" target="_blank" />}
                             >
                               {r.value}
-                            </LinkButton>
+                            </Button>
                           ) : (
                             <Md text={r.value} />
                           )}
@@ -616,15 +621,14 @@ export function TaskDetailSheet({
                                 {r.kind}
                               </span>
                               {isUrl(r.value) ? (
-                                <LinkButton
-                                  size="xs"
+                                <Button
+                                  variant="link"
+                                  size="link-xs"
                                   className="detail-code-link detail-reference-link"
-                                  href={r.value}
-                                  rel="noreferrer"
-                                  target="_blank"
+                                  render={<a href={r.value} rel="noreferrer" target="_blank" />}
                                 >
                                   <OverflowText className="detail-reference-value" text={r.value} />
-                                </LinkButton>
+                                </Button>
                               ) : (
                                 <OverflowText className="detail-reference-value" text={r.value} />
                               )}

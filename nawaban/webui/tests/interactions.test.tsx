@@ -2,9 +2,10 @@ import { useState } from "react";
 import { expect, test, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Button } from "@/components/base/buttons/button";
+import { Button } from "@/components/ui/button";
 import { NawabanDialog, Notices, useNotice } from "@/components/NawabanUI";
-import { Table, TableBody, TableRow, TableCell } from "@/components/base/table/table";
+import { Table, TableBody, TableCell } from "@/components/ui/table";
+import { ActionRow } from "@/components/application/table/action-row";
 
 function DialogExample() {
   const [open, setOpen] = useState(false);
@@ -30,8 +31,8 @@ test("rows support keyboard traversal/activation without swallowing nested decis
   const user = userEvent.setup();
   const open = vi.fn(), decide = vi.fn();
   render(<Table aria-label="Tasks"><TableBody>
-    <TableRow aria-label="First" onAction={() => open("first")}><TableCell>First</TableCell></TableRow>
-    <TableRow aria-label="Second" onAction={() => open("second")}><TableCell><Button onClick={decide}>Decide</Button></TableCell></TableRow>
+    <ActionRow aria-label="First" onAction={() => open("first")}><TableCell>First</TableCell></ActionRow>
+    <ActionRow aria-label="Second" onAction={() => open("second")}><TableCell><Button onClick={decide}>Decide</Button></TableCell></ActionRow>
   </TableBody></Table>);
   await user.tab();
   await user.keyboard("{ArrowDown}{Enter}");
@@ -46,7 +47,7 @@ function NoticeExample() {
   const notify = useNotice();
   return <Button onClick={() => notify("Saved", "success", "Task saved")}>Notify</Button>;
 }
-test("notices render their message and dismiss through Base UI", async () => {
+test("notices render their message and dismiss through the shadcn toast", async () => {
   const user = userEvent.setup();
   render(<Notices><NoticeExample /></Notices>);
   await user.click(screen.getByRole("button", { name: "Notify" }));

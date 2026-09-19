@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "./theme.css";
 @import "./typography.css";
+@import "./shadcn-tokens.css";
 
 /* ---------------------------------------------------------------------------
  * Dark mode strategy
@@ -596,7 +597,7 @@ input[type="search"]::-webkit-search-cancel-button {
 }
 
 /* ---------------------------------------------------------------------------
- * Table primitive (components/base/table)
+ * Table skin (applied to components/ui/table by class)
  *
  * Native semantic table elements, with keyboard actions supplied by TableRow.
  * --------------------------------------------------------------------------- */

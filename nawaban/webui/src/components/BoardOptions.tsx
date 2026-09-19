@@ -1,12 +1,11 @@
-import { useState, type ReactNode } from "react";
-import { Popover } from "@base-ui/react/popover";
+import { type ReactNode } from "react";
 import { RiFilter3Line, RiEqualizerLine } from "@remixicon/react";
 import { t as tr, waitingLabel } from "@/i18n";
-import { Button, buttonStyles } from "@/components/base/buttons/button";
-import { Checkbox } from "@/components/base/checkbox/checkbox";
-import { Select, SelectItem } from "@/components/base/select/select";
-import { ModuleSelect } from "@/components/base/select/module-select";
-import { MENU_POPOVER_SURFACE } from "@/components/base/dropdown/menu-styles";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ModuleSelect } from "@/components/application/select/module-select";
 import { BOARD_COLUMNS } from "@/lib/nawaban-model";
 import { UNGROUPED_EPIC } from "@/lib/modules-model";
 import { SORT_OPTIONS, DISPLAY_FIELDS, type BoardDisplay } from "@/lib/board-display";
@@ -18,22 +17,36 @@ function OptionsPanel({ label, icon: Icon, active, children }: {
   active?: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-  return <Popover.Root open={open} onOpenChange={setOpen}>
-    <Popover.Trigger className={cx(buttonStyles.base, buttonStyles.size.small,
-      buttonStyles.variant.secondary, active && "board-tool-active")}>
-      <Icon className={buttonStyles.icon.small} aria-hidden />{label}
-    </Popover.Trigger>
-    <Popover.Portal>
-      <Popover.Positioner sideOffset={8} align="end" className="bui-popup-layer">
-        <Popover.Popup aria-label={label} className={cx(MENU_POPOVER_SURFACE,
-          "board-options-panel flex flex-col gap-4 p-4")}>
-          <Popover.Title className="text-body-medium">{label}</Popover.Title>
-          {children}
-        </Popover.Popup>
-      </Popover.Positioner>
-    </Popover.Portal>
-  </Popover.Root>;
+  return <Popover>
+    <PopoverTrigger render={<Button variant="outline" className={cx(active && "board-tool-active")} />}>
+      <Icon aria-hidden="true" />{label}
+    </PopoverTrigger>
+    <PopoverContent sideOffset={8} align="end" aria-label={label}
+      className="board-options-panel flex flex-col gap-4 p-4">
+      <PopoverTitle className="text-body-medium">{label}</PopoverTitle>
+      {children}
+    </PopoverContent>
+  </Popover>;
+}
+
+/** Label + control row, matching the spacing the hand-built Select used. */
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return <div className="flex flex-col gap-2">
+    <span className="text-body-2-medium text-text-secondary">{label}</span>
+    {children}
+  </div>;
+}
+
+/** shadcn checkboxes are unlabelled controls; the kit's Checkbox took children. */
+function CheckboxField({ checked, onCheckedChange, children }: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  children: ReactNode;
+}) {
+  return <label className="group/field-label flex cursor-pointer items-center gap-2 text-body-medium text-text-primary">
+    <Checkbox checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} />
+    {children}
+  </label>;
 }
 
 export function BoardOptions({ modules, module, onModuleChange, waiting, onWaitingChange,
@@ -50,46 +63,56 @@ export function BoardOptions({ modules, module, onModuleChange, waiting, onWaiti
 }) {
   const toggle = (key: "columns" | "fields", id: string, checked: boolean) =>
     onDisplayChange({ ...display, [key]: checked ? [...display[key], id] : display[key].filter((value) => value !== id) });
+  const waitingValues = ["", "decision", "prod", "observe", "external"];
   return <>
     <OptionsPanel label={tr("boardFilter")} icon={RiFilter3Line}
       active={module !== "all" || !!waiting || dateActive}>
-      <div className="flex flex-col gap-2">
-        <span className="text-body-2-medium text-text-secondary">{tr("epicName")}</span>
+      <Field label={tr("epicName")}>
         <ModuleSelect modules={modules} value={module} onValueChange={onModuleChange}
           getLabel={(value) => value === UNGROUPED_EPIC ? tr("ungrouped") : value} />
-      </div>
-      <div className="flex flex-col gap-2">
-        <span className="text-body-2-medium text-text-secondary">{tr("filterWaiting")}</span>
-        <Select size="sm" aria-label={tr("filterWaiting")} selectedKey={waiting}
-          onSelectionChange={(key) => onWaitingChange(String(key))}>
-          {["", "decision", "prod", "observe", "external"].map((value) =>
-            <SelectItem key={value} id={value}>{value ? waitingLabel(value) : tr("allWaiting")}</SelectItem>)}
+      </Field>
+      <Field label={tr("filterWaiting")}>
+        <Select
+          items={waitingValues.map((value) => ({ value, label: value ? waitingLabel(value) : tr("allWaiting") }))}
+          value={waiting}
+          onValueChange={(value) => onWaitingChange(String(value))}
+        >
+          <SelectTrigger size="sm" aria-label={tr("filterWaiting")} className="w-full"><SelectValue /></SelectTrigger>
+          <SelectContent align="start" alignItemWithTrigger={false}>
+            {waitingValues.map((value) =>
+              <SelectItem key={value} value={value}>{value ? waitingLabel(value) : tr("allWaiting")}</SelectItem>)}
+          </SelectContent>
         </Select>
-      </div>
+      </Field>
       {dateFilters}
     </OptionsPanel>
     <OptionsPanel label={tr("boardDisplay")} icon={RiEqualizerLine}>
-      <div className="flex flex-col gap-2">
-        <span className="text-body-2-medium text-text-secondary">{tr("boardSort")}</span>
-        <Select size="sm" aria-label={tr("boardSort")} selectedKey={display.sort}
-          onSelectionChange={(key) => onDisplayChange({ ...display, sort: key as BoardDisplay["sort"] })}>
-          {SORT_OPTIONS.map((sort) => <SelectItem key={sort} id={sort}>{tr(`boardSort_${sort}`)}</SelectItem>)}
+      <Field label={tr("boardSort")}>
+        <Select
+          items={SORT_OPTIONS.map((sort) => ({ value: sort, label: tr(`boardSort_${sort}`) }))}
+          value={display.sort}
+          onValueChange={(value) => onDisplayChange({ ...display, sort: value as BoardDisplay["sort"] })}
+        >
+          <SelectTrigger size="sm" aria-label={tr("boardSort")} className="w-full"><SelectValue /></SelectTrigger>
+          <SelectContent align="start" alignItemWithTrigger={false}>
+            {SORT_OPTIONS.map((sort) => <SelectItem key={sort} value={sort}>{tr(`boardSort_${sort}`)}</SelectItem>)}
+          </SelectContent>
         </Select>
-      </div>
-      <Checkbox isSelected={display.compact}
-        onChange={(compact) => onDisplayChange({ ...display, compact })}>{tr("boardCompact")}</Checkbox>
+      </Field>
+      <CheckboxField checked={display.compact}
+        onCheckedChange={(compact) => onDisplayChange({ ...display, compact })}>{tr("boardCompact")}</CheckboxField>
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-body-2-medium text-text-secondary">{tr("boardFields")}</legend>
-        {DISPLAY_FIELDS.map((field) => <Checkbox key={field} isSelected={display.fields.includes(field)}
-          onChange={(checked) => toggle("fields", field, checked)}>{tr(field === "id" ? "taskId" : "epicName")}</Checkbox>)}
+        {DISPLAY_FIELDS.map((field) => <CheckboxField key={field} checked={display.fields.includes(field)}
+          onCheckedChange={(checked) => toggle("fields", field, checked)}>{tr(field === "id" ? "taskId" : "epicName")}</CheckboxField>)}
       </fieldset>
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-body-2-medium text-text-secondary">{tr("boardColumns")}</legend>
-        {BOARD_COLUMNS.map((column) => <Checkbox key={column.id} isSelected={display.columns.includes(column.id)}
-          onChange={(checked) => toggle("columns", column.id, checked)}>{column.label}</Checkbox>)}
+        {BOARD_COLUMNS.map((column) => <CheckboxField key={column.id} checked={display.columns.includes(column.id)}
+          onCheckedChange={(checked) => toggle("columns", column.id, checked)}>{column.label}</CheckboxField>)}
       </fieldset>
       <p className="text-caption-1-regular text-text-tertiary">{tr("boardColumnsHint")}</p>
-      <Button variant="ghost" size="small" disabled={display.columns.length === BOARD_COLUMNS.length}
+      <Button variant="soft" disabled={display.columns.length === BOARD_COLUMNS.length}
         onClick={() => onDisplayChange({ ...display,
         columns: BOARD_COLUMNS.map((column) => column.id) })}>{tr("boardShowAllColumns")}</Button>
     </OptionsPanel>

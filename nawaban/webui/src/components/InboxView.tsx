@@ -2,12 +2,11 @@ import { t, useLocale, type TranslationKey } from "@/i18n";
 import zhCN from "@/i18n/zh-CN.json";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Md } from "@/components/Md";
-import { Chip } from "@/components/base/badges/chip";
-import { LinkButton } from "@/components/base/buttons/link-button";
-import { Button } from "@/components/base/buttons/button";
-import { Textarea } from "@/components/base/textarea/textarea";
-import { RadioGroup } from "@/components/base/radio/radio";
-import { RadioCard } from "@/components/base/radio/radio-card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup } from "@/components/ui/radio-group";
+import { RadioCard } from "@/components/application/radio/radio-card";
 import {
   ContentButton,
   Surface,
@@ -53,7 +52,7 @@ function OptionsList({
       <RadioGroup
         aria-label={t("decisionOptions")}
         value={selectedIndex == null ? "" : String(selectedIndex)}
-        onChange={(value) => onSelect(Number(value))}
+        onValueChange={(value) => onSelect(Number(value))}
         className="decision-options"
       >
         {options.map((o, i) => (
@@ -81,14 +80,14 @@ function OptionsList({
 function KindBadge({ kind }: { kind: string }) {
   useLocale();
   return (
-    <Chip
-      color={
+    <Badge
+      variant={
         kind === "accept" ? "yellow" : kind === "decide" ? "purple" : "blue"
       }
-      variant="bold"
+      size="bold"
     >
       {KIND_LABEL[kind] ? t(KIND_LABEL[kind]) : kind}
-    </Chip>
+    </Badge>
   );
 }
 
@@ -173,9 +172,9 @@ function AskCard({
             #{ask.id}
           </span>
           {ask.hands_on && (
-            <Chip color="yellow" variant="bold">
+            <Badge variant="yellow" size="bold">
               {t("handsOn")}
-            </Chip>
+            </Badge>
           )}
           <span className="ml-auto shrink-0 text-body-regular text-text-secondary">
             {t("waitingDays", { days: ask.stalled_days })}
@@ -208,7 +207,7 @@ function AskCard({
               (isOtherSelected ? (
                 <Textarea
                   aria-label={t("otherDecision")}
-                  onChange={setOtherText}
+                  onChange={(event) => setOtherText(event.target.value)}
                   placeholder={t("answerPlaceholder")}
                   value={otherText}
                 />
@@ -216,7 +215,7 @@ function AskCard({
                 selectedIdx != null && (
                   <Textarea
                     aria-label={t("supplementDetails")}
-                    onChange={setSupplement}
+                    onChange={(event) => setSupplement(event.target.value)}
                     placeholder={t("supplement")}
                     value={supplement}
                   />
@@ -245,19 +244,21 @@ function AskCard({
         {ask.task_ids.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {ask.task_ids.map((id) => (
-              <LinkButton
+              <Button
                 key={id}
+                variant="link"
+                size="link"
                 className="detail-code-link"
                 onClick={() => onSelectTask(id)}
               >
-                <Chip
-                  color="soft"
-                  variant="bold"
+                <Badge
+                  variant="soft"
+                  size="bold"
                   className="whitespace-normal break-words text-left"
                 >
                   {id}
-                </Chip>
-              </LinkButton>
+                </Badge>
+              </Button>
             ))}
           </div>
         )}
@@ -267,7 +268,7 @@ function AskCard({
           </p>
         )}
         {unknown && (
-          <Button variant="secondary" onClick={onDone}>
+          <Button variant="outline" size="lg" onClick={onDone}>
             {t("verifyAnswerResult")}
           </Button>
         )}
@@ -279,15 +280,13 @@ function AskCard({
             <Button
               disabled={unknown || busy}
               onClick={() => setDialog({ reject: true })}
-              size="small"
-              variant="secondary"
+              variant="outline"
             >
               {t("requestChanges")}
             </Button>
             <Button
               disabled={unknown || busy}
               onClick={() => submit(ACCEPT_VERDICT, false)}
-              size="small"
             >
               {t("acknowledge")}
             </Button>
@@ -296,7 +295,6 @@ function AskCard({
           <Button
             disabled={unknown || busy || !decideVerdict}
             onClick={() => submit(decideVerdict, false, resetDecide)}
-            size="small"
             title={selectedIdx == null ? t("selectOption") : undefined}
           >
             {t(KIND_ACTION_LABEL.decide)}
@@ -305,7 +303,6 @@ function AskCard({
           <Button
             disabled={unknown || busy}
             onClick={() => setDialog({ reject: false })}
-            size="small"
           >
             {t(KIND_ACTION_LABEL[ask.kind] ?? "answer")}
           </Button>
@@ -321,7 +318,7 @@ function AskCard({
         <div className="answer-form">
           <Textarea
             aria-label={dialog?.reject ? t("rejectReason") : t("answer")}
-            onChange={setAnswer}
+            onChange={(event) => setAnswer(event.target.value)}
             placeholder={
               (dialog?.reject ? t("rejectReason") : t("answer")) + t("recordedVerbatim")
             }
@@ -331,11 +328,13 @@ function AskCard({
             <Button
               disabled={unknown || busy}
               onClick={() => setDialog(null)}
-              variant="secondary"
+              variant="outline"
+              size="lg"
             >
               {t("cancel")}
             </Button>
             <Button
+              size="lg"
               disabled={unknown || busy || !answer.trim()}
               onClick={() =>
                 submit(answer.trim(), dialog?.reject ?? false, () =>
@@ -386,13 +385,14 @@ function SelfApprovedRow({ r }: { r: SelfApproved }) {
         <code className="break-all text-body-regular">
           nawaban reopen {r.id} --reason "..."
         </code>
-        <LinkButton
+        <Button
           className="detail-action"
           onClick={() => copyReopen(r.id, notice)}
-          variant="secondary"
+          variant="link-muted"
+          size="link"
         >
           {t("copyCommand")}
-        </LinkButton>
+        </Button>
       </div>
     </Surface>
   );
@@ -533,9 +533,9 @@ function ProjectInbox({ query, project, onSelectTask }: InboxViewProps) {
                   <KindBadge kind={a.kind} />
                   <span className="text-body-regular">#{a.id}</span>
                   {a.hands_on && (
-                    <Chip color="yellow" variant="bold">
+                    <Badge variant="yellow" size="bold">
                       {t("handsOn")}
-                    </Chip>
+                    </Badge>
                   )}
                   <span className="ml-auto">{t("daysCount", { days: a.stalled_days })}</span>
                 </div>

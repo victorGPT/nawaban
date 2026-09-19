@@ -1,5 +1,12 @@
 {
   "files": [],
+  // Mirrors tsconfig.app.json so tooling that only reads the root config
+  // (the shadcn CLI, for one) resolves the @/ alias.
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
   "references": [
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" }

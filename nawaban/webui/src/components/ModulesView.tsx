@@ -1,10 +1,10 @@
 import { t as tr, useLocale } from "@/i18n";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Chip } from "@/components/base/badges/chip";
+import { Badge } from "@/components/ui/badge";
 import { TaskCard, TaskTag, StatusLegend } from "@/components/TaskCard";
 import { useReadOnlyData } from "@/lib/use-read-only-data";
 import { ContentButton, LoadState } from "@/components/NawabanUI";
-import { Switch } from "@/components/base/switch/switch";
+import { Switch } from "@/components/ui/switch";
 import { fetchModules, type Project } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { ModuleTask } from "@/lib/types";
@@ -67,7 +67,7 @@ function Card({
       hasAsk={hasAsk} onSelect={onClick} onDecision={onDecision}
       className={cn("transition-opacity", hot && "ring-1 ring-border-focus-ring", dim && "opacity-[.22]")}
     >
-      {blocked && <Chip color="yellow" variant="bold">{tr("blocked")}</Chip>}
+      {blocked && <Badge variant="yellow" size="bold">{tr("blocked")}</Badge>}
       {[...xdep].map((e) => <TaskTag label={`${tr("dependencyPrefix")}${e}`} key={e} />)}
     </TaskCard>
   );
@@ -221,7 +221,7 @@ export function ModulesView({
             return (
               <ContentButton
                 className={cn(
-                  "flex h-9 items-center gap-2 rounded-md px-2 text-left text-body-regular transition-colors",
+                  "flex min-h-9 items-center gap-2 rounded-md px-2 text-left text-body-regular transition-colors",
                   active
                     ? "bg-background-secondary-hover text-text-primary"
                     : "text-text-primary hover:bg-background-secondary-hover/50",
@@ -262,8 +262,8 @@ export function ModulesView({
                 {tr("focusModeLabel")}
                 <Switch
                   aria-label={tr("focusMode")}
-                  isSelected={focusMode}
-                  onChange={(checked) => {
+                  checked={focusMode}
+                  onCheckedChange={(checked) => {
                     setFocusMode(checked);
                     setFocusId(null);
                   }}

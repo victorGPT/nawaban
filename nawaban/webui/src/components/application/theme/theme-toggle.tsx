@@ -5,7 +5,7 @@ import { t as tr, useLocale } from "@/i18n";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { RiMoonLine, RiSunLine } from "@remixicon/react";
-import { SwitchControl, SwitchTrack } from "@/components/base/switch/switch";
+import { Switch } from "@/components/ui/switch";
 import { cx } from "@/utils/cx";
 
 export type ThemeMode = "light" | "dark";
@@ -363,40 +363,36 @@ export function ThemeToggle({
   }
 
   return (
-    <SwitchControl
+    <label
       ref={switchRef}
-      isSelected={dark}
-      onPointerDown={(event) => {
-        pointerOriginRef.current = { x: event.clientX, y: event.clientY };
-      }}
-      onChange={(selected) => {
-        const origin = pointerOriginRef.current;
-        pointerOriginRef.current = null;
-        void applyThemeWithTransition(selected ? "dark" : "light", {
-          origin,
-          element: switchRef.current,
-          duration: transitionDuration,
-        });
-      }}
-      aria-label={tr("darkMode")}
-      className={({ isFocusVisible }) =>
-        cx(
-          "flex w-full cursor-pointer items-center justify-between rounded-2lg p-2",
-          "transition-colors duration-150 ease hover:bg-background-secondary-hover",
-          isFocusVisible && "ring-2 ring-inset ring-border-focus-ring",
-          className,
-        )
-      }
-    >
-      {(state) => (
-        <>
-          <span className="flex min-w-0 items-center gap-2">
-            <RiMoonLine className="size-5 shrink-0 text-foreground-icon-secondary" aria-hidden />
-            <span className="text-body-medium text-text-secondary">{tr("darkMode")}</span>
-          </span>
-          <SwitchTrack state={state} size="sm" shape="pill" />
-        </>
+      className={cx(
+        "group/field-label flex w-full cursor-pointer items-center justify-between rounded-2lg p-2",
+        "transition-colors duration-150 ease hover:bg-background-secondary-hover",
+        "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-border-focus-ring",
+        className,
       )}
-    </SwitchControl>
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <RiMoonLine className="size-5 shrink-0 text-foreground-icon-secondary" aria-hidden />
+        <span className="text-body-medium text-text-secondary">{tr("darkMode")}</span>
+      </span>
+      <Switch
+        size="sm"
+        checked={dark}
+        aria-label={tr("darkMode")}
+        onPointerDown={(event) => {
+          pointerOriginRef.current = { x: event.clientX, y: event.clientY };
+        }}
+        onCheckedChange={(selected) => {
+          const origin = pointerOriginRef.current;
+          pointerOriginRef.current = null;
+          void applyThemeWithTransition(selected ? "dark" : "light", {
+            origin,
+            element: switchRef.current,
+            duration: transitionDuration,
+          });
+        }}
+      />
+    </label>
   );
 }

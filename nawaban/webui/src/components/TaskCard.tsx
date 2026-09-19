@@ -1,10 +1,10 @@
 import { t as tr, getLocale, useLocale, statusLabel, waitingLabel } from "@/i18n";
 import type { ReactNode } from "react";
 import { RiStackLine } from "@remixicon/react";
-import { Button } from "@/components/base/buttons/button";
-import { Chip, type ChipProps } from "@/components/base/badges/chip";
-import { StatusDot } from "@/components/base/badges/status-dot";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { Button } from "@/components/ui/button";
+import { Badge, badgeVariants } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { VariantProps } from "class-variance-authority";
 import { ContentButton, Surface } from "@/components/NawabanUI";
 import { OverflowText } from "@/components/OverflowText";
 import { liveAge, taskSignal } from "@/lib/nawaban-model";
@@ -12,6 +12,18 @@ import { taskStaleness } from "@/lib/task-staleness";
 import { useTaskClock } from "@/lib/use-task-clock";
 import type { BoardTask } from "@/lib/types";
 import { cx } from "@/utils/cx";
+
+/**
+ * 12x12 liveness indicator: a 6px dot on a tinted halo. shadcn has no
+ * equivalent primitive and it is only used here, so it stays local.
+ */
+function StatusDot({ className }: { className?: string }) {
+  return (
+    <span aria-hidden className={cx("inline-flex size-3 shrink-0 items-center justify-center rounded-full bg-status-dot-green-halo", className)}>
+      <span className="size-1.5 rounded-full bg-green-500" />
+    </span>
+  );
+}
 
 export function WindowStatus({
   task,
@@ -27,7 +39,7 @@ export function WindowStatus({
   // Most cards have no window signal; an empty circle on every card says nothing.
   if (signal.kind === "unknown") return null;
   const age = signal.kind === "decision" ? null : liveAge(task.live?.age_s);
-  const dot = <StatusDot color="green" className={cx("window-status", `signal-${signal.kind}`)} />;
+  const dot = <StatusDot className={cx("window-status", `signal-${signal.kind}`)} />;
   const trigger = signal.kind === "decision" ? (
     <Button
       variant="ghost"
@@ -47,13 +59,13 @@ export function WindowStatus({
     </span>
   );
   return (
-    <TooltipTrigger delay={150}>
-      {trigger}
-      <Tooltip placement="left">
+    <Tooltip>
+      <TooltipTrigger delay={150} render={trigger} />
+      <TooltipContent side="left" className="flex-col items-start">
         <span className="block">{signal.label}</span>
         {age && <span className="block text-text-secondary">{age}</span>}
-      </Tooltip>
-    </TooltipTrigger>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 export type TaskCardData = Pick<BoardTask, "id" | "title" | "epic" | "status" | "live" | "waiting_on">
@@ -68,9 +80,9 @@ function TaskWaiting({ task }: { task: TaskCardData }) {
   if (!task.waiting_on || task.waiting_on === "decision"
     || task.waiting_on === COLUMN_IMPLIED_WAITING[task.status]) return null;
   return (
-    <Chip className="task-attention" variant="caption" color="soft" data-task-attention>
+    <Badge className="task-attention" size="caption" variant="soft" data-task-attention>
       <OverflowText className="task-tag-label" text={waitingLabel(task.waiting_on)} />
-    </Chip>
+    </Badge>
   );
 }
 
@@ -95,13 +107,13 @@ function TaskDate({ task }: { task: TaskCardData }) {
 
 export function TaskTag({ label, color = "soft" }: {
   label: string;
-  color?: ChipProps["color"];
+  color?: VariantProps<typeof badgeVariants>["variant"];
 }) {
   useLocale();
   return (
-    <Chip className="task-tag" color={color} variant="caption">
+    <Badge className="task-tag" variant={color} size="caption">
       <OverflowText className="task-tag-label" text={label} />
-    </Chip>
+    </Badge>
   );
 }
 
@@ -148,7 +160,7 @@ export function StatusLegend({ available }: { available?: boolean }) {
       <div className="status-legend text-body-regular" aria-label={tr("statusLegend")}>
         <span className="text-text-primary">{tr("cardSignalLegend")}</span>
         <span>
-          <StatusDot color="green" />{tr("workingSignal")}</span>
+          <StatusDot />{tr("workingSignal")}</span>
         <span>
           <StatusDot className="signal-idle" />{tr("idleSignal")}</span>
         <span>

@@ -1,0 +1,106 @@
+/* ---------------------------------------------------------------------------
+ * shadcn/ui (Base UI) token bridge — version B.
+ *
+ * The generated components under `components/ui/` speak shadcn's vocabulary
+ * (--background, --primary, --muted, --border, --ring, …). This file aliases
+ * that vocabulary onto the BoardUI semantic tokens already defined in
+ * styles/theme.css, so the shadcn kit inherits the current palette instead of
+ * the nova default one.
+ *
+ * There is no `.dark` block on purpose: the source tokens on the right-hand
+ * side already flip under `.dark` in theme.css, and `var()` resolves at use
+ * time, so the aliases flip with them.
+ *
+ * Deliberately NOT re-exported here:
+ *   --color-chart-*  theme.css already owns chart-1…9 as utilities.
+ *   --radius-sm/md/lg/xl  redefining the radius scale would reshape every
+ *                         existing rounded-* class in the app.
+ *   @custom-variant dark  globals.css already defines it.
+ *   --font-sans / --font-heading  the app keeps its own typography stack.
+ * --------------------------------------------------------------------------- */
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+:root {
+  --background: var(--color-background-full);
+  --foreground: var(--color-text-primary);
+
+  --card: var(--color-background-primary-default);
+  --card-foreground: var(--color-text-primary);
+
+  --popover: var(--color-background-primary-default);
+  --popover-foreground: var(--color-text-primary);
+
+  --primary: var(--color-accent-600);
+  --primary-foreground: var(--color-text-white);
+
+  --secondary: var(--color-background-secondary-default);
+  --secondary-foreground: var(--color-text-primary);
+
+  --muted: var(--color-background-secondary-default);
+  --muted-foreground: var(--color-text-secondary);
+
+  /* shadcn's "accent" is the hover/selected surface, not a brand hue. */
+  --accent: var(--color-background-secondary-default);
+  --accent-foreground: var(--color-text-primary);
+
+  --destructive: var(--color-text-error-primary);
+  --destructive-foreground: var(--color-text-white);
+
+  /* The app's hairline (--line in index.css). Defined once, here. */
+  --border: var(--color-separator-border);
+  --input: var(--color-separator-border);
+  --ring: var(--color-border-focus-ring);
+
+  /* Only consumed by shadcn classes that call var(--radius) directly. */
+  --radius: var(--radius-2lg);
+
+  --sidebar: var(--color-background-secondary-default);
+  --sidebar-foreground: var(--color-text-primary);
+  --sidebar-primary: var(--color-accent-600);
+  --sidebar-primary-foreground: var(--color-text-white);
+  --sidebar-accent: var(--color-background-tertiary-default);
+  --sidebar-accent-foreground: var(--color-text-primary);
+  --sidebar-border: var(--color-separator-border);
+  --sidebar-ring: var(--color-border-focus-ring);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* shadcn components use bare `border`/`border-b` and expect the default border
+ * color to be the token, not Tailwind's currentColor. */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-border);
+  }
+}
