@@ -66,6 +66,16 @@ test.each(["/?unassigned=1", "/?project=&unassigned=1"])("bookmark %s selects un
   await screen.findByText("Legacy card without a project");
 });
 
+test("a remembered project that no longer exists falls back to all projects", async () => {
+  history.replaceState(null, "", "/?project=renamed-away");
+  localStorage.setItem("project", "renamed-away");
+  render(<Notices><App /></Notices>);
+  await waitFor(() => expect(fetchBoard).toHaveBeenLastCalledWith(null, null));
+  expect(screen.getByRole("combobox", { name: zh.switchProject }).textContent).toContain(zh.allProjects);
+  expect(new URLSearchParams(location.search).get("project")).toBe("");
+  expect(localStorage.getItem("project")).toBe("");
+});
+
 test("all projects and a project literally named all remain distinct", async () => {
   localStorage.setItem("projectUnassigned", "1");
   history.replaceState(null, "", "/?project=");

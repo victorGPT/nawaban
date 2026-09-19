@@ -111,10 +111,15 @@ const NAV = [
   };
   useEffect(() => {
     fetchProjects()
-      .then((d) =>
-        setProjects(d.projects.flatMap((p) => (p.name ? [p.name] : []))),
-      )
+      .then((d) => {
+        const names = d.projects.flatMap((p) => (p.name ? [p.name] : []));
+        setProjects(names);
+        // A remembered project can be renamed or removed; keeping it shows an empty board.
+        if (project && !names.includes(project)) changeProject("all");
+      })
       .catch(() => setProjects([]));
+    // Runs once: only the project remembered at load needs checking.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const navigate = (next: View) => {
     setView(next);
