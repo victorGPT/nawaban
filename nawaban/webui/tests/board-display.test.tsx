@@ -46,16 +46,15 @@ test("an invalid field URL keeps both optional fields visible on a later clean v
   const first = render(<BoardKanban {...props} />);
   await screen.findByText("Title open");
   const card = first.container.querySelector('[data-card-id="TASK-open"]')!;
-  expect(card.querySelector(".task-meta")?.textContent).toBe("TASK-open");
-  expect(card.querySelector(".task-tag-label")?.textContent).toBe("Example");
+  expect(card.textContent).not.toContain("TASK-open");
+  expect(card.querySelector(".task-module")?.textContent).toBe("Example");
   expect(new URLSearchParams(localStorage.getItem(BOARD_DISPLAY_STORAGE)!).get("boardFields")).toBe("id,module");
   first.unmount();
   history.replaceState(null, "", "/");
   const revisit = render(<BoardKanban {...props} />);
   await screen.findByText("Title open");
   const restored = revisit.container.querySelector('[data-card-id="TASK-open"]')!;
-  expect(restored.querySelector(".task-meta")?.textContent).toBe("TASK-open");
-  expect(restored.querySelector(".task-tag-label")?.textContent).toBe("Example");
+  expect(restored.querySelector(".task-module")?.textContent).toBe("Example");
 });
 
 test("restore-all is disabled when nothing is hidden and the English count works for one or more lanes", async () => {
@@ -114,10 +113,10 @@ test("URL overrides local preferences; an explicit empty list can be recovered",
   expect(container.querySelector(".board-compact")).toBeNull();
   await user.click(screen.getByRole("button", { name: zh.boardShowAllColumns }));
   expect(container.querySelectorAll(".board-column")).toHaveLength(4);
-  expect(container.querySelector(".task-meta")).toBeNull();
   expect(screen.getByText("Title claimed")).toBeTruthy();
   expect(screen.getByText(zh.assigned)).toBeTruthy();
-  expect(container.querySelectorAll(".signal-button")).toHaveLength(5);
+  expect(container.querySelector(".task-module")).toBeNull();
+  expect(container.querySelectorAll(".signal-button")).toHaveLength(0);
 });
 
 test("display controls sort within lanes and hide fields in board and list", async () => {
@@ -134,7 +133,7 @@ test("display controls sort within lanes and hide fields in board and list", asy
   await user.click(screen.getByRole("checkbox", { name: zh.taskId }));
   await user.click(screen.getByRole("checkbox", { name: zh.epicName }));
   await user.click(screen.getByRole("checkbox", { name: zh.boardCompact }));
-  expect(container.querySelector(".task-meta")).toBeNull();
+  expect(container.querySelector(".task-module")).toBeNull();
   expect(container.querySelector(".board-compact")).toBeTruthy();
   await user.keyboard("{Escape}");
   await waitFor(() => expect(document.activeElement).toBe(display));

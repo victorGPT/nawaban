@@ -1,5 +1,6 @@
-import { t as tr, useLocale, statusLabel, waitingLabel } from "@/i18n";
+import { t as tr, getLocale, useLocale, statusLabel, waitingLabel } from "@/i18n";
 import type { ReactNode } from "react";
+import { RiStackLine } from "@remixicon/react";
 import { Button } from "@/components/base/buttons/button";
 import { Chip, type ChipProps } from "@/components/base/badges/chip";
 import { StatusDot } from "@/components/base/badges/status-dot";
@@ -23,21 +24,17 @@ export function WindowStatus({
 }) {
   useLocale();
   const signal = taskSignal(task, hasAsk);
+  // Most cards have no window signal; an empty circle on every card says nothing.
+  if (signal.kind === "unknown") return null;
   const age = signal.kind === "decision" ? null : liveAge(task.live?.age_s);
-  const dot = (
-    <StatusDot
-      color={signal.kind === "decision" ? "yellow" : "green"}
-      className={cx("window-status", `signal-${signal.kind}`)}
-    />
-  );
-  const trigger = signal.kind === "decision" && onDecision ? (
+  const dot = <StatusDot color="green" className={cx("window-status", `signal-${signal.kind}`)} />;
+  const trigger = signal.kind === "decision" ? (
     <Button
       variant="ghost"
-      className="signal-button"
-      aria-label={signal.label}
+      className="task-decision"
       onClick={onDecision}
     >
-      {dot}
+      {waitingLabel("decision")}
     </Button>
   ) : (
     <span
@@ -62,20 +59,37 @@ export function WindowStatus({
 export type TaskCardData = Pick<BoardTask, "id" | "title" | "epic" | "status" | "live" | "waiting_on">
   & { active_at?: number };
 
-function TaskAttention({ task }: { task: TaskCardData }) {
-  const now = useTaskClock();
+// Every card in the acceptance column waits for the release; repeating it on each card is noise.
+const COLUMN_IMPLIED_WAITING: Record<string, string> = { "staging-verified": "prod" };
+
+function TaskWaiting({ task }: { task: TaskCardData }) {
   if (task.status === "done" || task.status === "cancelled") return null;
-  const stale = taskStaleness(task.active_at, now);
-  if (!stale && !task.waiting_on) return null;
-  const label = [
-    task.waiting_on && waitingLabel(task.waiting_on),
-    stale && tr(stale.days === 1 ? "taskInactiveDay" : "taskInactiveDays", { count: stale.days }),
-  ].filter(Boolean).join(" · ");
+  // The decision wait is already the decision button.
+  if (!task.waiting_on || task.waiting_on === "decision"
+    || task.waiting_on === COLUMN_IMPLIED_WAITING[task.status]) return null;
   return (
-    <Chip className="task-attention" variant="caption" data-task-attention data-stale-level={stale?.level}
-      color={stale?.level === "critical" ? "rose" : stale?.level === "warning" ? "yellow" : "soft"}>
-      <OverflowText className="task-tag-label" text={label} />
+    <Chip className="task-attention" variant="caption" color="soft" data-task-attention>
+      <OverflowText className="task-tag-label" text={waitingLabel(task.waiting_on)} />
     </Chip>
+  );
+}
+
+// Last activity date, pinned right. It only changes colour once started work sits still;
+// backlog and finished cards sitting still is normal.
+function TaskDate({ task }: { task: TaskCardData }) {
+  const now = useTaskClock();
+  if (task.active_at === undefined) return null;
+  const settled = task.status === "open" || task.status === "done" || task.status === "cancelled";
+  const stale = settled ? null : taskStaleness(task.active_at, now);
+  const idle = stale && tr("taskInactiveDays", { count: stale.days });
+  // ponytail: no year; add it when cards older than a year need telling apart
+  const label = new Intl.DateTimeFormat(getLocale(), { month: "short", day: "numeric" })
+    .format(task.active_at * 1000);
+  return (
+    <time className="task-date" dateTime={new Date(task.active_at * 1000).toISOString()}
+      data-stale-level={stale?.level} title={idle || undefined} aria-label={idle ? `${label}, ${idle}` : undefined}>
+      {label}
+    </time>
   );
 }
 
@@ -91,7 +105,7 @@ export function TaskTag({ label, color = "soft" }: {
   );
 }
 
-export function TaskCard({ task, hasAsk, onSelect, onDecision, className, children, fields = ["id"] }: {
+export function TaskCard({ task, hasAsk, onSelect, onDecision, className, children, fields = [] }: {
   task: TaskCardData;
   hasAsk: boolean;
   onSelect: () => void;
@@ -101,22 +115,27 @@ export function TaskCard({ task, hasAsk, onSelect, onDecision, className, childr
   fields?: readonly string[];
 }) {
   useLocale();
+  const module = task.epic && task.epic !== "n/a" ? task.epic : null;
+  const signal = <WindowStatus task={task} hasAsk={hasAsk} onDecision={onDecision} />;
+  const decision = taskSignal(task, hasAsk).kind === "decision";
   return (
     <div data-card-id={task.id}>
       <Surface className={cx("task-card", className)}>
         <ContentButton className="task-card-open" onClick={onSelect}
           aria-label={tr("viewTask", { id: task.id, title: task.title })}>
           <OverflowText className="task-title" text={task.title} />
-          {fields.includes("id") && <span className="task-meta">
-            <OverflowText as="code" text={task.id} />
-          </span>}
         </ContentButton>
+        {!decision && <span className="task-card-corner">{signal}</span>}
         <div className="task-card-footer">
+          {fields.includes("module") && <span className="task-module" data-ungrouped={module ? undefined : ""}>
+            <RiStackLine aria-hidden="true" />
+            <OverflowText className="task-tag-label" text={module ?? tr("ungrouped")} />
+          </span>}
           {task.status === "claimed" && !children && <TaskTag label={statusLabel(task.status)} />}
-          {fields.includes("module") && <TaskTag label={task.epic || tr("ungrouped")} />}
           {children}
-          <TaskAttention task={task} />
-          <WindowStatus task={task} hasAsk={hasAsk} onDecision={onDecision} />
+          <TaskWaiting task={task} />
+          {decision && signal}
+          <TaskDate task={task} />
         </div>
       </Surface>
     </div>
@@ -134,10 +153,6 @@ export function StatusLegend({ available }: { available?: boolean }) {
           <StatusDot className="signal-idle" />{tr("idleSignal")}</span>
         <span>
           <StatusDot className="signal-unresponsive" />{tr("unresponsiveSignal")}</span>
-        <span>
-          <StatusDot color="yellow" />{tr("decisionSignal")}</span>
-        <span>
-          <StatusDot className="signal-unknown" />{tr("unknownSignal")}</span>
         {available === false && <span>{tr("signalsUnavailable")}</span>}
       </div>
   );

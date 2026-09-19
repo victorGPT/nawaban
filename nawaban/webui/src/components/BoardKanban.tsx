@@ -166,7 +166,7 @@ export function BoardKanban({
                       {task.status === "claimed" && <TaskTag label={statusLabel(task.status)} />}
                     </TableCell>
                     {showId && <TableCell><OverflowText as="code" className="task-id" text={task.id} /></TableCell>}
-                    {showModule && <TableCell><TaskTag label={task.epic || tr("ungrouped")} /></TableCell>}
+                    {showModule && <TableCell>{task.epic && <TaskTag label={task.epic} />}</TableCell>}
                     <TableCell><WindowStatus task={task} hasAsk={decisionTasks.has(task.id)} onDecision={() => onDecision(task.id)} /></TableCell>
                   </TableRow>
                 ))}

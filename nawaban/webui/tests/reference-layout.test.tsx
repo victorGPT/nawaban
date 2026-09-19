@@ -34,7 +34,7 @@ test("four lanes keep all five lifecycle states, explicit Assigned labels, and i
   expect(within(active).getByText("Task claimed")).toBeTruthy();
   expect(within(active).getByText("Task in_progress")).toBeTruthy();
   expect(within(active).getByText(zh.assigned)).toBeTruthy();
-  await user.click(within(active).getByRole("button", { name: zh.signalDecision }));
+  await user.click(within(active).getByRole("button", { name: zh.waitDecision }));
   expect(decide).toHaveBeenCalledWith("EXAMPLE-claimed");
   expect(open).not.toHaveBeenCalled();
   act(() => setLocale("en"));

@@ -130,7 +130,6 @@
 .nawaban-modal {
   @apply text-body-regular;
 }
-.task-meta code,
 .task-table code {
   @apply text-body-regular;
   font-family: var(--font-sans);

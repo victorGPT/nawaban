@@ -57,9 +57,6 @@
   --line: var(--color-separator-border);
   --muted: var(--color-text-secondary);
   --ink: var(--color-text-primary);
-  --frame-x: max(32px, calc((100vw - 1740px) / 2));
-  --frame-y: 48px;
-  --shell-radius: 25px;
 }
 .dark {
   --color-text-brand: var(--color-text-secondary);
@@ -83,11 +80,8 @@ input, textarea { caret-color: var(--color-accent-500); }
 .nawaban-shell {
   position: relative;
   display: flex;
-  height: calc(100dvh - 2 * var(--frame-y));
-  width: calc(100% - 2 * var(--frame-x));
-  margin: var(--frame-y) auto;
+  height: 100dvh;
   background: var(--panel);
-  border-radius: var(--shell-radius);
   overflow: hidden;
 }
 .nawaban-sidebar {
@@ -166,6 +160,7 @@ input, textarea { caret-color: var(--color-accent-500); }
 .board-tool-active { color: var(--color-accent-500); border-color: var(--color-accent-500); }
 .board-compact .task-stack { gap: 8px; }
 .board-compact .task-card-open { padding-block: 10px !important; }
+.board-compact .task-card-footer { min-height: 35px; padding-block: 5px; }
 .board-compact .task-table td { padding-block: 6px; }
 .board-scroll { flex: 1; min-height: 0; overflow: auto; }
 .board-scroll, .module-graph-scroll, .module-rail, .detail-reading, .detail-properties-rail, .inbox-detail {
@@ -220,20 +215,6 @@ input, textarea { caret-color: var(--color-accent-500); }
 .task-card:hover {
   border-color: var(--color-border-button-hover);
 }
-.task-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.task-meta code {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-  color: var(--muted);
-}
 .task-tag {
   min-width: 0;
   max-width: 100%;
@@ -254,10 +235,6 @@ input, textarea { caret-color: var(--color-accent-500); }
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.task-meta > .task-tag {
-  max-width: 45%;
-  flex: 0 1 auto;
-}
 .task-title,
 .task-list-title {
   display: -webkit-box;
@@ -273,26 +250,54 @@ input, textarea { caret-color: var(--color-accent-500); }
   height: 2lh;
   overflow: hidden;
 }
-.task-card-open > span > .task-meta { margin-top: 18px; }
-.task-meta code { @apply text-reference-caption; }
-/* Keep the footer slot when the display controls hide the task ID. */
-.kanban .task-card-open > span:not(:has(.task-meta))::after {
-  @apply text-reference-caption;
-  content: "";
-  display: block;
-  height: 1lh;
-  margin-top: 18px;
+/* Footer zone: module as plain text, pills only for state. It keeps its height when empty so
+ * cards in one density stay equal. The module name gives way first; state text never truncates. */
+.task-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 45px;
+  padding: 10px 17px;
+  border-top: 1px solid var(--line);
+  overflow: hidden;
 }
-.task-card-footer { position: absolute; right: 12px; bottom: 14px; display: flex; align-items: center; gap: 4px; }
-.task-card:has(.task-tag) .task-meta { padding-right: 104px; }
-.task-card .task-meta { padding-right: 24px; }
-.module-graph-scroll .task-card-footer { position: static; padding: 0 14px 8px; flex-wrap: wrap; }
-.module-graph-scroll .task-card .task-meta { padding-right: 0; }
-.task-card-footer .signal-button { margin-left: auto; flex-shrink: 0; }
+.module-graph-scroll .task-card-footer { flex-wrap: wrap; min-height: 0; overflow: visible; }
+.module-graph-scroll .task-card-footer:empty { display: none; }
+.task-module {
+  @apply text-reference-caption;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 56px;
+  flex: 0 100 auto;
+  color: var(--muted);
+}
+.task-module svg { width: 12px; height: 12px; flex: none; }
+.task-module[data-ungrouped] { color: var(--color-text-placeholder); }
+.task-date { @apply text-reference-caption; margin-left: auto; flex: none; color: var(--muted); white-space: nowrap; }
+.task-date[data-stale-level="warning"] { color: var(--color-status-yellow-text); }
+.task-date[data-stale-level="critical"] { color: var(--color-status-rose-text); }
+/* Window signal sits in the top-right corner; the title makes room only when a dot exists. */
+.task-card-corner { position: absolute; top: 10px; right: 8px; display: flex; }
+.task-card:has(.task-card-corner .signal-button) .task-title { padding-right: 20px; }
 .task-card-footer .task-tag-label { @apply text-reference-caption; }
-.task-attention { min-width: 0; max-width: 100%; flex: 0 1 auto; }
-.kanban .task-card:has(.task-tag, [data-task-attention]) .task-card-footer { left: 40%; min-width: 0; flex-wrap: nowrap; }
-.kanban .task-card:has(.task-tag, [data-task-attention]) .task-meta { width: 35%; padding-right: 0; }
+.task-card-footer .task-tag { flex: 0 1 auto; }
+/* Shrink order: module first, then a long waiting reason (ellipsis + tooltip); decision and date never. */
+.task-attention { flex: 0 1 auto; min-width: 0; }
+.task-decision { flex: none; }
+.task-attention,
+.task-decision {
+  height: 24px;
+  padding: 0 8px !important;
+  border: 1px solid var(--color-border-button-default);
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: var(--muted);
+}
+.task-decision { color: var(--color-status-yellow-text); }
+.task-decision { @apply text-reference-caption; box-shadow: none; cursor: pointer; }
+.task-decision:hover { border-color: var(--color-border-button-hover); }
 .task-card:hover { box-shadow: var(--shadow-sm); }
 
 .signal-button {
@@ -307,11 +312,7 @@ input, textarea { caret-color: var(--color-accent-500); }
 .signal-working {
   animation: status-breathe 2.6s ease-in-out infinite;
 }
-.signal-decision {
-  animation: status-breathe 3.2s ease-in-out infinite;
-}
-/* Window liveness keeps its own hues: working green, decision yellow (StatusDot),
- * idle blue, unresponsive red. */
+/* Window liveness keeps its own hues: working green, idle blue, unresponsive red. */
 .signal-idle {
   background: var(--color-blue-100) !important;
 }
@@ -329,13 +330,6 @@ input, textarea { caret-color: var(--color-accent-500); }
 }
 .dark .signal-unresponsive {
   background: color-mix(in srgb, var(--color-red-800) 40%, transparent) !important;
-}
-.signal-unknown {
-  background: transparent !important;
-  border: 1px solid var(--color-text-tertiary);
-}
-.signal-unknown > span {
-  background: transparent !important;
 }
 .status-legend {
   @apply text-reference-caption;
@@ -415,7 +409,7 @@ input, textarea { caret-color: var(--color-accent-500); }
 }
 .nawaban-overlay-sheet {
   justify-content: flex-end;
-  padding: var(--frame-y) var(--frame-x);
+  padding: 0;
 }
 .nawaban-modal {
   width: min(560px, 100%);
@@ -431,7 +425,7 @@ input, textarea { caret-color: var(--color-accent-500); }
   border: 0;
   height: 100%;
   max-height: 100%;
-  border-radius: 0 var(--shell-radius) var(--shell-radius) 0;
+  border-radius: 0;
 }
 .nawaban-dialog {
   display: flex;
@@ -659,12 +653,10 @@ a:focus-visible {
   }
 }
 @media (min-width: 1500px) {
-  :root { --frame-x: max(55px, calc((100vw - 1740px) / 2)); --frame-y: 75px; }
   .kanban { --board-column-width: 245px; }
   .board-column { padding-inline: 17px; }
 }
 @media (max-width: 999px) {
-  :root { --frame-x: 16px; --frame-y: 16px; --shell-radius: 18px; }
   .board-toolbar { flex-wrap: wrap; }
   .modules-layout { grid-template-columns: 170px minmax(0, 1fr); }
   .inbox-layout { grid-template-columns: 240px minmax(0, 1fr); }
@@ -677,7 +669,6 @@ a:focus-visible {
   .detail-criteria { grid-template-columns: minmax(0, 1fr); gap: 18px; }
 }
 @media (max-width: 650px) {
-  :root { --frame-x: 0px; --frame-y: 0px; --shell-radius: 0px; }
   .nawaban-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 40; box-shadow: var(--shadow-xl); }
   .workspace-topbar { height: 56px; padding-inline: 12px; gap: 8px; }
   .workspace-crumb { display: none; }
@@ -693,9 +684,6 @@ a:focus-visible {
   .inbox-reading { padding: 16px; }
   .dialog-heading { padding: 12px; }
   .detail-breadcrumb { flex-wrap: wrap; }
-}
-@media (max-height: 700px) and (min-width: 651px) {
-  :root { --frame-y: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -713,7 +701,7 @@ a:focus-visible {
 }
 .task-card-open {
   width: 100%;
-  padding: 18px 17px !important;
+  padding: 13px 17px 12px !important;
   background: transparent !important;
   border-radius: 14px 14px 0 0;
 }
@@ -844,5 +832,3 @@ a:focus-visible {
 .board-options-panel .date-filter > span { width: 100%; }
 .board-options-panel .date-filter > div { max-width: 100%; }
 .board-toolbar { flex-wrap: wrap; }
-
-.kanban .task-card-footer .task-tag { max-width: 65%; }
