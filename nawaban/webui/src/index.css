@@ -489,8 +489,8 @@ input, textarea { caret-color: var(--color-accent-500); }
   padding-top: 24px;
   border-top: 1px solid var(--line);
 }
+/* Group titles take the body colour; only field labels are muted. */
 .attribute-heading {
-  color: var(--muted);
   padding: 4px 0 8px;
 }
 .detail-attribute-group > div {

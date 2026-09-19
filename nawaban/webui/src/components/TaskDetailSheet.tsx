@@ -543,7 +543,7 @@ export function TaskDetailSheet({
             <aside className="detail-properties-rail">
               {d.sessions[0] && <ResumeBlock s={d.sessions[0]} />}
               <SettingsCard className="detail-attribute-group">
-                <p className="attribute-heading">{tr("properties")}</p>
+                <h3 className="attribute-heading">{tr("properties")}</h3>
                 <Attr
                   label={tr("stageLabel")}
                   value={
@@ -567,7 +567,7 @@ export function TaskDetailSheet({
                 <Attr label={tr("time")} value={times} />
               </SettingsCard>
               <SettingsCard className="detail-attribute-group detail-long-attributes">
-                <p className="attribute-heading">{tr("relationships")}</p>
+                <h3 className="attribute-heading">{tr("relationships")}</h3>
                 {L?.split_from && (
                   <Attr
                     label={tr("splitFrom")}
