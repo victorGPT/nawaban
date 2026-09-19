@@ -2,6 +2,8 @@
 
 Before a building rises, the foreman stretches ropes on bare ground to mark the load-bearing axes: 地縄 (ji-nawa). An agent facing a chaotic request does the same: draws the lines. **Before the structure arises, draw the line.** / **在万物构筑之前,先拉绳定界。**
 
+The name joins 縄 (nawa, rope) and 板 (ban, board): the board where the lines get drawn. / 名字由「縄」(nawa,绳)和「板」(ban,看板的板)组成:拉绳定界的那块板。
+
 nawaban is a task coordination workspace for agents and people: tasks, ownership, dependencies, human asks, and delivery evidence share one board.
 
 The runtime and skills use the nawaban name. CLI subcommands and database schemas retain their existing contracts; the bilingual [glossary](CONTEXT.md) defines the product vocabulary. The checkout ships as a Claude Code and Codex plugin.
