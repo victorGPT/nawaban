@@ -514,6 +514,90 @@ def main() -> int:  # noqa: C901, PLR0915
                 continue
             raise AssertionError(f"epic 已有真值应拒改写:{tid}")
 
+    def remodule_cli(p, tids, *args):
+        env = dict(os.environ, FOREMAN_OWNER="ac:organizer")
+        env.pop("CLAUDE_CODE_SESSION_ID", None)
+        return subprocess.run([sys.executable, str(CLI), "--db", str(p),
+                               "remodule", *tids, *args],
+                              capture_output=True, text=True, env=env)
+
+    def t_remodule_changes_and_skips():
+        for old_values in (("BOARD-UI",), ("BOARD-UI", "", None, "看板界面")):
+            p = fresh(tmp)
+            tids = [f"T-{i}" for i in range(len(old_values))]
+            for tid, old in zip(tids, old_values):
+                mk(p, tid=tid, epic=old)
+            db.claim_task(p, tids[0], owner="ac:builder", session_id="builder")
+            db.start_task(p, tids[0], owner="ac:builder", session_id="builder", now="继续施工")
+            con = db.connect(p)
+            try:
+                before = con.execute("SELECT id, status, owner, now FROM tasks ORDER BY id").fetchall()
+                r = remodule_cli(p, tids, "--epic", "看板界面", "--reason", "统一中文短名")
+                assert r.returncode == 0, r.stderr
+                skipped = old_values.count("看板界面")
+                assert f"改了 {len(tids) - skipped} 张" in r.stdout, r.stdout
+                assert f"跳过 {skipped} 张" in r.stdout, r.stdout
+                assert len(r.stdout.splitlines()) == 1, r.stdout
+                assert con.execute("SELECT id, status, owner, now FROM tasks ORDER BY id").fetchall() == before
+                for tid, old in zip(tids, old_values):
+                    assert con.execute("SELECT epic FROM tasks WHERE id=?", (tid,)).fetchone()[0] == "看板界面"
+                    notes = con.execute(
+                        "SELECT body, author FROM task_events WHERE task_id=? AND kind='note'", (tid,)
+                    ).fetchall()
+                    expected = [] if old == "看板界面" else [
+                        (f"模块 {old or '(空)'} → 看板界面 · 统一中文短名", "ac:organizer")]
+                    assert notes == expected, notes
+                events = con.execute("SELECT * FROM task_events").fetchall()
+                r = remodule_cli(p, tids, "--epic", "看板界面", "--reason", "重复整理")
+                assert r.returncode == 0, r.stderr
+                assert "改了 0 张" in r.stdout and f"跳过 {len(tids)} 张" in r.stdout, r.stdout
+                assert con.execute("SELECT * FROM task_events").fetchall() == events
+            finally:
+                con.close()
+
+    def t_remodule_missing_rolls_back():
+        p = fresh(tmp)
+        mk(p, epic="BOARD-UI")
+        con = db.connect(p)
+        try:
+            tasks = con.execute("SELECT * FROM tasks").fetchall()
+            events = con.execute("SELECT * FROM task_events").fetchall()
+            r = remodule_cli(p, ["T-XX-001", "T-MISSING"], "--epic", "看板界面", "--reason", "统一中文短名")
+            assert r.returncode == 1, r.stderr
+            assert "卡不存在:T-MISSING" in r.stderr, r.stderr
+            assert con.execute("SELECT * FROM tasks").fetchall() == tasks
+            assert con.execute("SELECT * FROM task_events").fetchall() == events
+        finally:
+            con.close()
+
+    def t_remodule_invalid_input():
+        p = fresh(tmp)
+        mk(p, epic="BOARD-UI")
+        con = db.connect(p)
+        try:
+            tasks = con.execute("SELECT * FROM tasks").fetchall()
+            events = con.execute("SELECT * FROM task_events").fetchall()
+            for epic, error in (("", "不能为空"), (" \t", "不能为空"),
+                                ("看板·界面", "不能包含"), ("看板(界面)", "不能包含"),
+                                ("看板（界面）", "不能包含"), ("n/a待分组", "不能以"),
+                                (" N/A待分组", "不能以"), ("无档待分组", "不能以"),
+                                ("名" * 21, "20")):
+                r = remodule_cli(p, ["T-XX-001"], "--epic", epic, "--reason", "统一中文短名")
+                assert r.returncode == 1 and error in r.stderr, (epic, r.stderr)
+                assert con.execute("SELECT * FROM tasks").fetchall() == tasks
+                assert con.execute("SELECT * FROM task_events").fetchall() == events
+            r = remodule_cli(p, ["T-XX-001"], "--epic", "看板界面")
+            assert r.returncode == 2 and "--reason" in r.stderr, r.stderr
+            r = remodule_cli(p, ["T-XX-001"], "--epic", "看板界面", "--reason", "  ")
+            assert r.returncode == 1 and "理由不能为空" in r.stderr, r.stderr
+            assert con.execute("SELECT * FROM tasks").fetchall() == tasks
+            assert con.execute("SELECT * FROM task_events").fetchall() == events
+            r = remodule_cli(p, ["T-XX-001"], "--epic", "名" * 20, "--reason", "长度边界")
+            assert r.returncode == 0, r.stderr
+            assert con.execute("SELECT epic FROM tasks").fetchone()[0] == "名" * 20
+        finally:
+            con.close()
+
     # ── 10 · touches 双向:scope+ 只增 · scope- 只减,都必须带理由与留痕 ──
     def t_touches_scope_and_release():
         p = fresh(tmp)
@@ -638,6 +722,9 @@ def main() -> int:  # noqa: C901, PLR0915
         ("不静默建库:init 显式其余拒", t_no_silent_init),
         ("touches:scope- 收窄只减+理由必填+留痕", t_touches_scope_and_release),
         ("meta:epic 只补空+留痕", t_meta_fill_if_empty),
+        ("remodule:single/batch audit, empty values and idempotent skips", t_remodule_changes_and_skips),
+        ("remodule:missing task rolls back the whole batch", t_remodule_missing_rolls_back),
+        ("remodule:invalid names and required reason", t_remodule_invalid_input),
         ("直通 done:merge_sha 即归档 · verified 路不强制正文 · 可打回", t_direct_done),
         ("kin:链式被挡定位到根", t_kin_blocked_chain),
         ("kin:最后一张上游完成即放开", t_kin_unblocks),

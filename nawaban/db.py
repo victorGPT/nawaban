@@ -934,6 +934,38 @@ def retitle(path: Path | str, task_id: str, *, title: str, author: str,
     return old
 
 
+def remodule(path: Path | str, task_ids: list[str], *, epic: str, reason: str,
+             author: str, session_id: Optional[str] = None) -> tuple[int, int]:
+    """Rename modules atomically with audit notes; return changed/skipped counts."""
+    epic = epic.strip()
+    if not epic:
+        raise NawabanError("模块名不能为空")
+    if len(epic) > 20:
+        raise NawabanError("模块名最多 20 个字符")
+    if any(char in epic for char in "·(（"):
+        raise NawabanError("模块名不能包含 ·、(、（，这些字符会触发模块折叠")
+    if epic.lower().startswith(("n/a", "无档")):
+        raise NawabanError("模块名不能以 n/a 或 无档 开头，这些前缀会被视为未归组")
+    if not reason.strip():
+        raise NawabanError("改模块的理由不能为空(--reason)")
+    changed = skipped = 0
+    con = connect(path)
+    try:
+        with _txn(con):
+            for task_id in task_ids:
+                old = _task_row(con, task_id)["epic"]
+                if old == epic:
+                    skipped += 1
+                    continue
+                con.execute("UPDATE tasks SET epic=? WHERE id=?", (epic, task_id))
+                _event(con, task_id, "note", f"模块 {old or '(空)'} → {epic} · {reason}",
+                       author, session_id)
+                changed += 1
+    finally:
+        con.close()
+    return changed, skipped
+
+
 def set_meta(path: Path | str, task_id: str, *, fields: dict, author: str,
              session_id: Optional[str] = None) -> None:
     """Fill empty epic/project fields with an audit event.

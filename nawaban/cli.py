@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NAWABAN 政策层 CLI:10 动词 + backup。
+"""NAWABAN policy CLI: task coordination and backup commands.
 
 身份铁律:owner/session 只从环境解析(FOREMAN_OWNER / CLAUDE_CODE_SESSION_ID),
 任何子命令不设 --owner/--session 旗标——身份不可伪造。
@@ -512,6 +512,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("task_id")
     p.add_argument("--title", required=True)
 
+    p = sub.add_parser("remodule", help="批量改模块(原子修改 · 旧值与理由留痕)")
+    p.add_argument("task_ids", nargs="+")
+    p.add_argument("--epic", required=True, help="新模块名(≤20 字符)")
+    p.add_argument("--reason", required=True, help="为什么改模块")
+
     p = sub.add_parser("meta", help="补填 epic/project(只补空 · 带留痕)")
     p.add_argument("task_id")
     for f in db.META_FIELDS:
@@ -690,6 +695,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"✓ retitle {a.task_id}\n  旧:{old}\n  新:{a.title}")
             for hint in _hints(title=a.title):
                 print("⚠ " + hint, file=sys.stderr)
+        elif a.verb == "remodule":
+            owner, sid = _identity(need_session=False)
+            changed, skipped = db.remodule(path, a.task_ids, epic=a.epic, reason=a.reason,
+                                           author=owner, session_id=sid)
+            print(f"✓ remodule:改了 {changed} 张，跳过 {skipped} 张")
         elif a.verb == "meta":
             owner, sid = _identity(need_session=False)
             db.set_meta(path, a.task_id,
