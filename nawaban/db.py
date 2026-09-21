@@ -662,6 +662,27 @@ def _check_now(now: str) -> str:
     return now
 
 
+def _stored_session_owner(con: sqlite3.Connection, task_id: str,
+                          owner: str, session_id: str) -> str:
+    """Resume a legacy card only through its exact, still-open session history.
+
+    Write callers must use their transaction; read-only diagnostics can use it
+    without mutation. Stored identities and exact owner CAS remain unchanged.
+    """
+    from nawaban.owner_identity import is_legacy_owner, session_owners
+
+    current, legacy = session_owners(session_id)
+    if owner != current or not is_legacy_owner(legacy):
+        return owner
+    hit = con.execute(
+        "SELECT 1 FROM tasks t JOIN task_sessions s ON s.task_id=t.id"
+        " WHERE t.id=? AND t.owner=? AND s.owner=t.owner"
+        " AND s.session_id=? AND s.ended_at IS NULL",
+        (task_id, legacy, session_id),
+    ).fetchone()
+    return legacy if hit else owner
+
+
 def start_task(path: Path | str, task_id: str, *, owner: str, session_id: str,
                now: Optional[str] = None) -> None:
     """claimed→in_progress。CLI 层 --now 必填(2026-09-07 字段合同):开工那一刻板面就该
@@ -671,10 +692,11 @@ def start_task(path: Path | str, task_id: str, *, owner: str, session_id: str,
     con = connect(path)
     try:
         with _txn(con):
+            stored_owner = _stored_session_owner(con, task_id, owner, session_id)
             cur = con.execute(
                 "UPDATE tasks SET status='in_progress', started_at=COALESCE(started_at,?),"
                 " now=COALESCE(?, now) WHERE id=? AND status='claimed' AND owner=?",
-                (_now(), now, task_id, owner),
+                (_now(), now, task_id, stored_owner),
             )
             if cur.rowcount != 1:
                 raise NawabanError(f"start 被拒:{task_id} 不在 claimed 态或 owner 不符")
@@ -968,6 +990,7 @@ def handoff(path: Path | str, task_id: str, *, owner: str, session_id: str,
     con = connect(path)
     try:
         with _txn(con):
+            stored_owner = _stored_session_owner(con, task_id, owner, session_id)
             # handoff 闸(BOARD-REVAMP · 2026-08-29):completed 但卡还没翻牌 = 下一步断链。
             # 窗口一消失 reclaim 把卡退 open,收件箱点收下撞「非法转移 open→done」——
             # 一天撞出 4 例(DAGVIEW×2 / FOREMAN-SKILL-SLIM / HOUSEKEEP)。活真完了先 advance;
@@ -1009,7 +1032,7 @@ def handoff(path: Path | str, task_id: str, *, owner: str, session_id: str,
                     " status=CASE WHEN status IN ('claimed','in_progress') THEN 'open'"
                     " ELSE status END"
                     " WHERE id=? AND owner=?",
-                    (task_id, owner),
+                    (task_id, stored_owner),
                 )
     finally:
         con.close()

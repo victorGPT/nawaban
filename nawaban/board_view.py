@@ -29,6 +29,7 @@ import sys
 import threading
 import time
 from collections import deque
+from itertools import chain
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -37,6 +38,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nawaban import foreman_liveness  # noqa: E402
 from nawaban import captures, db  # noqa: E402
+from nawaban.owner_identity import session_owners  # noqa: E402
 # Preserve the public Web projection name without keeping a second implementation.
 from nawaban.inbox import read as inbox_data  # noqa: E402
 from nawaban.paths import web_dist  # noqa: E402
@@ -235,7 +237,7 @@ SCAN_BUDGET_S = 1.5        # 扫转录目录的时间预算 —— 板不能因�
 
 
 def _transcript_index() -> tuple[dict[str, float], bool]:
-    """一次扫描建 session 前缀 → 最新 mtime 索引。返回 (索引, 是否完整)。
+    """Scan exact session keys and legacy aliases. Return (index, complete).
 
     为什么不用 herdr 的 agent_status:实测它对 claude 窗口**恒报 idle**
     (2026-08-13:本窗口正跑工具时它仍报 idle,只有 grok/codex 那两个 pane 报得出
@@ -247,7 +249,10 @@ def _transcript_index() -> tuple[dict[str, float], bool]:
     idx: dict[str, float] = {}
     deadline = time.monotonic() + SCAN_BUDGET_S
     complete = True
-    for p in TRANSCRIPTS.glob("*/*.jsonl"):
+    claude = ((p, p.stem) for p in TRANSCRIPTS.glob("*/*.jsonl"))
+    codex = ((p, p.stem[-36:]) for p in
+             (Path.home() / ".codex/sessions").glob("*/*/*/rollout-*.jsonl"))
+    for p, sid in chain(claude, codex):
         if time.monotonic() > deadline:
             complete = False   # 预算用完:已扫到的照用,没扫到的按「未知」留白
             break
@@ -255,9 +260,10 @@ def _transcript_index() -> tuple[dict[str, float], bool]:
             m = p.stat().st_mtime
         except OSError:
             continue
-        k = p.stem[:8]
-        if m > idx.get(k, 0.0):
-            idx[k] = m
+        for owner in session_owners(sid):
+            k = owner[3:]
+            if m > idx.get(k, 0.0):
+                idx[k] = m
     return idx, complete
 
 

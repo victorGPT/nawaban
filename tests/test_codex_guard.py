@@ -67,9 +67,9 @@ def test_codex_merge_command_uses_payload_session(main_checkout):
 
 def test_environment_session_still_wins(main_checkout, monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "abcdef12-0000")
-    assert guard.resolve_owner("01a0af31-3246") == "ac:abcdef12"
+    assert guard.resolve_owner("01a0af31-3246") == "ac:abcdef12-0000"
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
-    assert guard.resolve_owner("01a0af31-3246") == "ac:01a0af31"
+    assert guard.resolve_owner("01a0af31-3246") == "ac:01a0af31-3246"
 
 
 def test_indented_patch_header_is_still_a_target(main_checkout):

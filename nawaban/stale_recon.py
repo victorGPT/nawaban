@@ -36,6 +36,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from nawaban.owner_identity import owner_from_session  # noqa: E402
 from nawaban import db  # noqa: E402
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
@@ -173,7 +174,7 @@ def main() -> int:
         return 1
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
     author = (os.environ.get("FOREMAN_OWNER")
-              or (f"ac:{sid[:8]}" if sid else None) or "reconciler")
+              or (owner_from_session(sid) if sid else None) or "reconciler")
     report = reconcile(path, merged, author=author, session_id=sid, dry_run=dry_run)
     print_report(report, dry_run)
     return 0

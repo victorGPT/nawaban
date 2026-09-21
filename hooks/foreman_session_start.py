@@ -33,6 +33,7 @@ _LEGACY_STATE = Path.home() / ".claude/state"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nawaban import db as _wdb  # noqa: E402
+from nawaban.owner_identity import owner_from_session  # noqa: E402
 try:  # 只有旧 md 卡路径用它;缺 PyYAML 时开工横幅照常出,跳过 md 卡
     from nawaban.foreman_card import CardError, guard_problems, load_card  # noqa: E402
 except ImportError:
@@ -62,10 +63,10 @@ def _register_session(session_id: str, cwd: str) -> tuple[str, str] | None:
     if not session_id:
         return None
     pane = os.environ.get("TMUX_PANE") or ""
-    key = pane or f"no-tmux:{session_id[:8]}"  # 非 tmux 用 session 前缀兜底唯一键
-    # owner 与 foreman_guard.py 同款派生:tmux 用 #S:#W(可读),非 tmux 用 ac:<sid8>(稳定不漂)。
+    key = pane or f"no-tmux:{session_id}"  # Full IDs keep colliding prefixes distinct.
+    # Session-derived owners must match the CLI and guard exactly.
     # claim 建卡时写这个字符串 → guard 认得自己的卡(2026-07-04 · tmux/非 tmux 统一)。
-    owner = os.environ.get("FOREMAN_OWNER") or _tmux_owner(pane) or f"ac:{session_id[:8]}"
+    owner = os.environ.get("FOREMAN_OWNER") or _tmux_owner(pane) or owner_from_session(session_id)
     try:
         reg: dict = {}
         source = _REGISTRY if _REGISTRY.is_file() else _LEGACY_REGISTRY
@@ -340,7 +341,9 @@ def main() -> int:
                     "SELECT id, status, owner, touches, waiting_on FROM tasks"
                     " WHERE status IN ('claimed','in_progress','staging-verified')"
                     " ORDER BY id").fetchall()
-                kins = {r[0]: _wdb._kin(con, r[0]) for r in rows if r[2] == owner}  # 只算自己的 · close 前算
+                own_ids = {r[0] for r in rows if r[2] == _wdb._stored_session_owner(
+                    con, r[0], owner, session_id)}
+                kins = {r[0]: _wdb._kin(con, r[0]) for r in rows if r[0] in own_ids}
             finally:
                 con.close()
             for tid, status, towner, touches_j, waiting in rows:
@@ -353,6 +356,7 @@ def main() -> int:
                     ts += f" +{len(touches) - 2}"
                 entries.append({
                     "status": status, "task_id": tid, "owner": towner or "(无)",
+                    "mine": tid in own_ids,
                     "touches": ts, "mtime": time.time(), "sv_at": "",
                     "waiting": str(waiting or "").strip(),
                     "kin": kins.get(tid),
@@ -428,8 +432,8 @@ def main() -> int:
     # 但「别窗有没有占我要改的文件」的真判据是 claim 时跑 foreman_claim_check.py,不是启动时
     # 把整张锁表背一遍。横幅只留当场必须知道的三类,其余按需读卡。
     broken = [e for e in entries if e["status"] == "🧨不可机读"]
-    mine = [e for e in entries if e["status"] != "🧨不可机读" and e["owner"] == owner]
-    others = [e for e in entries if e["status"] != "🧨不可机读" and e["owner"] != owner]
+    mine = [e for e in entries if e["status"] != "🧨不可机读" and e.get("mine", e["owner"] == owner)]
+    others = [e for e in entries if e["status"] != "🧨不可机读" and not e.get("mine", e["owner"] == owner)]
 
     for e in broken:  # 坏卡会让 claim fail-closed 拦人,必须当场可见
         print(f"🧨 不可机读 {e['task_id']} · {e['touches']} · 修:foreman_lint.py")

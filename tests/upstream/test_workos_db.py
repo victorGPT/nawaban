@@ -411,7 +411,7 @@ def main() -> int:  # noqa: C901, PLR0915
         con = db.connect(p)
         row = con.execute("SELECT owner FROM tasks WHERE id='T-XX-001'").fetchone()
         con.close()
-        assert row[0] == "ac:deadbeef", f"owner 应从 session-id 派生,实得 {row[0]}"
+        assert row[0] == "ac:deadbeef-0000-0000-0000-000000000000", f"owner 应从 session-id 派生,实得 {row[0]}"
         # claim 子命令不存在 --owner 旗标(身份不可伪造)
         r = subprocess.run([sys.executable, str(CLI), "claim", "T-XX-001", "--owner", "hacker"],
                            capture_output=True, text=True, env=env)

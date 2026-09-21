@@ -39,6 +39,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from nawaban.owner_identity import owner_from_session  # noqa: E402
 from nawaban import db  # noqa: E402
 
 LOCKED = ("claimed", "in_progress")
@@ -123,7 +124,7 @@ def resolve_owner(payload_sid: str | None = None) -> str | None:
     return (
         os.environ.get("FOREMAN_OWNER")
         or _infer_owner_from_tmux()
-        or (f"ac:{sid[:8]}" if sid else None)
+        or (owner_from_session(sid) if sid else None)
     )
 
 
