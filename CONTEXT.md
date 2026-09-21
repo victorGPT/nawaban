@@ -212,7 +212,7 @@ _Current identifiers_: `tasks.touches`; CLI `scope`, `release`.
 A grouping of related tasks pursuing a shared destination, accompanied by a map of decisions and remaining work.
 模块是围绕共同终点组织的任务集合，配有记录决策和剩余工作的地图。
 _Avoid_: parent task as a synonym, milestone as an interchangeable grouping.
-_Current identifiers_: `tasks.epic`; CLI `meta`.
+_Current identifiers_: `tasks.epic`; CLI `meta`, `remodule`.
 
 **Project**(项目)
 A task's project affiliation, used to filter tasks and human asks within a shared board database.
