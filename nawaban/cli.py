@@ -33,6 +33,7 @@ from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from nawaban.owner_identity import owner_from_session  # noqa: E402
 from nawaban import captures, db, dependency_hints, inbox, task_content  # noqa: E402
 
 # Compatibility names delegate to the shared hard-policy implementation.
@@ -351,7 +352,7 @@ def _create_hints(path: Path, task_id: str, title: str, context: str | None,
 
 def _identity(*, need_session: bool) -> tuple[str, str | None]:
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    owner = os.environ.get("FOREMAN_OWNER") or (f"ac:{sid[:8]}" if sid else None)
+    owner = os.environ.get("FOREMAN_OWNER") or (owner_from_session(sid) if sid else None)
     if owner is None or (need_session and not sid):
         raise db.NawabanError(
             "身份缺失:需 CLAUDE_CODE_SESSION_ID(或 FOREMAN_OWNER)env——身份只从环境来,不收参数")

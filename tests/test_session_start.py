@@ -47,7 +47,7 @@ def test_register_preserves_old_sessions_in_new_location(monkeypatch, tmp_path):
     session_start._register_session("12345678-new", str(tmp_path))
     result = json.loads(current.read_text())
     assert result["old-pane"] == saved["old-pane"]
-    assert result["no-tmux:12345678"]["session"] == "12345678-new"
+    assert result["no-tmux:12345678-new"]["session"] == "12345678-new"
     assert json.loads(old.read_text()) == saved
 
 
@@ -69,7 +69,7 @@ def _no_identity(monkeypatch):
 def test_owner_falls_back_to_session_prefix(monkeypatch, tmp_path):
     _no_identity(monkeypatch)
     monkeypatch.setattr(session_start, "_REGISTRY", tmp_path / "state" / "registry.json")
-    assert session_start._register_session("12345678-abcd", str(tmp_path)) == ("ac:12345678", "12345678-abcd")
+    assert session_start._register_session("12345678-abcd", str(tmp_path)) == ("ac:12345678-abcd", "12345678-abcd")
 
 
 def test_unwritable_registry_keeps_the_owner(monkeypatch, tmp_path):
@@ -77,7 +77,7 @@ def test_unwritable_registry_keeps_the_owner(monkeypatch, tmp_path):
     blocker = tmp_path / "file"
     blocker.write_text("x")
     monkeypatch.setattr(session_start, "_REGISTRY", blocker / "registry.json")  # parent is a file
-    assert session_start._register_session("12345678-abcd", str(tmp_path)) == ("ac:12345678", "12345678-abcd")
+    assert session_start._register_session("12345678-abcd", str(tmp_path)) == ("ac:12345678-abcd", "12345678-abcd")
 
 
 def _prepare_main(monkeypatch, tmp_path, cwd):

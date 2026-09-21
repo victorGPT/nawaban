@@ -144,6 +144,14 @@ To verify an existing board without migrating it, run `python3 scripts/verify_da
 
 Session registry and reconciliation reports use `NAWABAN_STATE_DIR`, then the legacy `WORKOS_STATE_DIR`, then `~/.local/state/nawaban`. When the new registry is absent, session lookup reads the previous `~/.claude/foreman/session-registry.json`; the next registration preserves its entries in the new file without modifying the old one.
 
+Session-derived owners use `ac:<full session UUID>` so sessions sharing the first
+eight characters remain distinct. `FOREMAN_OWNER` still takes precedence. Existing
+`ac:<8 hex characters>` cards are not rewritten: activity probes retain their prefix
+alias (using the newest matching transcript), while new owners match exactly.
+Continuing a legacy card with the new identity requires its existing, still-open
+full session history; start, handoff, ownership warnings, and the session banner
+use that same check. No schema migration is needed.
+
 ## 捕捉想法
 
 侧栏「捕捉」记录独立于任务的一句话想法。Agent 通过 CLI 转卡或写原因作废，保留双向来源与处理历史。用法、存储及重试边界见 [捕捉想法](docs/capture.md)。

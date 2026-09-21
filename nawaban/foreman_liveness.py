@@ -7,7 +7,7 @@
 看工作区有没有未提交改动),每次都要人肉走一遍「陈旧锁公开收窄协议」。
 
 herdr 原生捕获每个 pane 的 claude session id,而 foreman 的 owner 恰好就是
-`ac:<session-id 前 8 位>` —— 两边天然可对账。于是「对方还在不在」从**猜**变成**事实**。
+`ac:<full session-id>` (legacy eight-character aliases remain readable) —— 两边天然可对账。于是「对方还在不在」从**猜**变成**事实**。
 
 ⚠️ 这是一个**新增信号,不是自动决策**。窗口不在 ≠ 活已干完:人可能只是关了窗口,
 而 WIP 还半路躺着。所以本模块只回答「窗口在不在」,收窄与否仍由既有协议判定
@@ -23,16 +23,20 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from nawaban.owner_identity import owner_from_session, session_owners  # noqa: E402
 
 _TIMEOUT_S = 3.0
 _OWNER_PREFIX = "ac:"
-_SESSION_KEY_LEN = 8
 
 
 @dataclass(frozen=True)
 class LiveAgent:
-    owner: str  # ac:<前8位>
+    owner: str  # ac:<full session-id>
     session_id: str
     status: str  # herdr 的 agent_status:idle / busy / blocked …
     pane: str
@@ -77,7 +81,7 @@ def live_agents() -> list[LiveAgent] | None:
             continue  # 没捕到 session id 的 pane 无法对账 · 跳过而不是瞎猜
         out.append(
             LiveAgent(
-                owner=_OWNER_PREFIX + sid[:_SESSION_KEY_LEN],
+                owner=owner_from_session(sid),
                 session_id=sid,
                 status=str(a.get("agent_status") or "?"),
                 pane=str(a.get("pane_id") or "?"),
@@ -92,7 +96,7 @@ def owner_liveness() -> dict[str, LiveAgent] | None:
     agents = live_agents()
     if agents is None:
         return None
-    return {a.owner: a for a in agents}
+    return {owner: a for a in agents for owner in session_owners(a.session_id)}
 
 
 def describe(owner: str, table: dict[str, LiveAgent] | None) -> str:

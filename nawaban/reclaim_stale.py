@@ -37,6 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nawaban import db  # noqa: E402
+from nawaban.owner_identity import session_owners  # noqa: E402
 
 # Session-derived owners use Claude or Codex transcript mtimes.
 # 24h 而不是跟活性三档的 cold(8h)对齐:隔夜回到同一个窗口继续干是常态,
@@ -48,14 +49,16 @@ FOREIGN_STALE_H = 72
 
 
 def _transcript_mtimes() -> dict[str, float]:
-    """session id 前 8 位 → 转录最后修改时间。"""
+    """Exact session keys and legacy aliases map to the latest transcript mtime."""
     out: dict[str, float] = {}
     for f in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")):
-        key = os.path.basename(f)[:8]
-        out[key] = max(out.get(key, 0.0), os.path.getmtime(f))
+        for owner in session_owners(Path(f).stem):
+            key = owner[3:]
+            out[key] = max(out.get(key, 0.0), os.path.getmtime(f))
     for f in glob.glob(os.path.expanduser("~/.codex/sessions/*/*/*/rollout-*.jsonl")):
-        key = Path(f).stem[-36:][:8]
-        out[key] = max(out.get(key, 0.0), os.path.getmtime(f))
+        for owner in session_owners(Path(f).stem[-36:]):
+            key = owner[3:]
+            out[key] = max(out.get(key, 0.0), os.path.getmtime(f))
     return out
 
 
@@ -74,7 +77,7 @@ def _herdr_owners() -> set[str] | None:
             session = agent["agent_session"]
             if session["kind"] != "id" or not session["value"]:
                 raise ValueError("agent session identity unavailable")
-            owners.add(f"ac:{session['value'][:8]}")
+            owners.update(session_owners(session["value"]))
             if agent.get("name"):
                 owners.add(f"{agent['agent']}:{agent['name']}")
         return owners
@@ -87,7 +90,7 @@ def _judge(owner: str, last_event_at: int | None, mtimes: dict[str, float],
            now: float) -> tuple[bool, str]:
     """(该不该回收, 判据原文)。判据原文要能让人复核,不能只给结论。"""
     if owner.startswith("ac:"):
-        m = mtimes.get(owner.split(":", 1)[1][:8])
+        m = mtimes.get(owner[3:])
         if m is None:
             return True, "转录文件找不到(窗口已不存在)"
         age_h = (now - m) / 3600

@@ -24,7 +24,7 @@ from nawaban.guard import BoardUnreadable, enclosing_tree, touches_match  # noqa
 CLAIM_BLOCKING = ("claimed", "in_progress", "staging-verified")
 
 
-def _blocking_cards(db_path: Path) -> tuple[list[dict], list[str]]:
+def _blocking_cards(db_path: Path, *, owner: str) -> tuple[list[dict], list[str]]:
     """Include awaiting-acceptance ownership as well as active implementation."""
     import json
     import sqlite3
@@ -34,6 +34,8 @@ def _blocking_cards(db_path: Path) -> tuple[list[dict], list[str]]:
                 "SELECT id, owner, status, touches FROM tasks WHERE status IN (?,?,?)",
                 CLAIM_BLOCKING,
             ).fetchall()
+            own_ids = {r[0] for r in rows if r[1] == db._stored_session_owner(
+                con, r[0], owner, owner.removeprefix("ac:"))}
     except sqlite3.Error as e:
         raise BoardUnreadable(str(e)) from e
     cards, problems, orphans = [], [], []
@@ -50,6 +52,7 @@ def _blocking_cards(db_path: Path) -> tuple[list[dict], list[str]]:
             problems.append(f"{tid}: touches 非 JSON 数组")
             continue
         cards.append({"task_id": tid, "owner": owner, "status": status,
+                      "mine": tid in own_ids,
                       "touches": [str(t).strip() for t in tl if str(t or "").strip()]})
     if orphans:
         print("ℹ️ 无主卡(release 过 · 不占锁):" + " · ".join(sorted(orphans)))
@@ -84,7 +87,7 @@ def report_conflicts(path: Path | str, files: Sequence[str], *, owner: str,
             candidates.append(f.lstrip("./"))
 
     try:
-        cards, broken = _blocking_cards(db_path)
+        cards, broken = _blocking_cards(db_path, owner=owner)
     except BoardUnreadable as e:
         print(f"⚠️ nawaban.db 不可读({e})——占用未知,先修库。")
         return
@@ -95,7 +98,7 @@ def report_conflicts(path: Path | str, files: Sequence[str], *, owner: str,
     conflicts: list[str] = []
     blockers: list[tuple[str, str]] = []
     for c in cards:
-        if c["owner"] == owner:
+        if c["mine"]:
             continue
         for cand in candidates:
             for touch in c["touches"]:
