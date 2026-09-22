@@ -11,7 +11,7 @@ md 版 foreman_guard.py 自此退役未接线。注意:无 nawaban.db 的仓本 
   语义原样活在写入工具里(test_nawaban_db.py t_status_gates 覆盖)。
 - strict uncovered / WARN 快速修口子:同 md 版。
 
-- nawaban.db 不存在 → no-op(该仓未切换到新板;foreman-pattern md 仓不受伤)。
+- nawaban.db 不存在 → no-op(该仓未切换到新板;md 卡仓不受伤)。
 
 merge gate pr checks regression: identified Bash `gh pr merge` calls require all checks
 SUCCESS and a head containing remote main, even without a board. No identity is
@@ -19,7 +19,7 @@ still a no-op; failed queries and empty checks deny. Queries are read-only;
 compound commands must be split. Scripts/eval/API merges and direct pushes are
 outside coverage. Post-preflight races still require server-side protection.
 
-身份铁律:owner 只从环境来(FOREMAN_OWNER → tmux → session-id),与 md 版同链。
+身份铁律:owner 只从环境来(NAWABAN_OWNER,旧名 FOREMAN_OWNER → tmux → session-id),与 md 版同链。
 本文件对库只读(mode=ro URI),物理上写不了。
 """
 
@@ -122,7 +122,7 @@ def resolve_owner(payload_sid: str | None = None) -> str | None:
     # Codex 不给 hook 进程 session env,只在 stdin payload 里带 session_id
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID") or payload_sid or ""
     return (
-        os.environ.get("FOREMAN_OWNER")
+        db.owner_from_env()
         or _infer_owner_from_tmux()
         or (owner_from_session(sid) if sid else None)
     )

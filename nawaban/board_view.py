@@ -1838,7 +1838,7 @@ class _Handler(BaseHTTPRequestHandler):
         if body.get("reject"):
             cmd.append("--reject")
         # 身份:人在收件箱里点的。owner 固定 inbox,与 agent 的 ac:xxxxxx 分开,审计可辨。
-        env = dict(os.environ, FOREMAN_OWNER="inbox",
+        env = dict(os.environ, NAWABAN_OWNER="inbox",
                    CLAUDE_CODE_SESSION_ID=f"inbox-{os.getpid()}")
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=30)
@@ -1869,7 +1869,7 @@ class _Handler(BaseHTTPRequestHandler):
                "--content=" + content]
         if project:
             cmd.append("--project=" + project)
-        env = dict(os.environ, FOREMAN_OWNER="capture-ui",
+        env = dict(os.environ, NAWABAN_OWNER="capture-ui",
                    CLAUDE_CODE_SESSION_ID=f"capture-ui-{os.getpid()}")
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=30)

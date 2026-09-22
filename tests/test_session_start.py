@@ -62,7 +62,7 @@ def test_new_registry_takes_priority(monkeypatch, tmp_path, capsys):
 
 
 def _no_identity(monkeypatch):
-    for k in ("FOREMAN_OWNER", "TMUX_PANE"):
+    for k in ("NAWABAN_OWNER", "FOREMAN_OWNER", "TMUX_PANE"):
         monkeypatch.delenv(k, raising=False)
 
 

@@ -23,7 +23,7 @@ nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
 
 ## 会话身份
 
-写操作实际传入运行环境提供的 `FOREMAN_OWNER` 与 `CLAUDE_CODE_SESSION_ID`。CLI owner 取前者，否则由 session 派生 `ac:<前 8 位>`；需要 session 的动词缺少后者会拒绝。CLI 本身不自动读取 tmux 窗口名。
+写操作实际传入运行环境提供的 `NAWABAN_OWNER`（未设置时读旧名 `FOREMAN_OWNER`）与 `CLAUDE_CODE_SESSION_ID`。CLI owner 取前者，否则由 session 派生 `ac:<前 8 位>`；需要 session 的动词缺少后者会拒绝。CLI 本身不自动读取 tmux 窗口名。
 
 恢复时用卡的 sessions、handoff 和工位确认任务归属；恢复已有会话沿用它的身份，新会话使用新的真实身份。Claude Code 会话可在原 cwd 执行 `claude --resume <session-id>`；其他执行器按其恢复能力操作。
 

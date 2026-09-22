@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Prefer `NAWABAN_OWNER` for the session identity and `NAWABAN_ALLOW_BRANCH_SWITCH=1` for the branch gate escape prefix; `FOREMAN_OWNER` and `FOREMAN_ALLOW_BRANCH_SWITCH=1` keep working. The board's inbox and capture writes now set `NAWABAN_OWNER`, so an exported owner cannot replace their fixed identities.
+- Rename the project setup skill from `foreman-pattern` to `nawaban-setup`. Reinstall or relink the skill if you linked it by its old directory name.
+
 - Add English and Chinese board languages, selected from the browser language and switchable in the sidebar with a saved preference. Preserve existing Chinese wording and stored API values. Show Assigned separately from In progress, and enforce English message registration in CONTEXT.md.
 
 - Session state uses `NAWABAN_STATE_DIR`, then `WORKOS_STATE_DIR`, then `~/.local/state/nawaban`. If the new session registry is absent, reads fall back to `~/.claude/foreman/session-registry.json`; the next registration preserves those entries in the new file and leaves the old file untouched. An existing new registry takes precedence.

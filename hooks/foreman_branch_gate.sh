@@ -18,7 +18,7 @@
 #   · git branch <name>(只建不切)                          不动任何窗口的 HEAD,无害
 #   · git switch --detach / checkout <sha>                  不是分支协调问题(且罕见)
 #
-# 逃生门:命令行前缀 FOREMAN_ALLOW_BRANCH_SWITCH=1。
+# 逃生门:命令行前缀 NAWABAN_ALLOW_BRANCH_SWITCH=1(旧名 FOREMAN_ALLOW_BRANCH_SWITCH=1 仍可用)。
 #   与 done_gate 刻意不给 SKIP 的差别在**可读性**:done_gate 读的是自己进程的 env(读不到
 #   inline 前缀,故给了等于没给);本闸读的是 stdin 里的命令**全文**,inline 前缀 grep 得到,
 #   是真能用的逃生门。留它的理由是有一个合法场景:把被切歪的主树**还原**回原分支。

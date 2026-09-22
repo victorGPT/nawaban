@@ -146,7 +146,7 @@ def main() -> int:
     """
     ap = argparse.ArgumentParser()
     ap.add_argument("files", nargs="+")
-    ap.add_argument("--owner", default=os.environ.get("FOREMAN_OWNER") or "(unset)")
+    ap.add_argument("--owner", default=db.owner_from_env() or "(unset)")
     ap.add_argument("--repo", help="文件所属仓库(旧版默认 cwd)")
     ap.add_argument("--db", help="显式板数据库;不从数据库位置推导仓库")
     args = ap.parse_args()

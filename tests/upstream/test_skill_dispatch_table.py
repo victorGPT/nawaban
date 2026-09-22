@@ -7,7 +7,7 @@ import unittest
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-SKILLS = ("nawaban", "foreman-pattern", "nawaban-wrapup")
+SKILLS = ("nawaban", "nawaban-setup", "nawaban-wrapup")
 
 
 @unittest.skipUnless(importlib.util.find_spec("yaml"), "Skill YAML parsing requires optional PyYAML")

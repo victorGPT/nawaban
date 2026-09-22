@@ -15,7 +15,7 @@ def _isolate(patch, home):
     for name in tuple(os.environ):
         if name.startswith(("NAWABAN_", "WORKOS_", "TYPESAFE_", "FOREMAN_")) or name.endswith(("_API_KEY", "_API_TOKEN")):
             patch.delenv(name, raising=False)
-    for name in ("TMUX", "TMUX_PANE", "CLAUDE_CODE_SESSION_ID", "GH_TOKEN",
+    for name in ("NAWABAN_OWNER", "TMUX", "TMUX_PANE", "CLAUDE_CODE_SESSION_ID", "GH_TOKEN",
                  "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
         patch.delenv(name, raising=False)
     patch.setenv("HOME", str(home))

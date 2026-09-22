@@ -11,7 +11,7 @@ The runtime and skills use the nawaban name. CLI subcommands and database schema
 | Path | Contents |
 | --- | --- |
 | `nawaban/` | Python CLI, SQLite runtime, board server, `board-up.sh`, and WebUI source |
-| `skills/` | Task coordination (`nawaban`), project setup (`foreman-pattern`), and session handoff (`nawaban-wrapup`) skills |
+| `skills/` | Task coordination (`nawaban`), project setup (`nawaban-setup`), and session handoff (`nawaban-wrapup`) skills |
 | `hooks/` | `foreman_branch_gate.sh`, `foreman_maintree_watch.sh`, and `foreman_session_start.py` |
 | `nawaban/guard.py`, `nawaban/compile_gate_headless.sh` | The other two live hooks, preserved at their runtime paths |
 | `tests/test_glossary.py` | CLI terminology coverage check |
@@ -86,7 +86,7 @@ Each prerequisite suggestion includes a shell-quoted command on the next line.
 Paste it to add `link --kind depends_on -- <new-task> <prerequisite>`: the prerequisite
 is upstream. The command uses the running Python interpreter, the installed CLI
 file, and an explicit absolute `--db` path, so it targets the same board even from
-another directory. Run it with the usual `FOREMAN_OWNER` or
+another directory. Run it with the usual `NAWABAN_OWNER` or
 `CLAUDE_CODE_SESSION_ID` identity environment, as required by `link`.
 No prerequisite suggestion means no link command.
 
@@ -124,7 +124,7 @@ For a local checkout, clone `https://github.com/victorGPT/nawaban` and replace `
 
 Before the first non-interactive Codex run, start `codex` in your project and choose **Trust all and continue** at the hook review prompt. Installing the plugin alone does not grant hook trust. After exiting that session, a smoke check can use `codex exec --skip-git-repo-check "Report the nawaban SessionStart status from your context" </dev/null`. An initialized board with no active tasks shows the session identity and empty inbox; active tasks add the task status block.
 
-The gates act only in a Git main checkout that has a nawaban board, for a session with an identity (`FOREMAN_OWNER`, a tmux window or a session id). Files under `.nawaban/` and `.foreman/`, and checkouts containing `.foreman/ALLOW_MAINTREE_EDIT`, stay writable. In `Bash`, the write gate catches common file writes (`>`/`>>` redirects, `tee`, `sed -i`) but not arbitrary scripts; the merge gate inspects `gh pr merge` commands, and the branch gate inspects `git checkout` / `git switch`.
+The gates act only in a Git main checkout that has a nawaban board, for a session with an identity (`NAWABAN_OWNER`, or the older `FOREMAN_OWNER`; a tmux window or a session id). Files under `.nawaban/` and `.foreman/`, and checkouts containing `.foreman/ALLOW_MAINTREE_EDIT`, stay writable. In `Bash`, the write gate catches common file writes (`>`/`>>` redirects, `tee`, `sed -i`) but not arbitrary scripts; the merge gate inspects `gh pr merge` commands, and the branch gate inspects `git checkout` / `git switch`.
 
 | | Claude Code | Codex |
 | --- | --- | --- |

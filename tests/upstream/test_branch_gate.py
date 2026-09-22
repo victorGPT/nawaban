@@ -117,7 +117,8 @@ def main() -> int:
         case("worktree add 已有分支", "git worktree add ../wt3 feature/x", main_tree, 0)
         case("git branch 只建不切", "git branch task/new", main_tree, 0)
         case("与 git 无关的命令", "uv run pytest -q", main_tree, 0)
-        case("逃生门", "FOREMAN_ALLOW_BRANCH_SWITCH=1 git checkout feature/x", main_tree, 0)
+        case("逃生门", "NAWABAN_ALLOW_BRANCH_SWITCH=1 git checkout feature/x", main_tree, 0)
+        case("逃生门(旧名)", "FOREMAN_ALLOW_BRANCH_SWITCH=1 git checkout feature/x", main_tree, 0)
 
         print("误伤回归 · 引用原文放行:")
         case("单引号字符串里引用", "echo '绝不 git checkout -b / 切分支'", main_tree, 0)

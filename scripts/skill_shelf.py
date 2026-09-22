@@ -19,14 +19,14 @@ from pathlib import Path
 
 SHELF_ROOT = Path(os.environ.get("NAWABAN_SKILLS_ROOT", os.environ.get("WORKOS_SKILLS_ROOT", Path.home() / ".agents/skills")))
 LOCK = Path(os.environ.get("NAWABAN_SKILLS_LOCK", os.environ.get("WORKOS_SKILLS_LOCK", SHELF_ROOT.parent / ".skill-lock.json")))
-FOREMAN_SKILL = Path(__file__).resolve().parents[1] / "skills/nawaban/SKILL.md"
+NAWABAN_SKILL = Path(__file__).resolve().parents[1] / "skills/nawaban/SKILL.md"
 _STATE = Path(os.environ.get("NAWABAN_STATE_DIR", os.environ.get("WORKOS_STATE_DIR", Path.home() / ".local/state/nawaban")))
 OUT = Path(os.environ.get("NAWABAN_SHELF_OUTPUT", os.environ.get("WORKOS_SHELF_OUTPUT", _STATE / "skill-shelf.md")))
 
 
 def dispatch_table_names() -> set[str]:
     """已进 dispatch 表的那几个 —— 货架上给它们打 ✓,免得重复评估。"""
-    text = FOREMAN_SKILL.read_text(encoding="utf-8")
+    text = NAWABAN_SKILL.read_text(encoding="utf-8")
     sec = text.split("## 外部能力解析")[1].split("\n## ")[0]
     return {name for line in sec.splitlines() if line.startswith("|")
             for name in re.findall(r"`/?([a-z][a-z0-9:-]+)`", line)}

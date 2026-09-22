@@ -368,6 +368,10 @@ def foreman_dir(cwd: Path | str | None = None) -> Optional[Path]:
     return None
 
 
+def owner_from_env() -> str | None:
+    return os.environ.get("NAWABAN_OWNER") or os.environ.get("FOREMAN_OWNER")  # Legacy env fallback.
+
+
 def resolve_db(cwd: Path | str | None = None, *, for_init: bool = False) -> Path:
     """Explicit environment, shared board, ancestor board, then a new local board."""
     env = os.environ.get("NAWABAN_DB") or os.environ.get("WORKOS_DB")  # Legacy env fallback.

@@ -66,7 +66,7 @@ def _register_session(session_id: str, cwd: str) -> tuple[str, str] | None:
     key = pane or f"no-tmux:{session_id}"  # Full IDs keep colliding prefixes distinct.
     # Session-derived owners must match the CLI and guard exactly.
     # claim 建卡时写这个字符串 → guard 认得自己的卡(2026-07-04 · tmux/非 tmux 统一)。
-    owner = os.environ.get("FOREMAN_OWNER") or _tmux_owner(pane) or owner_from_session(session_id)
+    owner = os.environ.get("NAWABAN_OWNER") or os.environ.get("FOREMAN_OWNER") or _tmux_owner(pane) or owner_from_session(session_id)
     try:
         reg: dict = {}
         source = _REGISTRY if _REGISTRY.is_file() else _LEGACY_REGISTRY

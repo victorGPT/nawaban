@@ -21,7 +21,7 @@ metadata:
 
 ## 认领与工位
 
-写操作携带会话提供的 `FOREMAN_OWNER` 和 `CLAUDE_CODE_SESSION_ID`。所有操作保持同一目标库；以下命令中的占位符先替换为已核实的值。
+写操作携带会话提供的 `NAWABAN_OWNER`（旧名 `FOREMAN_OWNER` 仍可用）和 `CLAUDE_CODE_SESSION_ID`。所有操作保持同一目标库；以下命令中的占位符先替换为已核实的值。
 
 ```bash
 nawaban --db <目标库绝对路径> claim <ID>

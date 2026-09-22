@@ -1,5 +1,5 @@
 ---
-name: foreman-pattern
+name: nawaban-setup
 description: 将 nawaban 接入一个项目，配置任务库、Web 和所需 hooks；已有板的日常任务用 nawaban。
 metadata:
   version: "3.0.0"
@@ -25,7 +25,7 @@ nawaban --db <目标项目主树>/.nawaban/nawaban.db init
 
 ## 只接所需集成
 
-- 需要 Agent 技能时，按安装说明启用插件中的 `nawaban`、`foreman-pattern`、`nawaban-wrapup` 三个技能；手动接入时保留目录之间的相对资源路径。
+- 需要 Agent 技能时，按安装说明启用插件中的 `nawaban`、`nawaban-setup`、`nawaban-wrapup` 三个技能；手动接入时保留目录之间的相对资源路径。
 - 需要编辑与分支约束时，读 [Claude Code 与 Codex hooks](../../README.md#install-as-a-plugin)。库层状态校验随 CLI 生效，编辑/分支保护依赖实际安装 hooks；[闸表](../nawaban/references/gates.md) 用于排查。
 - Herdr、GitHub、CI 和部署 helpers 按项目需要配置；接入 nawaban 不自动启用它们，也不授权外部消息或部署。
 - 仅在读取历史 Markdown 卡时读 [历史轨说明](../nawaban/references/md-cards.md)；[TEMPLATE.md](TEMPLATE.md) 与 [BOARD.md](BOARD.md) 不用于新建当前事实。

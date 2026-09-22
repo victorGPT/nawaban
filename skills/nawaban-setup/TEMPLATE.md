@@ -4,7 +4,7 @@ task_id: CORE-001
 status: open            # open → claimed → in_progress → staging-verified → done · 单字段非完整态:连读 pr:(open+pr=代码在PR待合)与 waiting_on:(verified+observe=路径已验·效果待观察)
 outcome:                # 可选 flag(非状态) · 废弃留痕:canceled / superseded · 移 done/ 时标+notes 写原因
 epic:                   # 可选 · 大需求归组标签(一个 plan 拆 ≥3 卡时全部带同一 epic) · 看板按它聚合
-owner: window-1         # 稳定短标签;claim 时写(FOREMAN_OWNER / tmux #S:#W / session-id 派生) · 不许匿名
+owner: window-1         # 稳定短标签;claim 时写(NAWABAN_OWNER / tmux #S:#W / session-id 派生) · 不许匿名
 adr:                    # 可选 · 关联决策指针 · 开工前先读它
 design:                 # 多方时序卡必填(设计闸):设计对齐笔记指针;确无多方时序填 n/a·<一句理由>
 grill:                  # 非平凡卡必填(grill 闸·epic/跨≥2模块):grilling 对齐记录指针(epic 成员卡指同一份);平凡卡填 n/a·<一句理由>

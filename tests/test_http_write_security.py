@@ -88,7 +88,7 @@ def test_matching_loopback_browser_origin_reaches_cli_once(board, name):
     assert len(board.calls) == 1
     command, options = board.calls[0]
     assert command[-4:] == ["answer", "1", "--verdict", "approved"]
-    assert options["env"]["FOREMAN_OWNER"] == "inbox"
+    assert options["env"]["NAWABAN_OWNER"] == "inbox"
 
 
 def test_local_cli_without_origin_is_allowed(board):

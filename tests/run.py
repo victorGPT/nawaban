@@ -23,7 +23,8 @@ for name, command in commands:
                if not k.startswith(("NAWABAN_", "WORKOS_", "TYPESAFE_", "FOREMAN_"))
                and not k.endswith(("_API_KEY", "_API_TOKEN"))
                and k not in {"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN",
-                             "GITHUB_ENTERPRISE_TOKEN", "TMUX", "TMUX_PANE"}}
+                             "GITHUB_ENTERPRISE_TOKEN", "TMUX", "TMUX_PANE",
+                             "NAWABAN_OWNER"}}
         env.update(HOME=home, NAWABAN_STATE_DIR=str(Path(home) / "state"),
                    XDG_CONFIG_HOME=str(Path(home) / "config"),
                    XDG_CACHE_HOME=str(Path(home) / "cache"),

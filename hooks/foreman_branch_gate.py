@@ -19,7 +19,8 @@ except Exception:
     sys.exit(0)                      # 解析不了就别拦 —— 闸宁可漏,不可误伤
 if not cmd or "git" not in cmd:
     sys.exit(0)
-if "FOREMAN_ALLOW_BRANCH_SWITCH=1" in cmd:
+# Old name stays valid: "FOREMAN_…=1" is not a substring of "NAWABAN_…=1", so check both.
+if "NAWABAN_ALLOW_BRANCH_SWITCH=1" in cmd or "FOREMAN_ALLOW_BRANCH_SWITCH=1" in cmd:
     sys.exit(0)
 
 # 当前树是不是 worktree:worktree 的 --git-dir 是 .git/worktrees/<name>,主树两者相同。
@@ -86,7 +87,7 @@ print(
     "      # 已有分支:git worktree add .claude/worktrees/<短名> <分支名>\n"
     "      之后所有命令带 -C .claude/worktrees/<短名>,或直接在里面用绝对路径 Edit。\n"
     "   完事清理:git worktree remove .claude/worktrees/<短名>(已提交的都在共享 .git 里,不会丢)\n"
-    "   仅当你是在把被切歪的主树**还原**回原分支时,加前缀:FOREMAN_ALLOW_BRANCH_SWITCH=1 <原命令>",
+    "   仅当你是在把被切歪的主树**还原**回原分支时,加前缀:NAWABAN_ALLOW_BRANCH_SWITCH=1 <原命令>",
     file=sys.stderr,
 )
 sys.exit(2)

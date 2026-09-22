@@ -67,7 +67,7 @@ def main():
         context = "- A fictional task for database compatibility"
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(("NAWABAN_", "WORKOS_", "TYPESAFE_"))}
-        env.update(HOME=folder, FOREMAN_OWNER="ac:copy-test", CLAUDE_CODE_SESSION_ID="copy-test")
+        env.update(HOME=folder, NAWABAN_OWNER="ac:copy-test", CLAUDE_CODE_SESSION_ID="copy-test")
         command = [sys.executable, str(Path(__file__).resolve().parents[1] / "nawaban/cli.py"),
                    "--db", str(exercise)]
         for arguments in (["create", task_id, "--title", "Copy verification task",
