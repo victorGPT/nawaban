@@ -1062,7 +1062,8 @@ def remodule(path: Path | str, task_ids: list[str], *, epic: str, reason: str,
 
 
 def set_meta(path: Path | str, task_id: str, *, fields: dict, author: str,
-             session_id: Optional[str] = None) -> None:
+             session_id: Optional[str] = None, note: Optional[str] = None,
+             busy_ms: int = 30000) -> None:
     """Fill empty epic/project fields with an audit event.
 
     语义只补空不改写:已有值要改,走 decide 留痕后再人工判断,别在这里悄悄覆盖。
@@ -1073,7 +1074,7 @@ def set_meta(path: Path | str, task_id: str, *, fields: dict, author: str,
     fields = {k: v.strip() for k, v in fields.items() if v and v.strip()}
     if not fields:
         raise NawabanError("meta 没给任何值:--set-epic / --set-project")
-    con = connect(path)
+    con = connect(path, busy_ms=busy_ms)
     try:
         with _txn(con):
             row = _task_row(con, task_id)
@@ -1091,7 +1092,8 @@ def set_meta(path: Path | str, task_id: str, *, fields: dict, author: str,
                 (*fields.values(), task_id),
             )
             _event(con, task_id, "note",
-                   "meta 补填:" + " · ".join(f"{k}={v}" for k, v in fields.items()),
+                   "meta 补填:" + " · ".join(f"{k}={v}" for k, v in fields.items())
+                   + (f" · {note}" if note else ""),
                    author, session_id)
     finally:
         con.close()
