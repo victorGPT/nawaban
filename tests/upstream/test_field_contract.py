@@ -32,7 +32,7 @@ def case(name: str, fn) -> None:
 
 
 def cli(dbp: Path, *args: str) -> subprocess.CompletedProcess:
-    env = {**os.environ, "FOREMAN_OWNER": "ac:test", "CLAUDE_CODE_SESSION_ID": "s-test"}
+    env = {**os.environ, "NAWABAN_OWNER": "ac:test", "CLAUDE_CODE_SESSION_ID": "s-test"}
     return subprocess.run([sys.executable, CLI, "--db", str(dbp), *args],
                           capture_output=True, text=True, env=env)
 

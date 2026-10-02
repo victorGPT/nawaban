@@ -66,7 +66,7 @@ def main():
         project = "copy-probe-" + uuid4().hex
         context = "- A fictional task for database compatibility"
         env = {k: v for k, v in os.environ.items()
-               if not k.startswith(("NAWABAN_", "WORKOS_", "TYPESAFE_"))}
+               if not k.startswith(("NAWABAN_", "TYPESAFE_"))}
         env.update(HOME=folder, NAWABAN_OWNER="ac:copy-test", CLAUDE_CODE_SESSION_ID="copy-test")
         command = [sys.executable, str(Path(__file__).resolve().parents[1] / "nawaban/cli.py"),
                    "--db", str(exercise)]

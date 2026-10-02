@@ -3,7 +3,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-const apiTarget = process.env.NAWABAN_API_URL || process.env.WORKOS_API_URL || 'http://127.0.0.1:8813'
+const apiTarget = process.env.NAWABAN_API_URL || 'http://127.0.0.1:8813'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -42,7 +42,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/modules': {
-        target: process.env.NAWABAN_MODULES_API_TARGET || process.env.WORKOS_MODULES_API_TARGET || process.env.NAWABAN_API_URL || process.env.WORKOS_API_URL || 'http://127.0.0.1:8813',
+        target: process.env.NAWABAN_MODULES_API_TARGET || apiTarget,
         changeOrigin: true,
       },
       // Backend reads and inbox answers share the board_view.py listener.

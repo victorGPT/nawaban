@@ -124,7 +124,7 @@ For a local checkout, clone `https://github.com/victorGPT/nawaban` and replace `
 
 Before the first non-interactive Codex run, start `codex` in your project and choose **Trust all and continue** at the hook review prompt. Installing the plugin alone does not grant hook trust. After exiting that session, a smoke check can use `codex exec --skip-git-repo-check "Report the nawaban SessionStart status from your context" </dev/null`. An initialized board with no active tasks shows the session identity and empty inbox; active tasks add the task status block.
 
-The gates act only in a Git main checkout that has a nawaban board, for a session with an identity (`NAWABAN_OWNER`, or the older `FOREMAN_OWNER`; a tmux window or a session id). Files under `.nawaban/` and `.foreman/`, and checkouts containing `.foreman/ALLOW_MAINTREE_EDIT`, stay writable. In `Bash`, the write gate catches common file writes (`>`/`>>` redirects, `tee`, `sed -i`) but not arbitrary scripts; the merge gate inspects `gh pr merge` commands, and the branch gate inspects `git checkout` / `git switch`.
+The gates act only in a Git main checkout that has a nawaban board, for a session with an identity (`NAWABAN_OWNER`, a tmux window or a session id). Files under `.nawaban/` and `.foreman/`, and checkouts containing `.foreman/ALLOW_MAINTREE_EDIT`, stay writable. In `Bash`, the write gate catches common file writes (`>`/`>>` redirects, `tee`, `sed -i`) but not arbitrary scripts; the merge gate inspects `gh pr merge` commands, and the branch gate inspects `git checkout` / `git switch`.
 
 | | Claude Code | Codex |
 | --- | --- | --- |
@@ -142,10 +142,10 @@ Run `uv run --no-project --python 3.12 --with pytest python -m pytest -q tests` 
 
 To verify an existing board without migrating it, run `python3 scripts/verify_database_copy.py /path/to/board.db`. It opens the source read-only, migrates a temporary backup twice, and verifies exact schema and row preservation plus integrity and foreign keys. A separate disposable copy exercises create, claim, the context detail API, and project filters.
 
-Session registry and reconciliation reports use `NAWABAN_STATE_DIR`, then the legacy `WORKOS_STATE_DIR`, then `~/.local/state/nawaban`. When the new registry is absent, session lookup reads the previous `~/.claude/foreman/session-registry.json`; the next registration preserves its entries in the new file without modifying the old one.
+Session registry and reconciliation reports use `NAWABAN_STATE_DIR`, then `~/.local/state/nawaban`. When the new registry is absent, session lookup reads the previous `~/.claude/foreman/session-registry.json`; the next registration preserves its entries in the new file without modifying the old one.
 
 Session-derived owners use `ac:<full session UUID>` so sessions sharing the first
-eight characters remain distinct. `FOREMAN_OWNER` still takes precedence. Existing
+eight characters remain distinct. `NAWABAN_OWNER` takes precedence. Existing
 `ac:<8 hex characters>` cards are not rewritten: activity probes retain their prefix
 alias (using the newest matching transcript), while new owners match exactly.
 Continuing a legacy card with the new identity requires its existing, still-open

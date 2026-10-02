@@ -2,7 +2,6 @@
 
 import sys
 import threading
-import types
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -11,7 +10,6 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.modules.setdefault("foreman_liveness", types.ModuleType("foreman_liveness"))
 from nawaban import board_view  # noqa: E402
 
 

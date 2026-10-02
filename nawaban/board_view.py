@@ -492,7 +492,7 @@ def task_detail(path: Path | str, task_id: str) -> dict:
                 "SELECT * FROM task_sessions WHERE task_id=? ORDER BY started_at DESC",
                 (task_id,))
         ]
-        # 信件(worker→总监汇报,NAWABAN-LETTERS-DB-001)只读投影;标已读仍走 cli letter-read
+        # 信件(worker→总监汇报,NAWABAN-LETTERS-DB-001)只读投影;标已读仍走 cli notify-read
         d["letters"] = [
             {"id": r["id"], "kind": r["kind"], "msg": r["msg"], "links": r["links"],
              "session_id": r["session_id"], "created_at": r["created_at"],
@@ -1913,8 +1913,8 @@ def serve(path: Path, port: int, host: str = "127.0.0.1") -> None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="board_view", description="NAWABAN 本地只读板")
     ap.add_argument("--db", help="库路径(默认 NAWABAN_DB env → 就近 .nawaban/nawaban.db)")
-    ap.add_argument("--port", type=int, default=int(os.environ.get("NAWABAN_BOARD_PORT") or os.environ.get("WORKOS_BOARD_PORT") or "8813"))
-    ap.add_argument("--host", default=(os.environ.get("NAWABAN_BOARD_HOST") or os.environ.get("WORKOS_BOARD_HOST")
+    ap.add_argument("--port", type=int, default=int(os.environ.get("NAWABAN_BOARD_PORT") or "8813"))
+    ap.add_argument("--host", default=(os.environ.get("NAWABAN_BOARD_HOST")
                                      or os.environ.get("DAGVIEW_HOST", "127.0.0.1")),
                     help="监听地址,逗号分隔可给多个(如 127.0.0.1,100.x.x.x)")
     a = ap.parse_args(argv)

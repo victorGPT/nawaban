@@ -2,19 +2,17 @@
 
 import subprocess
 import sys
-import types
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.modules.setdefault("foreman_liveness", types.ModuleType("foreman_liveness"))
 from nawaban import cli, guard  # noqa: E402
 
 
 @pytest.fixture
 def main_checkout(tmp_path, monkeypatch):
-    for key in ("CLAUDE_CODE_SESSION_ID", "FOREMAN_OWNER", "TMUX", "TMUX_PANE", "NAWABAN_DB", "WORKOS_DB"):
+    for key in ("CLAUDE_CODE_SESSION_ID", "NAWABAN_OWNER", "TMUX", "TMUX_PANE", "NAWABAN_DB", "NAWABAN_DB"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(guard, "_infer_owner_from_tmux", lambda: None)
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)

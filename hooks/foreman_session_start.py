@@ -6,7 +6,7 @@ SessionStart hook stdin JSON: {"session_id": "...", "cwd": "/path/to/project"}
 
 2.1(关窗恢复 / 谁做的):
 - 每次启动把 `pane → {session, cwd, owner, ts, resume}` upsert 进状态目录下的
-  session-registry.json(默认 ~/.local/state/nawaban;NAWABAN_STATE_DIR 优先于 WORKOS_STATE_DIR)。
+  session-registry.json(默认 ~/.local/state/nawaban;可用 NAWABAN_STATE_DIR 覆盖)。
   新注册表缺失时读 ~/.claude/foreman/session-registry.json;横幅打印 session + resume 命令。
 - `--list`:dump 注册表(给恢复时按 pane/cwd 反查 session-id)。
 任意失败都吞掉(注册是增强 · 绝不能拖垮会话启动)。
@@ -25,7 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 _RUNTIME = Path(__file__).resolve().parents[1] / "nawaban"
-_STATE = Path(os.environ.get("NAWABAN_STATE_DIR") or os.environ.get("WORKOS_STATE_DIR")
+_STATE = Path(os.environ.get("NAWABAN_STATE_DIR")
               or Path.home() / ".local/state/nawaban").expanduser()
 _REGISTRY = _STATE / "session-registry.json"
 _LEGACY_REGISTRY = Path.home() / ".claude/foreman/session-registry.json"
@@ -66,7 +66,7 @@ def _register_session(session_id: str, cwd: str) -> tuple[str, str] | None:
     key = pane or f"no-tmux:{session_id}"  # Full IDs keep colliding prefixes distinct.
     # Session-derived owners must match the CLI and guard exactly.
     # claim 建卡时写这个字符串 → guard 认得自己的卡(2026-07-04 · tmux/非 tmux 统一)。
-    owner = os.environ.get("NAWABAN_OWNER") or os.environ.get("FOREMAN_OWNER") or _tmux_owner(pane) or owner_from_session(session_id)
+    owner = os.environ.get("NAWABAN_OWNER") or _tmux_owner(pane) or owner_from_session(session_id)
     try:
         reg: dict = {}
         source = _REGISTRY if _REGISTRY.is_file() else _LEGACY_REGISTRY
@@ -194,7 +194,7 @@ def _context_banner(mine: list[dict], foreman_dir: Path) -> bool:
 
     fail-soft:库缺失/装载出错一律落回 md 片段。横幅永远不许挡住 session 启动。
     """
-    if (os.environ.get("NAWABAN_CONTEXT_BANNER") or os.environ.get("WORKOS_CONTEXT_BANNER")) not in ("1", "true", "yes"):
+    if os.environ.get("NAWABAN_CONTEXT_BANNER") not in ("1", "true", "yes"):
         return False
     dbp = _wdb.resolve_db(foreman_dir.parent)
     if not dbp.exists():
@@ -315,7 +315,7 @@ def main() -> int:
 
     cwd = Path(cwd_str)
     from nawaban import db as _wdb  # sys.path 已在文件头指向本目录
-    explicit_db = os.environ.get("NAWABAN_DB") or os.environ.get("WORKOS_DB")
+    explicit_db = os.environ.get("NAWABAN_DB")
     # Board discovery also finds legacy Markdown-only boards before DB migration.
     foreman_dir = (Path(explicit_db).expanduser().parent if explicit_db
                    else _wdb.foreman_dir(cwd))

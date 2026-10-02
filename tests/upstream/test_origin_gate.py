@@ -32,7 +32,7 @@ class OriginGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "workos.db"
             db.init_db(path)
-            env = {**os.environ, "FOREMAN_OWNER": "ac:fixture"}
+            env = {**os.environ, "NAWABAN_OWNER": "ac:fixture"}
 
             def create(tid, context):
                 return subprocess.run(

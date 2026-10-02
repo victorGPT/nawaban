@@ -39,15 +39,15 @@ def test_merge_gate() -> None:
         gh.chmod(0o755)
         calls = root / "calls"
         env = {k: v for k, v in os.environ.items()
-               if k not in {"FOREMAN_OWNER", "CLAUDE_CODE_SESSION_ID", "TMUX", "TMUX_PANE"}}
-        env.update(FOREMAN_OWNER="ac:test", PATH=f"{tmp}:{os.environ['PATH']}", GH_CALLS=str(calls))
+               if k not in {"NAWABAN_OWNER", "CLAUDE_CODE_SESSION_ID", "TMUX", "TMUX_PANE"}}
+        env.update(NAWABAN_OWNER="ac:test", PATH=f"{tmp}:{os.environ['PATH']}", GH_CALLS=str(calls))
 
         def check(command: str, scenario: str = "success", expected: int = 0,
                   needle: str = "", identity: bool = True) -> list[list[str]]:
             calls.write_text("")
             current = {**env, "GH_SCENARIO": scenario}
             if not identity:
-                current.pop("FOREMAN_OWNER")
+                current.pop("NAWABAN_OWNER")
             result = subprocess.run(
                 [sys.executable, str(FOREMAN / "nawaban/guard.py")],
                 input=json.dumps({"tool_name": "Bash", "cwd": tmp,

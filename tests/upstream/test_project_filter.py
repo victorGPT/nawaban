@@ -32,7 +32,7 @@ class ProjectFilterTests(unittest.TestCase):
             return con.execute("SELECT project FROM tasks WHERE id=?", (tid,)).fetchone()[0]
 
     def _cli(self, *args):
-        env = {**os.environ, "FOREMAN_OWNER": "ac:fixture"}
+        env = {**os.environ, "NAWABAN_OWNER": "ac:fixture"}
         return subprocess.run(
             [sys.executable, "-m", "nawaban", "--db", str(self.path), "create", *args],
             capture_output=True, text=True, check=False, cwd=self.tmp.name, env=env)

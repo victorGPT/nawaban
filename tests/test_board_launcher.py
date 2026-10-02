@@ -23,7 +23,7 @@ def test_symlink_launcher_serves_selected_board(tmp_path, file_link):
         launcher.symlink_to(legacy / "board-up.sh")
     board = tmp_path / "selected.db"
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith(("NAWABAN_", "WORKOS_", "TYPESAFE_")) and k != "PYTHONPATH"}
+           if not k.startswith(("NAWABAN_", "TYPESAFE_")) and k != "PYTHONPATH"}
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]

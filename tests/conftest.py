@@ -13,7 +13,7 @@ _bootstrap = pytest.MonkeyPatch()
 
 def _isolate(patch, home):
     for name in tuple(os.environ):
-        if name.startswith(("NAWABAN_", "WORKOS_", "TYPESAFE_", "FOREMAN_")) or name.endswith(("_API_KEY", "_API_TOKEN")):
+        if name.startswith(("NAWABAN_", "TYPESAFE_")) or name.endswith(("_API_KEY", "_API_TOKEN")):
             patch.delenv(name, raising=False)
     for name in ("NAWABAN_OWNER", "TMUX", "TMUX_PANE", "CLAUDE_CODE_SESSION_ID", "GH_TOKEN",
                  "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
@@ -23,7 +23,7 @@ def _isolate(patch, home):
     patch.setenv("XDG_CACHE_HOME", str(home / "cache"))
     patch.setenv("NAWABAN_STATE_DIR", str(home / "state"))
     patch.setenv("PYTHONPATH", str(ROOT))
-    patch.setenv("FOREMAN_OWNER", "ac:selftest")
+    patch.setenv("NAWABAN_OWNER", "ac:selftest")
     patch.setenv("CLAUDE_CODE_SESSION_ID", "selftest-session")
     patch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     patch.setenv("GIT_CONFIG_GLOBAL", os.devnull)

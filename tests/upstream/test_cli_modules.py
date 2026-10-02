@@ -27,7 +27,7 @@ class InboxContractTests(unittest.TestCase):
         self.environment = patch.dict(os.environ, {}, clear=False)
         self.environment.start()
         self.addCleanup(self.environment.stop)
-        os.environ.pop("WORKOS_DECISION_CHANNEL", None)
+        os.environ.pop("NAWABAN_DECISION_CHANNEL", None)
         clock = patch("time.time", return_value=1000)
         self.clock = clock.start()
         self.addCleanup(clock.stop)
@@ -183,7 +183,7 @@ class InboxContractTests(unittest.TestCase):
     def test_cli_rejects_missing_session_before_recording_answer(self):
         self.seed("T-A")
         aid = self.ask()
-        env = dict(os.environ, FOREMAN_OWNER=self.owner)
+        env = dict(os.environ, NAWABAN_OWNER=self.owner)
         env.pop("CLAUDE_CODE_SESSION_ID", None)
         result = subprocess.run(
             [sys.executable, "-m", "nawaban", "--db", str(self.path),

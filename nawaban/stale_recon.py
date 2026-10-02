@@ -15,7 +15,7 @@ PR ref 值契约(与 NAWABAN-IMPORT-001 的跨卡约定):refs kind='pr' 的 valu
 即可("2385" / "#2385" / URL 均认,digits 提取)。merge_sha 的 value = merge commit SHA。
 
 写入一律走 nawaban.db 模块函数(add_ref/add_event/advance_task)= cli 九动词同层,无手写
-mutation SQL。作者身份从环境链取(NAWABAN_OWNER,旧名 FOREMAN_OWNER → session-id),cron 等无身份环境署名
+mutation SQL。作者身份从环境链取(NAWABAN_OWNER → session-id),cron 等无身份环境署名
 'reconciler'(系统角色,明示非人非 worker)。
 
 用法:python3 nawaban/stale_recon.py [--repo PATH] [--write]

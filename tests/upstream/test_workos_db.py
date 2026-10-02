@@ -372,7 +372,7 @@ def main() -> int:  # noqa: C901, PLR0915
             pass
         else:
             raise AssertionError("无 user 拍板行的 done 未被拦")
-        os.environ["WORKOS_DECISION_CHANNEL"] = "chat"
+        os.environ["NAWABAN_DECISION_CHANNEL"] = "chat"
         # 拍板须**严格晚于**锚点秒(workos compile gate regression 修掉 `>=` 的同秒 fail-open:
         # created_at 秒级,同秒先后不可分辨 → 不认)。真人拍板要先说话,真机天然满足;
         # 这里是机器速度把三步压进同一秒,睡过秒界即可,断言与契约语义不变。
@@ -381,7 +381,7 @@ def main() -> int:  # noqa: C901, PLR0915
             db.decide(p, "T-XX-001", question="验收过不过?", verdict="过(用户原话:done)",
                       decided_by="user")
         finally:
-            del os.environ["WORKOS_DECISION_CHANNEL"]
+            del os.environ["NAWABAN_DECISION_CHANNEL"]
         db.advance_task(p, "T-XX-001", to="done", owner="w1", session_id="s1")
         con = db.connect(p)
         row = con.execute(
@@ -399,8 +399,8 @@ def main() -> int:  # noqa: C901, PLR0915
         p = fresh(tmp)
         mk(p)
         env = {k: v for k, v in os.environ.items()
-               if k not in ("CLAUDE_CODE_SESSION_ID", "FOREMAN_OWNER")}
-        env["WORKOS_DB"] = str(p)
+               if k not in ("CLAUDE_CODE_SESSION_ID", "NAWABAN_OWNER")}
+        env["NAWABAN_DB"] = str(p)
         r = subprocess.run([sys.executable, str(CLI), "claim", "T-XX-001"],
                            capture_output=True, text=True, env=env)
         assert r.returncode != 0, "无环境身份的 claim 应失败"
@@ -421,7 +421,7 @@ def main() -> int:  # noqa: C901, PLR0915
     def t_no_silent_init():
         bogus = tmp / "不存在的目录" / "workos.db"
         env = dict(os.environ)
-        env["WORKOS_DB"] = str(bogus)
+        env["NAWABAN_DB"] = str(bogus)
         env["CLAUDE_CODE_SESSION_ID"] = "deadbeef-0000-0000-0000-000000000000"
         r = subprocess.run([sys.executable, str(CLI), "backup"],
                            capture_output=True, text=True, env=env)
@@ -515,7 +515,7 @@ def main() -> int:  # noqa: C901, PLR0915
             raise AssertionError(f"epic 已有真值应拒改写:{tid}")
 
     def remodule_cli(p, tids, *args):
-        env = dict(os.environ, FOREMAN_OWNER="ac:organizer")
+        env = dict(os.environ, NAWABAN_OWNER="ac:organizer")
         env.pop("CLAUDE_CODE_SESSION_ID", None)
         return subprocess.run([sys.executable, str(CLI), "--db", str(p),
                                "remodule", *tids, *args],
@@ -637,8 +637,8 @@ def main() -> int:  # noqa: C901, PLR0915
         assert got["stuck_at"] == "T-C", got
 
         env = dict(os.environ)
-        env["WORKOS_DB"] = str(p)
-        r = subprocess.run([sys.executable, str(CLI), "kin", "T-A"],
+        env["NAWABAN_DB"] = str(p)
+        r = subprocess.run([sys.executable, str(CLI), "deps", "T-A"],
                            capture_output=True, text=True, env=env)
         assert r.returncode == 0, r.stderr
         assert "被挡" in r.stdout and "真正卡在 T-C" in r.stdout, r.stdout

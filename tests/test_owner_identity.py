@@ -22,7 +22,7 @@ LEGACY = "ac:01a0b483"
 
 @pytest.fixture
 def identities(monkeypatch, tmp_path):
-    for name in ("FOREMAN_OWNER", "CLAUDE_CODE_SESSION_ID", "TMUX", "TMUX_PANE"):
+    for name in ("NAWABAN_OWNER", "CLAUDE_CODE_SESSION_ID", "TMUX", "TMUX_PANE"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(session_start, "_REGISTRY", tmp_path / "registry.json")
     monkeypatch.setattr(session_start, "_LEGACY_REGISTRY", tmp_path / "absent.json")
@@ -55,7 +55,7 @@ def test_banner_guard_cli_and_registry_agree(identities, monkeypatch, tmp_path):
 
 
 def test_explicit_legacy_owner_still_wins(identities, monkeypatch, tmp_path):
-    monkeypatch.setenv("FOREMAN_OWNER", LEGACY)
+    monkeypatch.setenv("NAWABAN_OWNER", LEGACY)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SID_A)
     assert cli._identity(need_session=True) == (LEGACY, SID_A)
     assert guard.resolve_owner(SID_B) == LEGACY
@@ -186,7 +186,7 @@ def test_stale_recon_uses_same_author(identities, monkeypatch, tmp_path, explici
     monkeypatch.setenv("NAWABAN_DB", str(path))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SID_A)
     if explicit:
-        monkeypatch.setenv("FOREMAN_OWNER", explicit)
+        monkeypatch.setenv("NAWABAN_OWNER", explicit)
     monkeypatch.setattr(sys, "argv", ["stale_recon.py", "--repo", str(tmp_path)])
     monkeypatch.setattr(stale_recon, "fetch_merged", lambda repo: {})
     calls = []
@@ -207,7 +207,7 @@ def test_legacy_session_guard_allows_its_worktree(identities, monkeypatch, tmp_p
     db.create_task(path, task_id="OLD", title="Legacy card", touches=["shared.py"])
     db.claim_task(path, "OLD", owner=LEGACY, session_id=SID_A)
     if explicit:
-        monkeypatch.setenv("FOREMAN_OWNER", explicit)
+        monkeypatch.setenv("NAWABAN_OWNER", explicit)
     assert guard.judge({"session_id": SID_A, "cwd": str(worktree), "tool_name": "Edit",
                         "tool_input": {"file_path": str(worktree / "shared.py")}}) == (0, "")
 

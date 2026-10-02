@@ -19,7 +19,7 @@ still a no-op; failed queries and empty checks deny. Queries are read-only;
 compound commands must be split. Scripts/eval/API merges and direct pushes are
 outside coverage. Post-preflight races still require server-side protection.
 
-身份铁律:owner 只从环境来(NAWABAN_OWNER,旧名 FOREMAN_OWNER → tmux → session-id),与 md 版同链。
+身份铁律:owner 只从环境来(NAWABAN_OWNER → tmux → session-id),与 md 版同链。
 本文件对库只读(mode=ro URI),物理上写不了。
 """
 

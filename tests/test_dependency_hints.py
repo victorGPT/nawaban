@@ -21,7 +21,7 @@ def board(tmp_path, monkeypatch):
     path = tmp_path / "board.db"
     db.init_db(path)
     db.create_task(path, task_id="PRE", title="用户可以建立账户", project="p", epic="LOGIN")
-    monkeypatch.setenv("FOREMAN_OWNER", "test")
+    monkeypatch.setenv("NAWABAN_OWNER", "test")
     monkeypatch.setenv("TYPESAFE_API_KEY", "test")
     return path
 

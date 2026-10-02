@@ -20,7 +20,7 @@ except Exception:
 if not cmd or "git" not in cmd:
     sys.exit(0)
 # Old name stays valid: "FOREMAN_…=1" is not a substring of "NAWABAN_…=1", so check both.
-if "NAWABAN_ALLOW_BRANCH_SWITCH=1" in cmd or "FOREMAN_ALLOW_BRANCH_SWITCH=1" in cmd:
+if "NAWABAN_ALLOW_BRANCH_SWITCH=1" in cmd:
     sys.exit(0)
 
 # 当前树是不是 worktree:worktree 的 --git-dir 是 .git/worktrees/<name>,主树两者相同。

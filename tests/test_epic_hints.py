@@ -17,7 +17,7 @@ def board(tmp_path, monkeypatch):
     path = tmp_path / "board.db"
     db.init_db(path)
     db.create_task(path, task_id="OLD", title="登录页面能打开", epic="LOGIN")
-    monkeypatch.setenv("FOREMAN_OWNER", "test")
+    monkeypatch.setenv("NAWABAN_OWNER", "test")
     monkeypatch.setenv("TYPESAFE_API_KEY", "test")
     monkeypatch.setattr(cli, "_hints", lambda *a, **k: [])
     monkeypatch.setattr(cli, "_dependency_hint", lambda *a, **k: None)
@@ -111,7 +111,7 @@ def test_module_catalog_has_bounded_examples_and_no_placeholder():
 def test_empty_board_skips_api(tmp_path, monkeypatch, capsys):
     path = tmp_path / "empty.db"
     db.init_db(path)
-    monkeypatch.setenv("FOREMAN_OWNER", "test")
+    monkeypatch.setenv("NAWABAN_OWNER", "test")
     monkeypatch.setenv("TYPESAFE_API_KEY", "test")
     monkeypatch.setattr(cli, "_hints", lambda *a, **k: [])
     monkeypatch.setattr(cli, "_post", pytest.fail)

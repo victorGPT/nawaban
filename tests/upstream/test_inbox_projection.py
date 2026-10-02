@@ -112,11 +112,11 @@ class InboxProjectionTests(unittest.TestCase):
     def test_read_does_not_write_or_establish_a_decision_channel(self):
         self._ask("QUESTION")
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("WORKOS_DECISION_CHANNEL", None)
+            os.environ.pop("NAWABAN_DECISION_CHANNEL", None)
             before = self.path.read_bytes()
             inbox.read(self.path)
             self.assertEqual(self.path.read_bytes(), before)
-            self.assertNotIn("WORKOS_DECISION_CHANNEL", os.environ)
+            self.assertNotIn("NAWABAN_DECISION_CHANNEL", os.environ)
 
     def test_cli_queries_and_help_work_without_the_web_module(self):
         self._ask("QUESTION")
@@ -137,7 +137,7 @@ class InboxProjectionTests(unittest.TestCase):
         db.init_db(decoy)
         self.assertTrue((board_view.WEBUI_DIST / "index.html").is_file(), "Build web before this test")
         with patch.object(board_view._Handler, "db_path", self.path), \
-                patch.dict(os.environ, WORKOS_DB=str(decoy)):
+                patch.dict(os.environ, NAWABAN_DB=str(decoy)):
             server = ThreadingHTTPServer(("127.0.0.1", 0), board_view._Handler)
             thread = threading.Thread(target=server.serve_forever)
             thread.start()

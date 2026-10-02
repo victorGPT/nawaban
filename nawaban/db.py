@@ -376,12 +376,12 @@ def foreman_dir(cwd: Path | str | None = None) -> Optional[Path]:
 
 
 def owner_from_env() -> str | None:
-    return os.environ.get("NAWABAN_OWNER") or os.environ.get("FOREMAN_OWNER")  # Legacy env fallback.
+    return os.environ.get("NAWABAN_OWNER")
 
 
 def resolve_db(cwd: Path | str | None = None, *, for_init: bool = False) -> Path:
     """Explicit environment, shared board, ancestor board, then a new local board."""
-    env = os.environ.get("NAWABAN_DB") or os.environ.get("WORKOS_DB")  # Legacy env fallback.
+    env = os.environ.get("NAWABAN_DB")
     if env:
         return Path(env).expanduser()
     roots = _board_roots(cwd)
@@ -1126,7 +1126,7 @@ def decide(path: Path | str, task_id: str, *, question: str, verdict: str,
     inbox(人在收件箱里回答一个 ask · NAWABAN-INBOX-WRITE-001,由 cli answer 设)。
     agent 不得凭空代填。
     """
-    if decided_by == "user" and (os.environ.get("NAWABAN_DECISION_CHANNEL") or os.environ.get("WORKOS_DECISION_CHANNEL")) not in DECISION_CHANNELS:
+    if decided_by == "user" and os.environ.get("NAWABAN_DECISION_CHANNEL") not in DECISION_CHANNELS:
         raise NawabanError(
             "decided_by=user 只能经拍板通道:TG 回写(tg)、对话转述(chat,verdict 须带用户原话)"
             "或收件箱回答(inbox)")

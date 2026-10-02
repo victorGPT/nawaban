@@ -62,9 +62,9 @@ def run_gate(payload: dict, *, db_path: Path | None, state_dir: Path,
              raw: str | None = None) -> tuple[int, dict | None, str]:
     """→ (exit_code, 顶回 JSON or None, stderr)。"""
     env = {**os.environ, "TMPDIR": str(state_dir)}
-    env.pop("WORKOS_DB", None)
+    env.pop("NAWABAN_DB", None)
     if db_path is not None:
-        env["WORKOS_DB"] = str(db_path)
+        env["NAWABAN_DB"] = str(db_path)
     r = subprocess.run(
         [sys.executable, str(GATE)],
         input=json.dumps(payload) if raw is None else raw,
@@ -204,8 +204,8 @@ def main() -> int:  # noqa: C901, PLR0915
     # ── 7 · 保存闸走 CLI 真路径:artifact 不存在 → 拒收尾 ──────────
     def t_artifact_gate_via_cli():
         p = claimed(tmp)
-        env = {**os.environ, "WORKOS_DB": str(p), "CLAUDE_CODE_SESSION_ID": SID,
-               "FOREMAN_OWNER": "w1"}
+        env = {**os.environ, "NAWABAN_DB": str(p), "CLAUDE_CODE_SESSION_ID": SID,
+               "NAWABAN_OWNER": "w1"}
         # handoff 闸:completed 须先翻牌;保存闸与 outcome 无关,用 handed_off
         base = [sys.executable, str(CLI), "handoff", "T-GATE-001", "--outcome", "handed_off",
                 "--summary", "收工", "--now", "已收尾"]
@@ -236,7 +236,7 @@ def main() -> int:  # noqa: C901, PLR0915
                                 state_dir=sd)
         assert code == 0 and out is None, "cwd 上溯找不到 .foreman 必须放行"
 
-    # ── 9 · 库定位:无 WORKOS_DB 时从 stdin.cwd 上溯 .foreman/ ─────
+    # ── 9 · 库定位:无 NAWABAN_DB 时从 stdin.cwd 上溯 .foreman/ ─────
     def t_resolve_from_cwd():
         repo = tmp / "repo"
         (repo / ".foreman").mkdir(parents=True, exist_ok=True)
@@ -286,12 +286,12 @@ def main() -> int:  # noqa: C901, PLR0915
         """fail-closed 不等于死锁:现落一条真人拍板(provenance IS NULL)必须能放行。"""
         p = fresh(tmp)
         sv_card_no_anchor(p, "T-NOANCHOR-002", hist_user=True)
-        os.environ["WORKOS_DECISION_CHANNEL"] = "chat"
+        os.environ["NAWABAN_DECISION_CHANNEL"] = "chat"
         try:
             db.decide(p, "T-NOANCHOR-002", question="现在能 done 吗",
                       verdict="用户原话:done 了", decided_by="user")
         finally:
-            os.environ.pop("WORKOS_DECISION_CHANNEL", None)
+            os.environ.pop("NAWABAN_DECISION_CHANNEL", None)
         db.advance_task(p, "T-NOANCHOR-002", to="done", owner="w1", session_id=SID)
         con = db.connect(p)
         st = con.execute("SELECT status FROM tasks WHERE id='T-NOANCHOR-002'").fetchone()[0]
@@ -326,13 +326,13 @@ def main() -> int:  # noqa: C901, PLR0915
 
         控时靠临时替换 `db._now`(decide 的 created_at 取自它),不手写 SQL、不 sleep。
         """
-        orig, os.environ["WORKOS_DECISION_CHANNEL"] = db._now, "chat"
+        orig, os.environ["NAWABAN_DECISION_CHANNEL"] = db._now, "chat"
         db._now = lambda: at
         try:
             db.decide(p, tid, question="能 done 吗", verdict="用户原话:done", decided_by="user")
         finally:
             db._now = orig
-            os.environ.pop("WORKOS_DECISION_CHANNEL", None)
+            os.environ.pop("NAWABAN_DECISION_CHANNEL", None)
 
     def t_gate2_same_second_is_not_after():
         """秒级粒度:与锚点**同一秒**的运行时拍板,先后不可分辨 → 不认(fail-closed)。"""
@@ -372,7 +372,7 @@ def main() -> int:  # noqa: C901, PLR0915
         db.create_task(p, task_id="T-ANCHOR-001", title="正常卡:走完整生命周期", context="测试")
         db.claim_task(p, "T-ANCHOR-001", owner="w1", session_id=SID)
         db.start_task(p, "T-ANCHOR-001", owner="w1", session_id=SID)
-        os.environ["WORKOS_DECISION_CHANNEL"] = "chat"
+        os.environ["NAWABAN_DECISION_CHANNEL"] = "chat"
         try:
             db.decide(p, "T-ANCHOR-001", question="翻 sv 之前就问", verdict="用户原话:先做",
                       decided_by="user")
@@ -394,7 +394,7 @@ def main() -> int:  # noqa: C901, PLR0915
             db.decide(p, "T-ANCHOR-001", question="验完了能 done 吗", verdict="用户原话:done",
                       decided_by="user")
         finally:
-            os.environ.pop("WORKOS_DECISION_CHANNEL", None)
+            os.environ.pop("NAWABAN_DECISION_CHANNEL", None)
         db.advance_task(p, "T-ANCHOR-001", to="done", owner="w1", session_id=SID)
         con = db.connect(p)
         st = con.execute("SELECT status FROM tasks WHERE id='T-ANCHOR-001'").fetchone()[0]

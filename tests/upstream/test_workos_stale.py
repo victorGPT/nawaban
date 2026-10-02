@@ -170,7 +170,7 @@ def main() -> int:  # noqa: PLR0915
             encoding="utf-8")
         fake_gh.chmod(0o755)
         env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}",
-                   FOREMAN_OWNER="recon-test")
+                   NAWABAN_OWNER="recon-test")
         cli = FOREMAN / "nawaban" / "stale_recon.py"
         r = subprocess.run([sys.executable, str(cli), "--repo", str(repo)],
                            capture_output=True, text=True, env=env)
