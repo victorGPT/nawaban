@@ -85,7 +85,7 @@ def emit_approval(zombies: list[tuple[str, str, str]], out: Path, selected_db: P
             f"{w} decide {shlex.quote(tid)} --by user \\",
             f'  --question "md 侧已归档,DB 侧仍在待拍板队列——确认这件事已经办完了吗?" \\',
             f'  --verdict "已办完,对账关闭(md 侧 done/ 为准)"',
-            f"{w} advance {shlex.quote(tid)} --to done",
+            f"{w} transition {shlex.quote(tid)} --to done",
             "",
         ]
     lines.append('echo "--- 段① 完成 ---"')

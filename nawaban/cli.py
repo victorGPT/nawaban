@@ -664,7 +664,7 @@ def main(argv: list[str] | None = None) -> int:
             owner, sid = _identity(need_session=True)
             db.advance_task(path, a.task_id, to=a.to, waiting_on=a.waiting_on,
                             owner=owner, session_id=sid)
-            print(f"✓ advance {a.task_id} → {a.to}")
+            print(f"✓ transition {a.task_id} → {a.to}")
         elif a.verb == "reopen":
             owner, sid = _identity(need_session=True)
             db.reopen_task(path, a.task_id, reason=a.reason, owner=owner, session_id=sid)
@@ -704,7 +704,7 @@ def main(argv: list[str] | None = None) -> int:
             owner, sid = _identity(need_session=False)
             lid = db.add_letter(path, a.task_id, kind=a.kind, msg=a.msg,
                                 links=a.links, session_id=sid)
-            print(f"✓ letter #{lid} → {a.task_id} [{a.kind}]")
+            print(f"✓ notify #{lid} → {a.task_id} [{a.kind}]")
         elif a.verb == "notifications":
             rows = db.list_letters(path, unread_only=a.unread, task_id=a.task,
                                    limit=a.limit)

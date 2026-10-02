@@ -727,14 +727,14 @@ def advance_task(path: Path | str, task_id: str, *, to: str,
             if (frm, to) not in _ADVANCE:
                 raise NawabanError(f"非法转移:{frm}→{to}")
             if frm == "done":
-                raise NawabanError("done 的卡只能经 reopen_task 打回(须带理由),不走 advance")
+                raise NawabanError("done 的卡只能经 reopen_task 打回(须带理由),不走 transition")
             if to == "staging-verified":
                 # staging-verified 是可选路径(foreman simplify regression):有用户可见行为、
                 # 要真机验收或等人的卡才走;纯内部改动 CI 绿合并直接 done。
                 if waiting_on not in WAITING:
                     raise NawabanError(
                         "翻 verified 必带 waiting_on ∈ decision/prod/observe/external(验收闸);"
-                        "不需要验收的卡合并后直接 advance --to done")
+                        "不需要验收的卡合并后直接 transition --to done")
                 n = con.execute(
                     "SELECT count(*) FROM task_refs WHERE task_id=? AND kind='acceptance_run'",
                     (task_id,),
@@ -1036,15 +1036,15 @@ def handoff(path: Path | str, task_id: str, *, owner: str, session_id: str,
             stored_owner = _stored_session_owner(con, task_id, owner, session_id)
             # handoff 闸(BOARD-REVAMP · 2026-08-29):completed 但卡还没翻牌 = 下一步断链。
             # 窗口一消失 reclaim 把卡退 open,收件箱点收下撞「非法转移 open→done」——
-            # 一天撞出 4 例(DAGVIEW×2 / FOREMAN-SKILL-SLIM / HOUSEKEEP)。活真完了先 advance;
+            # 一天撞出 4 例(DAGVIEW×2 / FOREMAN-SKILL-SLIM / HOUSEKEEP)。活真完了先 transition;
             # 没到那步就如实用 handed_off/blocked,别叫 completed。
             if outcome == "completed":
                 st = _task_row(con, task_id)["status"]
                 if st not in ("staging-verified", "done"):
                     raise NawabanError(
                         f"handoff 闸:outcome=completed 但卡还在 {st} —— 先翻牌再收尾:\n"
-                        "  合并即归档:nawaban ref … --kind merge_sha && advance --to done\n"
-                        "  等人验:nawaban ask --kind accept … && advance --to staging-verified --waiting-on decision\n"
+                        "  合并即归档:nawaban ref … --kind merge_sha && transition --to done\n"
+                        "  等人验:nawaban ask --kind accept … && transition --to staging-verified --waiting-on decision\n"
                         "  活没到那步:outcome 用 handed_off/blocked 如实收尾")
             cur = con.execute(
                 "UPDATE task_sessions SET ended_at=?, outcome=?, summary=?"

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Remove the compatibility names that need no data migration: the hidden verbs `kin`, `advance`, `letter`, `letters` and `letter-read`; the `--origin` and `--origin-file` flags; the `FOREMAN_OWNER` and `FOREMAN_ALLOW_BRANCH_SWITCH=1` inputs; all `WORKOS_*` environment variables; and the root `foreman_card.py` / `foreman_liveness.py` import shims. Old names now fail as unknown input. Rename `WORKOS_CONTEXT_BANNER` to `NAWABAN_CONTEXT_BANNER` in your settings. `tests/test_glossary.py` fails if a compatibility name returns.
+- Remove the compatibility names that need no data migration: the hidden verbs `kin`, `advance`, `letter`, `letters` and `letter-read`; the `--origin` and `--origin-file` flags; the `FOREMAN_OWNER` and `FOREMAN_ALLOW_BRANCH_SWITCH=1` inputs; all `WORKOS_*` environment variables; and the root `foreman_card.py` / `foreman_liveness.py` import shims. Old verbs and flags fail as unknown input; old environment variables are ignored, so rename them where you set them (for example `WORKOS_CONTEXT_BANNER` in Claude settings and `WORKOS_DB` in a launchd backup job). `tests/test_glossary.py` fails if an alias registration, a retired environment name, a root shim, or a hint to a retired verb returns.
 - Prefer `NAWABAN_OWNER` for the session identity and `NAWABAN_ALLOW_BRANCH_SWITCH=1` for the branch gate escape prefix. The board's inbox and capture writes now set `NAWABAN_OWNER`, so an exported owner cannot replace their fixed identities.
 - Rename the project setup skill from `foreman-pattern` to `nawaban-setup`. Reinstall or relink the skill if you linked it by its old directory name.
 
