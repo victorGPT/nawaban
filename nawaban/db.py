@@ -34,6 +34,13 @@ EVENT_KINDS = ("note", "coord", "handoff", "status_change", "acceptance", "verif
 SESSION_OUTCOMES = ("completed", "handed_off", "blocked", "abandoned")
 REF_KINDS = ("pr", "merge_sha", "issue", "commit", "acceptance_run", "artifact")
 
+# Shared activity aggregate for queries joining task_events as e. Match the
+# historical remodule format so append-only audit notes need no migration.
+LAST_ACTIVITY_SQL = (
+    "MAX(CASE WHEN e.kind = 'note' AND e.body LIKE '模块 % → %'"
+    " THEN NULL ELSE e.created_at END)"
+)
+
 # ── 人侧收件箱(NAWABAN-INBOX)─────────────────────────────────────
 # ask = 一次待办的**人类动作**,不是一张卡。三个动词穷尽了人的介入形态
 # (实测:对账后 14 张「等拍板」全部落进 authorize/accept,decide 0 张;
