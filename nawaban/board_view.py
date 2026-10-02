@@ -209,7 +209,7 @@ def _card(r: sqlite3.Row, hints: dict[str, str] | None = None) -> dict:
     }
 
 
-_BASE = ("SELECT t.*, MAX(e.created_at) AS last_event_at"
+_BASE = (f"SELECT t.*, {db.LAST_ACTIVITY_SQL} AS last_event_at"
          " FROM tasks t LEFT JOIN task_events e ON e.task_id = t.id"
          " WHERE t.status = :status{touched}{project} GROUP BY t.id")
 _PROJECT = " AND COALESCE(t.project, '') = :project"
@@ -386,7 +386,7 @@ def modules_data(path: Path | str, idx: dict[str, float] | None = None,
                   "active_at": r["last_event_at"] or r["started_at"] or r["created_at"],
                   "live": _live_of(r["owner"], idx) if r["status"] in LIVE_COLUMNS else None}
                  for r in con.execute(
-                     "SELECT t.*, MAX(e.created_at) AS last_event_at"
+                     f"SELECT t.*, {db.LAST_ACTIVITY_SQL} AS last_event_at"
                      " FROM tasks t LEFT JOIN task_events e ON e.task_id = t.id"
                      " WHERE :project IS NULL OR COALESCE(t.project, '') = :project"
                      " GROUP BY t.id", {"project": project})]

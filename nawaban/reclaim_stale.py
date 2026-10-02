@@ -116,7 +116,7 @@ def sweep(path: Path, *, apply: bool = False) -> list[tuple[str, str, str, str]]
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         rows = con.execute(
-            "SELECT t.id, t.owner, t.status, MAX(e.created_at)"
+            f"SELECT t.id, t.owner, t.status, {db.LAST_ACTIVITY_SQL}"
             " FROM tasks t LEFT JOIN task_events e ON e.task_id = t.id"
             " WHERE t.status IN ('claimed','in_progress') AND t.owner IS NOT NULL"
             " GROUP BY t.id"
