@@ -222,3 +222,44 @@ def test_migration_rolls_back_when_a_row_uses_a_retired_kind(tmp_path):
     with sqlite3.connect(path) as con:
         assert con.execute("SELECT kind FROM task_edges").fetchall() == [("relates",)]
         assert "'relates'" in con.execute("SELECT sql FROM sqlite_master WHERE name='task_edges'").fetchone()[0]
+
+
+def test_a_red_streak_older_than_the_listed_runs_has_an_unknown_start():
+    runs = [_run("test", "failure", f"2026-10-03T0{h}:00:00Z") for h in (5, 4, 3)]
+    assert main_ci.red_runs(runs)[0]["since"] == 0
+
+
+def test_an_open_fix_lifts_the_stop_when_the_streak_start_is_unknown(board, monkeypatch):
+    monkeypatch.setattr(db, "_now", lambda: 1)
+    _link(board)
+    assert _claim(board, main_red={**RED, "since": 0})
+
+
+def _state(checked_at, red, repo="/repo"):
+    target = main_ci.state_file(paths.state_dir(), "app")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({"checked_at": checked_at, "repo": repo,
+                                  "red": [{"workflow": "t", "url": "u", "since": 5}] if red else []}))
+    return target
+
+
+def test_stale_red_is_rechecked_before_stopping_the_line(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main_ci, "check", lambda repo: calls.append(repo) or {"checked_at": int(time.time()), "red": []})
+    target = _state(int(time.time()) - main_ci.RECHECK_RED_S - 1, red=True)
+    assert main_ci.red_since(paths.state_dir(), "app") is None
+    assert [str(c) for c in calls] == ["/repo"] and json.loads(target.read_text())["red"] == []
+    _state(int(time.time()), red=True)
+    assert main_ci.red_since(paths.state_dir(), "app") == {"since": 5, "url": "u"}
+    assert len(calls) == 1  # a fresh red result is trusted without the network
+
+
+def test_rebuild_accepts_a_name_quoted_by_an_earlier_rename(tmp_path):
+    path = tmp_path / "old.db"
+    _old_edges_board(path)
+    with sqlite3.connect(path) as con:
+        con.execute("ALTER TABLE task_edges RENAME TO t")
+        con.execute("ALTER TABLE t RENAME TO task_edges")
+        assert con.execute("SELECT sql FROM sqlite_master WHERE name='task_edges'").fetchone()[0].startswith(
+            'CREATE TABLE "task_edges"')
+    assert "task_edges.kind:+regresses" in db.migrate_db(path)

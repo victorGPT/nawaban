@@ -329,7 +329,11 @@ def _rebuild_check(con: sqlite3.Connection, table: str, column: str,
     check = re.compile(rf"CHECK \({column} IN \([^)]*\)\)")
     if len(check.findall(ddl[0])) != 1:
         raise NawabanError(f"{table} 重建:CHECK 文本没匹配上,拒绝盲改 DDL")
-    new_ddl = re.sub(rf"^CREATE TABLE (IF NOT EXISTS )?{table}\b", f"CREATE TABLE {table}_new", ddl[0])
+    # A previous rebuild's RENAME stores the name quoted: CREATE TABLE "tasks".
+    new_ddl, renamed = re.subn(rf'^CREATE TABLE (IF NOT EXISTS )?"?{table}"?(?=\s*\()',
+                               f"CREATE TABLE {table}_new", ddl[0])
+    if renamed != 1:
+        raise NawabanError(f"{table} 重建:CREATE TABLE 文本没匹配上,拒绝盲改 DDL")
     new_ddl = check.sub(f"CHECK ({column} IN ({_q(values)}))", new_ddl)
     con.execute("PRAGMA foreign_keys=OFF")
     try:
@@ -535,7 +539,7 @@ def claim_task(path: Path | str, task_id: str, *, owner: str, session_id: str,
                 " LIMIT 1", (main_red["since"], task_id)).fetchone() is None
             if stop_line and not (override or "").strip():
                 raise NawabanError(
-                    f"claim 停线闸:本项目 main CI 红了({main_red['url']}),还没有回退修复卡。\n"
+                    f"claim 停线闸:本项目 main CI 红着({main_red['url']}),变红后还没有未完成的回退修复卡。\n"
                     "  先找被弄坏的卡:nawaban blame <失败的文件>\n"
                     "  再建修复卡并连上:nawaban link <修复卡> <被弄坏的卡> --kind regresses --note \"哪次合并\"\n"
                     f'  确要强闯:nawaban claim {task_id} --override "理由"')
