@@ -12,6 +12,7 @@ import contextlib
 import datetime as _dt
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import unicodedata
@@ -29,7 +30,8 @@ STATUSES = ("open", "claimed", "in_progress", "staging-verified", "done", "cance
 # 分开是因为语义不可互换 —— 给过期卡编一条 acceptance 塞进 done 就是造假证据。
 TERMINAL = ("done", "cancelled")
 WAITING = ("decision", "prod", "observe", "external")
-EDGE_KINDS = ("depends_on", "split_from", "supersedes")
+# regresses:修复卡 → 被后来的改动弄坏的 done 卡。回退是关系不是状态：卡保持 done,看板派生红标。
+EDGE_KINDS = ("depends_on", "split_from", "supersedes", "regresses")
 EVENT_KINDS = ("note", "coord", "handoff", "status_change", "acceptance", "verify")
 SESSION_OUTCOMES = ("completed", "handed_off", "blocked", "abandoned")
 REF_KINDS = ("pr", "merge_sha", "issue", "commit", "acceptance_run", "artifact")
@@ -250,13 +252,13 @@ def migrate_db(path: Path | str) -> list[str]:
     Legacy tasks.origin is renamed to context in one serialized ALTER TABLE.
 
     Adds missing decision provenance, ask fields/tables, and letters; drops retired
-    task columns and rebuilds the tasks table when its status CHECK lacks cancelled.
-    This is not an additive-only or whole-call atomic migration: earlier changes
-    can remain committed on failure. The tasks rebuild alone is transactional and
-    checks row counts and foreign keys before commit.
+    task columns and rebuilds the tasks / task_edges tables when their CHECK lacks
+    cancelled / regresses. This is not an additive-only or whole-call atomic
+    migration: earlier changes can remain committed on failure. Each rebuild alone
+    is transactional and checks row counts and foreign keys before commit.
 
     Each change detects its existing state, so reruns skip completed work and an
-    up-to-date schema returns []. Unknown tasks CHECK text raises NawabanError
+    up-to-date schema returns []. Unknown CHECK text raises NawabanError
     instead of guessing a rebuild. Dropping columns requires SQLite 3.35 or later.
     """
     added = []
@@ -300,45 +302,59 @@ def migrate_db(path: Path | str) -> list[str]:
                            " AND name='letters'").fetchone():
             con.executescript(LETTERS_SQL)
             added.append("letters")
-        # SQLite requires a table rebuild to change an existing CHECK constraint.
-        ddl = con.execute("SELECT sql FROM sqlite_master WHERE type='table'"
-                          " AND name='tasks'").fetchone()
-        if ddl and "'cancelled'" not in ddl[0]:
-            con.execute("PRAGMA foreign_keys=OFF")
-            try:
-                con.execute("BEGIN IMMEDIATE")
-                cols = [r[1] for r in con.execute("PRAGMA table_info(tasks)")]
-                collist = ",".join(cols)
-                new_ddl = ddl[0].replace("CREATE TABLE tasks", "CREATE TABLE tasks_new", 1)
-                new_ddl = new_ddl.replace("CREATE TABLE IF NOT EXISTS tasks",
-                                          "CREATE TABLE tasks_new", 1)
-                new_ddl = new_ddl.replace(_q(STATUSES[:-1]), _q(STATUSES), 1)
-                if _q(STATUSES) not in new_ddl:
-                    raise NawabanError("tasks 重建:CHECK 文本没匹配上,拒绝盲改 DDL")
-                con.execute(new_ddl)
-                con.execute(f"INSERT INTO tasks_new({collist}) SELECT {collist} FROM tasks")
-                n_old = con.execute("SELECT count(*) FROM tasks").fetchone()[0]
-                n_new = con.execute("SELECT count(*) FROM tasks_new").fetchone()[0]
-                if n_old != n_new:
-                    raise NawabanError(f"tasks 重建:行数不符 {n_old}→{n_new},回滚")
-                con.execute("DROP TABLE tasks")
-                con.execute("ALTER TABLE tasks_new RENAME TO tasks")
-                con.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
-                con.execute("CREATE INDEX IF NOT EXISTS idx_tasks_owner"
-                            "  ON tasks(owner, status)")
-                bad = con.execute("PRAGMA foreign_key_check").fetchall()
-                if bad:
-                    raise NawabanError(f"tasks 重建:外键校验失败 {bad[:3]},回滚")
-                con.execute("COMMIT")
-                added.append("tasks.status:+cancelled")
-            except BaseException:
-                con.execute("ROLLBACK")
-                raise
-            finally:
-                con.execute("PRAGMA foreign_keys=ON")
+        if _rebuild_check(con, "tasks", "status", STATUSES, (
+                "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",
+                "CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks(owner, status)")):
+            added.append("tasks.status:+cancelled")
+        if _rebuild_check(con, "task_edges", "kind", EDGE_KINDS, (
+                "CREATE INDEX IF NOT EXISTS idx_edges_dst ON task_edges(dst)",)):
+            added.append("task_edges.kind:+regresses")
     finally:
         con.close()
     return added
+
+
+def _rebuild_check(con: sqlite3.Connection, table: str, column: str,
+                   values: tuple[str, ...], indexes: tuple[str, ...]) -> bool:
+    """Rebuild ``table`` when its ``column`` CHECK lacks the newest value.
+
+    SQLite cannot alter a CHECK constraint in place. The new CHECK lists exactly
+    ``values``: a row holding a retired value fails the copy and rolls back
+    instead of being kept or dropped silently.
+    """
+    ddl = con.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                      (table,)).fetchone()
+    if not ddl or f"'{values[-1]}'" in ddl[0]:
+        return False
+    check = re.compile(rf"CHECK \({column} IN \([^)]*\)\)")
+    if len(check.findall(ddl[0])) != 1:
+        raise NawabanError(f"{table} 重建:CHECK 文本没匹配上,拒绝盲改 DDL")
+    new_ddl = re.sub(rf"^CREATE TABLE (IF NOT EXISTS )?{table}\b", f"CREATE TABLE {table}_new", ddl[0])
+    new_ddl = check.sub(f"CHECK ({column} IN ({_q(values)}))", new_ddl)
+    con.execute("PRAGMA foreign_keys=OFF")
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        cols = ",".join(r[1] for r in con.execute(f"PRAGMA table_info({table})"))
+        con.execute(new_ddl)
+        con.execute(f"INSERT INTO {table}_new({cols}) SELECT {cols} FROM {table}")
+        n_old = con.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+        n_new = con.execute(f"SELECT count(*) FROM {table}_new").fetchone()[0]
+        if n_old != n_new:
+            raise NawabanError(f"{table} 重建:行数不符 {n_old}→{n_new},回滚")
+        con.execute(f"DROP TABLE {table}")
+        con.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+        for sql in indexes:
+            con.execute(sql)
+        bad = con.execute("PRAGMA foreign_key_check").fetchall()
+        if bad:
+            raise NawabanError(f"{table} 重建:外键校验失败 {bad[:3]},回滚")
+        con.execute("COMMIT")
+        return True
+    except BaseException:
+        con.execute("ROLLBACK")
+        raise
+    finally:
+        con.execute("PRAGMA foreign_keys=ON")
 
 
 def board_db(root: Path, *, for_init: bool = False) -> Path:
@@ -373,6 +389,16 @@ def foreman_dir(cwd: Path | str | None = None) -> Optional[Path]:
         if (root / ".foreman").is_dir():
             return root / ".foreman"
     return None
+
+
+def project_of(board_dir: Path) -> Optional[str]:
+    """项目名 = 板目录所在仓库的目录名。"""
+    return board_dir.parent.name if board_dir.name in (".nawaban", ".foreman") else None
+
+
+def board_project(cwd: Path | str | None = None) -> Optional[str]:
+    fd = foreman_dir(cwd)
+    return project_of(fd) if fd else None
 
 
 def owner_from_env() -> str | None:
@@ -487,16 +513,32 @@ def create_task(path: Path | str, *, task_id: str, title: str,
 
 
 def claim_task(path: Path | str, task_id: str, *, owner: str, session_id: str,
-               override: Optional[str] = None) -> bool:
+               override: Optional[str] = None, main_red: Optional[dict] = None) -> bool:
     """CAS:恰一胜。胜者原子拿到 owner + session 履历行 + status_change 事件。
 
     claim 上游闸(board revamp wf claimgate regression · 2026-08-29 用户拍板):
     上游 depends_on 未 done 就接卡 = 在半成品上开工。只挡 depends_on
     (split_from/supersedes 不挡);override 带理由强闯,理由落 coord 事件可审计。
+
+    停线闸(NAWABAN-REGRESSION-001 · 2026-10-03 用户拍板):``main_red`` 是本卡项目
+    main CI 连续变红的起点 {"since": epoch, "url": str}。红了以后本项目还没有未完成的
+    regresses 修复卡，就不许接新活;同一个 override 强闯。
     """
     con = connect(path)
     try:
         with _txn(con):
+            stop_line = bool(main_red) and con.execute(
+                "SELECT 1 FROM task_edges e JOIN tasks s ON s.id=e.src"
+                " WHERE e.kind='regresses' AND e.created_at>=?"
+                " AND s.status NOT IN ('done','cancelled')"
+                " AND COALESCE(s.project,'')=COALESCE((SELECT project FROM tasks WHERE id=?),'')"
+                " LIMIT 1", (main_red["since"], task_id)).fetchone() is None
+            if stop_line and not (override or "").strip():
+                raise NawabanError(
+                    f"claim 停线闸:本项目 main CI 红了({main_red['url']}),还没有回退修复卡。\n"
+                    "  先找被弄坏的卡:nawaban blame <失败的文件>\n"
+                    "  再建修复卡并连上:nawaban link <修复卡> <被弄坏的卡> --kind regresses --note \"哪次合并\"\n"
+                    f'  确要强闯:nawaban claim {task_id} --override "理由"')
             blockers = con.execute(
                 "SELECT e.dst, t.status FROM task_edges e JOIN tasks t ON t.id=e.dst"
                            # cancelled 上游 = 依赖解除:卡被判前提消失,指向它的 depends_on 同样失效,
@@ -544,6 +586,10 @@ def claim_task(path: Path | str, task_id: str, *, owner: str, session_id: str,
                        "claim 越上游闸:未 done 上游 "
                        + "、".join(r[0] for r in blockers)
                        + f" · 理由:{override.strip()}", owner, session_id)
+            if stop_line:
+                _event(con, task_id, "coord",
+                       f"claim 越停线闸:main CI 红({main_red['url']}) · 理由:{override.strip()}",
+                       owner, session_id)
         return True
     except _ClaimLost:
         return False
@@ -553,6 +599,27 @@ def claim_task(path: Path | str, task_id: str, *, owner: str, session_id: str,
 
 class _ClaimLost(Exception):
     pass
+
+
+def task_project(path: Path | str, task_id: str) -> Optional[str]:
+    """卡的所属项目(claim 停线闸按项目找 main CI 状态)。"""
+    con = connect(path)
+    try:
+        return _task_row(con, task_id)["project"]
+    finally:
+        con.close()
+
+
+def merged_tasks(path: Path | str) -> list[sqlite3.Row]:
+    """所有 merge_sha 指针及其卡(blame 用 git 历史反查卡)。"""
+    con = connect(path)
+    con.row_factory = sqlite3.Row
+    try:
+        return con.execute(
+            "SELECT r.value AS sha, t.id, t.title, t.status FROM task_refs r"
+            " JOIN tasks t ON t.id=r.task_id WHERE r.kind='merge_sha'").fetchall()
+    finally:
+        con.close()
 
 
 def task_touches(path: Path | str, task_id: str) -> Optional[str]:
@@ -643,6 +710,7 @@ def _kin(con: sqlite3.Connection, task_id: str) -> dict:
     return {
         "blocked_by": blocked_by,
         "stuck_at": blocked_by[-1]["id"] if blocked_by else None,
+        "regressed_by": open_regressions(con).get(task_id, []),
         "unblocks": unblocks,
         "lineage": {
             "split_from": parents[0] if parents else None,
@@ -653,6 +721,18 @@ def _kin(con: sqlite3.Connection, task_id: str) -> dict:
         },
         "epic": row["epic"],
     }
+
+
+def open_regressions(con: sqlite3.Connection) -> dict[str, list[str]]:
+    """done 卡 → 还没完成的修复卡。派生值：修复卡一完成，红标自己消失。"""
+    out: dict[str, list[str]] = {}
+    for dst, src in con.execute(
+        "SELECT e.dst, e.src FROM task_edges e"
+        " JOIN tasks s ON s.id=e.src JOIN tasks d ON d.id=e.dst"
+        " WHERE e.kind='regresses' AND d.status='done'"
+        " AND s.status NOT IN ('done','cancelled') ORDER BY e.dst, e.src"):
+        out.setdefault(dst, []).append(src)
+    return out
 
 
 def kin(path: Path | str, task_id: str) -> dict:
@@ -1209,6 +1289,15 @@ def link_tasks(path: Path | str, src: str, dst: str, *, kind: str,
             raise NawabanError("不许自环")
         if kind == "depends_on" and _reaches(con, start=dst, target=src):
             raise NawabanError(f"depends_on 环:{dst} 已(传递)依赖 {src}")
+        if kind == "regresses":
+            src_status, dst_status = (_task_row(con, t)["status"] for t in (src, dst))
+            if dst_status != "done":
+                raise NawabanError(f"regresses 只指向 done 的卡:{dst} 现在是 {dst_status}"
+                                   "(还没交付的卡没有「被弄坏」一说，直接在原卡上修)")
+            if src_status in TERMINAL:
+                raise NawabanError(f"regresses 的起点必须是还没完成的修复卡:{src} 已是 {src_status}")
+            if not (note or "").strip():
+                raise NawabanError("regresses 必须带 --note:写清是哪次合并弄坏的，修复的人从这里开始查")
         with _txn(con):
             con.execute(
                 "INSERT OR IGNORE INTO task_edges (src, dst, kind, note, created_at, created_by)"

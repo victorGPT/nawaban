@@ -689,6 +689,7 @@ def main() -> int:  # noqa: C901, PLR0915
         assert db.kin(p, "T-XX-001") == {
             "blocked_by": [],
             "stuck_at": None,
+            "regressed_by": [],
             "unblocks": [],
             "lineage": {
                 "split_from": None,

@@ -7,6 +7,7 @@
 | maintree hook | 在共享主树修改项目文件 | 在本卡 worktree 实施；hook 的豁免不改变授权 |
 | branch hook | 在主树新建或切换任务分支 | 创建独立 worktree，保持主树 main；修复错误分支按项目恢复程序 |
 | claim 依赖 | depends_on 前置未 done/cancelled | 核对前置并先完成依赖；只有项目授权覆盖时才用带理由的 override |
+| claim 停线 | 本项目 main CI 红着，且变红后没有未完成的 regresses 修复卡 | `nawaban blame <失败的文件>` 找到被弄坏的 done 卡，建修复卡并 `link <修复卡> <被弄坏的卡> --kind regresses --note "<哪次合并>"`；与回退无关的红(基础设施、偶发)才用带理由的 override |
 | start | 卡不是 claimed 或 owner 不匹配 | 核对是否已开始、被回收或由其他 owner 持有，按真实状态续做 |
 | staging-verified / done | 缺证据或有效决策、状态转换不合法 | 按 [交付与收尾](cards.md) 补真实证据，参数用 CLI 帮助确认 |
 | PR helper 删除行确认 | 变更相对基线包含删除行 | 检查每项删除属于本次变更，再使用脚本确认参数；陈旧基线先对齐 |

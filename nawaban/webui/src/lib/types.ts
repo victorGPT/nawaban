@@ -20,6 +20,7 @@ export type BoardTask = {
   dep?: { blocked_by?: string[]; blocks?: string[] };
   live?: Live;
   merged_refs?: string[]; // Open tasks with existing PR or merge SHA references.
+  regressed_by?: string[]; // Done tasks: unfinished fix tasks linked with regresses.
 };
 
 export type BoardColumn = {
@@ -38,7 +39,7 @@ export type BoardResponse = {
 export type ProjectsResponse = {
   projects: { name: string | null; open: number; total: number }[];
 };
-export type ModuleTask = { i: string; t: string; s: string; e: string; live?: Live; waiting_on?: string | null; active_at?: number };
+export type ModuleTask = { i: string; t: string; s: string; e: string; live?: Live; waiting_on?: string | null; active_at?: number; rb?: string[] };
 export type ModulesResponse = { tasks: ModuleTask[]; deps: [string, string][]; liveness?: BoardResponse["liveness"]; unavailable?: boolean };
 
 export type AskItem = {

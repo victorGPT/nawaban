@@ -63,7 +63,7 @@ function Card({
   const blocked = isBlocked(t, idx);
   return (
     <TaskCard
-      task={{ id: t.i, title: t.t, status: t.s, epic: t.e, live: t.live, waiting_on: t.waiting_on ?? null, active_at: t.active_at }}
+      task={{ id: t.i, title: t.t, status: t.s, epic: t.e, live: t.live, waiting_on: t.waiting_on ?? null, active_at: t.active_at, regressed_by: t.rb }}
       hasAsk={hasAsk} onSelect={onClick} onDecision={onDecision}
       className={cn("transition-opacity", hot && "ring-1 ring-border-focus-ring", dim && "opacity-[.22]")}
     >

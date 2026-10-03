@@ -90,6 +90,8 @@
   "downstreamSuffix": " · Downstream",
   "blockedLegend": "▸ Blocked by = unfinished prerequisite",
   "blocked": "▸ Blocked by",
+  "regressed": "Regressed",
+  "regressedBy": "A later change broke this delivery. Fix: {tasks}",
   "dependencyPrefix": "← Depends on ",
   "modulesError": "Epics failed to load:",
   "modulesUnavailable": "Epic data is currently unavailable",

@@ -276,6 +276,12 @@ The recorded relationships showing which task was split from or superseded by an
 _Avoid_: dependency as a synonym for every relationship.
 _Current identifiers_: `task_edges.kind` = `split_from`, `supersedes`; CLI `link`, `deps`.
 
+**Regression**(回退)
+A Done task whose delivered behavior a later change broke, while an unfinished fix task points at it. The task stays Done; the board marks it until the fix is done.
+回退是交付后被后来的改动弄坏的完成任务，由一张未完成的修复任务指向它。任务保持完成状态，看板标记它直到修复完成。
+_Avoid_: reopening the delivered task, a separate regressed status.
+_Current identifiers_: `task_edges.kind` = `regresses`; CLI `link --kind regresses`, `blame`; `claim` stop-the-line gate with `--override`.
+
 **Frontier**(可开工任务)
 The unassigned tasks whose prerequisites are all complete.
 可开工任务是所有前置任务都已完成的待认领任务集合。
@@ -456,6 +462,8 @@ Exact display templates below are part of the English vocabulary. Braced names a
 |  · Downstream |  · 下游 | Runtime enum values as display labels or a different action sharing this label. |
 | ▸ Blocked by = unfinished prerequisite | ▸ 被挡 = 上游未 done | Runtime enum values as display labels or a different action sharing this label. |
 | ▸ Blocked by | ▸ 被挡 | Runtime enum values as display labels or a different action sharing this label. |
+| Regressed | 回退 | A changed task status; the card stays Done. |
+| A later change broke this delivery. Fix: {tasks} | 后来的改动弄坏了这次交付。修复卡:{tasks} | Dropped interpolation values or raw template placeholders in rendered text. |
 | ← Depends on  | ← 依赖  | Runtime enum values as display labels or a different action sharing this label. |
 | Epics failed to load: | 模块加载失败: | Success or populated-state wording when data or an operation is unavailable. |
 | Epic data is currently unavailable | 模块数据当前不可用 | Success or populated-state wording when data or an operation is unavailable. |
