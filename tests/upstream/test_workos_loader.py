@@ -2,7 +2,7 @@
 """workos context loader regression 回归自检 · 零依赖 · 格式照 test_workos_db.py。
 
 跑法:python3 tests/upstream/test_workos_loader.py
-隔离:临时库(WORKOS_DB / 显式 --db),真库 .foreman/workos.db 一个字节都不碰。
+隔离:临时库(NAWABAN_DB / 显式 --db),真库 .foreman/workos.db 一个字节都不碰。
 
 覆盖(对照卡 success 逐条):全区渲染 · 相对年龄 + 快照免责 · ≤8KB 预算与可见截断 ·
 top-k 检索(线索非证据 · 排除已成边)· 导入期呈现(needs_retitle / now 空 / 归属标对) ·
@@ -120,12 +120,12 @@ def main() -> int:  # noqa: C901, PLR0915
         assert "历史导入·归属推断" in t, f"导入的决策行该标为历史回放\n{t}"
         assert "运行时拍板" not in t, "本卡只有导入决策,不该出现运行时拍板"
         # 补一条真运行时拍板 → 两类都要能出现且区分
-        os.environ["WORKOS_DECISION_CHANNEL"] = "chat"
+        os.environ["NAWABAN_DECISION_CHANNEL"] = "chat"
         try:
             db.decide(p, "T-MAIN-001", question="要不要 X", verdict="用户原话:做",
                       decided_by="user")
         finally:
-            os.environ.pop("WORKOS_DECISION_CHANNEL", None)
+            os.environ.pop("NAWABAN_DECISION_CHANNEL", None)
         t2 = cl.build_context(p, "T-MAIN-001", now_ts=NOW)
         assert "运行时拍板" in t2 and "历史导入·归属推断" in t2, "两类归属都该可见且可区分"
 
@@ -326,10 +326,10 @@ def main() -> int:  # noqa: C901, PLR0915
 
     def run_hook(root: Path, *, flag: str | None) -> str:
         env = dict(os.environ)
-        env.pop("WORKOS_CONTEXT_BANNER", None)
+        env.pop("NAWABAN_CONTEXT_BANNER", None)
         if flag:
-            env["WORKOS_CONTEXT_BANNER"] = flag
-        env["FOREMAN_OWNER"] = "ac:zzzz9999"
+            env["NAWABAN_CONTEXT_BANNER"] = flag
+        env["NAWABAN_OWNER"] = "ac:zzzz9999"
         r = subprocess.run(
             [sys.executable, str(HOOK)],
             input=json.dumps({"cwd": str(root),
@@ -344,7 +344,7 @@ def main() -> int:  # noqa: C901, PLR0915
         from contextlib import redirect_stdout
         sys.path.insert(0, str(FOREMAN))
         from hooks import foreman_session_start as ss
-        os.environ.pop("WORKOS_CONTEXT_BANNER", None)
+        os.environ.pop("NAWABAN_CONTEXT_BANNER", None)
         buf = io.StringIO()
         with redirect_stdout(buf):
             got = ss._context_banner([{"task_id": "X", "status": "open", "waiting": "",

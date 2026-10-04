@@ -2,7 +2,7 @@
 """workos import regression 回归自检 · 零依赖(不需 pytest)· 格式照 test_workos_db.py。
 
 跑法:python3 tests/upstream/test_workos_import.py → 全绿 OK / 任一失败 exit 1。
-隔离:每例造临时仓 + 临时库(WORKOS_DB 指过去),真库 .foreman/workos.db 一个字节都不碰。
+隔离:每例造临时仓 + 临时库(NAWABAN_DB 指过去),真库 .foreman/workos.db 一个字节都不碰。
 
 覆盖(对照卡 success 逐条):
   卡数与 glob 一致 · 逐字段映射齐(6 表)· 失败清单不静默跳过 · prose/字段/epic 三源边 ·
@@ -445,11 +445,11 @@ def main() -> int:  # noqa: C901, PLR0915
     def t_dry_run_不写库() -> None:
         root = mkroot(tmp, "dr", std_cards(), EPIC)
         p = freshdb(tmp, "dr")
-        os.environ["WORKOS_DB"] = str(p)
+        os.environ["NAWABAN_DB"] = str(p)
         try:
             rc = import_md.main(["--root", str(root), "--report", str(tmp / "dr.md")])
         finally:
-            os.environ.pop("WORKOS_DB", None)
+            os.environ.pop("NAWABAN_DB", None)
         assert rc == 0, rc
         assert one(p, "SELECT count(*) FROM tasks") == 0, "dry-run 不该写库"
         text = (tmp / "dr.md").read_text(encoding="utf-8")

@@ -5,7 +5,7 @@ md 版 foreman_stale_check.py 只打印提醒;本对账器对每张 active 卡(o
 的 refs kind='pr' 对照 gh 的 merged PR:
   1. 自动写 refs:merge_sha(gh mergeCommit)——写过即对账痕迹,天然幂等。
   2. coord 事件留痕(仅首次发现该 merge 时写,dispatcher 署名)。
-  3. 推卡状态:in_progress 且已有 acceptance_run 证据 → advance 到 staging-verified
+  3. 推卡状态:in_progress 且已有 acceptance_run 证据 → transition 到 staging-verified
      (waiting_on=decision,进拍板队列;status_change 事件由 advance_task 自动落)。
      无 acceptance_run 证据 → **不推**(验收闸语义原样平移 · no_fabrication:
      对账器绝不代造验收证据),报告缺什么,补上证据后重跑即推。
@@ -15,7 +15,7 @@ PR ref 值契约(与 NAWABAN-IMPORT-001 的跨卡约定):refs kind='pr' 的 valu
 即可("2385" / "#2385" / URL 均认,digits 提取)。merge_sha 的 value = merge commit SHA。
 
 写入一律走 nawaban.db 模块函数(add_ref/add_event/advance_task)= cli 九动词同层,无手写
-mutation SQL。作者身份从环境链取(NAWABAN_OWNER,旧名 FOREMAN_OWNER → session-id),cron 等无身份环境署名
+mutation SQL。作者身份从环境链取(NAWABAN_OWNER → session-id),cron 等无身份环境署名
 'reconciler'(系统角色,明示非人非 worker)。
 
 用法:python3 nawaban/stale_recon.py [--repo PATH] [--write]

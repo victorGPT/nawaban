@@ -13,7 +13,7 @@ nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
 
 ## 选择目标板
 
-项目声明的任务库是事实来源。CLI 优先级是显式 `--db` → `NAWABAN_DB` → 兼容的 `WORKOS_DB` → Git 共享主树的 `.nawaban/nawaban.db`（不存在时回退 `.foreman/workos.db`）→ 当前目录向上查找的板目录。跨项目或安装目录调用时使用 `--db <目标库绝对路径>`，避免误连安装项目自己的板。
+项目声明的任务库是事实来源。CLI 优先级是显式 `--db` → `NAWABAN_DB` → Git 共享主树的 `.nawaban/nawaban.db`（不存在时回退 `.foreman/workos.db`）→ 当前目录向上查找的板目录。跨项目或安装目录调用时使用 `--db <目标库绝对路径>`，避免误连安装项目自己的板。
 
 多个项目共用一份库时，建卡显式传 `--project <项目名>`；未指定时优先按当前仓库板目录的所属目录名推导，再回退显式数据库的板目录，拆卡继承父卡项目。Web 项目筛选只选择当前展示范围，不会切换数据库。
 
@@ -23,7 +23,7 @@ nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
 
 ## 会话身份
 
-写操作实际传入运行环境提供的 `NAWABAN_OWNER`（未设置时读旧名 `FOREMAN_OWNER`）与 `CLAUDE_CODE_SESSION_ID`。CLI owner 取前者，否则由 session 派生 `ac:<前 8 位>`；需要 session 的动词缺少后者会拒绝。CLI 本身不自动读取 tmux 窗口名。
+写操作实际传入运行环境提供的 `NAWABAN_OWNER` 与 `CLAUDE_CODE_SESSION_ID`。CLI owner 取前者，否则由 session 派生 `ac:<完整 session ID>`；需要 session 的动词缺少后者会拒绝。CLI 本身不自动读取 tmux 窗口名。
 
 恢复时用卡的 sessions、handoff 和工位确认任务归属；恢复已有会话沿用它的身份，新会话使用新的真实身份。Claude Code 会话可在原 cwd 执行 `claude --resume <session-id>`；其他执行器按其恢复能力操作。
 

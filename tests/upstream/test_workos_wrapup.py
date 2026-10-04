@@ -33,7 +33,7 @@ def case(name: str, fn) -> None:
 
 
 def cli(db_path: Path, *args: str, sid: str | None = SID) -> subprocess.CompletedProcess:
-    env = {**os.environ, "WORKOS_DB": str(db_path), "FOREMAN_OWNER": "ac:tester"}
+    env = {**os.environ, "NAWABAN_DB": str(db_path), "NAWABAN_OWNER": "ac:tester"}
     env.pop("CLAUDE_CODE_SESSION_ID", None)
     if sid:
         env["CLAUDE_CODE_SESSION_ID"] = sid

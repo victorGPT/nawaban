@@ -20,7 +20,7 @@ for name, command in commands:
         continue
     with tempfile.TemporaryDirectory(prefix="nawaban-test-") as home:
         env = {k: v for k, v in os.environ.items()
-               if not k.startswith(("NAWABAN_", "WORKOS_", "TYPESAFE_", "FOREMAN_"))
+               if not k.startswith(("NAWABAN_", "TYPESAFE_"))
                and not k.endswith(("_API_KEY", "_API_TOKEN"))
                and k not in {"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN",
                              "GITHUB_ENTERPRISE_TOKEN", "TMUX", "TMUX_PANE",
@@ -28,7 +28,7 @@ for name, command in commands:
         env.update(HOME=home, NAWABAN_STATE_DIR=str(Path(home) / "state"),
                    XDG_CONFIG_HOME=str(Path(home) / "config"),
                    XDG_CACHE_HOME=str(Path(home) / "cache"),
-                   FOREMAN_OWNER="ac:selftest", CLAUDE_CODE_SESSION_ID="selftest-session",
+                   NAWABAN_OWNER="ac:selftest", CLAUDE_CODE_SESSION_ID="selftest-session",
                    PYTHONPATH=str(root), GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
                    PATH=str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"])
         working_directory = root if name == "pytest" else Path(home)

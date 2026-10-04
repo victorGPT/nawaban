@@ -9,7 +9,7 @@
 set -u
 # Resolve directory and file symlinks before deriving the package import root.
 DIR="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().parent)' "$0")"
-PORT="${NAWABAN_BOARD_PORT:-${WORKOS_BOARD_PORT:-8813}}" # Legacy env fallback.
+PORT="${NAWABAN_BOARD_PORT:-8813}"
 LOG="$DIR/board.log"
 
 # 绑哪个地址:有 tailscale 就绑它的 100.x —— 本机和 tailnet 里的其他设备用同一个 URL。
@@ -17,7 +17,7 @@ LOG="$DIR/board.log"
 # 必然 connection refused。这正是 2026-08-14 那次「打开无效」的真因。
 # 不绑 0.0.0.0:那会把板一并暴露给整个局域网;tailnet 只有你自己的设备。
 # Keep localhost available when the optional tailnet interface disconnects.
-HOST="${NAWABAN_BOARD_HOST:-${WORKOS_BOARD_HOST:-}}" # Legacy env fallback.
+HOST="${NAWABAN_BOARD_HOST:-}"
 if [ -z "$HOST" ]; then
   TS_IP="$(ifconfig 2>/dev/null | awk '/inet 100\./{print $2; exit}')"
   HOST="127.0.0.1"
@@ -37,7 +37,7 @@ alive() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; }
 
 case "${1:-start}" in
   stop)
-    pkill -f "(board_view.py|nawaban-web|workos-web).*--port $PORT" 2>/dev/null && echo "board stopped (:$PORT)" \
+    pkill -f "(board_view.py|nawaban-web).*--port $PORT" 2>/dev/null && echo "board stopped (:$PORT)" \
       || echo "board 本来就没在跑 (:$PORT)"
     exit 0 ;;
   status)
@@ -58,11 +58,8 @@ if alive; then
 fi
 
 # Prefer an explicitly selected installation; otherwise use this checkout.
-INSTALL_ROOT="${NAWABAN_HOME:-${WORKOS_HOME:-$DIR/..}}" # Legacy env fallback.
+INSTALL_ROOT="${NAWABAN_HOME:-$DIR/..}"
 WEB="$INSTALL_ROOT/.venv/bin/nawaban-web"
-if [ ! -x "$WEB" ] && [ -z "${NAWABAN_HOME:-}" ] && [ -n "${WORKOS_HOME:-}" ]; then
-  WEB="$WORKOS_HOME/.venv/bin/workos-web" # Legacy installed executable fallback.
-fi
 if [ -x "$WEB" ]; then
   nohup "$WEB" --db "$DB" --port "$PORT" --host "$HOST" >>"$LOG" 2>&1 &
 else

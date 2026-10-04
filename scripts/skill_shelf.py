@@ -17,11 +17,11 @@ import re
 import sys
 from pathlib import Path
 
-SHELF_ROOT = Path(os.environ.get("NAWABAN_SKILLS_ROOT", os.environ.get("WORKOS_SKILLS_ROOT", Path.home() / ".agents/skills")))
-LOCK = Path(os.environ.get("NAWABAN_SKILLS_LOCK", os.environ.get("WORKOS_SKILLS_LOCK", SHELF_ROOT.parent / ".skill-lock.json")))
+SHELF_ROOT = Path(os.environ.get("NAWABAN_SKILLS_ROOT", Path.home() / ".agents/skills"))
+LOCK = Path(os.environ.get("NAWABAN_SKILLS_LOCK", SHELF_ROOT.parent / ".skill-lock.json"))
 NAWABAN_SKILL = Path(__file__).resolve().parents[1] / "skills/nawaban/SKILL.md"
-_STATE = Path(os.environ.get("NAWABAN_STATE_DIR", os.environ.get("WORKOS_STATE_DIR", Path.home() / ".local/state/nawaban")))
-OUT = Path(os.environ.get("NAWABAN_SHELF_OUTPUT", os.environ.get("WORKOS_SHELF_OUTPUT", _STATE / "skill-shelf.md")))
+_STATE = Path(os.environ.get("NAWABAN_STATE_DIR", Path.home() / ".local/state/nawaban"))
+OUT = Path(os.environ.get("NAWABAN_SHELF_OUTPUT", _STATE / "skill-shelf.md"))
 
 
 def dispatch_table_names() -> set[str]:

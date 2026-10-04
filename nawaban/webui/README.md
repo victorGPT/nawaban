@@ -31,7 +31,7 @@ English and Chinese messages live in `src/i18n/en.json` and `src/i18n/zh-CN.json
 npm run dev -- --host 127.0.0.1 --port 8827 --strictPort
 ```
 
-Vite proxies `/api` to port 8813 by default. `NAWABAN_API_URL` selects the backend; `NAWABAN_MODULES_API_TARGET` can override only the module endpoint. The corresponding `WORKOS_API_URL` and `WORKOS_MODULES_API_TARGET` names remain compatible, with NAWABAN values taking precedence. Final integration checks must open the Python-served build because Vite does not exercise backend page routing.
+Vite proxies `/api` to port 8813 by default. `NAWABAN_API_URL` selects the backend; `NAWABAN_MODULES_API_TARGET` can override only the module endpoint. Final integration checks must open the Python-served build because Vite does not exercise backend page routing.
 
 The dev proxy forwards inbox answers only after validating that the browser Origin exactly matches its original HTTP Host. Missing, null, foreign or cross-site origins are rejected before forwarding; CLI clients without Origin must use the backend loopback address directly. Production write checks remain in the backend.
 

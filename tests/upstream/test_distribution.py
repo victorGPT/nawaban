@@ -21,13 +21,13 @@ class DistributionTest(unittest.TestCase):
         command = [sys.executable, str(Path(__file__).resolve().parents[2] / 'nawaban/cli.py')]
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / '.foreman/workos.db'
-            env = dict(os.environ, FOREMAN_OWNER='ac:distribution',
+            env = dict(os.environ, NAWABAN_OWNER='ac:distribution',
                        CLAUDE_CODE_SESSION_ID='distribution-test')
 
             def run(*args, identity=True):
                 current = dict(env)
                 if not identity:
-                    current.pop('FOREMAN_OWNER')
+                    current.pop('NAWABAN_OWNER')
                     current.pop('CLAUDE_CODE_SESSION_ID')
                 return subprocess.run([*command, '--db', str(path), *args],
                                       cwd=folder, env=current, capture_output=True, text=True, check=False)
@@ -58,7 +58,7 @@ class DistributionTest(unittest.TestCase):
                              evidence='Temporary migration fixture', task_ids=['HTTP-001'],
                              raised_by='ac:fixture', options=['A', 'B'])
             with patch.object(board_view._Handler, 'db_path', selected), \
-                    patch.dict(os.environ, WORKOS_DB=str(decoy)):
+                    patch.dict(os.environ, NAWABAN_DB=str(decoy)):
                 server = ThreadingHTTPServer(('127.0.0.1', 0), board_view._Handler)
                 thread = threading.Thread(target=server.serve_forever)
                 thread.start()

@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def web_dist() -> Path:
-    override = os.environ.get("NAWABAN_WEB_DIST") or os.environ.get("WORKOS_WEB_DIST")
+    override = os.environ.get("NAWABAN_WEB_DIST")
     if override:
         return Path(override).expanduser()
     package = Path(__file__).resolve().parent

@@ -30,8 +30,8 @@ FAILED: list[str] = []
 
 
 def cli(dbp: Path, *args: str) -> tuple[int, str]:
-    env = dict(os.environ, FOREMAN_OWNER="ac:test", CLAUDE_SESSION_ID="s-test")
-    env.pop("WORKOS_DECISION_CHANNEL", None)   # 确保测的是 answer 自己开的通道
+    env = dict(os.environ, NAWABAN_OWNER="ac:test", CLAUDE_SESSION_ID="s-test")
+    env.pop("NAWABAN_DECISION_CHANNEL", None)   # 确保测的是 answer 自己开的通道
     p = subprocess.run([sys.executable, CLI, "--db", str(dbp), *args],
                        capture_output=True, text=True, env=env)
     return p.returncode, p.stdout + p.stderr

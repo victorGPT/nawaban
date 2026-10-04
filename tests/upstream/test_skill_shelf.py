@@ -18,8 +18,8 @@ class SkillShelfTest(unittest.TestCase):
             skill.mkdir(parents=True)
             (skill / 'SKILL.md').write_text('---\nname: grilling\ndescription: Clarify scope\n---\n')
             output = home / 'generated/inventory.md'
-            env = dict(os.environ, HOME=folder, WORKOS_SKILLS_ROOT=str(shelf),
-                       WORKOS_SHELF_OUTPUT=str(output))
+            env = dict(os.environ, HOME=folder, NAWABAN_SKILLS_ROOT=str(shelf),
+                       NAWABAN_SHELF_OUTPUT=str(output))
             script = ROOT / 'scripts/skill_shelf.py'
             for args in ([], ['--check']):
                 result = subprocess.run([sys.executable, str(script), *args], env=env,

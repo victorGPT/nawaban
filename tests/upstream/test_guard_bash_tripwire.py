@@ -23,11 +23,11 @@ subprocess.run(["git", "init", "-q", str(repo)], check=True)
 (repo / ".foreman").mkdir()
 cli = str(Path(__file__).resolve().parents[2] / "nawaban/cli.py")
 db = str(repo / ".foreman/workos.db")
-env = {**os.environ, "FOREMAN_OWNER": "ac:test", "CLAUDE_CODE_SESSION_ID": "deadbeef"}
+env = {**os.environ, "NAWABAN_OWNER": "ac:test", "CLAUDE_CODE_SESSION_ID": "deadbeef"}
 subprocess.run([sys.executable, cli, "--db", db, "init"], check=True, env=env, capture_output=True)
 
 def judge(cmd):
-    os.environ["FOREMAN_OWNER"] = "ac:test"
+    os.environ["NAWABAN_OWNER"] = "ac:test"
     return g.judge({"tool_name": "Bash", "cwd": str(repo), "tool_input": {"command": cmd}})
 
 code, msg = judge("cat > src/x.py <<'EOF'\nif a > b: pass\nEOF")

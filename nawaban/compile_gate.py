@@ -36,7 +36,7 @@ CLI = f"python3 {Path(__file__).with_name('cli.py')}"
 
 
 def _db_path(cwd: str | None) -> Path | None:
-    if not cwd and not (os.environ.get("NAWABAN_DB") or os.environ.get("WORKOS_DB")):
+    if not cwd and not os.environ.get("NAWABAN_DB"):
         return None
     return db.resolve_db(cwd)
 

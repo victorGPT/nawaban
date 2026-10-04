@@ -4,34 +4,32 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import types
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # Match the existing tests: liveness packaging is outside these path checks.
-sys.modules.setdefault("foreman_liveness", types.ModuleType("foreman_liveness"))
 from nawaban import board_view, cli, db, guard  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def isolated_environment(monkeypatch, tmp_path):
     for key in tuple(os.environ):
-        if key.startswith(("NAWABAN_", "WORKOS_")):  # Legacy configuration isolation.
+        if key.startswith("NAWABAN_"):
             monkeypatch.delenv(key)
     monkeypatch.chdir(tmp_path)
 
 
-def test_new_database_environment_takes_priority_over_legacy(monkeypatch, tmp_path):
-    legacy = tmp_path / "legacy.db"
+def test_database_environment_selects_the_board(monkeypatch, tmp_path):
+    retired = tmp_path / "retired.db"
     primary = tmp_path / "primary.db"
-    monkeypatch.setenv("WORKOS_DB", str(legacy))  # Legacy fallback.
-    assert db.resolve_db() == legacy
+    monkeypatch.setenv("WORKOS_DB", str(retired))
+    assert db.resolve_db() != retired
     monkeypatch.setenv("NAWABAN_DB", str(primary))
     assert db.resolve_db() == primary
     assert cli.main(["init"]) == 0
     assert primary.is_file()
-    assert not legacy.exists()
+    assert not retired.exists()
 
 
 def test_explicit_database_overrides_environment(monkeypatch, tmp_path):
@@ -119,31 +117,26 @@ def test_main_checkout_write_gate_with_new_or_legacy_board(tmp_path, relative):
     assert "worktree gate" in message
 
 
-@pytest.mark.parametrize("use_new", [False, True])
-def test_listener_environment_fallback_and_priority(monkeypatch, tmp_path, use_new):
+def test_listener_environment(monkeypatch, tmp_path):
     path = tmp_path / "board.db"
     db.init_db(path)
     monkeypatch.setenv("NAWABAN_DB", str(path))
-    monkeypatch.setenv("WORKOS_BOARD_PORT", "18813")  # Legacy listener fallback.
-    monkeypatch.setenv("WORKOS_BOARD_HOST", "127.0.0.2")
-    if use_new:
-        monkeypatch.setenv("NAWABAN_BOARD_PORT", "18814")
-        monkeypatch.setenv("NAWABAN_BOARD_HOST", "127.0.0.1")
+    monkeypatch.setenv("NAWABAN_BOARD_PORT", "18814")
+    monkeypatch.setenv("NAWABAN_BOARD_HOST", "127.0.0.2")
     calls = []
     monkeypatch.setattr(board_view, "serve", lambda *args, **kwargs: calls.append((args, kwargs)))
     assert board_view.main([]) == 0
-    assert calls == [((path, 18814 if use_new else 18813),
-                      {"host": "127.0.0.1" if use_new else "127.0.0.2"})]
+    assert calls == [((path, 18814), {"host": "127.0.0.2"})]
 
 
-def test_decision_channel_legacy_fallback_preserves_gate(monkeypatch, tmp_path):
+def test_decision_channel_environment_preserves_gate(monkeypatch, tmp_path):
     path = tmp_path / "board.db"
     db.init_db(path)
     db.create_task(path, task_id="CHECK-001", title="Check")
     args = dict(question="Proceed?", verdict="Yes", decided_by="user")
     with pytest.raises(db.NawabanError, match="拍板通道"):
         db.decide(path, "CHECK-001", **args)
-    monkeypatch.setenv("WORKOS_DECISION_CHANNEL", "inbox")  # Legacy authorization channel.
+    monkeypatch.setenv("NAWABAN_DECISION_CHANNEL", "inbox")
     db.decide(path, "CHECK-001", **args)
     monkeypatch.setenv("NAWABAN_DECISION_CHANNEL", "invalid")
     with pytest.raises(db.NawabanError, match="拍板通道"):

@@ -69,9 +69,9 @@ def mk(repo: Path, tid: str = "T-1", *, owner: str | None = "tester",
 def run_guard(repo: Path, file_rel: str = CODE_FILE, *, identity: bool = True) -> tuple[int, str]:
     payload = {"cwd": str(repo), "tool_input": {"file_path": str(repo / file_rel)}}
     env = {k: v for k, v in os.environ.items()
-           if k not in ("TMUX", "TMUX_PANE", "FOREMAN_OWNER", "CLAUDE_CODE_SESSION_ID")}
+           if k not in ("TMUX", "TMUX_PANE", "NAWABAN_OWNER", "CLAUDE_CODE_SESSION_ID")}
     if identity:
-        env["FOREMAN_OWNER"] = "tester"
+        env["NAWABAN_OWNER"] = "tester"
     p = subprocess.run([sys.executable, str(GUARD)], input=json.dumps(payload),
                        capture_output=True, text=True, env=env)
     return p.returncode, p.stderr
@@ -136,7 +136,7 @@ def main() -> int:  # noqa: C901, PLR0915
         con.execute("UPDATE tasks SET status='in_progress', owner='other'")
         con.close()
         payload = {"cwd": str(r), "tool_input": {"file_path": str(r / "docs/x.md")}}
-        os.environ["FOREMAN_OWNER"] = "tester"
+        os.environ["NAWABAN_OWNER"] = "tester"
         try:
             times = []
             for _ in range(20):
@@ -148,7 +148,7 @@ def main() -> int:  # noqa: C901, PLR0915
             assert med <= 10, f"判定中位数 {med:.2f}ms > 10ms"
             print(f"    (400 卡判定中位数 {med:.2f}ms)")
         finally:
-            del os.environ["FOREMAN_OWNER"]
+            del os.environ["NAWABAN_OWNER"]
 
     # ── claim_check(DB 版)──────────────────────────────────────
     def run_cc(repo: Path, files: list[str], owner: str = "tester") -> tuple[int, str]:

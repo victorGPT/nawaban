@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """NAWABAN policy CLI: task coordination and backup commands.
 
-身份铁律:owner/session 只从环境解析(NAWABAN_OWNER,旧名 FOREMAN_OWNER 仍可用 / CLAUDE_CODE_SESSION_ID),
+身份铁律:owner/session 只从环境解析(NAWABAN_OWNER / CLAUDE_CODE_SESSION_ID),
 任何子命令不设 --owner/--session 旗标——身份不可伪造。
 
 字段合同(2026-09-07 用户拍板 · 唯一定义处 · 每种内容只有一个家):
@@ -419,14 +419,14 @@ def main(argv: list[str] | None = None) -> int:
     """
     ap = argparse.ArgumentParser(prog="nawaban", allow_abbrev=False,
                                  description="NAWABAN 本地 Agent Work OS · 写入工具环")
-    ap.add_argument("--db", help="库路径(默认 NAWABAN_DB env → 就近 .nawaban/nawaban.db (兼容 WORKOS_DB / .foreman/workos.db))")
+    ap.add_argument("--db", help="库路径(默认 NAWABAN_DB env → 就近 .nawaban/nawaban.db (兼容 .foreman/workos.db))")
     sub = ap.add_subparsers(dest="verb", required=True)
 
     p = sub.add_parser("create", help="建卡(title=人话:做完后人能看见什么变化)")
     p.add_argument("task_id")
     p.add_argument("--title", required=True)
-    p.add_argument("--context", "--origin", help="票正文:背景与要做的事;必须写成无序列表(write-once;长文用 --context-file)")
-    p.add_argument("--context-file", "--origin-file", help="从文件读票正文(与 --context 二选一)")
+    p.add_argument("--context", help="票正文:背景与要做的事;必须写成无序列表(write-once;长文用 --context-file)")
+    p.add_argument("--context-file", help="从文件读票正文(与 --context 二选一)")
     p.add_argument("--success", help="JSON array")
     p.add_argument("--constraints", help="JSON array")
     p.add_argument("--touch", action="append", default=[])
@@ -592,14 +592,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("backup", help="全量备份到 <db 目录>/backups/ · 保留 14 天")
     sub.add_parser("init", help="显式建库(唯一允许创建 DB 文件的动词)")
 
-    # Register compatibility names without adding help entries or usage choices.
-    aliases = {"kin": "deps", "advance": "transition", "letter": "notify",
-               "letters": "notifications", "letter-read": "notify-read"}
-    sub.metavar = "{" + ",".join(sub.choices) + "}"
-    for old, current in aliases.items():
-        sub.choices[old] = sub.choices[current]
     a = ap.parse_args(argv)
-    a.verb = aliases.get(a.verb, a.verb)
     path = Path(a.db).expanduser() if a.db else db.resolve_db(for_init=a.verb == "init")
     if a.verb == "init":
         db.init_db(path)
@@ -671,7 +664,7 @@ def main(argv: list[str] | None = None) -> int:
             owner, sid = _identity(need_session=True)
             db.advance_task(path, a.task_id, to=a.to, waiting_on=a.waiting_on,
                             owner=owner, session_id=sid)
-            print(f"✓ advance {a.task_id} → {a.to}")
+            print(f"✓ transition {a.task_id} → {a.to}")
         elif a.verb == "reopen":
             owner, sid = _identity(need_session=True)
             db.reopen_task(path, a.task_id, reason=a.reason, owner=owner, session_id=sid)
@@ -711,7 +704,7 @@ def main(argv: list[str] | None = None) -> int:
             owner, sid = _identity(need_session=False)
             lid = db.add_letter(path, a.task_id, kind=a.kind, msg=a.msg,
                                 links=a.links, session_id=sid)
-            print(f"✓ letter #{lid} → {a.task_id} [{a.kind}]")
+            print(f"✓ notify #{lid} → {a.task_id} [{a.kind}]")
         elif a.verb == "notifications":
             rows = db.list_letters(path, unread_only=a.unread, task_id=a.task,
                                    limit=a.limit)

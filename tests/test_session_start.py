@@ -13,7 +13,6 @@ import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.modules.setdefault("foreman_liveness", types.ModuleType("foreman_liveness"))
 _spec = importlib.util.spec_from_file_location("session_start", ROOT / "hooks" / "foreman_session_start.py")
 session_start = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(session_start)
@@ -62,7 +61,7 @@ def test_new_registry_takes_priority(monkeypatch, tmp_path, capsys):
 
 
 def _no_identity(monkeypatch):
-    for k in ("NAWABAN_OWNER", "FOREMAN_OWNER", "TMUX_PANE"):
+    for k in ("NAWABAN_OWNER", "TMUX_PANE"):
         monkeypatch.delenv(k, raising=False)
 
 
@@ -81,7 +80,7 @@ def test_unwritable_registry_keeps_the_owner(monkeypatch, tmp_path):
 
 
 def _prepare_main(monkeypatch, tmp_path, cwd):
-    for key in ("NAWABAN_DB", "WORKOS_DB", "NAWABAN_CONTEXT_BANNER", "WORKOS_CONTEXT_BANNER"):
+    for key in ("NAWABAN_DB", "NAWABAN_CONTEXT_BANNER"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(sys, "argv", ["foreman_session_start.py"])
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"cwd": str(cwd), "session_id": "test-sid"})))
@@ -107,8 +106,7 @@ def test_legacy_markdown_board_without_database_still_renders(monkeypatch, tmp_p
     assert not (repo / ".nawaban").exists()
 
 
-@pytest.mark.parametrize("variable", ["NAWABAN_DB", "WORKOS_DB"])
-def test_explicit_database_overrides_local_board(monkeypatch, tmp_path, capsys, variable):
+def test_explicit_database_overrides_local_board(monkeypatch, tmp_path, capsys):
     repo = tmp_path / "repo"
     local = repo / ".foreman/workos.db"
     selected = tmp_path / "other/selected.db"
@@ -117,23 +115,23 @@ def test_explicit_database_overrides_local_board(monkeypatch, tmp_path, capsys, 
         db.create_task(path, task_id=task_id, title="Selected task")
         db.claim_task(path, task_id, owner="ac:test", session_id="test-sid")
     _prepare_main(monkeypatch, tmp_path, repo)
-    monkeypatch.setenv(variable, str(selected))
+    monkeypatch.setenv("NAWABAN_DB", str(selected))
     assert session_start.main() == 0
     output = capsys.readouterr().out
     assert "T-SELECTED" in output
     assert "T-LOCAL" not in output
 
 
-@pytest.mark.parametrize("primary,legacy,expected", [
-    ("new", "old", "new"), (None, "old", "old"), (None, None, ".local/state/nawaban"),
+@pytest.mark.parametrize("configured,expected", [
+    ("new", "new"), (None, ".local/state/nawaban"),
 ])
-def test_state_directory_priority(monkeypatch, tmp_path, primary, legacy, expected):
+def test_state_directory(monkeypatch, tmp_path, configured, expected):
     monkeypatch.setenv("HOME", str(tmp_path))
-    for key, value in (("NAWABAN_STATE_DIR", primary), ("WORKOS_STATE_DIR", legacy)):
-        if value is None:
-            monkeypatch.delenv(key, raising=False)
-        else:
-            monkeypatch.setenv(key, str(tmp_path / value))
+    monkeypatch.setenv("WORKOS_STATE_DIR", str(tmp_path / "retired"))
+    if configured is None:
+        monkeypatch.delenv("NAWABAN_STATE_DIR", raising=False)
+    else:
+        monkeypatch.setenv("NAWABAN_STATE_DIR", str(tmp_path / configured))
     spec = importlib.util.spec_from_file_location("state_dir_hook", ROOT / "hooks/foreman_session_start.py")
     hook = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(hook)

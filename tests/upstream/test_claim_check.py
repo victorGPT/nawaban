@@ -32,8 +32,8 @@ class ClaimCheckTests(unittest.TestCase):
         db.claim_task(self.selected, 'OTHER', owner='audit:other', session_id='audit-other')
 
     def run_check(self, *args, cwd=None):
-        env = dict(os.environ, FOREMAN_OWNER='audit:current', HOME=str(self.root),
-                   WORKOS_STATE_DIR=str(self.root / 'state'))
+        env = dict(os.environ, NAWABAN_OWNER='audit:current', HOME=str(self.root),
+                   NAWABAN_STATE_DIR=str(self.root / 'state'))
         return subprocess.run([sys.executable, str(CHECK), *map(str, args)],
                               cwd=cwd or self.repo, env=env, capture_output=True, text=True, check=False)
 
@@ -120,9 +120,9 @@ class ClaimCheckTests(unittest.TestCase):
     def test_cli_claim_uses_selected_database_and_keeps_success(self):
         db.init_db(self.repo / '.foreman/workos.db')
         db.create_task(self.selected, task_id='MINE', title='My work', touches=['src/code.py'])
-        env = dict(os.environ, FOREMAN_OWNER='audit:current', CLAUDE_CODE_SESSION_ID='audit-current',
+        env = dict(os.environ, NAWABAN_OWNER='audit:current', CLAUDE_CODE_SESSION_ID='audit-current',
                    PYTHONPATH=str(ROOT), HOME=str(self.root),
-                   WORKOS_STATE_DIR=str(self.root / 'state'))
+                   NAWABAN_STATE_DIR=str(self.root / 'state'))
         result = subprocess.run([sys.executable, '-m', 'nawaban', '--db', str(self.selected),
                                  'claim', 'MINE'], cwd=self.repo, env=env,
                                 capture_output=True, text=True, check=False)
@@ -137,9 +137,9 @@ class ClaimCheckTests(unittest.TestCase):
         db.create_task(self.selected, task_id='LEGACY', title='Old work', touches=['src/code.py'])
         with contextlib.closing(db.connect(self.selected)) as con:
             con.execute("UPDATE tasks SET success='legacy plain text' WHERE id='LEGACY'")
-        env = dict(os.environ, FOREMAN_OWNER='audit:current', CLAUDE_CODE_SESSION_ID='audit-current',
+        env = dict(os.environ, NAWABAN_OWNER='audit:current', CLAUDE_CODE_SESSION_ID='audit-current',
                    PYTHONPATH=str(ROOT), HOME=str(self.root),
-                   WORKOS_STATE_DIR=str(self.root / 'state'))
+                   NAWABAN_STATE_DIR=str(self.root / 'state'))
         result = subprocess.run([sys.executable, '-m', 'nawaban', '--db', str(self.selected),
                                  'claim', 'LEGACY'], cwd=self.repo, env=env,
                                 capture_output=True, text=True, check=False)

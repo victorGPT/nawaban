@@ -64,7 +64,7 @@ _Current identifiers_: `tasks.started_at`, `tasks.now`; CLI `start`.
 A permitted change from one task lifecycle state to another, with the evidence required for that change.
 状态推进是满足相应证据要求后发生的合法任务状态变更。
 _Avoid_: advance, 翻牌 as the canonical term.
-_Current identifiers_: `tasks.status`, `tasks.waiting_on`; CLI `transition` (hidden alias `advance`).
+_Current identifiers_: `tasks.status`, `tasks.waiting_on`; CLI `transition`.
 
 **Reopen**(重开)
 The return of a terminal task to an active lifecycle with a recorded reason.
@@ -200,7 +200,7 @@ _Current identifiers_: `tasks.constraints_`.
 The background and intended work that explain why a task exists.
 来由是解释任务为何存在的背景与拟完成工作。
 _Avoid_: origin as the English field label, activity history.
-_Current identifiers_: `tasks.context`; CLI `create --context`, `--context-file` (aliases `--origin`, `--origin-file`).
+_Current identifiers_: `tasks.context`; CLI `create --context`, `--context-file`.
 
 **Scope**(范围)
 The declared set of paths a task is authorized to change.
@@ -254,7 +254,7 @@ _Current identifiers_: `task_sessions`; CLI `wrapup`.
 Task-linked messages that report progress, coordination needs, or obstacles to another participant.
 信是关联任务、向协作方报告进展、协调事项或阻碍的消息。
 _Avoid_: letters as the English product label; asks as a synonym.
-_Current identifiers_: `letters`, `letters.read_at`; CLI `notify`, `notifications`, `notify-read` (hidden aliases `letter`, `letters`, `letter-read`).
+_Current identifiers_: `letters`, `letters.read_at`; CLI `notify`, `notifications`, `notify-read`.
 
 ### Relationships and evidence
 
@@ -262,7 +262,7 @@ _Current identifiers_: `letters`, `letters.read_at`; CLI `notify`, `notification
 The prerequisite relationships between tasks, shown alongside task lineage for coordination.
 依赖是任务之间的前置关系，并与任务家谱一起呈现以支持协作。
 _Avoid_: kin as the product label; parenthood as proof of a prerequisite.
-_Current identifiers_: `task_edges`, `depends_on`; CLI `deps`, `link` (hidden alias `kin`).
+_Current identifiers_: `task_edges`, `depends_on`; CLI `deps`, `link`.
 
 **Blocked by**(被挡)
 The unfinished prerequisite tasks that prevent a task from proceeding.
@@ -274,7 +274,7 @@ _Current identifiers_: `task_edges.kind` = `depends_on`; `blocked_by`.
 The recorded relationships showing which task was split from or superseded by another.
 家谱是记录任务从何拆出或被何任务替代的关系。
 _Avoid_: dependency as a synonym for every relationship.
-_Current identifiers_: `task_edges.kind` = `split_from`, `supersedes`; CLI `link`, `deps` (hidden alias `kin`).
+_Current identifiers_: `task_edges.kind` = `split_from`, `supersedes`; CLI `link`, `deps`.
 
 **Frontier**(可开工任务)
 The unassigned tasks whose prerequisites are all complete.

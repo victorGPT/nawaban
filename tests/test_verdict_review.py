@@ -3,17 +3,11 @@
 import io
 import json
 import sys
-import types
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-# runtime-only modules this snapshot omits
-sys.modules.setdefault("foreman_liveness", types.ModuleType("foreman_liveness"))
-_card = types.ModuleType("foreman_card")
-_card.CardError, _card.parse_card_text = Exception, None
-sys.modules.setdefault("foreman_card", _card)
 from nawaban import cli, import_md  # noqa: E402
 
 
