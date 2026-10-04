@@ -34,7 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nawaban.owner_identity import owner_from_session  # noqa: E402
-from nawaban import captures, db, dependency_hints, inbox, task_content  # noqa: E402
+from nawaban import captures, db, dependency_hints, inbox, main_ci, paths, task_content  # noqa: E402
 
 # Compatibility names delegate to the shared hard-policy implementation.
 _TITLE_EXAMPLES = task_content._TITLE_EXAMPLES
@@ -270,8 +270,7 @@ def _default_project(path: Path, split_from: str | None) -> str | None:
     """
     if split_from:
         return None
-    fd = db.foreman_dir() or Path(path).absolute().parent
-    return fd.parent.name if fd.name in (".nawaban", ".foreman") else None
+    return db.project_of(db.foreman_dir() or Path(path).absolute().parent)
 
 
 def _dependency_hint(path: Path, task_id: str) -> str | None:
@@ -405,8 +404,29 @@ def _print_kin(data: dict) -> None:
         blocks.append("\n".join(["家谱", *family]))
     if data["epic"]:
         blocks.append(f"epic\n  {data['epic']}")
+    if data["regressed_by"]:
+        blocks.append(f"被弄坏(回退)\n  修复卡 {', '.join(data['regressed_by'])}")
     if blocks:
         print("\n\n".join(blocks))
+
+
+def _blame(path: Path, files: list[str]) -> None:
+    """文件 → 主线上改过它的提交 → 挂着该 merge_sha 的卡。"""
+    log = subprocess.run(["git", "log", "--first-parent", "--format=%H %cs", "--", *files],
+                         capture_output=True, text=True)
+    if log.returncode != 0:
+        raise db.NawabanError("blame 要在 git 仓库里跑:" + log.stderr.strip())
+    refs: dict[str, list] = {}
+    for r in db.merged_tasks(path):
+        refs.setdefault(r["sha"][:7], []).append(r)
+    hits = [(date, sha, r) for sha, date in (line.split() for line in log.stdout.splitlines())
+            for r in refs.get(sha[:7], []) if sha.startswith(r["sha"])]
+    if not hits:
+        print("这些文件在主线上的提交都没有对应的卡(没找到匹配的 merge_sha)")
+        return
+    print(f"{len(hits)} 张卡改过这些文件(新→旧;最新的多半是弄坏它的，更早的是被弄坏的候选):")
+    for date, sha, r in hits:
+        print(f"  {date} {sha[:8]} {r['id']} [{r['status']}] {r['title']}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -454,9 +474,9 @@ def main(argv: list[str] | None = None) -> int:
     discard.add_argument("capture_id")
     discard.add_argument("--reason", required=True)
 
-    p = sub.add_parser("claim", help="CAS 认领(身份从环境;上游未 done 会被闸)")
+    p = sub.add_parser("claim", help="CAS 认领(身份从环境;上游未 done 或 main CI 红着会被闸)")
     p.add_argument("task_id")
-    p.add_argument("--override", help="强闯上游闸的理由(落 coord 事件可审计)")
+    p.add_argument("--override", help="强闯上游闸/停线闸的理由(落 coord 事件可审计)")
 
     p = sub.add_parser("start", help="claimed→in_progress(--now 必填:开工即有板面进展)")
     p.add_argument("task_id")
@@ -536,7 +556,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("notify-read", help="标已读")
     p.add_argument("ids", nargs="+", type=int)
 
-    p = sub.add_parser("link", help="建边(幻觉闸+depends_on 环检测)")
+    p = sub.add_parser("blame", help="文件 → 改过它的合并 → 对应的卡(找回退的肇事卡和被弄坏的卡)")
+    p.add_argument("files", nargs="+")
+
+    p = sub.add_parser("link", help="建边(幻觉闸+depends_on 环检测;regresses 须指向 done 卡并带 --note)")
     p.add_argument("src")
     p.add_argument("dst")
     p.add_argument("--kind", required=True, choices=list(db.EDGE_KINDS))
@@ -638,8 +661,9 @@ def main(argv: list[str] | None = None) -> int:
                 print("⚠ " + hint, file=sys.stderr)
         elif a.verb == "claim":
             owner, sid = _identity(need_session=True)
+            main_red = main_ci.red_since(paths.state_dir(), db.task_project(path, a.task_id))
             if db.claim_task(path, a.task_id, owner=owner, session_id=sid,
-                             override=a.override):
+                             override=a.override, main_red=main_red):
                 print(f"✓ claim {a.task_id} → {owner}")
                 # Advisory checks follow the committed claim and never undo ownership.
                 touches = _j(db.task_touches(path, a.task_id)) or []
@@ -733,6 +757,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"✓ decide {a.task_id}")
             for hint in _hints(success=_j(a.set_success)):
                 print("⚠ " + hint, file=sys.stderr)
+        elif a.verb == "blame":
+            _blame(path, a.files)
         elif a.verb == "link":
             owner, sid = _identity(need_session=False)
             db.link_tasks(path, a.src, a.dst, kind=a.kind, note=a.note, created_by=owner)

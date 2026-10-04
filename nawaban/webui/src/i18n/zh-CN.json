@@ -90,6 +90,8 @@
   "downstreamSuffix": " · 下游",
   "blockedLegend": "▸ 被挡 = 上游未 done",
   "blocked": "▸ 被挡",
+  "regressed": "回退",
+  "regressedBy": "后来的改动弄坏了这次交付。修复卡:{tasks}",
   "dependencyPrefix": "← 依赖 ",
   "modulesError": "模块加载失败:",
   "modulesUnavailable": "模块数据当前不可用",

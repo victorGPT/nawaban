@@ -45,10 +45,13 @@ def main():
             with closing(sqlite3.connect(copy)) as dest:
                 source.backup(dest)
         before = snapshot(copy)
-        db.migrate_db(copy)
+        applied = db.migrate_db(copy)
         db.init_db(copy)
         after = snapshot(copy)
-        assert after[0] == before[0], "Schema differs from the selected live board"
+        # A CHECK rebuild ("table.column:+value") may change only that table's definitions.
+        rebuilt = {label.split(".", 1)[0] for label in applied if ":+" in label}
+        changed = {entry[2] for entry in set(after[0]) ^ set(before[0])}
+        assert changed <= rebuilt, f"Schema differs outside rebuilt tables: {sorted(changed - rebuilt)}"
         assert after[1] == before[1], "Initialization changed existing rows"
         assert db.migrate_db(copy) == []
         db.init_db(copy)
@@ -57,7 +60,8 @@ def main():
         for project in projects:
             board_view.board_data(copy, live={}, project=project["name"])
         count = sum(sum(rows.values()) for rows in after[1].values())
-        print(f"PASS: {len(after[1])} tables, {count} rows preserved; exact schema parity")
+        print(f"PASS: {len(after[1])} tables, {count} rows preserved; schema exact outside rebuilt "
+              f"tables {sorted(rebuilt) or 'none'} (applied: {applied or 'nothing'})")
         print(f"PASS: repeated initialization, integrity, foreign keys, {len(projects)} project reads")
         exercise = Path(folder) / "exercise.db"
         with closing(sqlite3.connect(copy)) as source, closing(sqlite3.connect(exercise)) as dest:
@@ -95,8 +99,8 @@ def main():
             server.shutdown()
             server.server_close()
             thread.join()
-        assert snapshot(exercise)[0] == before[0], "CLI changed the current schema"
-        assert snapshot(copy) == before, "Fixture writes leaked into the preserved copy"
+        assert snapshot(exercise)[0] == after[0], "CLI changed the current schema"
+        assert snapshot(copy) == after, "Fixture writes leaked into the preserved copy"
         with closing(sqlite3.connect(exercise)) as con:
             assert con.execute("SELECT count(*) FROM tasks").fetchone()[0] == sum(before[1]["tasks"].values()) + 1
         print("PASS: isolated create/claim, context detail HTTP API, project filters; baseline rows unchanged")

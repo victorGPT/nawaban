@@ -68,7 +68,7 @@ export function WindowStatus({
     </Tooltip>
   );
 }
-export type TaskCardData = Pick<BoardTask, "id" | "title" | "epic" | "status" | "live" | "waiting_on">
+export type TaskCardData = Pick<BoardTask, "id" | "title" | "epic" | "status" | "live" | "waiting_on" | "regressed_by">
   & { active_at?: number };
 
 // Every card in the acceptance column waits for the release; repeating it on each card is noise.
@@ -144,6 +144,10 @@ export function TaskCard({ task, hasAsk, onSelect, onDecision, className, childr
             <OverflowText className="task-tag-label" text={module ?? tr("ungrouped")} />
           </span>}
           {task.status === "claimed" && !children && <TaskTag label={statusLabel(task.status)} />}
+          {task.regressed_by?.length ? (
+            <Badge variant="rose" size="bold" data-task-regressed
+              title={tr("regressedBy", { tasks: task.regressed_by.join(", ") })}>{tr("regressed")}</Badge>
+          ) : null}
           {children}
           <TaskWaiting task={task} />
           {decision && signal}

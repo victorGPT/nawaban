@@ -332,6 +332,10 @@ def board_data(path: Path | str, live: dict | None = None,
                 merged.setdefault(r["task_id"], []).append(v)
         except sqlite3.Error:   # 看板是底线:这层查询挂了就不显示徽标
             merged = {}
+        try:
+            regressed = db.open_regressions(con)
+        except sqlite3.Error:   # 同上：回退红标是叠加层
+            regressed = {}
         cols = []
         for key, title, color in COLUMNS:
             if key == "done":
@@ -353,6 +357,8 @@ def board_data(path: Path | str, live: dict | None = None,
                     c["dep"] = deps[r["id"]]
                 if r["id"] in merged:
                     c["merged_refs"] = merged[r["id"]]
+                if r["id"] in regressed:
+                    c["regressed_by"] = regressed[r["id"]]
                 c["active_at"] = r["last_event_at"] or r["started_at"] or r["created_at"]
                 if key in LIVE_COLUMNS:
                     c["live"] = _live_of(r["owner"], idx)
@@ -381,10 +387,12 @@ def modules_data(path: Path | str, idx: dict[str, float] | None = None,
     """
     con = _ro(path)
     try:
+        regressed = db.open_regressions(con)
         tasks = [{"i": r["id"], "t": r["title"] or "", "s": r["status"],
                   "e": r["epic"] or "", "waiting_on": r["waiting_on"],
                   "active_at": r["last_event_at"] or r["started_at"] or r["created_at"],
-                  "live": _live_of(r["owner"], idx) if r["status"] in LIVE_COLUMNS else None}
+                  "live": _live_of(r["owner"], idx) if r["status"] in LIVE_COLUMNS else None,
+                  **({"rb": regressed[r["id"]]} if r["id"] in regressed else {})}
                  for r in con.execute(
                      f"SELECT t.*, {db.LAST_ACTIVITY_SQL} AS last_event_at"
                      " FROM tasks t LEFT JOIN task_events e ON e.task_id = t.id"
@@ -610,7 +618,7 @@ def _stats_of(nodes: list[dict], n_links: int) -> dict:
 
 
 #: 组节点的紧急度 —— 组的 role 取组内最紧急的那张卡,不然一组里有一张等拍板会被 309 张 done 淹掉
-_ROLE_RANK = ("decision", "blocked", "frontier", "active", "staging", "open", "done")
+_ROLE_RANK = ("decision", "regressed", "blocked", "frontier", "active", "staging", "open", "done")
 
 
 def fold_graph(g: dict, hints: dict[str, str]) -> dict:
@@ -687,6 +695,7 @@ def graph_data(
             dict(r)
             for r in con.execute("SELECT src, dst, kind, note FROM task_edges")
         ]
+        regressed = db.open_regressions(con)
     finally:
         con.close()
 
@@ -721,9 +730,12 @@ def graph_data(
             "blocked": is_blocked,
             "frontier": is_frontier,
             "needs_decision": needs_decision,
+            "regressed": tid in regressed,
         }
         if needs_decision:
             role = "decision"
+        elif tid in regressed:
+            role = "regressed"
         elif is_blocked:
             role = "blocked"
         elif is_frontier:

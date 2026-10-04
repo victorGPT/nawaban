@@ -127,6 +127,24 @@ test("module cards consume the API activity timestamp and waiting reason", async
   expect(screen.getByTitle("3 天没动静")).toBeTruthy();
 });
 
+test("a done card broken by a later change shows a red mark naming its fix, on the board and in modules", async () => {
+  setLocale("zh-CN");
+  const { container, rerender, unmount } = render(card({ status: "done" }));
+  expect(container.querySelector("[data-task-regressed]")).toBeNull();
+  rerender(card({ status: "done", regressed_by: ["FIX-1", "FIX-2"] }));
+  expect(screen.getByText("回退").getAttribute("title")).toBe("后来的改动弄坏了这次交付。修复卡:FIX-1, FIX-2");
+  act(() => setLocale("en"));
+  expect(screen.getByText("Regressed")).toBeTruthy();
+  act(() => setLocale("zh-CN"));
+  unmount();
+  vi.mocked(fetchModules).mockResolvedValue({ tasks: [{
+    i: "SHIPPED", t: "Shipped task", s: "done", e: "Example", rb: ["FIX-1"],
+  }], deps: [] });
+  render(<ModulesView project={null} query="" decisionTasks={new Set()}
+    onSelectTask={vi.fn()} onDecision={vi.fn()} />);
+  expect((await screen.findByText("回退")).getAttribute("title")).toContain("FIX-1");
+});
+
 test("one shared clock advances idle cards without a fetch and is cleaned up on unmount", () => {
   vi.useFakeTimers();
   vi.setSystemTime(now * 1000);

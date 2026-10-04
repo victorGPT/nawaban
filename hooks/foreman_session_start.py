@@ -25,15 +25,14 @@ from datetime import datetime
 from pathlib import Path
 
 _RUNTIME = Path(__file__).resolve().parents[1] / "nawaban"
-_STATE = Path(os.environ.get("NAWABAN_STATE_DIR")
-              or Path.home() / ".local/state/nawaban").expanduser()
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from nawaban import db as _wdb, main_ci, paths  # noqa: E402
+from nawaban.owner_identity import owner_from_session  # noqa: E402
+
+_STATE = paths.state_dir()
 _REGISTRY = _STATE / "session-registry.json"
 _LEGACY_REGISTRY = Path.home() / ".claude/foreman/session-registry.json"
 _LEGACY_STATE = Path.home() / ".claude/state"
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from nawaban import db as _wdb  # noqa: E402
-from nawaban.owner_identity import owner_from_session  # noqa: E402
 try:  # 只有旧 md 卡路径用它;缺 PyYAML 时开工横幅照常出,跳过 md 卡
     from nawaban.foreman_card import CardError, guard_problems, load_card  # noqa: E402
 except ImportError:
@@ -521,7 +520,32 @@ def main() -> int:
     except Exception:
         pass
 
+    try:
+        _main_ci(cwd)
+    except Exception:
+        pass  # 增强件：横幅不许因为 CI 状态挡开工
     return 0
+
+
+def _main_ci(cwd: Path) -> None:
+    """停线闸的输入：横幅读上一次的 main CI 状态，后台刷新(10 分钟节流，网络不进热路径)。"""
+    project = _wdb.board_project(cwd)
+    if not project:
+        return
+    data = main_ci.read(_STATE, project) or {}
+    for run in data.get("red") or []:
+        print(f"🔴 main CI 红:{run['workflow']} {run['url']} —— 先建回退卡"
+              "(nawaban blame <失败的文件>),否则本项目 claim 会被停线闸拦")
+    if data.get("error"):
+        print(f"⚠️ main CI 状态拿不到，停线闸不生效:{data['error']}")
+    target = main_ci.state_file(_STATE, project)
+    if target.is_file() and time.time() - target.stat().st_mtime < 600:
+        return
+    with open(os.devnull, "rb") as devin, open(os.devnull, "ab") as devout:
+        subprocess.Popen([sys.executable, "-m", "nawaban.main_ci", "--repo", str(cwd),
+                          "--state-dir", str(_STATE)],
+                         cwd=_RUNTIME.parent, stdin=devin, stdout=devout, stderr=devout,
+                         start_new_session=True)
 
 
 if __name__ == "__main__":

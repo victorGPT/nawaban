@@ -86,6 +86,7 @@ def _prepare_main(monkeypatch, tmp_path, cwd):
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"cwd": str(cwd), "session_id": "test-sid"})))
     monkeypatch.setattr(session_start, "_register_session", lambda *args: ("ac:test", "test-sid"))
     monkeypatch.setattr(session_start, "_reclaim_stale_owners", lambda *args: None)
+    monkeypatch.setattr(session_start, "_main_ci", lambda cwd: None)
     state = tmp_path / "state"
     state.mkdir()
     (state / "foreman-stale.last").write_text(datetime.now().strftime("%Y-%m-%d"))
@@ -189,3 +190,23 @@ def test_stale_state_reads_legacy_fallback_but_writes_current(
         assert str(legacy) not in command
     elif new_marker is None:
         assert not marker.exists()
+
+
+def test_main_ci_banner_reports_red_and_errors_and_throttles_refresh(monkeypatch, tmp_path, capsys):
+    repo = tmp_path / "app"
+    db.init_db(repo / ".nawaban/nawaban.db")
+    monkeypatch.setattr(session_start, "_STATE", tmp_path / "state")
+    spawned, real = [], session_start.subprocess.Popen
+    monkeypatch.setattr(session_start.subprocess, "Popen", lambda args, **kw: spawned.append(args)
+                        if "nawaban.main_ci" in args else real(args, **kw))
+    session_start._main_ci(repo)
+    assert capsys.readouterr().out == "" and "--state-dir" in spawned[0]
+
+    target = session_start.main_ci.state_file(tmp_path / "state", "app")
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps({"checked_at": int(datetime.now().timestamp()), "error": "gh: no access",
+                                  "red": [{"workflow": "test", "url": "https://ci/1", "since": 0}]}))
+    session_start._main_ci(repo)
+    out = capsys.readouterr().out
+    assert "main CI 红:test https://ci/1" in out and "停线闸不生效:gh: no access" in out
+    assert len(spawned) == 1  # a check from the last 10 minutes is reused
