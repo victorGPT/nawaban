@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import App from "@/App";
 import { Notices } from "@/components/NawabanUI";
-import { TaskDetailSheet } from "@/components/TaskDetailSheet";
+import { TaskDetailSheet } from "@/views/task-detail";
 import { setLocale } from "@/i18n";
 import en from "@/i18n/en.json";
 import zh from "@/i18n/zh-CN.json";

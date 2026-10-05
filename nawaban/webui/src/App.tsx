@@ -18,7 +18,7 @@ import { BoardKanban } from "@/components/BoardKanban";
 import { ModulesView } from "@/components/ModulesView";
 import { CaptureView } from "@/components/CaptureView";
 import { InboxView } from "@/components/InboxView";
-import { TaskDetailSheet } from "@/components/TaskDetailSheet";
+import { TaskDetailSheet } from "@/views/task-detail";
 import { ModuleSelect } from "@/components/application/select/module-select";
 import {
   fetchInbox,

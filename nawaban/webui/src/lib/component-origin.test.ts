@@ -15,8 +15,12 @@ function sources(directory: URL, out: URL[] = []): URL[] {
 
 test("NAWABAN surfaces compose the shadcn kit rather than recreating native controls or importing another kit", () => {
   const root = new URL("../", import.meta.url);
-  const files = ["App.tsx", "main.tsx", ...readdirSync(new URL("components/", root))
-    .filter(name => name.endsWith(".tsx")).map(name => `components/${name}`)];
+  // Every app-layer file, however deep. components/ui is the generated kit;
+  // components/application predates this rule and still holds a native <a> and <button>.
+  const exempt = ["components/ui/", "components/application/"];
+  const files = sources(root).map(path => path.pathname.split("/src/")[1])
+    .filter(file => file === "App.tsx" || file === "main.tsx" || /^(views|components)\//.test(file))
+    .filter(file => !exempt.some(directory => file.startsWith(directory)));
   const controls = new Set(["button", "input", "textarea", "select", "a", "dialog", "progress", "table"]);
   const violations: string[] = [];
   for (const file of files) {
@@ -77,6 +81,31 @@ test("only components/ui speaks Base UI, and the old hand-built kit is gone", ()
       if (/^@base-ui\/react/.test(specifier)) {
         violations.push(`${path.pathname.split("/src/")[1]}: imports ${specifier} outside components/ui`);
       }
+    }
+  }
+  assert.deepEqual(violations, []);
+});
+
+/**
+ * Feature folders (components/<name>/) are presentational: the view that
+ * assembles them does the fetching. Top-level components/*.tsx are not held
+ * to this yet.
+ */
+test("feature component folders neither fetch through lib/api nor reach into views", () => {
+  const root = new URL("../", import.meta.url);
+  const violations: string[] = [];
+  for (const path of sources(root)) {
+    const file = path.pathname.split("/src/")[1];
+    if (!/^components\/[^/]+\//.test(file) || /^components\/(ui|application)\//.test(file)) continue;
+    const source = ts.createSourceFile(file, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
+    for (const statement of source.statements) {
+      if (!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) continue;
+      if (!statement.moduleSpecifier) continue;
+      const specifier = statement.moduleSpecifier.getText(source).slice(1, -1);
+      // Resolve `@/…` and relative specifiers to one src-relative spelling.
+      const target = specifier.startsWith("@/") ? specifier.slice(2)
+        : specifier.startsWith(".") ? new URL(specifier, path).pathname.split("/src/")[1] ?? "" : "";
+      if (/^lib\/api(\.ts)?$|^views(\/|$)/.test(target)) violations.push(`${file}: imports ${specifier}`);
     }
   }
   assert.deepEqual(violations, []);
