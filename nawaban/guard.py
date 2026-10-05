@@ -248,8 +248,9 @@ _PLAIN = re.compile(r"[A-Za-z0-9_./:=,@%+\- \t\n;&|>\x00]*")
 _WHOLE_QUOTE = re.compile(r"(?<![^\s;&|>])\x00\d+\x00(?![^\s;&|>])")
 # 会改变 cd 含义的词和控制结构保留字(整词,去引号后比):出现即不跟。白名单语法保证了按空白切出的就是 shell 看到的词。
 _STATEFUL = frozenset("alias unalias shopt source . eval exec builtin command enable function trap"
-                      " if then elif else fi while until do done for in case esac select time coproc".split())
-_STATEFUL_VAR = re.compile(r"(?:CDPATH|BASH_ENV|ENV)=")
+                      " if then elif else fi while until do done for in case esac select time coproc"
+                      " env sudo chroot".split())  # 末行:会替被包的命令换目录
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\+?=")  # CDPATH+=… 一类;不逐个猜是哪个变量
 
 
 def _session_writes(cmd: str, base: Path) -> list[str]:
@@ -338,7 +339,7 @@ def _followed_writes(cmd: str, base: Path) -> list[str]:
     if (not _PLAIN.fullmatch(body) or "||" in body
             or re.search(r"[|&]\s*\n", body)  # 行尾的 | 或 && 是续行,换行不是命令边界
             or len(_WHOLE_QUOTE.findall(body)) != len(quoted)
-            or any(w in _STATEFUL or _STATEFUL_VAR.match(w) for w in words)):
+            or any(w in _STATEFUL or _ASSIGNMENT.match(w) for w in words)):
         return _session_writes(cmd, base)
     out: list[str] = []
     been: list[Path] = []  # 跟过的每个 cd 去向

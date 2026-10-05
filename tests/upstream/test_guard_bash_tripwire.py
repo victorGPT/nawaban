@@ -59,6 +59,7 @@ assert judge("cd .claude/worktrees/t && cd sub 2>/dev/null; true")[0] == 0
 # 拿不准目录就按会话目录判(修复前的行为):只有「cd 字面目录 && 写」才换基准
 (wt / "deep").mkdir()
 (repo / "lnk").symlink_to(wt / "deep")
+(repo / "deep").mkdir()   # 主树里的同名目录:CDPATH 指向主树时 cd deep 会落到这里
 assert judge("cd lnk && echo x > f")[0] == 0                              # 链接指进工位,写在工位里
 assert judge("cd .claude/worktrees/t && set -P && echo x >> NOTES.md")[0] == 0
 for unsure in (
@@ -93,7 +94,12 @@ for unsure in (
     "cd lnk && cd .. && echo x > f",
     "printf x |\ncd .claude/worktrees/t && echo x > f",   # | 后换行是续行,cd 在管线子进程里
     "true &&\ncd .claude/worktrees/t; echo x > f",
-    "cd .claude/worktrees/t && echo x > ~-/f",             # ~- 展开成上一个目录,即主树
+    "cd .claude/worktrees/t && echo x > ~-/f",
+    "cd .claude/worktrees/t && CDPATH+=%s && cd deep && echo x > f" % repo,  # 任何赋值都可能改 cd 的去向
+    "cd .claude/worktrees/t && env -C %s tee f" % repo,                       # 包装命令替 tee 换了目录
+    "cd /tmp | echo x > NOTES.md",                                            # 以下三条来自 GitHub 上的自动评审
+    "cd /__missing__ || echo x > NOTES.md",
+    "git worktree add /tmp/wt -b x && mkdir new && cd new && echo x > f",             # ~- 展开成上一个目录,即主树
     "if false; then\ncd .claude/worktrees/t && true\nfi\necho x > f",   # 保留字:不跟                 # 符号链接 + ..:bash 默认按逻辑路径退回主树
     "export CDPATH=%s && cd .claude/worktrees/t && cd src && echo x > f" % repo,                                    # 输入自带占位符字节
 ):
