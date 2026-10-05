@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
-import { InboxView } from "@/components/InboxView";
+import { InboxView } from "@/views/inbox";
 import { Notices } from "@/components/NawabanUI";
 import { AnswerError, fetchInbox, postAnswer } from "@/lib/api";
 import type { AskItem, InboxResponse } from "@/lib/types";
