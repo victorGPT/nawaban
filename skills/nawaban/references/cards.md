@@ -15,7 +15,7 @@
 | 未合并或仅交付文件/commit | 保存 artifact/commit ref；用 handed_off 或 blocked 写真实进展。当前状态机没有“未合并内部任务直通 done”的路径。 |
 | 内部任务已按授权实际合并且验证通过 | 登记实际 `merge_sha` ref，再从 in_progress transition 到 done。 |
 | 项目要求目标运行环境验收 | 验证后登记 `acceptance_run`，再进入 staging-verified；`waiting_on` 按实际依赖选 decision/prod/observe/external。 |
-| 需要真人验收或决定 | 按下节使用 ask；进入 decision 等待前必须已有未关闭的关联 ask。 |
+| 需要真人验收或决定 | 按下节使用 ask。 |
 | 还在等观察窗口、外部动作或部署 | 保留等待态与下一次核查条件；时间经过或取得授权不能代替动作与效果证据。 |
 
 示例（先替换已核实的库、卡号与 SHA）：
@@ -47,6 +47,5 @@ nawaban --db <目标库> handoff <ID> --outcome handed_off \
 ```
 
 - outcome 选真实结果。`completed` 仅用于 staging-verified/done，且不表示已经真人验收；仍待合并/执行时用 `handed_off`，有具体阻塞用 `blocked`。
-- `--artifact` 指向已保存且实际存在的文件；`--now` 必填。
 - handoff 结束本 session 的认领记录，不自动推进到 done。明确放弃 owner 时加 `--release`；它会让 claimed/in_progress 回到 open，其他状态保留而清 owner。
 - 完成授权范围内的工作后，按 [nawaban-wrapup](../../nawaban-wrapup/SKILL.md) 查遗漏。恢复身份见 [运行入口](runtime.md)。

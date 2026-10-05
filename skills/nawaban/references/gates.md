@@ -10,8 +10,7 @@
 | claim 停线 | 本项目 main CI 红着，且变红后没有未完成的 regresses 修复卡 | `nawaban blame <失败的文件>` 找到被弄坏的 done 卡，建修复卡并 `link <修复卡> <被弄坏的卡> --kind regresses --note "<哪次合并>"`；与回退无关的红(基础设施、偶发)才用带理由的 override |
 | start | 卡不是 claimed 或 owner 不匹配 | 核对是否已开始、被回收或由其他 owner 持有，按真实状态续做 |
 | staging-verified / done | 缺证据或有效决策、状态转换不合法 | 按 [交付与收尾](cards.md) 补真实证据，参数用 CLI 帮助确认 |
-| PR helper 删除行确认 | 变更相对基线包含删除行 | 检查每项删除属于本次变更，再使用脚本确认参数；陈旧基线先对齐 |
 
 库层校验由 CLI 实施，编辑与分支保护需要调用方实际安装对应 hooks。touches 冲突为 WARN；旧 grill/design/flag、Markdown done-gate 不属于现行 DB 保护。
 
-源码依据：`$NAWABAN_HOME/nawaban/db.py`、`nawaban/guard.py` 与 `hooks/foreman_branch_gate.py`；相关回归见项目 `tests/test_nawaban_db.py`、`test_nawaban_guard.py`、`test_branch_gate.py`。只检查实际遇到的闸，不需要为了普通改动遍历全部实现。
+源码依据：`$NAWABAN_HOME/nawaban/db.py`、`nawaban/guard.py` 与 `hooks/foreman_branch_gate.py`；相关回归见项目 `tests/upstream/` 下的 `test_workos_db.py`、`test_workos_guard.py`、`test_branch_gate.py`。只检查实际遇到的闸，不需要为了普通改动遍历全部实现。
