@@ -67,13 +67,13 @@ optional fields. Task titles and decision actions remain available. Preferences 
 「筛选」收纳模块、等待原因和更新日期；「显示」调整排序、密度、任务编号/模块字段和看板列。
 收起列不会更改任务，列表仍展示全部符合筛选的任务。显示偏好同时保存到本地与 URL，URL 显式值优先。
 
-### Optional module suggestions
+### Automatic modules
 
-With `TYPESAFE_API_KEY` set, `create` without `--epic` can print one module suggestion to stderr after the task has been committed. It never fills `epic`. An explicit module or a module inherited through `--split-from` skips this suggestion.
+With `TYPESAFE_API_KEY` set, `create` without `--epic` asks for a module after the task has been committed. A confident answer fills the empty `epic` and records the score in a `meta` note on the task; `nawaban remodule` corrects a wrong one. An explicit module or a module inherited through `--split-from` skips the request.
 
-The request uses TypeSafe Choice with all existing module names, up to three recent distinct task titles per module, and a “none” option. It sends the new title, the first 4,000 characters of its background, and up to ten success criteria (500 characters each). It uses one extra request, without retries. A unique module probability of at least 0.9 is required; missing credentials, unavailable or malformed responses, uncertainty, and empty catalogs remain silent. Boards with more than 254 modules skip the request to stay within the [255-option Choice limit](https://docs.typesafe.ai/primitives/choice).
+The request uses TypeSafe Choice with all existing module names, up to three recent distinct task titles per module, and a “none” option. It sends the new title, the first 4,000 characters of its background, and up to ten success criteria (500 characters each). It uses one extra request, without retries. A unique module probability of at least 0.9 is required; missing credentials, unavailable or malformed responses, uncertainty, and empty catalogs leave the module empty. Boards with more than 254 modules skip the request to stay within the [255-option Choice limit](https://docs.typesafe.ai/primitives/choice).
 
-See [the evaluation report](docs/epic-hint-evaluation.md) for coverage, error rates, timing, and reproduction instructions. Suggestions are fallible; choose the module yourself.
+See [the evaluation report](docs/epic-hint-evaluation.md) for coverage, error rates, timing, and reproduction instructions. About one in six held-out answers above the threshold named the wrong module, so pass `--epic` when you already know it.
 
 ### Optional prerequisite suggestions
 

@@ -236,19 +236,22 @@ def _epic_choice(answer, question: dict) -> tuple[str, float] | None:
     return top, ps[top]
 
 
-def _epic_hint(path: Path, task_id: str, title: str, context: str | None,
-               success: list[str] | None) -> str | None:
-    """Read after create commits; never assign a module or retry the write."""
+def _epic_pick(path: Path, task_id: str, title: str, context: str | None,
+               success: list[str] | None) -> tuple[str, float] | None:
+    """Read after create commits; return (module, score) when Jev is confident enough."""
     if not os.environ.get("TYPESAFE_API_KEY"):
         return None
     try:
         with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro",
                                      uri=True, timeout=0.1)) as con:
             # A split task may already have inherited its parent's module.
-            if con.execute("SELECT epic FROM tasks WHERE id=?", (task_id,)).fetchone()[0]:
+            epic, project = con.execute("SELECT epic,project FROM tasks WHERE id=?",
+                                        (task_id,)).fetchone()
+            if epic:
                 return None
-            rows = con.execute("SELECT epic,title FROM tasks WHERE id != ? "
-                               "ORDER BY created_at DESC,id", (task_id,)).fetchall()
+            # Boards share one database; another project's modules are never candidates.
+            rows = con.execute("SELECT epic,title FROM tasks WHERE id != ? AND project IS ? "
+                               "ORDER BY created_at DESC,id", (task_id, project)).fetchall()
     except sqlite3.Error:  # Optional read failure must not undo/report a failed create.
         return None
     question, names = _epic_question(rows)
@@ -258,8 +261,7 @@ def _epic_hint(path: Path, task_id: str, title: str, context: str | None,
     result = _epic_choice(answer, question)
     if result is None or result[0] == "none" or result[1] < _EPIC_HINT_THRESHOLD:
         return None
-    name = json.dumps(names[result[0]], ensure_ascii=False)
-    return f"模块建议：这张卡可能属于 {name}（判分 {result[1]:.2f}）；仅提示，未自动归组。"
+    return names[result[0]], result[1]
 
 
 def _default_project(path: Path, split_from: str | None) -> str | None:
@@ -318,21 +320,22 @@ def _dependency_hint(path: Path, task_id: str) -> str | None:
 
 
 def _create_hints(path: Path, task_id: str, title: str, context: str | None,
-                  success: list[str] | None, *, suggest_epic: bool) -> list[str]:
+                  success: list[str] | None, *, suggest_epic: bool
+                  ) -> tuple[list[str], tuple[str, float] | None]:
     """Bound all post-commit advisory reads and requests to one five-second wait."""
     if not os.environ.get("TYPESAFE_API_KEY"):
-        return []
+        return [], None
     # Reserve 500 ms for scheduler wakeup, return and rendering within the budget.
     deadline = time.monotonic() + max(0, _HINT_DEADLINE_S - .5)
-    hints = []
+    hints, pick = [], []
 
     def collect():
         try:
             hints.extend(_hints(title, success))
             if time.monotonic() >= deadline:
                 return
-            if suggest_epic and (hint := _epic_hint(path, task_id, title, context, success)):
-                hints.append(hint)
+            if suggest_epic and (found := _epic_pick(path, task_id, title, context, success)):
+                pick.append(found)
             if time.monotonic() >= deadline:
                 return
             if hint := _dependency_hint(path, task_id):
@@ -345,7 +348,20 @@ def _create_hints(path: Path, task_id: str, title: str, context: str | None,
     worker = threading.Thread(target=collect, daemon=True)
     worker.start()
     worker.join(max(0, deadline - time.monotonic()))
-    return list(hints)
+    return list(hints), (pick[0] if pick else None)
+
+
+def _assign_epic(path: Path, task_id: str, pick: tuple[str, float], owner: str,
+                 sid: str | None) -> str | None:
+    """Fill the empty module on the main thread; a lost race or a DB locked past 0.5 s keeps it empty."""
+    name, score = pick
+    try:
+        db.set_meta(path, task_id, fields={"epic": name}, author=owner, session_id=sid,
+                    note=f"Jev 判分 {score:.2f} 自动归组", busy_ms=500)
+    except (db.NawabanError, sqlite3.Error):
+        return None
+    return (f"✓ 模块 {json.dumps(name, ensure_ascii=False)}（Jev 判分 {score:.2f} 自动归组；"
+            f"不对就 nawaban remodule {task_id} --epic <模块> --reason <理由>）")
 
 
 
@@ -656,8 +672,11 @@ def main(argv: list[str] | None = None) -> int:
                            split_from=a.split_from,
                            project=a.project or _default_project(path, a.split_from))
             print(f"✓ create {a.task_id}", flush=True)
-            for hint in _create_hints(path, a.task_id, a.title, context, _j(a.success),
-                                      suggest_epic=a.epic is None):
+            hints, pick = _create_hints(path, a.task_id, a.title, context, _j(a.success),
+                                        suggest_epic=a.epic is None)
+            if pick and (assigned := _assign_epic(path, a.task_id, pick, owner, sid)):
+                print(assigned)
+            for hint in hints:
                 print("⚠ " + hint, file=sys.stderr)
         elif a.verb == "claim":
             owner, sid = _identity(need_session=True)

@@ -576,16 +576,10 @@ def _judge_target(payload: dict, owner: str, target: str) -> tuple[int, str]:
     ):
         tool = payload.get("tool_name") or "Edit"
         return 2, (
-            "🚫 worktree gate:共享主工作区禁止写文件\n"
-            f"   拦下:{tool} → {target_rel}\n"
-            "   主树 cwd 是所有窗口共用的。写在这里的改动:\n"
-            "     · 别的窗口 git pull 会被它堵死\n"
-            "     · 没人知道它是谁的活,最后只能进 stash 堆\n"
-            "     (2026-08-20 实测:主树积了 220 个文件 + 36 个 stash)\n"
-            "   ✅ 开 worktree(隔离的,里面随便写):\n"
-            "      git worktree add .claude/worktrees/<短名> -b <分支名>\n"
-            "      之后用绝对路径 Edit 那棵树里的文件\n"
-            "   真要写主树(极罕):touch .foreman/ALLOW_MAINTREE_EDIT(用完删掉)\n"
+            f"🚫 worktree gate:{tool} → {target_rel} 在共享主工作区,"
+            "其他窗口也在用这棵树,未提交的改动会堵住它们的 git pull\n"
+            "   在本卡 worktree 里改:git worktree add .claude/worktrees/<短名> -b <分支名>\n"
+            "   确需写主树:touch .foreman/ALLOW_MAINTREE_EDIT(用完删掉)\n"
         )
 
     return 0, ""  # touches 锁退役(foreman simplify regression):占用只在 claim 时 WARN

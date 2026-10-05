@@ -76,18 +76,11 @@ if not hits:
     sys.exit(0)
 
 cur = git("rev-parse", "--abbrev-ref", "HEAD") or "?"
-print("🚫 branch gate:共享主工作区禁止切/开分支(agent-foreman 铁律 · 被拦看 references/gates.md)", file=sys.stderr)
-for h in hits:
-    print(f"   拦下:{h}", file=sys.stderr)
 print(
-    f"   主树 cwd 是所有窗口共用的,切它会把别的窗口一起拽到新分支(当前 {cur})——\n"
-    "   那些窗口不会察觉,下一次 Edit 就写在错的分支上。\n"
-    "   ✅ 改用 worktree(隔离的,里面随便切):\n"
-    "      git worktree add .claude/worktrees/<短名> -b <分支名>\n"
-    "      # 已有分支:git worktree add .claude/worktrees/<短名> <分支名>\n"
-    "      之后所有命令带 -C .claude/worktrees/<短名>,或直接在里面用绝对路径 Edit。\n"
-    "   完事清理:git worktree remove .claude/worktrees/<短名>(已提交的都在共享 .git 里,不会丢)\n"
-    "   仅当你是在把被切歪的主树**还原**回原分支时,加前缀:NAWABAN_ALLOW_BRANCH_SWITCH=1 <原命令>",
+    f"🚫 branch gate:{' · '.join(hits)} 会切走共享主工作区的 HEAD(当前 {cur}),"
+    "其他窗口会跟着写到错的分支\n"
+    "   改用 worktree:git worktree add .claude/worktrees/<短名> -b <分支名>(已有分支去掉 -b)\n"
+    "   只是把主树还原回原分支:加前缀 NAWABAN_ALLOW_BRANCH_SWITCH=1",
     file=sys.stderr,
 )
 sys.exit(2)
