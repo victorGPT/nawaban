@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t, useLocale } from "@/i18n";
+import { CaptureSource } from "@/components/CaptureSource";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,14 +9,6 @@ import { fetchCaptures, postCapture, newCaptureId, CaptureError, type Capture, t
 import type { Project } from "@/lib/api";
 import { useReadOnlyData } from "@/lib/use-read-only-data";
 import { ago } from "@/lib/utils";
-
-export function CaptureSource({ item }: { item: Capture }) {
-  useLocale();
-  return <div className="flex flex-col gap-2">
-    <code className="text-caption-1-regular text-text-tertiary">{item.id}</code>
-    <p className="whitespace-pre-wrap break-words text-body-regular text-text-primary">{item.content}</p>
-  </div>;
-}
 
 export function CaptureView({ project, query, onSelectTask }: {
   project: Project; query: string; onSelectTask: (id: string) => void;

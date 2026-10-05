@@ -398,6 +398,8 @@ input, textarea { caret-color: var(--color-accent-500); }
 .nawaban-modal {
   width: min(560px, 100%);
   max-height: calc(100dvh - 24px);
+  /* DialogContent is a grid; an auto row lets the body outgrow the modal and get clipped instead of scrolling. */
+  grid-template-rows: minmax(0, 1fr);
   border: 1px solid var(--line);
   border-radius: 24px;
   overflow: hidden;
