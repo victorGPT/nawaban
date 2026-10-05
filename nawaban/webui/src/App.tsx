@@ -15,7 +15,7 @@ import { NavItem } from "@/components/application/navigation/nav-item";
 import { ThemeToggle } from "@/components/application/theme/theme-toggle";
 import { BoardFilterBar } from "@/components/BoardFilterBar";
 import { BoardKanban } from "@/components/BoardKanban";
-import { ModulesView } from "@/components/ModulesView";
+import { ModulesView } from "@/views/modules";
 import { CaptureView } from "@/components/CaptureView";
 import { InboxView } from "@/views/inbox";
 import { TaskDetailSheet } from "@/views/task-detail";

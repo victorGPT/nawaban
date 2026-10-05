@@ -27,7 +27,7 @@ export function donePct(c: Counts) {
   return tot ? Math.round((100 * c.done) / tot) : 0;
 }
 
-type EpicGroup = { epic: string; tasks: ModuleTask[]; counts: Counts };
+export type EpicGroup = { epic: string; tasks: ModuleTask[]; counts: Counts };
 
 export function groupByEpic(tasks: ModuleTask[]): EpicGroup[] {
   const m = new Map<string, ModuleTask[]>();
