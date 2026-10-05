@@ -244,13 +244,13 @@ _DIR_CHANGE = re.compile(r"\b(?:cd|pushd|popd)\b")
 _UNSURE = object()
 
 
-def _cd_dest(toks: list[str], prev: list[str], cur: Path | None, base: Path):
-    """Where a pipeline that is exactly `cd <literal>` lands, or _UNSURE.
+def _cd_dest(toks: list[str], prev: list[str], cur: Path, fresh: bool, base: Path):
+    """(directory, fresh) for a pipeline that is exactly `cd <literal>`, or _UNSURE.
 
-    None means a worktree the previous `&&` step has just created: it is not on
-    disk yet, so it cannot be resolved, but it cannot be the main tree either.
+    fresh marks a worktree the previous `&&` step has just created: it is not on
+    disk yet, so nothing under it can be the main tree.
     """
-    if len(toks) != 2 or toks[0] != "cd" or cur is None:
+    if len(toks) != 2 or toks[0] != "cd" or fresh:
         return _UNSURE
     arg = toks[1]
     if "\x00" in arg or not arg or arg[0] in "-~" or any(c in arg for c in "$`*?[<>"):
@@ -259,16 +259,17 @@ def _cd_dest(toks: list[str], prev: list[str], cur: Path | None, base: Path):
         return _UNSURE  # bash 会先去 CDPATH 里找
     dest = (cur / arg).resolve()
     if dest.is_dir():
-        return dest
+        return dest, False
     if cur == base and prev[:3] == ["git", "worktree", "add"] and arg in prev[3:]:
-        return None
+        return dest, True
     return _UNSURE
 
 
 def _bash_writes(cmd: str, base: Path) -> list[str]:
     """Write targets as absolute paths. A relative target follows a `cd` only when
     the shell is certain to be there: `cd <literal dir> && …` (误拦实测:cd 进工位再写
-    相对路径被算到主树). Anything less certain is judged against `base`, as before.
+    相对路径被算到主树). When it is not certain, the target is judged against every
+    directory the shell could be in: `base`, as before, and each `cd` seen so far.
     """
     quoted: list[str] = []
 
@@ -280,7 +281,7 @@ def _bash_writes(cmd: str, base: Path) -> list[str]:
         m = _QUOTE_MARK.fullmatch(tok)
         return quoted[int(m[1])] if m else tok
 
-    def targets(text: str, cur: Path | None) -> list[str]:
+    def targets(text: str, cur: Path, fresh: bool = False) -> list[str]:
         found = []
         for t in _bash_write_targets(_QUOTE_MARK.sub(" ", text)):
             p = Path(t)
@@ -291,9 +292,9 @@ def _bash_writes(cmd: str, base: Path) -> list[str]:
                     pass
             if p.is_absolute():
                 found.append(str(p))
-            elif cur is None and ".." not in p.parts:
+            elif fresh and ".." not in p.parts:
                 continue
-            elif cur is None or cur == base:
+            elif cur == base:
                 found.append(str(base / p))
             else:
                 found.append(str((cur / p).resolve()))
@@ -306,27 +307,29 @@ def _bash_writes(cmd: str, base: Path) -> list[str]:
     if re.search(r"[\\(){}`]|\|\||CDPATH", body):  # 转义、子 shell、命令组、||、改 CDPATH:不跟 cd
         return targets(body, base)
     out: list[str] = []
-    moved = False  # 前面的命令列表切过目录:后面的起点不再是 base
+    been: list[Path] = []  # 跟过的每个 cd 去向
+    moved = False  # 前面的命令列表切过目录:后面的起点不再确定是 base
     for lst in _LISTS.split(body):
-        cur: Path | None = base
+        cur, fresh = base, False
         prev: list[str] = []
         followed = 0
-        plan: list[tuple[str, Path | None]] = []
+        plan: list[tuple[str, Path, bool]] = []
         for pipeline in lst.split("&&"):
             toks = [unquote(t) for t in pipeline.split()]
-            dest = _cd_dest(toks, prev, cur, base)
+            dest = _cd_dest(toks, prev, cur, fresh, base)
             prev = toks
             if dest is _UNSURE:
-                plan.append((pipeline, cur))
+                plan.append((pipeline, cur, fresh))
             else:
-                cur, followed = dest, followed + 1
+                (cur, fresh), followed = dest, followed + 1
+                been.append(cur)
         # 引号里的内容也算:builtin "cd" x 一样切目录
         changes = len(_DIR_CHANGE.findall(_QUOTE_MARK.sub(lambda m: " " + quoted[int(m[1])] + " ", lst)))
         if moved or changes != followed:
-            plan = [(lst, base)]  # 起点或去向拿不准
+            plan = [(lst, d, False) for d in (base, *been)]
         moved = moved or changes > 0
-        for text, where in plan:
-            out += targets(text, where)
+        for text, where, is_fresh in plan:
+            out += targets(text, where, is_fresh)
     return out
 
 
