@@ -32,6 +32,9 @@ def judge(cmd):
 
 code, msg = judge("cat > src/x.py <<'EOF'\nif a > b: pass\nEOF")
 assert code == 2 and "worktree gate" in msg, (code, msg)
+assert "绝对路径" in msg, msg                                        # Bash 被拦时说明怎么写进工位
+assert "绝对路径" not in g.judge({"tool_name": "Write", "cwd": str(repo),
+                                   "tool_input": {"file_path": str(repo / "src/x.py")}})[1]
 assert judge("cat > %s/out.txt <<'EOF'\nhi\nEOF" % root)[0] == 0      # 仓外
 assert judge('echo "a > b"')[0] == 0
 assert judge("grep '>' README.md")[0] == 0

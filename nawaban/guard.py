@@ -454,7 +454,9 @@ def _judge_target(payload: dict, owner: str, target: str) -> tuple[int, str]:
             f"🚫 worktree gate:{tool} → {target_rel} 在共享主工作区,"
             "其他窗口也在用这棵树,未提交的改动会堵住它们的 git pull\n"
             "   在本卡 worktree 里改:git worktree add .claude/worktrees/<短名> -b <分支名>\n"
-            "   确需写主树:touch .foreman/ALLOW_MAINTREE_EDIT(用完删掉)\n"
+            + ("   已经在 worktree 里?这道闸不跟命令里的 cd,相对路径一律按会话目录算:"
+               "把写入目标换成 worktree 内的绝对路径\n" if tool == "Bash" else "")
+            + "   确需写主树:touch .foreman/ALLOW_MAINTREE_EDIT(用完删掉)\n"
         )
 
     return 0, ""  # touches 锁退役(foreman simplify regression):占用只在 claim 时 WARN
