@@ -238,46 +238,89 @@ def _bash_write_targets(cmd: str) -> list[str]:
 
 
 _QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
-_SEGMENTS = re.compile(r"&&|\|\||[\n;|]|(?<![>&])&(?![>&])")
+_QUOTE_MARK = re.compile(r"\x00(\d+)\x00")
+_LISTS = re.compile(r"[\n;]|(?<![>&])&(?![>&])")
+_DIR_CHANGE = re.compile(r"\b(?:cd|pushd|popd)\b")
+_UNSURE = object()
+
+
+def _cd_dest(toks: list[str], prev: list[str], cur: Path | None, base: Path):
+    """Where a pipeline that is exactly `cd <literal>` lands, or _UNSURE.
+
+    None means a worktree the previous `&&` step has just created: it is not on
+    disk yet, so it cannot be resolved, but it cannot be the main tree either.
+    """
+    if len(toks) != 2 or toks[0] != "cd" or cur is None:
+        return _UNSURE
+    arg = toks[1]
+    if "\x00" in arg or not arg or arg[0] in "-~" or any(c in arg for c in "$`*?[<>"):
+        return _UNSURE
+    dest = (cur / arg).resolve()
+    if dest.is_dir():
+        return dest
+    if cur == base and prev[:3] == ["git", "worktree", "add"] and arg in prev[3:]:
+        return None
+    return _UNSURE
 
 
 def _bash_writes(cmd: str, base: Path) -> list[str]:
-    """Write targets as absolute paths, each resolved against the directory the
-    command has `cd`'d into by then (误拦实测:cd 进工位再写相对路径被算到主树)。
-
-    A relative target is dropped when that directory cannot be known: an
-    unexpanded variable, or a worktree the same command is only now creating.
+    """Write targets as absolute paths. A relative target follows a `cd` only when
+    the shell is certain to be there: `cd <literal dir> && …` (误拦实测:cd 进工位再写
+    相对路径被算到主树). Anything less certain is judged against `base`, as before.
     """
     quoted: list[str] = []
 
     def keep(m: re.Match) -> str:
         quoted.append(m.group(0)[1:-1])
-        return f" \x00{len(quoted) - 1}\x00 "
+        return f"\x00{len(quoted) - 1}\x00"
+
+    def unquote(tok: str) -> str:
+        m = _QUOTE_MARK.fullmatch(tok)
+        return quoted[int(m[1])] if m else tok
+
+    def targets(text: str, cur: Path | None) -> list[str]:
+        found = []
+        for t in _bash_write_targets(_QUOTE_MARK.sub(" ", text)):
+            p = Path(t)
+            if t.startswith("~"):
+                try:
+                    p = p.expanduser()
+                except RuntimeError:  # ~nosuchuser
+                    pass
+            if p.is_absolute():
+                found.append(str(p))
+            elif cur is None and ".." not in p.parts:
+                continue
+            elif cur is None or cur == base:
+                found.append(str(base / p))
+            else:
+                found.append(str((cur / p).resolve()))
+        return found
 
     body = _QUOTED.sub(keep, _strip_heredoc_bodies(cmd))
-    cur: Path | None = base
+    if re.search(r"[\\(){}`]|\|\|", body):  # 转义、子 shell、命令组、||:不跟 cd
+        return targets(body, base)
     out: list[str] = []
-    # ponytail: 顺序扫 cd,不认子 shell 作用域(括号里的 cd 会被当成一直生效)
-    for seg in _SEGMENTS.split(body):
-        toks = seg.split()
-        if toks[:1] == ["cd"]:
-            arg = toks[1] if len(toks) > 1 else "~"
-            if m := re.fullmatch(r"\x00(\d+)\x00", arg):
-                arg = quoted[int(m[1])]
-            dest = Path(arg).expanduser()
-            if "$" in arg or arg.startswith("-") or (cur is None and not dest.is_absolute()):
-                cur = None
-                continue
-            cur = dest if dest.is_absolute() else cur / dest
-            if not cur.exists() and "worktree add" in body:
-                cur = None
-            continue
-        for t in _bash_write_targets(re.sub(r"\x00\d+\x00", " ", seg)):
-            p = Path(t).expanduser()
-            if p.is_absolute():
-                out.append(str(p))
-            elif cur is not None:
-                out.append(str(cur / p))
+    moved = False  # 前面的命令列表切过目录:后面的起点不再是 base
+    for lst in _LISTS.split(body):
+        cur: Path | None = base
+        prev: list[str] = []
+        followed = 0
+        plan: list[tuple[str, Path | None]] = []
+        for pipeline in lst.split("&&"):
+            toks = [unquote(t) for t in pipeline.split()]
+            dest = _cd_dest(toks, prev, cur, base)
+            prev = toks
+            if dest is _UNSURE:
+                plan.append((pipeline, cur))
+            else:
+                cur, followed = dest, followed + 1
+        changes = len(_DIR_CHANGE.findall(_QUOTE_MARK.sub(" ", lst)))
+        if moved or changes != followed:
+            plan = [(lst, base)]  # 起点或去向拿不准
+        moved = moved or changes > 0
+        for text, where in plan:
+            out += targets(text, where)
     return out
 
 
