@@ -237,6 +237,50 @@ def _bash_write_targets(cmd: str) -> list[str]:
     return out
 
 
+_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
+_SEGMENTS = re.compile(r"&&|\|\||[\n;|]|(?<![>&])&(?![>&])")
+
+
+def _bash_writes(cmd: str, base: Path) -> list[str]:
+    """Write targets as absolute paths, each resolved against the directory the
+    command has `cd`'d into by then (误拦实测:cd 进工位再写相对路径被算到主树)。
+
+    A relative target is dropped when that directory cannot be known: an
+    unexpanded variable, or a worktree the same command is only now creating.
+    """
+    quoted: list[str] = []
+
+    def keep(m: re.Match) -> str:
+        quoted.append(m.group(0)[1:-1])
+        return f" \x00{len(quoted) - 1}\x00 "
+
+    body = _QUOTED.sub(keep, _strip_heredoc_bodies(cmd))
+    cur: Path | None = base
+    out: list[str] = []
+    # ponytail: 顺序扫 cd,不认子 shell 作用域(括号里的 cd 会被当成一直生效)
+    for seg in _SEGMENTS.split(body):
+        toks = seg.split()
+        if toks[:1] == ["cd"]:
+            arg = toks[1] if len(toks) > 1 else "~"
+            if m := re.fullmatch(r"\x00(\d+)\x00", arg):
+                arg = quoted[int(m[1])]
+            dest = Path(arg).expanduser()
+            if "$" in arg or arg.startswith("-") or (cur is None and not dest.is_absolute()):
+                cur = None
+                continue
+            cur = dest if dest.is_absolute() else cur / dest
+            if not cur.exists() and "worktree add" in body:
+                cur = None
+            continue
+        for t in _bash_write_targets(re.sub(r"\x00\d+\x00", " ", seg)):
+            p = Path(t).expanduser()
+            if p.is_absolute():
+                out.append(str(p))
+            elif cur is not None:
+                out.append(str(cur / p))
+    return out
+
+
 class Unverified(Exception):
     """The external command or GitHub response cannot establish merge safety."""
 
@@ -417,11 +461,8 @@ def judge(payload: dict) -> tuple[int, str]:
         code, msg = judge_merge(tool_input.get("command") or "", str(base))
         if code == 2:
             return code, msg
-        for t in _bash_write_targets(tool_input.get("command") or ""):
-            # 相对路径按 payload cwd 落地 —— enclosing_tree 靠 parents 上溯,相对路径走不到树根
-            code, msg = _judge_target(payload, owner, str(Path(t).expanduser())
-                                      if Path(t).expanduser().is_absolute()
-                                      else str(base / t))
+        for t in _bash_writes(tool_input.get("command") or "", base):
+            code, msg = _judge_target(payload, owner, t)
             if code == 2:
                 return code, msg
         return 0, ""

@@ -40,3 +40,20 @@ assert judge("ls -l > /dev/null")[0] == 0
 assert g.judge({"tool_name": "Write", "cwd": str(repo),
                 "tool_input": {"file_path": str(repo / "src/x.py")}})[0] == 2
 print("tripwire OK")
+
+# cd 之后的相对路径按切过去的目录算,不按会话目录算
+subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                "commit", "-q", "--allow-empty", "-m", "init"], check=True)
+wt = repo / ".claude/worktrees/t"
+subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(wt), "-b", "t"], check=True)
+assert judge("cd .claude/worktrees/t && echo x >> NOTES.md")[0] == 0           # 写在工位里
+assert judge('cd "%s" && echo x >> NOTES.md' % wt)[0] == 0                       # 带引号的绝对路径
+assert judge("cd .claude/worktrees/t; printf x | tee NOTES.md")[0] == 0
+assert judge("git worktree add .claude/worktrees/n -b n && cd .claude/worktrees/n && echo x > f")[0] == 0  # 工位还没建
+assert judge("cd .claude/worktrees/t && cd %s && echo x >> NOTES.md" % repo)[0] == 2   # 又切回主树
+assert judge("cd src && echo x > y.py")[0] == 2                                   # 主树子目录
+assert judge("cd .claude/worktrees/t && echo x > %s/NOTES.md" % repo)[0] == 2      # 绝对路径指回主树
+assert judge("mkdir new && cd new && echo x > f")[0] == 2                         # 新目录仍在主树
+assert judge('cd "$WT" && echo x > f')[0] == 0                                    # 去向解析不出,不猜
+assert judge("echo x 2>&1 >> NOTES.md")[0] == 2
+print("tripwire cd OK")
