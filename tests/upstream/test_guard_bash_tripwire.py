@@ -90,7 +90,11 @@ for unsure in (
     "cd .claude/worktrees/t && echo $X > f",                                   # 白名单之外的语法一律按老办法
     "cd .claude/worktrees/t && echo x > *.md",
     '"alias" cd=true\ncd .claude/worktrees/t && echo x > f',
-    "cd lnk && cd .. && echo x > f",                 # 符号链接 + ..:bash 默认按逻辑路径退回主树
+    "cd lnk && cd .. && echo x > f",
+    "printf x |\ncd .claude/worktrees/t && echo x > f",   # | 后换行是续行,cd 在管线子进程里
+    "true &&\ncd .claude/worktrees/t; echo x > f",
+    "cd .claude/worktrees/t && echo x > ~-/f",             # ~- 展开成上一个目录,即主树
+    "if false; then\ncd .claude/worktrees/t && true\nfi\necho x > f",   # 保留字:不跟                 # 符号链接 + ..:bash 默认按逻辑路径退回主树
     "export CDPATH=%s && cd .claude/worktrees/t && cd src && echo x > f" % repo,                                    # 输入自带占位符字节
 ):
     assert judge(unsure)[0] == 2, unsure

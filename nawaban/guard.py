@@ -244,10 +244,11 @@ _DIR_CHANGE = re.compile(r"\b(?:cd|pushd|popd)\b")
 _UNSURE = object()
 # 跟 cd 的前提是整条命令落在这个小语法里(白名单):字面词、&& ; | 换行、> >>、整词引号。
 # 之外的一切 —— 变量、通配、转义、子 shell、here-doc、|| —— 都按会话目录判,和不跟 cd 时一样。
-_PLAIN = re.compile(r"[A-Za-z0-9_./:=,@%+~\- \t\n;&|>\x00]*")
+_PLAIN = re.compile(r"[A-Za-z0-9_./:=,@%+\- \t\n;&|>\x00]*")
 _WHOLE_QUOTE = re.compile(r"(?<![^\s;&|>])\x00\d+\x00(?![^\s;&|>])")
-# 会改变 cd 含义的词(整词,去引号后比):出现即不跟。白名单语法保证了按空白切出的就是 shell 看到的词。
-_STATEFUL = frozenset("alias unalias shopt source . eval exec builtin command enable function trap".split())
+# 会改变 cd 含义的词和控制结构保留字(整词,去引号后比):出现即不跟。白名单语法保证了按空白切出的就是 shell 看到的词。
+_STATEFUL = frozenset("alias unalias shopt source . eval exec builtin command enable function trap"
+                      " if then elif else fi while until do done for in case esac select time coproc".split())
 _STATEFUL_VAR = re.compile(r"(?:CDPATH|BASH_ENV|ENV)=")
 
 
@@ -335,6 +336,7 @@ def _followed_writes(cmd: str, base: Path) -> list[str]:
     body = _QUOTED.sub(keep, _strip_heredoc_bodies(cmd))
     words = [unquote(w) for w in re.split(r"[\s;&|>]+", body)]
     if (not _PLAIN.fullmatch(body) or "||" in body
+            or re.search(r"[|&]\s*\n", body)  # 行尾的 | 或 && 是续行,换行不是命令边界
             or len(_WHOLE_QUOTE.findall(body)) != len(quoted)
             or any(w in _STATEFUL or _STATEFUL_VAR.match(w) for w in words)):
         return _session_writes(cmd, base)
