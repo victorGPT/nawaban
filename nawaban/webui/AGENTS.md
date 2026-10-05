@@ -14,7 +14,7 @@ Inside the app layer, a screen is split by who talks to the backend:
 - `src/components/<name>/` (for example `task-detail/`, `disclosure/`) is presentational: data and callbacks arrive as props, one section per file, no fetch and no `@/lib/api` calls. It may import other `src/components/` files, `@/components/ui/*` and pure helpers from `src/lib/`, never `src/views/`.
 - `src/components/ui/` imports neither of the above.
 
-Task detail is the first screen on this split; the other top-level `src/components/*View.tsx` files still fetch for themselves.
+Task detail, inbox and modules are on this split; the top-level `src/components/BoardKanban.tsx` and `src/components/CaptureView.tsx` still fetch for themselves.
 
 `src/lib/component-origin.test.ts` enforces layers 1 and 3: a `@base-ui/react*` import outside `src/components/ui/` fails, and so does a reappearance of the retired `src/components/base/` or `src/components/foundations/`. It also fails on a native control (`<button>`, `<input>`, `<a>`, …) anywhere under `src/views/` or `src/components/`, at any depth, except the generated `ui/` and the grandfathered `application/`. And it fails when a file in a feature folder `src/components/<name>/` (again excluding `ui/` and `application/`) imports or re-exports `@/lib/api` or anything under `src/views/`, by alias or relative path; top-level `src/components/*.tsx` files are not held to that rule yet.
 

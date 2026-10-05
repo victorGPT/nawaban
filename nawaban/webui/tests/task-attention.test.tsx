@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { TaskCard, type TaskCardData } from "@/components/TaskCard";
-import { ModulesView } from "@/components/ModulesView";
+import { ModulesView } from "@/views/modules";
 import { fetchModules } from "@/lib/api";
 import { setLocale } from "@/i18n";
 import { TASK_STALE_THRESHOLDS as thresholds } from "@/lib/task-staleness";
