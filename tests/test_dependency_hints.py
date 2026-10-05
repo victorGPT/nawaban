@@ -31,7 +31,7 @@ def create(path, *extra):
                      "--project", "p", *extra])
 
 
-def test_commit_before_all_requests_and_no_automatic_writes(board, monkeypatch, capsys):
+def test_commit_before_all_requests_and_only_module_is_written(board, monkeypatch, capsys):
     seen = []
 
     def post(request):
@@ -53,11 +53,11 @@ def test_commit_before_all_requests_and_no_automatic_writes(board, monkeypatch, 
     monkeypatch.setattr(cli, "_post", post)
     assert create(board) == 0
     out = capsys.readouterr()
-    assert "✓ create NEW" in out.out
-    assert "模块建议" in out.err and "前置建议" in out.err and "PRE" in out.err
+    assert "✓ create NEW" in out.out and "✓ 模块" in out.out
+    assert "前置建议" in out.err and "PRE" in out.err
     assert len(seen) == 3
     with sqlite3.connect(board) as con:
-        assert con.execute("SELECT epic FROM tasks WHERE id='NEW'").fetchone() == (None,)
+        assert con.execute("SELECT epic FROM tasks WHERE id='NEW'").fetchone() == ("LOGIN",)
         assert con.execute("SELECT count(*) FROM task_edges").fetchone()[0] == 0
 
 
@@ -69,7 +69,7 @@ def test_threshold_and_explicit_module_still_allows_dependency_hint(board, monke
     out = capsys.readouterr()
     assert ("前置建议" in out.err) == shown
     assert ("--kind depends_on" in out.err) == shown
-    assert "模块建议" not in out.err
+    assert "✓ 模块" not in out.out
 
 
 @pytest.mark.parametrize("entry", ["source", "legacy_symlink", "plugin"])
@@ -189,7 +189,7 @@ def test_shared_budget_covers_module_and_stalled_dependency(board, monkeypatch, 
     blocked, release, finished = threading.Event(), threading.Event(), threading.Event()
     monkeypatch.setattr(cli, "_HINT_DEADLINE_S", 1.2)
     monkeypatch.setattr(cli, "_hints", lambda *args: ["completed title hint"])
-    monkeypatch.setattr(cli, "_epic_hint", lambda *args: time.sleep(.12) or "module hint")
+    monkeypatch.setattr(cli, "_epic_pick", lambda *args: time.sleep(.12) or ("LOGIN", .95))
 
     def stall(*args):
         blocked.set()
@@ -212,9 +212,9 @@ def test_shared_budget_covers_module_and_stalled_dependency(board, monkeypatch, 
         assert create(board) == 0
         assert blocked.is_set()
         assert .6 <= durations[0] < 1.2
-        output = capsys.readouterr().err
-        assert "completed title hint" in output and "module hint" in output
-        assert "late dependency hint" not in output
+        out = capsys.readouterr()
+        assert "completed title hint" in out.err and "✓ 模块" in out.out
+        assert "late dependency hint" not in out.err
         with sqlite3.connect(board) as con:
             assert con.execute("SELECT count(*) FROM tasks WHERE id='NEW'").fetchone()[0] == 1
     finally:
@@ -233,7 +233,7 @@ def test_expired_budget_does_not_start_more_requests(board, monkeypatch):
 
     monkeypatch.setattr(cli, "_hints", stall)
     calls = []
-    monkeypatch.setattr(cli, "_epic_hint", lambda *args: calls.append("module"))
+    monkeypatch.setattr(cli, "_epic_pick", lambda *args: calls.append("module"))
     monkeypatch.setattr(cli, "_dependency_hint", lambda *args: calls.append("dependency"))
     try:
         assert create(board) == 0

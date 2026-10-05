@@ -55,7 +55,7 @@ answers without new API calls. The change does not alter the 0.9 calibration
 counts. The original responses and both summaries are retained privately.
 
 Small sample sizes matter: four wrong suggestions are not a robust estimate
-of the future error rate. This evaluation supports an optional hint only.
+of the future error rate. This evaluation supports an optional hint only. Since NAWABAN-EPICAUTO-033 the same threshold fills an empty module directly, with the score recorded on the task, because print-only hints were ignored and new tasks stayed ungrouped; expect about one wrong module in six and correct it with `remodule`. The catalog is limited to the new task's project.
 
 ## Request size and latency
 

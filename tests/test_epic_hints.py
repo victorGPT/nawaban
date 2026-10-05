@@ -1,9 +1,10 @@
-"""Module recommendations are optional observations after a committed create."""
+"""A confident module answer fills an empty module after the create commits."""
 
 import io
 import json
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -32,7 +33,7 @@ def create(path, *extra):
     return cli.main(["--db", str(path), "create", "NEW", "--title", "用户能重新登录", *extra])
 
 
-def test_create_commits_before_request_and_only_hints(board, monkeypatch, capsys):
+def test_confident_answer_fills_module_with_scored_note(board, monkeypatch, capsys):
     def post(req):
         with sqlite3.connect(board) as con:
             assert con.execute("SELECT epic FROM tasks WHERE id='NEW'").fetchone() == (None,)
@@ -45,8 +46,76 @@ def test_create_commits_before_request_and_only_hints(board, monkeypatch, capsys
     assert create(board) == 0
     out = capsys.readouterr()
     assert "✓ create NEW" in out.out
-    assert len(out.err.splitlines()) == 1
-    assert '模块建议' in out.err and 'LOGIN' in out.err
+    assert '✓ 模块 "LOGIN"' in out.out and "0.99" in out.out
+    assert out.err == ""
+    with sqlite3.connect(board) as con:
+        assert con.execute("SELECT epic FROM tasks WHERE id='NEW'").fetchone() == ("LOGIN",)
+        assert con.execute("SELECT author, body FROM task_events WHERE task_id='NEW'"
+                           ).fetchall() == [("test", "meta 补填:epic=LOGIN · Jev 判分 0.99 自动归组")]
+
+
+def test_only_modules_of_the_same_project_are_candidates(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "shared.db"
+    db.init_db(path)
+    db.create_task(path, task_id="A", title="登录页面能打开", epic="LOGIN", project="app")
+    db.create_task(path, task_id="B", title="看板能拖卡", epic="BOARD", project="other")
+    monkeypatch.setenv("NAWABAN_OWNER", "test")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test")
+    monkeypatch.setattr(cli, "_hints", lambda *a, **k: [])
+    monkeypatch.setattr(cli, "_dependency_hint", lambda *a, **k: None)
+    sent = []
+    def post(req):
+        sent.append(json.loads(req.data)["questions"]["module"]["criteria"])
+        return reply({"module_0": 0.99, "none": 0.01})
+    monkeypatch.setattr(cli, "_post", post)
+    assert create(path, "--project", "app") == 0
+    assert [c["module"] for k, c in sent[0].items() if k != "none"] == ["LOGIN"]
+    monkeypatch.setattr(cli, "_post", pytest.fail)
+    assert cli.main(["--db", str(path), "create", "C", "--title", "报表能导出",
+                     "--project", "empty"]) == 0
+    with sqlite3.connect(path) as con:
+        assert con.execute("SELECT id, epic FROM tasks WHERE id IN ('NEW','C') ORDER BY id"
+                           ).fetchall() == [("C", None), ("NEW", "LOGIN")]
+
+
+def test_held_write_lock_does_not_stall_create(board, monkeypatch, capsys):
+    holder = sqlite3.connect(board, isolation_level=None, check_same_thread=False)
+    def post(req):
+        holder.execute("BEGIN IMMEDIATE")
+        return reply({"module_0": 0.99, "none": 0.01})
+    monkeypatch.setattr(cli, "_post", post)
+    try:
+        start = time.monotonic()
+        assert create(board) == 0
+        assert time.monotonic() - start < 3
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+    assert "✓ 模块" not in capsys.readouterr().out
+    with sqlite3.connect(board) as con:
+        assert con.execute("SELECT epic FROM tasks WHERE id='NEW'").fetchone() == (None,)
+
+
+def test_module_set_meanwhile_is_not_overwritten(board, monkeypatch, capsys):
+    def post(req):
+        with sqlite3.connect(board) as con:
+            con.execute("UPDATE tasks SET epic='OTHER' WHERE id='NEW'")
+        return reply({"module_0": 0.99, "none": 0.01})
+    monkeypatch.setattr(cli, "_post", post)
+    assert create(board) == 0
+    assert "✓ 模块" not in capsys.readouterr().out
+    with sqlite3.connect(board) as con:
+        assert con.execute("SELECT epic FROM tasks WHERE id='NEW'").fetchone() == ("OTHER",)
+
+
+def test_failed_module_write_never_fails_create(board, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_post", lambda req: reply({"module_0": 0.99, "none": 0.01}))
+    def locked(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(cli.db, "set_meta", locked)
+    assert create(board) == 0
+    out = capsys.readouterr()
+    assert "✓ create NEW" in out.out and "✓ 模块" not in out.out
     with sqlite3.connect(board) as con:
         assert con.execute("SELECT epic FROM tasks WHERE id='NEW'").fetchone() == (None,)
 
@@ -85,7 +154,7 @@ def test_unavailable_hint_never_fails_create(board, monkeypatch, capsys, mode):
     assert create(board) == 0
     assert capsys.readouterr().err == ""
     with sqlite3.connect(board) as con:
-        assert con.execute("SELECT count(*) FROM tasks WHERE id='NEW'").fetchone() == (1,)
+        assert con.execute("SELECT epic FROM tasks WHERE id='NEW'").fetchone() == (None,)
 
 
 @pytest.mark.parametrize("probs", [None, [], {}, {"module_0": 1},
@@ -93,10 +162,13 @@ def test_unavailable_hint_never_fails_create(board, monkeypatch, capsys, mode):
     {"module_0": 0.9, "none": 0.9}, {"module_0": 0.5, "none": 0.5},
     {"module_0": 0.01, "none": 0.99}, {"module_0": 0.4, "none": 0.6},
     {"module_0": 0.99, "none": 0, "unknown": 0.01}])
-def test_invalid_uncertain_or_none_answers_stay_silent(board, monkeypatch, capsys, probs):
+def test_invalid_uncertain_or_none_answers_leave_module_empty(board, monkeypatch, capsys, probs):
     monkeypatch.setattr(cli, "_post", lambda req: reply(probs))
     assert create(board) == 0
-    assert capsys.readouterr().err == ""
+    out = capsys.readouterr()
+    assert out.err == "" and "✓ 模块" not in out.out
+    with sqlite3.connect(board) as con:
+        assert con.execute("SELECT epic FROM tasks WHERE id='NEW'").fetchone() == (None,)
 
 
 def test_module_catalog_has_bounded_examples_and_no_placeholder():
@@ -136,7 +208,10 @@ def test_live_rounded_distribution_is_accepted():
 def test_threshold_boundary(board, monkeypatch, capsys, score, shown):
     monkeypatch.setattr(cli, "_post", lambda req: reply({"module_0": score, "none": 1 - score}))
     assert create(board) == 0
-    assert ("模块建议" in capsys.readouterr().err) == shown
+    assert ("✓ 模块" in capsys.readouterr().out) == shown
+    with sqlite3.connect(board) as con:
+        epic = con.execute("SELECT epic FROM tasks WHERE id='NEW'").fetchone()[0]
+    assert epic == ("LOGIN" if shown else None)
 
 
 def test_failed_create_does_not_request_hint(board, monkeypatch, capsys):
@@ -144,7 +219,7 @@ def test_failed_create_does_not_request_hint(board, monkeypatch, capsys):
     monkeypatch.setattr(cli, "_post", pytest.fail)
     with pytest.raises(sqlite3.IntegrityError):
         create(board)
-    assert "模块建议" not in capsys.readouterr().err
+    assert "✓ 模块" not in capsys.readouterr().out
 
 
 def test_too_many_modules_skips_api(board, monkeypatch, capsys):
