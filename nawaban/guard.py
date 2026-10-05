@@ -278,7 +278,9 @@ def _cd_dest(toks: list[str], prev: list[str], cur: Path, fresh: bool, base: Pat
         return _UNSURE
     if os.environ.get("CDPATH") and not arg.startswith(("/", "./", "../")):
         return _UNSURE  # bash 会先去 CDPATH 里找
-    dest = (cur / arg).resolve()
+    dest = Path(os.path.normpath(cur / arg))  # bash 默认按逻辑路径走:先消 .. 再跟符号链接
+    if dest.resolve() != (cur.resolve() / arg).resolve():
+        return _UNSURE  # 逻辑与物理去向不同(符号链接 + ..),取决于 set -P
     if dest.is_dir():
         return dest, False
     if cur == base and prev[:3] == ["git", "worktree", "add"] and arg in prev[3:]:

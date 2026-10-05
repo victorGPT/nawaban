@@ -57,6 +57,10 @@ assert judge("mkdir new && cd new && echo x > f")[0] == 2                       
 assert judge("echo x 2>&1 >> NOTES.md")[0] == 2
 assert judge("cd .claude/worktrees/t && cd sub 2>/dev/null; true")[0] == 0
 # 拿不准目录就按会话目录判(修复前的行为):只有「cd 字面目录 && 写」才换基准
+(wt / "deep").mkdir()
+(repo / "lnk").symlink_to(wt / "deep")
+assert judge("cd lnk && echo x > f")[0] == 0                              # 链接指进工位,写在工位里
+assert judge("cd .claude/worktrees/t && set -P && echo x >> NOTES.md")[0] == 0
 for unsure in (
     'cd "$WT" && echo x > f',
     "cd /tmp > NOTES.md",                                   # cd 自己的重定向先于切目录
@@ -86,6 +90,7 @@ for unsure in (
     "cd .claude/worktrees/t && echo $X > f",                                   # 白名单之外的语法一律按老办法
     "cd .claude/worktrees/t && echo x > *.md",
     '"alias" cd=true\ncd .claude/worktrees/t && echo x > f',
+    "cd lnk && cd .. && echo x > f",                 # 符号链接 + ..:bash 默认按逻辑路径退回主树
     "export CDPATH=%s && cd .claude/worktrees/t && cd src && echo x > f" % repo,                                    # 输入自带占位符字节
 ):
     assert judge(unsure)[0] == 2, unsure
