@@ -74,6 +74,14 @@ for unsure in (
     "(cd .claude/worktrees/t) && echo x > NOTES.md",        # 子 shell 里的 cd 不外泄
     "cd .claude/worktrees/t && builtin cd %s && echo x > f" % repo,
     "git worktree add .claude/worktrees/m -b m; cd .claude/worktrees/m && echo x > f",
+    'cd .claude/worktrees/t && builtin "cd" ../../.. && echo x > f',   # 引号里的 cd 也是 cd
+    "cd .claude/worktrees/t && CDPATH=%s && cd src && echo x > f" % repo,  # CDPATH 改写相对 cd 的去向
+    "echo \x000\x00 && echo x > f",                                    # 输入自带占位符字节
 ):
     assert judge(unsure)[0] == 2, unsure
+assert judge("echo \x0099\x00")[0] == 0                                   # 不能崩
+os.environ["CDPATH"] = str(repo)
+assert judge("cd .claude/worktrees/t && echo x >> NOTES.md")[0] == 2      # 环境里有 CDPATH 时不跟相对 cd
+assert judge("cd ./.claude/worktrees/t && echo x >> NOTES.md")[0] == 0    # ./ 开头不查 CDPATH
+del os.environ["CDPATH"]
 print("tripwire cd OK")

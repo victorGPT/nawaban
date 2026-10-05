@@ -255,6 +255,8 @@ def _cd_dest(toks: list[str], prev: list[str], cur: Path | None, base: Path):
     arg = toks[1]
     if "\x00" in arg or not arg or arg[0] in "-~" or any(c in arg for c in "$`*?[<>"):
         return _UNSURE
+    if os.environ.get("CDPATH") and not arg.startswith(("/", "./", "../")):
+        return _UNSURE  # bash 会先去 CDPATH 里找
     dest = (cur / arg).resolve()
     if dest.is_dir():
         return dest
@@ -297,8 +299,11 @@ def _bash_writes(cmd: str, base: Path) -> list[str]:
                 found.append(str((cur / p).resolve()))
         return found
 
+    if "\x00" in cmd:  # 会和下面的引号占位符撞车
+        return [str(p if (p := Path(t).expanduser()).is_absolute() else base / t)
+                for t in _bash_write_targets(cmd) if not t.startswith("~")]
     body = _QUOTED.sub(keep, _strip_heredoc_bodies(cmd))
-    if re.search(r"[\\(){}`]|\|\|", body):  # 转义、子 shell、命令组、||:不跟 cd
+    if re.search(r"[\\(){}`]|\|\||CDPATH", body):  # 转义、子 shell、命令组、||、改 CDPATH:不跟 cd
         return targets(body, base)
     out: list[str] = []
     moved = False  # 前面的命令列表切过目录:后面的起点不再是 base
@@ -315,7 +320,8 @@ def _bash_writes(cmd: str, base: Path) -> list[str]:
                 plan.append((pipeline, cur))
             else:
                 cur, followed = dest, followed + 1
-        changes = len(_DIR_CHANGE.findall(_QUOTE_MARK.sub(" ", lst)))
+        # 引号里的内容也算:builtin "cd" x 一样切目录
+        changes = len(_DIR_CHANGE.findall(_QUOTE_MARK.sub(lambda m: " " + quoted[int(m[1])] + " ", lst)))
         if moved or changes != followed:
             plan = [(lst, base)]  # 起点或去向拿不准
         moved = moved or changes > 0
