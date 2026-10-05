@@ -237,137 +237,6 @@ def _bash_write_targets(cmd: str) -> list[str]:
     return out
 
 
-_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
-_QUOTE_MARK = re.compile(r"\x00(\d+)\x00")
-_LISTS = re.compile(r"[\n;]|(?<![>&])&(?![>&])")
-_DIR_CHANGE = re.compile(r"\b(?:cd|pushd|popd)\b")
-_UNSURE = object()
-# 跟 cd 的前提是整条命令落在这个小语法里(白名单):字面词、&& ; | 换行、> >>、整词引号。
-# 之外的一切 —— 变量、通配、转义、子 shell、here-doc、|| —— 都按会话目录判,和不跟 cd 时一样。
-_PLAIN = re.compile(r"[A-Za-z0-9_./:=,@%+\- \t\n;&|>\x00]*")
-_WHOLE_QUOTE = re.compile(r"(?<![^\s;&|>])\x00\d+\x00(?![^\s;&|>])")
-# 会改变 cd 含义的词和控制结构保留字(整词,去引号后比):出现即不跟。白名单语法保证了按空白切出的就是 shell 看到的词。
-_STATEFUL = frozenset("alias unalias shopt source . eval exec builtin command enable function trap"
-                      " if then elif else fi while until do done for in case esac select time coproc"
-                      " env sudo chroot".split())  # 末行:会替被包的命令换目录
-_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\+?=")  # CDPATH+=… 一类;不逐个猜是哪个变量
-
-
-def _session_writes(cmd: str, base: Path) -> list[str]:
-    """Every write target resolved against the session directory."""
-    out = []
-    for t in _bash_write_targets(cmd):
-        p = Path(t)
-        if t.startswith("~"):
-            try:
-                p = p.expanduser()
-            except RuntimeError:  # ~nosuchuser
-                pass
-        out.append(str(p if p.is_absolute() else base / t))
-    return out
-
-
-def _cd_dest(toks: list[str], prev: list[str], cur: Path, fresh: bool, base: Path):
-    """(directory, fresh) for a pipeline that is exactly `cd <literal>`, or _UNSURE.
-
-    fresh marks a worktree the previous `&&` step has just created: it is not on
-    disk yet, so nothing under it can be the main tree.
-    """
-    if len(toks) != 2 or toks[0] != "cd" or fresh:
-        return _UNSURE
-    arg = toks[1]
-    if "\x00" in arg or not arg or arg[0] in "-~" or any(c in arg for c in "$`*?[<>"):
-        return _UNSURE
-    if os.environ.get("CDPATH") and not arg.startswith(("/", "./", "../")):
-        return _UNSURE  # bash 会先去 CDPATH 里找
-    dest = Path(os.path.normpath(cur / arg))  # bash 默认按逻辑路径走:先消 .. 再跟符号链接
-    if dest.resolve() != (cur.resolve() / arg).resolve():
-        return _UNSURE  # 逻辑与物理去向不同(符号链接 + ..),取决于 set -P
-    if dest.is_dir():
-        return dest, False
-    if cur == base and prev[:3] == ["git", "worktree", "add"] and arg in prev[3:]:
-        return dest, True
-    return _UNSURE
-
-
-def _bash_writes(cmd: str, base: Path) -> list[str]:
-    """Write targets as absolute paths. A relative target follows a `cd` only when
-    the shell is certain to be there: `cd <literal dir> && …` (误拦实测:cd 进工位再写
-    相对路径被算到主树). When it is not certain, the target is judged against every
-    directory the shell could be in: `base`, as before, and each `cd` seen so far.
-    """
-    try:
-        return _followed_writes(cmd, base)
-    except (ValueError, OSError, IndexError):  # 含 UnicodeError:路径解析不了就不跟
-        return _session_writes(cmd, base)
-
-
-def _followed_writes(cmd: str, base: Path) -> list[str]:
-    quoted: list[str] = []
-
-    def keep(m: re.Match) -> str:
-        quoted.append(m.group(0)[1:-1])
-        return f"\x00{len(quoted) - 1}\x00"
-
-    def unquote(tok: str) -> str:
-        m = _QUOTE_MARK.fullmatch(tok)
-        return quoted[int(m[1])] if m else tok
-
-    def targets(text: str, cur: Path, fresh: bool = False) -> list[str]:
-        found = []
-        for t in _bash_write_targets(_QUOTE_MARK.sub(" ", text)):
-            p = Path(t)
-            if t.startswith("~"):
-                try:
-                    p = p.expanduser()
-                except RuntimeError:  # ~nosuchuser
-                    pass
-            if p.is_absolute():
-                found.append(str(p))
-            elif fresh and ".." not in p.parts:
-                continue
-            elif cur == base:
-                found.append(str(base / p))
-            else:
-                found.append(str((cur / p).resolve()))
-        return found
-
-    if "\x00" in cmd:  # 会和下面的引号占位符撞车
-        return _session_writes(cmd, base)
-    body = _QUOTED.sub(keep, _strip_heredoc_bodies(cmd))
-    words = [unquote(w) for w in re.split(r"[\s;&|>]+", body)]
-    if (not _PLAIN.fullmatch(body) or "||" in body
-            or re.search(r"[|&]\s*\n", body)  # 行尾的 | 或 && 是续行,换行不是命令边界
-            or len(_WHOLE_QUOTE.findall(body)) != len(quoted)
-            or any(w in _STATEFUL or _ASSIGNMENT.match(w) for w in words)):
-        return _session_writes(cmd, base)
-    out: list[str] = []
-    been: list[Path] = []  # 跟过的每个 cd 去向
-    moved = False  # 前面的命令列表切过目录:后面的起点不再确定是 base
-    for lst in _LISTS.split(body):
-        cur, fresh = base, False
-        prev: list[str] = []
-        followed = 0
-        plan: list[tuple[str, Path, bool]] = []
-        for pipeline in lst.split("&&"):
-            toks = [unquote(t) for t in pipeline.split()]
-            dest = _cd_dest(toks, prev, cur, fresh, base)
-            prev = toks
-            if dest is _UNSURE:
-                plan.append((pipeline, cur, fresh))
-            else:
-                (cur, fresh), followed = dest, followed + 1
-                been.append(cur)
-        # 引号里的内容也算:builtin "cd" x 一样切目录
-        changes = len(_DIR_CHANGE.findall(_QUOTE_MARK.sub(lambda m: " " + quoted[int(m[1])] + " ", lst)))
-        if moved or changes != followed:
-            plan = [(lst, d, False) for d in (base, *been)]
-        moved = moved or changes > 0
-        for text, where, is_fresh in plan:
-            out += targets(text, where, is_fresh)
-    return out
-
-
 class Unverified(Exception):
     """The external command or GitHub response cannot establish merge safety."""
 
@@ -548,8 +417,11 @@ def judge(payload: dict) -> tuple[int, str]:
         code, msg = judge_merge(tool_input.get("command") or "", str(base))
         if code == 2:
             return code, msg
-        for t in _bash_writes(tool_input.get("command") or "", base):
-            code, msg = _judge_target(payload, owner, t)
+        for t in _bash_write_targets(tool_input.get("command") or ""):
+            # 相对路径按 payload cwd 落地 —— enclosing_tree 靠 parents 上溯,相对路径走不到树根
+            code, msg = _judge_target(payload, owner, str(Path(t).expanduser())
+                                      if Path(t).expanduser().is_absolute()
+                                      else str(base / t))
             if code == 2:
                 return code, msg
         return 0, ""
@@ -582,7 +454,9 @@ def _judge_target(payload: dict, owner: str, target: str) -> tuple[int, str]:
             f"🚫 worktree gate:{tool} → {target_rel} 在共享主工作区,"
             "其他窗口也在用这棵树,未提交的改动会堵住它们的 git pull\n"
             "   在本卡 worktree 里改:git worktree add .claude/worktrees/<短名> -b <分支名>\n"
-            "   确需写主树:touch .foreman/ALLOW_MAINTREE_EDIT(用完删掉)\n"
+            + ("   已经在 worktree 里?这道闸不跟命令里的 cd,相对路径一律按会话目录算:"
+               "把写入目标换成 worktree 内的绝对路径\n" if tool == "Bash" else "")
+            + "   确需写主树:touch .foreman/ALLOW_MAINTREE_EDIT(用完删掉)\n"
         )
 
     return 0, ""  # touches 锁退役(foreman simplify regression):占用只在 claim 时 WARN
