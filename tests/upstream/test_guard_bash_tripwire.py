@@ -78,9 +78,18 @@ for unsure in (
     "cd .claude/worktrees/t && CDPATH=%s && cd src && echo x > f" % repo,  # CDPATH 改写相对 cd 的去向
     "echo \x000\x00 && echo x > f",
     "cd .claude/worktrees/t && echo x >> NOTES.md\necho x > ../../../h.txt",  # 换行后仍在工位里,.. 指回主树
-    "git worktree add .claude/worktrees/k -b k && cd .claude/worktrees/k && echo x > ../../../h.txt",                                    # 输入自带占位符字节
+    "git worktree add .claude/worktrees/k -b k && cd .claude/worktrees/k && echo x > ../../../h.txt",
+    'shopt -s expand_aliases; alias c""d=true\ncd .claude/worktrees/t && echo x > f',  # 拼接引号改写 cd
+    "alias cd=true\ncd .claude/worktrees/t && echo x > f",
+    "source ./x.sh && cd .claude/worktrees/t && echo x > f",                   # 可能重定义 cd
+    'cd "\ud800" && echo x > f',                                              # 非法 Unicode 不能崩
+    "cd .claude/worktrees/t && echo $X > f",                                   # 白名单之外的语法一律按老办法
+    "cd .claude/worktrees/t && echo x > *.md",
+    '"alias" cd=true\ncd .claude/worktrees/t && echo x > f',
+    "export CDPATH=%s && cd .claude/worktrees/t && cd src && echo x > f" % repo,                                    # 输入自带占位符字节
 ):
     assert judge(unsure)[0] == 2, unsure
+assert judge('cd .claude/worktrees/t && echo x >> NOTES.md && git commit -qm "eval: set command"')[0] == 0  # 引号里的普通词不算
 assert judge("echo \x0099\x00")[0] == 0                                   # 不能崩
 os.environ["CDPATH"] = str(repo)
 assert judge("cd .claude/worktrees/t && echo x >> NOTES.md")[0] == 2      # 环境里有 CDPATH 时不跟相对 cd

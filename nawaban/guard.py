@@ -242,6 +242,27 @@ _QUOTE_MARK = re.compile(r"\x00(\d+)\x00")
 _LISTS = re.compile(r"[\n;]|(?<![>&])&(?![>&])")
 _DIR_CHANGE = re.compile(r"\b(?:cd|pushd|popd)\b")
 _UNSURE = object()
+# 跟 cd 的前提是整条命令落在这个小语法里(白名单):字面词、&& ; | 换行、> >>、整词引号。
+# 之外的一切 —— 变量、通配、转义、子 shell、here-doc、|| —— 都按会话目录判,和不跟 cd 时一样。
+_PLAIN = re.compile(r"[A-Za-z0-9_./:=,@%+~\- \t\n;&|>\x00]*")
+_WHOLE_QUOTE = re.compile(r"(?<![^\s;&|>])\x00\d+\x00(?![^\s;&|>])")
+# 会改变 cd 含义的词(整词,去引号后比):出现即不跟。白名单语法保证了按空白切出的就是 shell 看到的词。
+_STATEFUL = frozenset("alias unalias shopt source . eval exec builtin command enable function trap".split())
+_STATEFUL_VAR = re.compile(r"(?:CDPATH|BASH_ENV|ENV)=")
+
+
+def _session_writes(cmd: str, base: Path) -> list[str]:
+    """Every write target resolved against the session directory."""
+    out = []
+    for t in _bash_write_targets(cmd):
+        p = Path(t)
+        if t.startswith("~"):
+            try:
+                p = p.expanduser()
+            except RuntimeError:  # ~nosuchuser
+                pass
+        out.append(str(p if p.is_absolute() else base / t))
+    return out
 
 
 def _cd_dest(toks: list[str], prev: list[str], cur: Path, fresh: bool, base: Path):
@@ -271,6 +292,13 @@ def _bash_writes(cmd: str, base: Path) -> list[str]:
     相对路径被算到主树). When it is not certain, the target is judged against every
     directory the shell could be in: `base`, as before, and each `cd` seen so far.
     """
+    try:
+        return _followed_writes(cmd, base)
+    except (ValueError, OSError, IndexError):  # 含 UnicodeError:路径解析不了就不跟
+        return _session_writes(cmd, base)
+
+
+def _followed_writes(cmd: str, base: Path) -> list[str]:
     quoted: list[str] = []
 
     def keep(m: re.Match) -> str:
@@ -301,11 +329,13 @@ def _bash_writes(cmd: str, base: Path) -> list[str]:
         return found
 
     if "\x00" in cmd:  # 会和下面的引号占位符撞车
-        return [str(p if (p := Path(t).expanduser()).is_absolute() else base / t)
-                for t in _bash_write_targets(cmd) if not t.startswith("~")]
+        return _session_writes(cmd, base)
     body = _QUOTED.sub(keep, _strip_heredoc_bodies(cmd))
-    if re.search(r"[\\(){}`]|\|\||CDPATH", body):  # 转义、子 shell、命令组、||、改 CDPATH:不跟 cd
-        return targets(body, base)
+    words = [unquote(w) for w in re.split(r"[\s;&|>]+", body)]
+    if (not _PLAIN.fullmatch(body) or "||" in body
+            or len(_WHOLE_QUOTE.findall(body)) != len(quoted)
+            or any(w in _STATEFUL or _STATEFUL_VAR.match(w) for w in words)):
+        return _session_writes(cmd, base)
     out: list[str] = []
     been: list[Path] = []  # 跟过的每个 cd 去向
     moved = False  # 前面的命令列表切过目录:后面的起点不再确定是 base
