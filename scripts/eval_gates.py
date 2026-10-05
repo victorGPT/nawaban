@@ -23,8 +23,12 @@ CARD = "EVAL-FIX-001"
 GATE_MARKS = ("worktree gate", "branch gate", "merge gate", "✗ ")
 
 
+# A caller's GIT_DIR or GIT_WORK_TREE would point every fixture command at the caller's repository.
+GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
 def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True).stdout.strip()
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=GIT_ENV).stdout.strip()
 
 
 def rows(repo, sql):
@@ -90,7 +94,7 @@ def build_fixture(repo, plugin, env, session):
     (repo / ".gitignore").write_text(".nawaban/\n.claude/\n")
     for args in (["init", "-q", "-b", "main"], ["add", "-A"],
                  ["-c", "user.name=eval", "-c", "user.email=eval@example.invalid", "commit", "-qm", "init"]):
-        subprocess.run(["git", "-C", str(repo), *args], check=True)
+        subprocess.run(["git", "-C", str(repo), *args], check=True, env=GIT_ENV)
     cli = ["python3", str(plugin / "nawaban" / "cli.py"), "--db", str(repo / ".nawaban" / "nawaban.db")]
     setup_env = env | {"CLAUDE_CODE_SESSION_ID": session}  # the claim belongs to the session under test
     for verb in (["init"],
