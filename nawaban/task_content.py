@@ -19,11 +19,7 @@ _TITLE_CODE_SMELL: tuple[tuple[str, str], ...] = (
 )
 _TITLE_EXAMPLES = (
     "  ✗ reading_queue 接口返回错误 · 路由未连接 · 阅读页打不开\n"
-    "  ✓ 阅读清单页面可以打开并保存书目\n"
-    "  ✗ garden_editor 角色从动态推导改成明确配置\n"
-    "  ✓ 园艺记录的编辑权限可以直接查看和调整\n"
-    "  ✗ 删除 sample_cache 中无人使用的缓存逻辑\n"
-    "  ✓ 清掉一段没用的示例缓存代码(用户无感)")
+    "  ✓ 阅读清单页面可以打开并保存书目")
 
 
 def _smell(text: str, rules=_TITLE_CODE_SMELL) -> list[str]:
