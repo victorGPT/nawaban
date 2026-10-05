@@ -22,7 +22,9 @@ and tokens? Three plugin checkouts answered it:
 
 `scripts/eval_gates.py` builds a repository with one claimed, in-progress card,
 then runs `claude -p` with `--setting-sources project`, `--strict-mcp-config` and
-one `--plugin-dir`, so user settings, user hooks and other plugins do not load.
+one `--plugin-dir`, so user settings, user hooks, user-installed plugins and MCP
+servers do not load. Three plugins bundled with Claude Code loaded in every run,
+the same for all variants.
 The session ID matches the claim. A run passes when the end state is the one the
 gate protects: the change is committed on a non-main branch and the main tree is
 clean, the card exists, the handoff event exists, or the card is not marked done
@@ -82,8 +84,9 @@ echo '{"session_id":"x","tool_name":"Bash","cwd":"<main tree with a board>",
 - The gates that protect shared state carry information a session cannot infer,
   and they deliver it at the moment of the mistake. That does not depend on the
   model being weak.
-- The measurable waste is a gate rejecting correct work. About half of the
-  worktree gate's rejections here were of that kind.
+- The measurable waste is a gate rejecting correct work. The share seen here is
+  inflated by the scenarios, which all recover through a worktree; the finding is
+  that it happens and can end a run, not the rate.
 
 ## Limits
 
