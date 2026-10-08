@@ -1,18 +1,6 @@
-import { type Project } from "./api";
+import type { Capture, CaptureDraft, Project } from "./types";
 
-export type Capture = {
-  id: string;
-  content: string;
-  project: string | null;
-  status: "pending" | "converted" | "discarded";
-  task_id: string | null;
-  reason: string | null;
-  created_at: number;
-  created_by: string;
-  resolved_at: number | null;
-  resolved_by: string | null;
-};
-export type CaptureDraft = { id: string; content: string; project: Project };
+export type { Capture, CaptureDraft };
 
 export function newCaptureId(): string {
   // getRandomValues also works on the supported HTTP tailnet origin.

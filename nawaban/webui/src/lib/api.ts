@@ -2,9 +2,11 @@ import { t as tr } from "../i18n/index.ts";
 import type {
   AnswerResponse,
   BoardResponse,
+  DateRange,
   InboxResponse,
   KinResponse,
   ModulesResponse,
+  Project,
   ProjectsResponse,
   TaskDetail,
 } from "./types.ts";
@@ -15,9 +17,7 @@ async function getJSON<T>(path: string): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-export type DateRange = { since: string; until: string };
-/** null = all projects; empty string = unassigned cards. */
-export type Project = string | null;
+export type { DateRange, Project };
 const withProject = (path: string, project: Project, params = new URLSearchParams()) => {
   if (project === "") params.set("unassigned", "1");
   else if (project !== null) params.set("project", project);

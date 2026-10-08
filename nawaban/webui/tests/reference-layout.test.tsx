@@ -1,7 +1,7 @@
 import { act, render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
-import { BoardKanban } from "@/components/BoardKanban";
+import { BoardKanban } from "@/views/board";
 import { fetchBoard } from "@/lib/api";
 import { setLocale } from "@/i18n";
 import zh from "@/i18n/zh-CN.json";

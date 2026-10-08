@@ -10,13 +10,13 @@ This project uses shadcn/ui on Base UI (React + Tailwind CSS v4, source-owned co
 
 Inside the app layer, a screen is split by who talks to the backend:
 
-- `src/views/<name>/index.tsx` fetches (through `@/lib/api`), owns loading, error and stale-response handling, and assembles components. It may import anything in `src/components/` and `src/lib/`. Only `src/App.tsx` imports a view.
-- `src/components/<name>/` (for example `task-detail/`, `disclosure/`) is presentational: data and callbacks arrive as props, one section per file, no fetch and no `@/lib/api` calls. It may import other `src/components/` files, `@/components/ui/*` and pure helpers from `src/lib/`, never `src/views/`.
+- `src/views/<name>/index.tsx` fetches (through `@/lib/api` or `@/lib/captures-api`), owns loading, error and stale-response handling, and assembles components. It may import anything in `src/components/` and `src/lib/`. Only `src/App.tsx` imports a view.
+- `src/components/<name>/` (for example `task-detail/`, `disclosure/`) is presentational: data and callbacks arrive as props, one section per file, no fetch and no `@/lib/api` or `@/lib/captures-api` import, not even for a type. It may import other `src/components/` files, `@/components/ui/*` and pure helpers from `src/lib/`, never `src/views/`.
 - `src/components/ui/` imports neither of the above.
 
-Task detail, inbox and modules are on this split; the top-level `src/components/BoardKanban.tsx` and `src/components/CaptureView.tsx` still fetch for themselves.
+Every screen is on this split: board, modules, capture, inbox and task detail. The top-level `src/components/*.tsx` files (`TaskCard`, `CaptureSource`, `BoardOptions`, …) are presentational under the same rule; shared types such as `Project`, `DateRange` and `Capture` live in `src/lib/types.ts`.
 
-`src/lib/component-origin.test.ts` enforces layers 1 and 3: a `@base-ui/react*` import outside `src/components/ui/` fails, and so does a reappearance of the retired `src/components/base/` or `src/components/foundations/`. It also fails on a native control (`<button>`, `<input>`, `<a>`, …) anywhere under `src/views/` or `src/components/`, at any depth, except the generated `ui/` and the grandfathered `application/`. And it fails when a file in a feature folder `src/components/<name>/` (again excluding `ui/` and `application/`) imports or re-exports `@/lib/api` or anything under `src/views/`, by alias or relative path; top-level `src/components/*.tsx` files are not held to that rule yet.
+`src/lib/component-origin.test.ts` enforces layers 1 and 3: a `@base-ui/react*` import outside `src/components/ui/` fails, and so does a reappearance of the retired `src/components/base/` or `src/components/foundations/`. It also fails on a native control (`<button>`, `<input>`, `<a>`, …) anywhere under `src/views/` or `src/components/`, at any depth, except the generated `ui/` and the grandfathered `application/`. And it fails when any file under `src/components/` (again excluding `ui/` and `application/`) imports or re-exports `@/lib/api`, `@/lib/captures-api` or anything under `src/views/`, by alias or relative path.
 
 ## Adding a component
 

@@ -1,7 +1,7 @@
 import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
-import { BoardKanban } from "@/components/BoardKanban";
+import { BoardKanban } from "@/views/board";
 import { BoardFilterBar } from "@/components/BoardFilterBar";
 import { fetchBoard } from "@/lib/api";
 import { BOARD_DISPLAY_STORAGE } from "@/lib/board-display";

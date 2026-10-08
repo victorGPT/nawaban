@@ -1,6 +1,10 @@
 // Match the board_data, modules_data and inbox_data read projections.
 // Add fields only when the authoritative backend projection supplies them.
 
+export type DateRange = { since: string; until: string };
+/** null = all projects; empty string = unassigned cards. */
+export type Project = string | null;
+
 export type Live = { tier: string; age_s: number | null } | null;
 
 export type BoardTask = {
@@ -156,8 +160,22 @@ export type TaskLetter = {
   read_at: number | null;
 };
 
+export type Capture = {
+  id: string;
+  content: string;
+  project: string | null;
+  status: "pending" | "converted" | "discarded";
+  task_id: string | null;
+  reason: string | null;
+  created_at: number;
+  created_by: string;
+  resolved_at: number | null;
+  resolved_by: string | null;
+};
+export type CaptureDraft = { id: string; content: string; project: Project };
+
 export type TaskDetail = BoardTask & {
-  captures?: import("./captures-api").Capture[];
+  captures?: Capture[];
   context: string | null;
   adr: string | null;
   success: string[] | string | null;

@@ -87,16 +87,15 @@ test("only components/ui speaks Base UI, and the old hand-built kit is gone", ()
 });
 
 /**
- * Feature folders (components/<name>/) are presentational: the view that
- * assembles them does the fetching. Top-level components/*.tsx are not held
- * to this yet.
+ * components/ is presentational, top-level files and feature folders alike:
+ * the view that assembles them does the fetching. Types live in lib/types.
  */
-test("feature component folders neither fetch through lib/api nor reach into views", () => {
+test("components neither import lib/api or lib/captures-api nor reach into views", () => {
   const root = new URL("../", import.meta.url);
   const violations: string[] = [];
   for (const path of sources(root)) {
     const file = path.pathname.split("/src/")[1];
-    if (!/^components\/[^/]+\//.test(file) || /^components\/(ui|application)\//.test(file)) continue;
+    if (!/^components\//.test(file) || /^components\/(ui|application)\//.test(file)) continue;
     const source = ts.createSourceFile(file, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
     for (const statement of source.statements) {
       if (!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) continue;
@@ -105,7 +104,7 @@ test("feature component folders neither fetch through lib/api nor reach into vie
       // Resolve `@/…` and relative specifiers to one src-relative spelling.
       const target = specifier.startsWith("@/") ? specifier.slice(2)
         : specifier.startsWith(".") ? new URL(specifier, path).pathname.split("/src/")[1] ?? "" : "";
-      if (/^lib\/api(\.ts)?$|^views(\/|$)/.test(target)) violations.push(`${file}: imports ${specifier}`);
+      if (/^lib\/(captures-)?api(\.ts)?$|^views(\/|$)/.test(target)) violations.push(`${file}: imports ${specifier}`);
     }
   }
   assert.deepEqual(violations, []);

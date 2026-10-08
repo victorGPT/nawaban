@@ -1,5 +1,5 @@
 import { useLocale } from "@/i18n";
-import type { Capture } from "@/lib/captures-api";
+import type { Capture } from "@/lib/types";
 
 export function CaptureSource({ item }: { item: Capture }) {
   useLocale();

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
-import { CaptureView } from "@/components/CaptureView";
+import { CaptureView } from "@/views/capture";
 import { CaptureError, fetchCaptures, postCapture, type Capture } from "@/lib/captures-api";
 import { setLocale } from "@/i18n";
 import en from "@/i18n/en.json";

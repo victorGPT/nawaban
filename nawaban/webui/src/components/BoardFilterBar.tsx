@@ -2,7 +2,7 @@ import { t as tr, useLocale } from "@/i18n";
 import { parseDate } from "@internationalized/date";
 import { DateRangePicker } from "@/components/application/date-picker/date-range-picker";
 import { Button } from "@/components/ui/button";
-import type { DateRange } from "@/lib/api";
+import type { DateRange } from "@/lib/types";
 
 // Preserve updated-date filtering and Monday-based weeks using BoardUI controls.
 

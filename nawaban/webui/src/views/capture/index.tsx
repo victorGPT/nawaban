@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t, useLocale } from "@/i18n";
-import { CaptureSource } from "@/components/CaptureSource";
+import { CaptureCard } from "@/components/capture/CaptureCard";
+import { CaptureForm } from "@/components/capture/CaptureForm";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { LoadState, Surface } from "@/components/NawabanUI";
+import { LoadState } from "@/components/NawabanUI";
 import { fetchCaptures, postCapture, newCaptureId, CaptureError, type Capture, type CaptureDraft } from "@/lib/captures-api";
 import type { Project } from "@/lib/api";
 import { useReadOnlyData } from "@/lib/use-read-only-data";
-import { ago } from "@/lib/utils";
 
 export function CaptureView({ project, query, onSelectTask }: {
   project: Project; query: string; onSelectTask: (id: string) => void;
@@ -66,26 +64,8 @@ export function CaptureView({ project, query, onSelectTask }: {
   }
 
   return <section className="flex flex-col gap-6 p-6" aria-label={t("capture")}>
-    <Surface className="flex flex-col gap-4 p-4">
-      <p className="text-body-regular text-text-secondary">{t("captureIntro")}</p>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="capture-idea">{t("captureIdea")}</Label>
-        <Textarea id="capture-idea" ref={textarea} value={content}
-          onChange={(event) => setContent(event.target.value)}
-          disabled={busy || unknown} maxLength={4000} rows={3} />
-      </div>
-      <div className="flex items-center gap-3">
-        <Button size="lg" onClick={() => void save()} disabled={busy || !content.trim()}>
-          {busy ? t("captureSaving") : unknown ? t("captureRetry") : t("captureSave")}
-        </Button>
-        <span className="text-caption-1-regular text-text-tertiary">
-          {t("captureProject", { project: project || t("noProject") })}
-        </span>
-      </div>
-      {failure && <p role="alert" className="text-body-regular text-text-error-primary">
-        {unknown ? t("captureUnknown") : failure}
-      </p>}
-    </Surface>
+    <CaptureForm content={content} onContentChange={setContent} onSave={() => void save()}
+      busy={busy} unknown={unknown} failure={failure} project={project} textareaRef={textarea} />
     <div className="flex items-center justify-between gap-3">
       <h2 className="text-headline-medium">{history ? t("captureAll") : t("capturePending")}</h2>
       <Button variant="outline" size="lg" aria-pressed={history} onClick={() => setHistory(!history)}>
@@ -95,15 +75,6 @@ export function CaptureView({ project, query, onSelectTask }: {
     {error && <LoadState error>{error}</LoadState>}
     {!data && !error && !saved.length && <LoadState>{t("captureLoading")}</LoadState>}
     {data && !visible.length && <LoadState>{t("captureEmpty")}</LoadState>}
-    {visible.map((item) => <Surface key={item.id} className="flex flex-col gap-3 p-4">
-      <CaptureSource item={item} />
-      <div className="flex flex-wrap items-center gap-3 text-caption-1-regular text-text-tertiary">
-        <span>{ago(item.created_at)}</span>
-        <span>{item.project || t("noProject")}</span>
-        <span>{t(item.status === "pending" ? "capturePending" : item.status === "converted" ? "captureConverted" : "captureDiscarded")}</span>
-        {item.task_id && <Button variant="link" size="link" onClick={() => onSelectTask(item.task_id!)}>{item.task_id}</Button>}
-      </div>
-      {item.reason && <p className="whitespace-pre-wrap break-words text-body-regular text-text-secondary">{t("captureReason", { reason: item.reason })}</p>}
-    </Surface>)}
+    {visible.map((item) => <CaptureCard key={item.id} item={item} onSelectTask={onSelectTask} />)}
   </section>;
 }
