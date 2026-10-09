@@ -26,6 +26,21 @@ def test_skill_counts_as_first_only_before_an_acting_tool():
     assert evaluation.fired(denied + "\n" + transcript(load)) == (True, True)
 
 
+def test_a_session_that_never_ran_cannot_pass():
+    assert not evaluation.score("", "palindrome", False, "v", "sonnet", 0, "train")["ok"]
+    done = json.dumps({"type": "result", "is_error": False, "total_cost_usd": 0.1})
+    assert evaluation.score(done, "palindrome", False, "v", "sonnet", 0, "train")["ok"]
+
+
+def test_transcript_names_keep_hyphenated_models_and_skip_unscored_cases():
+    expects = {"named_card_edit": True, "named": True, "card_status": None}
+    assert evaluation.parse_name("named_card_edit-base-claude-sonnet-5-5-2", expects) == (
+        "named_card_edit", "base", "claude-sonnet-5-5", 2)
+    assert evaluation.parse_name("named_card_edit-v1-opus-0", expects) == ("named_card_edit", "v1", "opus", 0)
+    assert evaluation.parse_name("card_status-base-opus-0", expects) is None
+    assert evaluation.parse_name("gone-base-opus-0", expects) is None
+
+
 def test_held_out_cases_are_stable_and_cover_both_kinds():
     held = evaluation.test_ids()
     assert held == evaluation.test_ids()

@@ -175,28 +175,39 @@ def wilson(k, n, z=1.96):
     return max(0.0, (p + z * z / (2 * n)) / scale - half), min(1.0, (p + z * z / (2 * n)) / scale + half)
 
 
+def two_sided_p(a, b):
+    """Two-proportion z-test for (passes, runs) pairs; 1.0 when the pooled rate leaves nothing to compare."""
+    (k1, n1), (k2, n2) = a, b
+    p = (k1 + k2) / (n1 + n2)
+    spread = math.sqrt(p * (1 - p) * (1 / n1 + 1 / n2))
+    return math.erfc(abs(k1 / n1 - k2 / n2) / spread / math.sqrt(2)) if spread else 1.0
+
+
 def pooled(results):
     """Pass rate per model, split and variant with its interval, so a difference is read against the noise."""
     lines = ["| model | split | variant | ok | 95% CI | skill loaded | unfinished | cost $ (sd) |", "|---|---|---|---|---|---|---|---|"]
     notes = []
     for model, holdout in sorted({(r["model"], r["holdout"]) for r in results}):
         split = "holdout" if holdout else "train"
-        cells = {}
+        cells, counts = {}, {}
         for variant in sorted({r["variant"] for r in results}):
             g = [r for r in results if (r["model"], r["holdout"], r["variant"]) == (model, holdout, variant)]
             if not g:
                 continue
             k = sum(r["ok"] for r in g)
             cells[variant] = (k / len(g), *wilson(k, len(g)))
+            counts[variant] = (k, len(g))
             costs = [r["cost_usd"] or 0 for r in g]
             lines.append(f"| {model} | {split} | {variant} | {k}/{len(g)} | {cells[variant][1]:.2f}-{cells[variant][2]:.2f} | "
                          f"{sum(r['skill_loaded'] for r in g)}/{len(g)} | {sum(not r['finished'] for r in g)} | {statistics.mean(costs):.3f} ({statistics.pstdev(costs):.3f}) |")
-        if any(rate >= .95 for rate, _, _ in cells.values()):
+        # A lone pass is 100% too; the lower bound keeps a handful of runs from being called saturated.
+        if any(rate >= .95 and lo >= .8 for rate, lo, _ in cells.values()):
             notes.append(f"- {model} {split}: pass rate is at or above 95%, so there is no headroom; compare cost and tool calls instead.")
-        # ponytail: overlap of unpaired intervals, a paired test per scenario if cells grow past a few dozen runs
-        if len(cells) > 1 and max(lo for _, lo, _ in cells.values()) <= min(hi for _, _, hi in cells.values()):
-            notes.append(f"- {model} {split}: the variants' intervals overlap, so their pass rates differ by less than the noise; "
-                         "add runs or scenarios before acting on it.")
+        # ponytail: unpaired test of the best against the worst variant, a paired test per scenario if cells grow
+        if len(counts) > 1 and two_sided_p(max(counts.values(), key=lambda c: c[0] / c[1]),
+                                           min(counts.values(), key=lambda c: c[0] / c[1])) >= .05:
+            notes.append(f"- {model} {split}: these runs cannot tell the variants' pass rates apart (two-sided p >= 0.05); "
+                         "add runs or scenarios before acting on a difference.")
     return "\n".join(lines + [""] + notes)
 
 

@@ -28,13 +28,22 @@ def test_saturated_cell_points_at_cost_and_overlap_is_called_noise():
     report = evaluation.pooled(runs("old", 17, 18) + runs("new", 18, 18))
     assert "| m | train | new | 18/18 | 0.82-1.00 | 0/18 | 0 | 0.100 (0.000) |" in report
     assert "no headroom" in report
-    assert "less than the noise" in report
+    assert "cannot tell the variants' pass rates apart" in report
 
 
 def test_clear_difference_with_headroom_gets_no_note():
     report = evaluation.pooled(runs("off", 0, 9) + runs("on", 8, 9))
     assert "no headroom" not in report
-    assert "less than the noise" not in report
+    assert "cannot tell" not in report
+
+
+def test_one_passing_run_is_not_called_saturated():
+    assert "no headroom" not in evaluation.pooled(runs("a", 1, 1))
+
+
+def test_overlapping_intervals_alone_do_not_hide_a_real_difference():
+    assert evaluation.two_sided_p((50, 100), (65, 100)) == pytest.approx(0.032, abs=0.001)
+    assert "cannot tell" not in evaluation.pooled(runs("a", 50, 100) + runs("b", 65, 100))
 
 
 def test_splits_are_reported_apart_and_unfinished_runs_are_counted():

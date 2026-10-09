@@ -127,10 +127,22 @@ def score(raw, case, expect, variant, model, i, split):
     gates = sum('"is_error":true' in line.replace(" ", "") and any(m in line for m in eval_gates.GATE_MARKS[:3])
                 for line in raw.splitlines())
     denied = sum('"subtype": "permission_denied"' in line or '"subtype":"permission_denied"' in line for line in raw.splitlines())
+    finished = bool(result) and not result.get("is_error")
     return {"case": case, "expect": expect, "split": split, "variant": variant, "model": model, "run": i,
-            "early": early, "late": late, "finished": bool(result) and not result.get("is_error"), "denied": denied, "gates": gates,
+            "early": early, "late": late, "finished": finished, "denied": denied, "gates": gates,
             # A skill that should load counts only when it loads before acting; one that should not must never load.
-            "ok": early if expect else not late, "cost_usd": result.get("total_cost_usd")}
+            # A session that never ran proves neither, so it cannot pass.
+            "ok": finished and (early if expect else not late), "cost_usd": result.get("total_cost_usd")}
+
+
+def parse_name(stem, expects):
+    """<case>-<variant>-<model>-<run>; the model may contain hyphens, the variant may not."""
+    case = max((c for c in expects if stem.startswith(c + "-")), key=len, default=None)
+    if case is None or expects[case] is None:
+        return None
+    variant, rest = stem[len(case) + 1:].split("-", 1)
+    model, run = rest.rsplit("-", 1)
+    return case, variant, model, int(run)
 
 
 def summarise(results):
@@ -172,17 +184,24 @@ def main():
     held = test_ids()
     if args.regrade:
         expects = {case: expect for case, expect, _, _ in CASES}
-        results = []
+        results, skipped = [], 0
         for path in sorted((args.regrade / "transcripts").glob("*.jsonl")):
-            case, variant, model, i = path.stem.rsplit("-", 3)
-            if expects.get(case) is None:
-                continue  # removed or no longer scored since that run
-            results.append(score(path.read_text(), case, expects[case], variant, model, int(i),
+            parsed = parse_name(path.stem, expects)
+            if parsed is None:
+                skipped += 1  # a case removed or no longer scored since that run
+                continue
+            case, variant, model, i = parsed
+            results.append(score(path.read_text(), case, expects[case], variant, model, i,
                                  "test" if case in held else "train"))
+        if not results:
+            ap.error(f"no scorable transcripts in {args.regrade}; results.json left untouched")
         report(results, args.regrade)
+        print(f"\nskipped {skipped} transcripts of cases that are not scored")
         return
     if not args.variant or not args.model or not args.output:
         ap.error("--variant, --model and --output are required unless --regrade is given")
+    if any("-" in v.split("=", 1)[0] for v in args.variant):
+        ap.error("variant names cannot contain '-': transcript file names are split on it")
     out = args.output.resolve() / uuid.uuid4().hex[:8]
     out.mkdir(parents=True)
     jobs = [(case, expect, prompt, v, Path(p).resolve(), m, i, out, "test" if case in held else "train", args.banner)
