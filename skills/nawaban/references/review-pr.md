@@ -14,4 +14,6 @@ findings 通过可达调用路径、源码和相关验证判断；严重度不�
 
 授权涵盖 commit、push 和开 PR 时，在本卡 worktree 使用项目规定的 Git 与 GitHub 入口。逐项核对实际 diff，暂存本次交付文件；commit 后将本分支 push 到已核实的远程，再用 `gh pr create` 或项目提供的工具创建 PR。PR 描述包含具体行为变化、验证结果和未完成项。
 
+合并在授权范围内时，装了 hooks 的会话会在合并前核对三件事：PR 分支包含最新 main、checks 非空且全绿、合并命令可被完整核对。先用 `gh pr checks <PR> --watch` 等 CI，分支落后就 `gh pr update-branch <PR>` 并等新一轮 CI；然后把 `gh pr merge <PR> -R <OWNER/REPO>` 作为一条独立命令运行，不加 `cd`、`&&`、管道、`2>&1` 或变量。
+
 项目自带 helper 时先核实它的提交、历史修改和外部操作行为；nawaban 不随附 PR helper，也不依赖个人安装的脚本。追加 PR 提交或遇到冲突时读 [Git 协作](git-shared-tree.md)。以当前被审版本为准，旧 verdict 不覆盖后续改变。
