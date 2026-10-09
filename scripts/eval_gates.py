@@ -11,6 +11,7 @@ Keep --output outside the repository: transcripts are large and machine-specific
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
+import math
 import os
 from pathlib import Path
 import sqlite3
@@ -121,18 +122,23 @@ def run_one(job):
     (out / "transcripts").mkdir(exist_ok=True)
     (out / "transcripts" / f"{repo.name}.jsonl").write_text(raw)
     tools = blocks = 0
+    skill = False
     result = {}
     for line in raw.splitlines():
         try:
             event = json.loads(line)
         except ValueError:
             continue
-        if event.get("type") == "result":
+        if isinstance(event, dict) and event.get("type") == "result":
             result = event
-        for part in (event.get("message") or {}).get("content") or []:
+        message = event.get("message") if isinstance(event, dict) else None
+        # Some system events carry a plain string as their message.
+        for part in (message.get("content") if isinstance(message, dict) else None) or []:
             if not isinstance(part, dict):
                 continue
             tools += part.get("type") == "tool_use"
+            skill |= (part.get("type") == "tool_use" and part.get("name") == "Skill"
+                      and "nawaban" in str((part.get("input") or {}).get("skill")))
             blocks += part.get("type") == "tool_result" and bool(part.get("is_error")) and any(m in json.dumps(part, ensure_ascii=False) for m in GATE_MARKS)
     usage = result.get("usage") or {}
     return {
@@ -140,7 +146,7 @@ def run_one(job):
         "holdout": bool(SCENARIOS[name].get("holdout")),
         "finished": bool(result) and not result.get("is_error"),
         "ok": bool(result) and bool(SCENARIOS[name]["check"](repo)),
-        "tool_calls": tools, "gate_blocks": blocks, "turns": result.get("num_turns"),
+        "tool_calls": tools, "gate_blocks": blocks, "skill_loaded": skill, "turns": result.get("num_turns"),
         "output_tokens": usage.get("output_tokens"),
         "input_tokens": sum(usage.get(k) or 0 for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")),
         "cost_usd": result.get("total_cost_usd"),
@@ -157,6 +163,52 @@ def summarise(results):
         lines.append(f"| {model} | {scenario}{mark} | {variant} | {sum(r['ok'] for r in g)}/{len(g)} | "
                      f"{mean('gate_blocks')} | {mean('tool_calls')} | {mean('output_tokens')} | {mean('cost_usd')} |")
     return "\n".join(lines)
+
+
+def wilson(k, n, z=1.96):
+    """95% Wilson score interval for k passes in n runs."""
+    if not n:
+        return 0.0, 1.0
+    p = k / n
+    scale = 1 + z * z / n
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / scale
+    return max(0.0, (p + z * z / (2 * n)) / scale - half), min(1.0, (p + z * z / (2 * n)) / scale + half)
+
+
+def two_sided_p(a, b):
+    """Two-proportion z-test for (passes, runs) pairs; 1.0 when the pooled rate leaves nothing to compare."""
+    (k1, n1), (k2, n2) = a, b
+    p = (k1 + k2) / (n1 + n2)
+    spread = math.sqrt(p * (1 - p) * (1 / n1 + 1 / n2))
+    return math.erfc(abs(k1 / n1 - k2 / n2) / spread / math.sqrt(2)) if spread else 1.0
+
+
+def pooled(results):
+    """Pass rate per model, split and variant with its interval, so a difference is read against the noise."""
+    lines = ["| model | split | variant | ok | 95% CI | skill loaded | unfinished | cost $ (sd) |", "|---|---|---|---|---|---|---|---|"]
+    notes = []
+    for model, holdout in sorted({(r["model"], r["holdout"]) for r in results}):
+        split = "holdout" if holdout else "train"
+        cells, counts = {}, {}
+        for variant in sorted({r["variant"] for r in results}):
+            g = [r for r in results if (r["model"], r["holdout"], r["variant"]) == (model, holdout, variant)]
+            if not g:
+                continue
+            k = sum(r["ok"] for r in g)
+            cells[variant] = (k / len(g), *wilson(k, len(g)))
+            counts[variant] = (k, len(g))
+            costs = [r["cost_usd"] or 0 for r in g]
+            lines.append(f"| {model} | {split} | {variant} | {k}/{len(g)} | {cells[variant][1]:.2f}-{cells[variant][2]:.2f} | "
+                         f"{sum(r['skill_loaded'] for r in g)}/{len(g)} | {sum(not r['finished'] for r in g)} | {statistics.mean(costs):.3f} ({statistics.pstdev(costs):.3f}) |")
+        # A lone pass is 100% too; the lower bound keeps a handful of runs from being called saturated.
+        if any(rate >= .95 and lo >= .8 for rate, lo, _ in cells.values()):
+            notes.append(f"- {model} {split}: pass rate is at or above 95%, so there is no headroom; compare cost and tool calls instead.")
+        # ponytail: unpaired test of the best against the worst variant, a paired test per scenario if cells grow
+        if len(counts) > 1 and two_sided_p(max(counts.values(), key=lambda c: c[0] / c[1]),
+                                           min(counts.values(), key=lambda c: c[0] / c[1])) >= .05:
+            notes.append(f"- {model} {split}: these runs cannot tell the variants' pass rates apart (two-sided p >= 0.05); "
+                         "add runs or scenarios before acting on a difference.")
+    return "\n".join(lines + [""] + notes)
 
 
 def main():
@@ -181,8 +233,9 @@ def main():
     with ThreadPoolExecutor(args.jobs) as pool:
         results = list(pool.map(run_one, jobs))
     (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1))
-    (out / "summary.md").write_text(summarise(results) + "\n")
-    print(summarise(results))
+    summary = summarise(results) + "\n\n" + pooled(results)
+    (out / "summary.md").write_text(summary + "\n")
+    print(summary)
     print(f"\n{out}")
 
 
