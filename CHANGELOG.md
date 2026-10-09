@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The task skill's gate table and PR notes now document the merge gate: run `gh pr merge` as a single command on a branch that contains the latest main with all checks green. No gate decision changed.
 - The `nawaban` skill description now says to use it before changing files, committing or branching in a repository with a board, and the skill tells sessions to give shell writes an absolute path inside the worktree, because the write gate does not follow `cd`. In `docs/skill-trigger-evaluation.md` sessions loaded the skill before acting in 34/42 held-out runs, up from 27/42, and gate rejections fell from 27 to 5.
 - `scripts/eval_gates.py` reports each pass rate with a 95% interval, counts unfinished runs and skill loads, and says when a score has no headroom or two variants differ by less than the noise. New `scripts/eval_skill_trigger.py` measures whether a session loads the task skill before acting and stays away from it otherwise, with a held-out split and `--regrade` for saved transcripts.
 - `create` without `--epic` now fills the module when the TypeSafe answer reaches 0.9, with the score recorded in a note, instead of only printing a suggestion. Cards created while the suggestion was print-only stayed ungrouped.

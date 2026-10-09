@@ -4,7 +4,8 @@
 
 | 闸 | 触发条件 | 合法处理 |
 |---|---|---|
-| maintree hook | 在共享主树修改项目文件 | 在本卡 worktree 实施；hook 的豁免不改变授权 |
+| maintree hook | 在共享主树修改项目文件；命令行写入的相对路径按会话目录判断，不跟命令里的 `cd` | 在本卡 worktree 实施，命令行写文件用 worktree 内的绝对路径；hook 的豁免不改变授权 |
+| merge hook | `gh pr merge` 与其他命令串接、带管道或重定向、带变量或环境变量前缀；PR checks 为空或未全绿；PR 分支落后 main | 单独运行 `gh pr merge <PR> -R <OWNER/REPO>`；落后时先 `gh pr update-branch <PR>`，等新一轮 CI 全绿再合 |
 | branch hook | 在主树新建或切换任务分支 | 创建独立 worktree，保持主树 main；修复错误分支按项目恢复程序 |
 | claim 依赖 | depends_on 前置未 done/cancelled | 核对前置并先完成依赖；只有项目授权覆盖时才用带理由的 override |
 | claim 停线 | 本项目 main CI 红着，且变红后没有未完成的 regresses 修复卡 | `nawaban blame <失败的文件>` 找到被弄坏的 done 卡，建修复卡并 `link <修复卡> <被弄坏的卡> --kind regresses --note "<哪次合并>"`；与回退无关的红(基础设施、偶发)才用带理由的 override |
