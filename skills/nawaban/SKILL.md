@@ -1,6 +1,6 @@
 ---
 name: nawaban
-description: 认领、推进或恢复 nawaban 任务，处理工位与状态闸；只查进度时保持只读。
+description: 在有 nawaban 看板的仓库里改文件、提交或开分支之前使用，哪怕只改一个字：说明该在哪个工位改，任务卡怎么认领、推进、恢复和交接。只读文件或回答问题时不需要。
 metadata:
   version: "6.0.0"
 ---
@@ -29,7 +29,7 @@ nawaban --db <目标库绝对路径> start <ID> --now "<当前要完成的工作
 git worktree add <独立工位路径> -b task/<ID>
 ```
 
-仅在本卡还没有工位时创建 worktree。共享主树保持 `main`，项目文件在本卡 worktree 修改；已授权的仓外文件按 touches 实址处理。范围扩大先确认授权并通过 `scope` 落板，再编辑。claim 的占用 WARN 是协调提示，不能代替范围合同。
+仅在本卡还没有工位时创建 worktree。共享主树保持 `main`，项目文件在本卡 worktree 修改；用命令行写文件（重定向、`tee`、`sed -i`）时目标写成 worktree 内的绝对路径，写入闸不跟命令里的 `cd`；已授权的仓外文件按 touches 实址处理。范围扩大先确认授权并通过 `scope` 落板，再编辑。claim 的占用 WARN 是协调提示，不能代替范围合同。
 
 ## 推进与完成
 
