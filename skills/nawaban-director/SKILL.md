@@ -26,7 +26,7 @@ description: 本窗口担任主控（总监）时使用：把一个需求拆成�
 
 需要独立交付、不同 owner 或有先后阻塞时才拆。字段写法见 [建卡与需求边界](../nawaban/references/grill-protocol.md)。
 
-- 子卡用 `create <ID> --split-from <父卡> --success '<JSON 数组>' --touch <路径>` 建，批量派发靠这条拆卡关系找子卡。
+- 子卡用 `create <ID> --title "<标题>" --context "- <背景>" --split-from <父卡> --success '<JSON 数组>' --touch <路径>` 建，批量派发靠这条拆卡关系找子卡。
 - 先后顺序用 `link <被挡卡> <前置卡> --kind depends_on` 表达。拆自同一张父卡不等于互相依赖。
 - 两张卡的 `touches` 重叠时，要么排先后，要么在卡上写明各自只动哪一部分。
 
@@ -62,7 +62,7 @@ nawaban --db <目标库> notify-read <信件编号>...            # 处理完标
 worker 每轮停下时，它这一轮的最后一段话也可能被直接送到主控窗口。信件和送回来的话按同一种方式处理：
 
 1. 先回卡核对：`context <ID>` 看状态、当前态、事件和 refs。送回来的话有长度上限，被截断时以卡为准。
-2. worker 留了问题，主控能定的当轮就回给它，并用 `decide` 记到卡上。回话走它送过来的那条通道；不要让用户去 worker 的窗口里代答。
+2. worker 留了问题，主控能定的当轮就定：先用 `decide` 把答复记到卡上（worker 续做时读的是卡），再经它送话过来的那条通道回给它。不要让用户去 worker 的窗口里代答。
 3. 属于三类升级事项的，不自己回，转给用户（见下节的 ask）。
 4. 判断 worker 是否做完，看卡的状态和来信，不看会话是否显示空闲。
 5. 范围要扩：worker 说明路径和理由，主控同意后用 `scope <ID> --add <路径> --reason "<理由>"` 落板，worker 才能改。
@@ -74,12 +74,14 @@ worker 每轮停下时，它这一轮的最后一段话也可能被直接送到�
 需要用户拍板时：
 
 ```bash
-nawaban --db <目标库> ask --kind decide|authorize|accept --question "<一句疑问句>" --evidence "<材料>" --task <ID>
+nawaban --db <目标库> ask --kind decide --question "<一句疑问句>" --evidence "<材料>" --task <ID> --option "<选项>|<后果>" --option "<选项>|<后果>"
+nawaban --db <目标库> ask --kind authorize --question "<一句疑问句>" --evidence "<材料>" --task <ID> --blast "<谁受影响>|<改什么>|<怎么回滚>"
+nawaban --db <目标库> ask --kind accept --question "<一句疑问句>" --evidence "<读到的实际结果>" --task <ID>
 nawaban --db <目标库> inbox                               # 还有哪些没答
 nawaban --db <目标库> answer <ask 编号> --verdict "<用户原话>"
 ```
 
-`decide` 要给出至少两个选项及后果，`authorize` 要写影响面和回滚办法，`accept` 的材料要是读到的实际结果，「PR 已合并」「CI 绿」不算。用户在对话里回答的，由主控用 `answer` 原话写回。
+`decide` 至少两个 `--option`，`authorize` 的 `--blast` 要三段，缺了命令会拒绝。`accept` 的材料要是读到的实际结果，只写「PR 已合并」「CI 绿」会被拒。用户在对话里回答的，由主控用 `answer` 原话写回。`answer` 只记下决定，不替人执行；它提示还要跑 `fanout <ask 编号> --ok|--failed` 时，等被授权的动作真的做完再跑。
 
 宣布收官前，三项都从板上查一遍：
 
