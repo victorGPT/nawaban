@@ -34,7 +34,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nawaban.owner_identity import owner_from_session  # noqa: E402
-from nawaban import captures, db, dependency_hints, inbox, main_ci, paths, task_content  # noqa: E402
+from nawaban import (captures, db, dependency_hints, dispatch, inbox,  # noqa: E402
+                     main_ci, paths, task_content)
 
 # Compatibility names delegate to the shared hard-policy implementation.
 _TITLE_EXAMPLES = task_content._TITLE_EXAMPLES
@@ -627,6 +628,22 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--ok", action="store_true", help="动作成功:按 flag 分流关卡")
     g.add_argument("--failed", action="store_true", help="动作失败:一张都不关")
 
+    p = sub.add_parser("context", help="读一张卡的任务说明(冷启动视图)")
+    p.add_argument("task_id")
+    p.add_argument("--budget", type=int)
+    p.add_argument("--events", type=int)
+    p.add_argument("--lens", type=int, dest="lens_k", help="检索 top-k(0=关)")
+
+    p = sub.add_parser("dispatch", help="为一张待办卡起一个独立 worker 会话(不替它认领)")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("task_id", nargs="?")
+    g.add_argument("--parent", help="批量:派出这张父卡拆出的、待办且前置卡都已完成的子卡")
+    p.add_argument("--dry-run", action="store_true",
+                   help="配合 --parent:只列每张子卡的状态和会不会派,不起会话")
+
+    p = sub.add_parser("dismiss", help="收工:停掉已完成或已交接的卡的 worker 会话并清理工位")
+    p.add_argument("task_id")
+
     sub.add_parser("wrapup", help="收尾清单:列出本 session 未收尾的卡 + 逐张给出补齐命令")
     sub.add_parser("backup", help="全量备份到 <db 目录>/backups/ · 保留 14 天")
     sub.add_parser("init", help="显式建库(唯一允许创建 DB 文件的动词)")
@@ -870,6 +887,22 @@ def main(argv: list[str] | None = None) -> int:
             print("三件套(sessions.outcome + handoff 事件 + now)缺一整笔拒;"
                   "--artifact 声明的文件不存在也拒(保存闸)。")
             return 0
+        elif a.verb == "context":
+            from nawaban import context_loader  # 它依赖 web 模块;其余动词没有 web 也要能跑
+            options = {k: getattr(a, k) for k in ("budget", "events", "lens_k")
+                       if getattr(a, k) is not None}
+            print(context_loader.build_context(path, a.task_id, **options))
+        elif a.verb == "dispatch":
+            owner, _ = _identity(need_session=False)
+            if a.parent:
+                print("\n".join(dispatch.batch(path, a.parent, author=owner, dry_run=a.dry_run)))
+            elif a.dry_run:
+                raise db.NawabanError("--dry-run 只配合 --parent 使用")
+            else:
+                print(f"✓ dispatch {a.task_id} → 会话 {dispatch.dispatch(path, a.task_id, author=owner)}")
+        elif a.verb == "dismiss":
+            owner, _ = _identity(need_session=False)
+            print(f"✓ dismiss {a.task_id}\n  " + "\n  ".join(dispatch.dismiss(path, a.task_id, author=owner)))
         elif a.verb == "backup":
             dest = db.backup_db(path)
             print(f"✓ backup → {dest}")
