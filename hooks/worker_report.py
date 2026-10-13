@@ -37,24 +37,23 @@ def clip(text: str) -> str:
     text = text.strip()
     if len(text) <= LIMIT:
         return text
-    cut = len(text) - LIMIT
-    return (f"{text[:_HEAD]}\n…[已截断:原文 {len(text)} 字,中间 {cut} 字没有送出]…\n"
-            f"{text[-(LIMIT - _HEAD):]}")
+    note = f"\n…[已截断:原文 {len(text)} 字,只送开头和结尾]…\n"
+    return text[:_HEAD] + note + text[-(LIMIT - _HEAD - len(note)):]
 
 
-def roles(path: Path, session: str) -> tuple[dict[str, str], dict[str, str]]:
+def roles(path: Path, session: str) -> tuple[dict[str, tuple], dict[str, tuple]]:
     """本会话在哪些卡上是 worker、在哪些卡上是主控;只认还没收工的派发。
 
-    返回 (worker 卡 → 主控会话, 主控卡 → worker 会话)。
+    返回 (worker 卡 → (主控会话, 派发时刻), 主控卡 → (worker 会话, 派发时刻))。
     """
     with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as con:
         rows = con.execute(
-            "SELECT task_id, body FROM task_events WHERE id IN ("
+            "SELECT task_id, body, created_at FROM task_events WHERE id IN ("
             " SELECT MAX(id) FROM task_events WHERE kind='coord'"
             " AND (body LIKE 'dispatch {%' OR body LIKE 'dismiss ·%') GROUP BY task_id)"
             " AND body LIKE 'dispatch {%' AND instr(body, ?) > 0", (session,)).fetchall()
     working, directing = {}, {}
-    for task_id, body in rows:
+    for task_id, body, since in rows:
         try:
             record = json.loads(body[len(dispatch._RECORD):])
         except ValueError:
@@ -62,18 +61,23 @@ def roles(path: Path, session: str) -> tuple[dict[str, str], dict[str, str]]:
         if not record.get("director"):
             continue  # 没记主控的旧派发:没有人等这些话,不送
         if record.get("session") == session:
-            working[task_id] = record["director"]
-        elif record["director"] == session:
-            directing[task_id] = record.get("session") or ""
+            working[task_id] = (record["director"], since)
+        elif record["director"] == session and record.get("session"):
+            directing[task_id] = (record["session"], since)
     return working, directing
 
 
-def take(path: Path, wanted: dict[str, str]) -> list[tuple[str, str]]:
-    """取走 wanted(卡 → 信的种类)里还没读的信;同一封信只会被一个等待者取到。"""
+def take(path: Path, wanted: dict[str, tuple]) -> list[tuple[str, str]]:
+    """取走还没读的信;wanted 是 卡 → (信的种类, 对端会话, 派发时刻)。
+
+    只认这一次派发的对端在派发之后写的信:上一次派发留下的话不会落到新的一对头上。
+    同一封信只会被一个等待者取到。
+    """
     if not wanted:
         return []
-    clause = " OR ".join("(task_id=? AND kind=?)" for _ in wanted)
-    args = [value for pair in wanted.items() for value in pair]
+    clause = " OR ".join(
+        "(task_id=? AND kind=? AND session_id=? AND created_at>=?)" for _ in wanted)
+    args = [value for task_id, rest in wanted.items() for value in (task_id, *rest)]
     got = []
     with closing(sqlite3.connect(path, timeout=5)) as con:
         for letter, task_id, msg in con.execute(
@@ -87,16 +91,16 @@ def take(path: Path, wanted: dict[str, str]) -> list[tuple[str, str]]:
     return got
 
 
-def _render(path: Path, got: list[tuple[str, str]], working: dict[str, str],
-            directing: dict[str, str]) -> str:
+def _render(path: Path, got: list[tuple[str, str]], working: dict[str, tuple],
+            directing: dict[str, tuple]) -> str:
     lines = []
     replies = [(t, m) for t, m in got if t in working]
     reports = [(t, m) for t, m in got if t in directing]
     for task_id, msg in replies:
         lines.append(f"[nawaban] 主控回话 · {task_id}(来自派你的主控会话"
-                     f" {working[task_id][:8]},不是窗口前的人):\n{msg}")
+                     f" {working[task_id][0][:8]},不是窗口前的人):\n{msg}")
     for task_id, msg in reports:
-        lines.append(f"[nawaban] worker 回报 · {task_id}(会话 {directing[task_id][:8]}"
+        lines.append(f"[nawaban] worker 回报 · {task_id}(会话 {directing[task_id][0][:8]}"
                      f" 这一轮的最后一段话,自动送达,不是用户输入):\n{msg}")
     if reports:
         lines.append(
@@ -135,19 +139,22 @@ def run(payload: dict) -> int:
         for task_id in working:
             db.add_letter(path, task_id, kind="turn", msg=clip(said), session_id=session)
 
-    wanted = {**{t: "reply" for t in working}, **{t: "turn" for t in directing}}
     # 每次停下都会起一个等待者;只留最新的那个,旧的看到记号换了就退出。
     mark = paths.state_dir() / "report-wait" / f"{session}.pid"
     mark.parent.mkdir(parents=True, exist_ok=True)
     mark.write_text(str(os.getpid()), encoding="utf-8")
     try:
-        while True:
+        while working or directing:
+            wanted = {**{t: ("reply", *peer) for t, peer in working.items()},
+                      **{t: ("turn", *peer) for t, peer in directing.items()}}
             if got := take(path, wanted):
                 print(_render(path, got, working, directing), file=sys.stderr)
                 return WAKE
             time.sleep(POLL)
             if mark.read_text(encoding="utf-8") != str(os.getpid()) or not _session_alive():
                 return 0
+            working, directing = roles(path, session)  # 收工或改派之后不再等
+        return 0
     finally:
         try:
             if mark.read_text(encoding="utf-8") == str(os.getpid()):

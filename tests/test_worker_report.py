@@ -88,8 +88,32 @@ def test_director_wakes_with_the_worker_message_and_the_escalation_rule(board, m
 def test_a_letter_is_delivered_once(board):
     dispatched(board)
     db.add_letter(board, "P-1", kind="turn", msg="第一轮", session_id=WORKER)
-    assert report.take(board, {"P-1": "turn"}) == [("P-1", "第一轮")]
-    assert report.take(board, {"P-1": "turn"}) == []
+    wanted = {"P-1": ("turn", WORKER, 0)}
+    assert report.take(board, wanted) == [("P-1", "第一轮")]
+    assert report.take(board, wanted) == []
+
+
+def test_a_new_dispatch_does_not_inherit_the_old_pair_s_letters(board, monkeypatch):
+    dispatched(board)
+    db.add_letter(board, "P-1", kind="reply", msg="旧主控的决定", session_id="old-director")
+    db.add_letter(board, "P-1", kind="reply", msg="上一次派发时回的", session_id=DIRECTOR)
+    with sqlite3.connect(board) as con:
+        con.execute("UPDATE letters SET created_at=created_at-100")
+    no_waiting(monkeypatch, then=lambda: db.add_event(
+        board, "P-1", kind="coord", author="ac:x", body="dismiss · 已停"))
+    assert report.run(stop(WORKER)) == 0  # 没收到旧信;收工后也不再等
+    assert [row[3] for row in letters(board)] == [0, 0, 0]
+
+
+def test_a_waiting_director_stops_once_the_worker_is_dismissed(board, monkeypatch):
+    dispatched(board)
+
+    def dismiss_then_report():
+        db.add_event(board, "P-1", kind="coord", author="ac:x", body="dismiss · 已停")
+        db.add_letter(board, "P-1", kind="turn", msg="收工后的话", session_id=WORKER)
+    no_waiting(monkeypatch, then=dismiss_then_report)
+    assert report.run(stop(DIRECTOR)) == 0
+    assert letters(board) == [("turn", "收工后的话", WORKER, 0)]
 
 
 def test_a_session_nobody_dispatched_sends_nothing(board, monkeypatch, capsys):
@@ -126,9 +150,9 @@ def test_long_messages_are_cut_and_say_so(board, monkeypatch):
                                           / f"{WORKER}.pid").write_text("0"))
     assert report.run(stop(WORKER, said)) == 0  # 被更新的等待者顶替后退出
     [(kind, msg, _, _)] = letters(board)
-    assert kind == "turn" and len(msg) < report.LIMIT + 60
-    assert msg.startswith("头" * 1000) and msg.endswith("尾" * 500) and "腰" not in msg
-    assert "已截断:原文 5500 字,中间 4000 字没有送出" in msg
+    assert kind == "turn" and len(msg) == report.LIMIT
+    assert msg.startswith("头" * 1000) and msg.endswith("尾" * 400) and "腰" not in msg
+    assert "已截断:原文 5500 字,只送开头和结尾" in msg
     assert report.clip("短话") == "短话"
 
 
