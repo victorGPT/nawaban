@@ -181,8 +181,10 @@ def finished(board, backend, tmp_path):
 def test_dismiss_stops_the_session_and_removes_a_clean_worktree(finished, backend, tmp_path):
     assert run(finished, "dismiss", "P-1") == 0
     assert backend.ran("claude", "stop", SID[:8])
-    [remove] = [c for c in backend.ran("git") if "remove" in c]
-    assert remove[-1] == str(tmp_path / ".claude/worktrees/p-1")
+    steps = [c[3:] for c in backend.ran("git", "-C", str(tmp_path))]
+    worktree = str(tmp_path / ".claude/worktrees/p-1")
+    assert steps == [["worktree", "unlock", worktree], ["worktree", "remove", worktree],
+                     ["branch", "-d", "worktree-p-1"]]
 
 
 def test_dismiss_closes_the_pane_of_a_herdr_worker(board, backend, monkeypatch):
@@ -207,7 +209,7 @@ def test_dismiss_keeps_a_worktree_with_unsaved_work(finished, backend, capsys, s
     assert run(finished, "dismiss", "P-1") == 0
     assert reason in capsys.readouterr().out
     assert backend.ran("claude", "stop")
-    assert not [c for c in backend.ran("git") if "remove" in c]
+    assert not [c for c in backend.ran("git") if "remove" in c or "unlock" in c]
 
 
 def test_dismiss_refuses_a_card_still_in_progress(board, backend, capsys):

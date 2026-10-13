@@ -227,7 +227,13 @@ def dismiss(path: Path, task_id: str, *, author: str) -> list[str]:
     elif keep := _unsaved(worktree):
         lines.append(f"工位没清理:{keep} → {worktree}")
     else:
-        removed = _run("git", "-C", record["root"], "worktree", "remove", str(worktree))
+        git = ("git", "-C", record["root"])
+        # 会话给自己的工位上了锁,停掉后锁还在;上面已确认会话停了、工位里没有会丢的东西。
+        _run(*git, "worktree", "unlock", str(worktree))
+        removed = _run(*git, "worktree", "remove", str(worktree))
+        if not removed.returncode:
+            # -d 只删已并入当前分支的分支,带着没合并提交的分支会留下。
+            _run(*git, "branch", "-d", f"worktree-{task_id.lower()}")
         lines.append(f"工位没清理:{removed.stderr.strip()}" if removed.returncode
                      else f"工位已清理 {worktree}")
     db.add_event(path, task_id, kind="coord", author=author, body="dismiss · " + " · ".join(lines))
