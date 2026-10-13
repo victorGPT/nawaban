@@ -19,7 +19,7 @@ class Backend:
     """Stands in for git, claude and herdr; records every command it is asked to run."""
 
     def __init__(self, root: Path, *, fail=(), stderr="boom", dirty="", unpushed=""):
-        self.root, self.fail, self.stderr = root, fail, stderr
+        self.root, self.fail, self.stderr, self.registers = root, fail, stderr, True
         self.dirty, self.unpushed = dirty, unpushed
         self.calls: list[list[str]] = []
         self.sessions: list[dict] = []
@@ -31,7 +31,7 @@ class Backend:
             return subprocess.CompletedProcess(cmd, 1, "", self.stderr)
         if any(cmd[:len(prefix)] == prefix for prefix in LAUNCH):
             name = cmd[cmd.index("--name") + 1]
-            self.sessions.append({"name": name, "sessionId": SID,
+            self.registers and self.sessions.append({"name": name, "sessionId": SID,
                                   "cwd": str(self.root / ".claude/worktrees" / name)})
         elif cmd[:2] == ["claude", "agents"]:
             out = json.dumps(self.sessions)
@@ -118,6 +118,31 @@ def test_herdr_failure_falls_back_to_a_background_session(board, backend, monkey
     assert SID in task(board, "P-1")["now"]
 
 
+def test_half_started_herdr_session_blocks_the_fallback(board, backend, monkeypatch, capsys):
+    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setattr(dispatch, "_trusted", lambda root: True)
+    backend.fail = (("herdr", "agent", "prompt"), ("herdr", "pane", "close"))
+    assert run(board, "dispatch", "P-1") == 1
+    assert "没能关掉" in capsys.readouterr().err
+    assert not backend.ran("claude", "--bg")
+
+
+def test_a_session_that_cannot_be_recorded_is_stopped(board, backend, monkeypatch, capsys):
+    def locked(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(db, "add_event", locked)
+    assert run(board, "dispatch", "P-1") == 1
+    assert "记不进卡" in capsys.readouterr().err
+    assert backend.ran("claude", "stop", SID[:8])
+
+
+def test_a_session_without_an_id_is_not_reported_as_dispatched(board, backend, monkeypatch, capsys):
+    monkeypatch.setattr(dispatch.time, "sleep", lambda seconds: None)
+    backend.registers = False
+    assert run(board, "dispatch", "P-1") == 1
+    assert "没查到它的编号" in capsys.readouterr().err
+
+
 @pytest.fixture
 def family(board):
     db.create_task(board, task_id="UP", title="还没做完的前置卡")
@@ -198,6 +223,13 @@ def test_dismiss_closes_the_pane_of_a_herdr_worker(board, backend, monkeypatch):
     assert run(board, "dismiss", "P-1") == 0
     assert backend.ran("herdr", "pane", "close", "w1:p9")
     assert not backend.ran("claude", "stop")
+
+
+def test_dismiss_still_cleans_up_when_the_session_is_already_gone(finished, backend, capsys):
+    backend.fail, backend.sessions = (("claude", "stop"),), []
+    assert run(finished, "dismiss", "P-1") == 0
+    assert "已经不在" in capsys.readouterr().out
+    assert [c for c in backend.ran("git") if "remove" in c]
 
 
 @pytest.mark.parametrize("state,reason", [

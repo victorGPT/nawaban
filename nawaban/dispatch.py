@@ -144,15 +144,20 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
         raise db.NawabanError(f"不派 {task_id}:已经有一个叫 {name} 的会话在跑")
     prompt = brief(path, task_id, name)
 
-    pane = None
+    pane, output = None, ""
     if os.environ.get("HERDR_ENV") == "1" and _trusted(root):
         pane = _herdr(root, name, prompt)
+        if pane is None and _session(name):
+            # 窗格没关掉、里面的会话还活着:再起后台会话就是两个 worker 做同一张卡。
+            raise db.NawabanError(
+                f"不派 {task_id}:Herdr 里的会话 {name} 起了一半没能关掉,请先手工关掉那个窗格")
     if pane is None:
         started = _run("claude", "--bg", *_session_args(name), prompt, cwd=root)
         if started.returncode:
             detail = (started.stderr or started.stdout).strip().splitlines()
             raise db.NawabanError(
                 f"不派 {task_id}:会话没起来 —— {detail[0] if detail else '没有输出'}")
+        output = started.stdout.strip()
 
     live = _session(name, tries=5) or {}
     session = live.get("sessionId") or "未查到"
@@ -160,10 +165,27 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
     record = {"backend": "herdr" if pane else "claude-bg", "session": live.get("sessionId"),
               "pane": pane, "worktree": worktree, "root": str(root)}
     where = f"窗格 {pane}" if pane else "后台"
-    db.add_event(path, task_id, kind="coord", author=author,
-                 body=_RECORD + json.dumps(record, ensure_ascii=False),
-                 now=f"已派发({where})· 会话 {session} · 工位 {Path(worktree).name}"[:200])
+    try:
+        db.add_event(path, task_id, kind="coord", author=author,
+                     body=_RECORD + json.dumps(record, ensure_ascii=False),
+                     now=f"已派发({where})· 会话 {session} · 工位 {Path(worktree).name}"[:200])
+    except (sqlite3.Error, db.NawabanError) as exc:
+        # 记不进卡的 worker 没人能找到、没人能收工,所以停掉它。
+        _stop(record)
+        raise db.NawabanError(f"不派 {task_id}:会话起了但记不进卡,已停掉 —— {exc}") from exc
+    if not record["session"]:
+        raise db.NawabanError(
+            f"{task_id} 的会话已经起了,但没查到它的编号;用 claude agents 确认后手工处理"
+            + (f"(启动输出:{output[:200]})" if output else ""))
     return session
+
+
+def _stop(record: dict) -> subprocess.CompletedProcess | None:
+    if record["pane"]:
+        return _run("herdr", "pane", "close", record["pane"])
+    if record["session"]:
+        return _run("claude", "stop", record["session"][:8])
+    return None
 
 
 def batch(path: Path, parent: str, *, author: str, dry_run: bool) -> list[str]:
@@ -208,18 +230,14 @@ def dismiss(path: Path, task_id: str, *, author: str) -> list[str]:
         raise db.NawabanError(f"不收工 {task_id}:卡上没有派发记录,不知道该关哪个会话")
     record = json.loads(event["body"][len(_RECORD):])
 
-    lines = []
-    if record["pane"]:
-        stopped = _run("herdr", "pane", "close", record["pane"])
-        lines.append(f"窗格 {record['pane']} 已关")
-    elif record["session"]:
-        stopped = _run("claude", "stop", record["session"][:8])
-        lines.append(f"会话 {record['session']} 已停")
-    else:
+    stopped = _stop(record)
+    if stopped is None:
         raise db.NawabanError(f"不收工 {task_id}:派发记录里没有会话编号,请手工停掉会话")
-    if stopped.returncode:
+    if stopped.returncode and _session(task_id.lower()):
         raise db.NawabanError(
             f"收工 {task_id} 失败:会话没停掉,工位未动 —— {(stopped.stderr or stopped.stdout).strip()}")
+    what = f"窗格 {record['pane']}" if record["pane"] else f"会话 {record['session']}"
+    lines = [what + (" 已经不在" if stopped.returncode else " 已关" if record["pane"] else " 已停")]
 
     worktree = Path(record["worktree"])
     if not worktree.is_dir():
