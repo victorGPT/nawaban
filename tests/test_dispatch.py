@@ -97,6 +97,17 @@ def test_dispatch_starts_a_background_session_named_after_the_card(board, backen
     assert task(board, "P-1")["owner"] is None
 
 
+def test_dispatch_records_who_dispatched_and_tells_the_worker_how_to_report(
+        board, backend, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "director-session")
+    assert run(board, "dispatch", "P-1") == 0
+    with sqlite3.connect(board) as con:
+        [(body,)] = con.execute("SELECT body FROM task_events WHERE body LIKE 'dispatch {%'")
+    assert json.loads(body[len("dispatch "):])["director"] == "director-session"
+    [launch] = backend.ran("claude", "--bg")
+    assert "最后一段话会自动送回派你的主控" in launch[-1] and "不要在这里等人回话" in launch[-1]
+
+
 def test_dispatch_inside_herdr_opens_a_new_pane(board, backend, monkeypatch):
     monkeypatch.setenv("HERDR_ENV", "1")
     monkeypatch.setattr(dispatch, "_trusted", lambda root: True)

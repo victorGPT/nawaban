@@ -123,7 +123,8 @@ def brief(path: Path, task_id: str, name: str) -> str:
 开工:先加载 nawaban:nawaban 技能,按它认领这张卡再 start。任务库是 {path},命令写成 {nawaban} <动词>。
 你所在的目录已经是这张卡的独立工位(分支 worktree-{name}),直接在这里改;不要再建工位,不要改主树。
 范围:只做这张卡的验收条目。不建新卡,不起别的 worker,不动别的卡,不合并。
-没有人坐在这个窗口前。实现选型、命名、测试写法自己定;确实定不了的,用 {nawaban} notify {task_id} --kind blocked --msg "问题和你的建议" 写到看板上然后停下。做完用 notify --kind done 汇报,附 PR 链接和测试结果。
+没有人坐在这个窗口前,不要在这里等人回话。你每一轮停下时,最后一段话会自动送回派你的主控;主控的回话会直接出现在这个会话里,收到后接着干。所以停下前把结论、要主控决定的问题和你的建议写在最后一段话里。
+实现选型、命名、测试写法自己定;确实定不了的,另用 {nawaban} notify {task_id} --kind blocked --msg "问题和你的建议" 写到看板上然后停下。做完用 notify --kind done 汇报,附 PR 链接和测试结果。
 
 {context_loader.build_context(path, task_id)}"""
 
@@ -162,8 +163,10 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
     live = _session(name, tries=5) or {}
     session = live.get("sessionId") or "未查到"
     worktree = live.get("cwd") or str(root / ".claude" / "worktrees" / name)
+    # director = 派它的会话:worker 每轮停下的话凭它送回来(hooks/worker_report.py)。
     record = {"backend": "herdr" if pane else "claude-bg", "session": live.get("sessionId"),
-              "pane": pane, "worktree": worktree, "root": str(root)}
+              "pane": pane, "worktree": worktree, "root": str(root),
+              "director": os.environ.get("CLAUDE_CODE_SESSION_ID")}
     where = f"窗格 {pane}" if pane else "后台"
     try:
         db.add_event(path, task_id, kind="coord", author=author,
