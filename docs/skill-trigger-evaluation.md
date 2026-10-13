@@ -81,9 +81,9 @@ Six further requests were run against the new variant only, three runs per
 model, and scored by reading which skill loaded first:
 
 - Four director requests (split and dispatch, read workers' letters, roll up
-  acceptance, the same in English): `nawaban-director` first in 23/24 runs. The
-  miss was Sonnet on "is this card ready to close", which loaded no skill in two
-  of three runs.
+  acceptance, the same in English): `nawaban-director` first in 22/24 runs. Both
+  misses were Sonnet on "is this card ready to close", which loaded no skill in
+  two of three runs.
 - Two worker requests that mention the director: `nawaban` first in 12/12 runs,
   `nawaban-director` in none.
 
