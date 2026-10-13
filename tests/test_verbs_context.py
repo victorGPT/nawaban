@@ -76,7 +76,8 @@ def test_help_only_lists_canonical_verbs(capsys):
     text = capsys.readouterr().out
     for name in ("kin", "advance", "letter", "letters", "letter-read"):
         assert name not in text
-    for name in ("deps", "transition", "notify", "notifications", "notify-read", "fanout", "wrapup"):
+    for name in ("deps", "transition", "notify", "notifications", "notify-read", "fanout", "wrapup",
+                 "context", "dispatch", "dismiss"):
         assert name in text
 
 

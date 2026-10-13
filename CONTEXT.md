@@ -256,6 +256,18 @@ Task-linked messages that report progress, coordination needs, or obstacles to a
 _Avoid_: letters as the English product label; asks as a synonym.
 _Current identifiers_: `letters`, `letters.read_at`; CLI `notify`, `notifications`, `notify-read`.
 
+**Dispatch**(派发)
+Starting one independent worker session for one open task, with the task briefing as its first message; the worker claims the task itself.
+派发是为一张待办卡起一个独立的 worker 会话，任务说明是它收到的第一条消息；认领由 worker 自己做。
+_Avoid_: named sub-agents as workers, automatic claim, automatic merge.
+_Current identifiers_: `task_events` (coord); CLI `dispatch`, `context`.
+
+**Dismiss**(收工)
+Stopping a dispatched worker's session and removing its worktree once the task is finished or handed off; unsaved work keeps the worktree.
+收工是在卡完成或交接后停掉派出的 worker 会话并清理工位；工位里有没保存的改动时保留工位。
+_Avoid_: closing a session as proof of completion.
+_Current identifiers_: `task_events` (coord); CLI `dismiss`.
+
 ### Relationships and evidence
 
 **Dependencies**(依赖)
