@@ -6,7 +6,7 @@
 
 先读卡；`constraints` 中的 `skills:` 是本卡已选定能力，按当前启用名称解析。方法取决于本次目标：Skill 文案用 writing-for-agents，领域/ADR、原型、TDD 或部署说明仅在对应工作确实需要时加载。
 
-本会话由 `nawaban dispatch` 起，所在目录已是本卡的独立工位，不再另建。卡完成或交接后主控用 `nawaban dismiss` 停掉会话并清理工位，所以停下前把改动提交并推送，没推送的工位不会被清理。不在 worker 里再起具名子 agent 当 worker；子 agent 只用于查代码和评审。
+本会话由 `nawaban dispatch` 起，所在目录已是本卡的独立工位，不再另建。卡完成或交接后主控用 `nawaban dismiss` 停掉会话并清理工位；工位里有没提交或没推送的改动时它不清理。提交、推送和开 PR 仍各自需要卡或派单说明的授权：授权覆盖到的，停下前做完；没覆盖的留在工位，并在汇报里写明留了什么。不在 worker 里再起具名子 agent 当 worker；子 agent 只用于查代码和评审。
 
 ## 汇报
 
