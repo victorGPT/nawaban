@@ -76,15 +76,20 @@ def take(path: Path, wanted: dict[str, tuple]) -> list[tuple[str, str]]:
     if not wanted:
         return []
     clause = " OR ".join(
-        "(task_id=? AND kind=? AND session_id=? AND created_at>=?)" for _ in wanted)
+        "(task_id=? AND kind=? AND session_id=? AND created_at>?)" for _ in wanted)
     args = [value for task_id, rest in wanted.items() for value in (task_id, *rest)]
     got = []
     with closing(sqlite3.connect(path, timeout=5)) as con:
         for letter, task_id, msg in con.execute(
                 f"SELECT id, task_id, msg FROM letters WHERE read_at IS NULL AND ({clause})"
                 " ORDER BY id", args).fetchall():
-            claimed = con.execute("UPDATE letters SET read_at=? WHERE id=? AND read_at IS NULL",
-                                  (int(time.time()), letter)).rowcount
+            # 取信和「派发还有效」在同一条语句里判:收工之后到的信不取。
+            claimed = con.execute(
+                "UPDATE letters SET read_at=? WHERE id=? AND read_at IS NULL AND ("
+                " SELECT body FROM task_events WHERE task_id=letters.task_id AND kind='coord'"
+                " AND (body LIKE 'dispatch {%' OR body LIKE 'dismiss ·%')"
+                " ORDER BY id DESC LIMIT 1) LIKE 'dispatch {%'",
+                (int(time.time()), letter)).rowcount
             con.commit()
             if claimed:
                 got.append((task_id, msg))

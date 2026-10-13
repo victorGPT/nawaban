@@ -34,8 +34,13 @@ def board(tmp_path, monkeypatch):
 
 def dispatched(board, *, director=DIRECTOR):
     record = {"backend": "claude-bg", "session": WORKER, "pane": None, "director": director}
-    db.add_event(board, "P-1", kind="coord", author="ac:x",
-                 body="dispatch " + json.dumps(record))
+    clock = db._now
+    db._now = lambda: clock() - 1  # 派发早于之后的信;同一秒内的信不算这次派发的
+    try:
+        db.add_event(board, "P-1", kind="coord", author="ac:x",
+                     body="dispatch " + json.dumps(record))
+    finally:
+        db._now = clock
 
 
 def letters(board) -> list[tuple]:
@@ -93,12 +98,24 @@ def test_a_letter_is_delivered_once(board):
     assert report.take(board, wanted) == []
 
 
+def test_letters_arriving_after_dismiss_are_left_alone(board):
+    dispatched(board)
+    db.add_event(board, "P-1", kind="coord", author="ac:x", body="dismiss · 已停")
+    db.add_letter(board, "P-1", kind="turn", msg="收工后的话", session_id=WORKER)
+    assert report.take(board, {"P-1": ("turn", WORKER, 0)}) == []
+    assert letters(board) == [("turn", "收工后的话", WORKER, 0)]
+
+
 def test_a_new_dispatch_does_not_inherit_the_old_pair_s_letters(board, monkeypatch):
     dispatched(board)
     db.add_letter(board, "P-1", kind="reply", msg="旧主控的决定", session_id="old-director")
     db.add_letter(board, "P-1", kind="reply", msg="上一次派发时回的", session_id=DIRECTOR)
     with sqlite3.connect(board) as con:
-        con.execute("UPDATE letters SET created_at=created_at-100")
+        con.execute("UPDATE letters SET created_at=created_at-100 WHERE session_id!=?",
+                    (DIRECTOR,))
+        # 同一个主控、和派发记录落在同一秒的旧回话,也不算这次派发的
+        con.execute("UPDATE letters SET created_at=(SELECT MAX(created_at) FROM task_events)"
+                    " WHERE session_id=?", (DIRECTOR,))
     no_waiting(monkeypatch, then=lambda: db.add_event(
         board, "P-1", kind="coord", author="ac:x", body="dismiss · 已停"))
     assert report.run(stop(WORKER)) == 0  # 没收到旧信;收工后也不再等
