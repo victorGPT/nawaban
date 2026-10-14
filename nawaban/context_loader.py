@@ -77,7 +77,7 @@ def _bullets(lines: list[str], indent: str = "  ") -> list[str]:
 def _head(d: dict, now_ts: int) -> list[str]:
     L = [RULE,
          "NAWABAN 冷启动装载 · 时点快照,不是实况。",
-         "所有年龄相对**此刻**;拿任何一条当现状之前,先回源复核(代码/PR/prod 自己说了算)。",
+         "下文的「xx ago」都是相对这段文字生成时算的,不是你读到的时候;拿任何一条当现状之前,先回源复核(代码/PR/prod 自己说了算)。",
          RULE, ""]
     wait = f" · 等{d['waiting_on']}" if d.get("waiting_on") else ""
     L.append(f"[{d['id']}] {d['title']}")
