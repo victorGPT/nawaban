@@ -1,51 +1,51 @@
-# 交付与收尾
+# Delivery and wrap-up
 
-## 留下可接手的事实
+## Leave facts the next session can pick up
 
-`status`、`now`、refs 和最新 handoff 应反映已核实的交付版本与运行状态。记录实际 commit/PR/merge、验证命令与结果、未完成项及下一步；没有远程的项目用本地版本，不假定存在 origin/main。未查的 live 配置或真人验收明确标为未验证。
+`status`, `now`, refs, and the latest handoff reflect the verified delivered version and runtime state. Record the actual commit, PR, or merge, the verification commands and their results, what is unfinished, and the next step. A project without a remote uses its local version; never assume an `origin/main`. Live configuration or human acceptance you did not check is marked unverified.
 
-长证据保存在可访问的 artifact，卡上放指针。决策经 `decide` 追加，普通进展经 `event` 记录；字段与参数查 CLI 帮助。ADR、能力文档只在项目需要且本次行为变化涉及它们时更新。
+Keep long evidence in an accessible artifact and put a pointer on the task. Append decisions with `decide` and ordinary progress with `event`; look up fields and flags in the CLI help. Update ADRs or capability docs only when the project needs them and this change touches the behaviour they describe.
 
-## 状态与证据
+## Status and evidence
 
-按用户和项目的完成条件选择路径；状态闸接受一次写入不等于交付内容已验收。
+Pick the path from the user's and the project's completion conditions. A write accepted by a status gate is not acceptance of what was delivered.
 
-| 情况 | 记录与动作 |
+| Situation | Record and action |
 |---|---|
-| 未合并或仅交付文件/commit | 保存 artifact/commit ref；用 handed_off 或 blocked 写真实进展。当前状态机没有“未合并内部任务直通 done”的路径。 |
-| 内部任务已按授权实际合并且验证通过 | 登记实际 `merge_sha` ref，再从 in_progress transition 到 done。 |
-| 项目要求目标运行环境验收 | 验证后登记 `acceptance_run`，再进入 staging-verified；`waiting_on` 按实际依赖选 decision/prod/observe/external。 |
-| 需要真人验收或决定 | 按下节使用 ask。 |
-| 还在等观察窗口、外部动作或部署 | 保留等待态与下一次核查条件；时间经过或取得授权不能代替动作与效果证据。 |
+| Unmerged, or only files or a commit delivered | Save the artifact or commit ref; write the real progress with `handed_off` or `blocked`. The state machine has no path from an unmerged internal task straight to `done`. |
+| Internal task actually merged under authorization and verified | Register the actual `merge_sha` ref, then transition from `in_progress` to `done`. |
+| The project requires acceptance in the target runtime | After verifying, register `acceptance_run`, then move to `staging-verified`; choose `waiting_on` from the real dependency: `decision`, `prod`, `observe`, or `external`. |
+| A human acceptance or decision is needed | Use an ask, as in the next section. |
+| Still waiting on an observation window, an outside action, or a deploy | Keep the waiting state and the condition for the next check. Elapsed time or granted authorization is not evidence of the action or its effect. |
 
-示例（先替换已核实的库、卡号与 SHA）：
-
-```bash
-nawaban --db <目标库> ref <ID> --kind merge_sha --value <实际合并SHA>
-nawaban --db <目标库> transition <ID> --to done
-```
-
-状态的合法转换由 CLI/库校验。`waiting_on` 不是可任意编辑的字段；staging-verified 不能通过同态 transition 切换等待类型，按实际允许的返工/再验证路径处理，保留原证据。
-
-## 需要用户动作时
-
-已有授权覆盖的工作继续执行。仅当缺少必要决定、授权或项目要求真人验收时，使用 `nawaban ask --help` 构造一个具体问题，提供可审阅材料。
-
-- `decide`：至少两个带后果的选项。
-- `authorize`：说明将做的动作、影响范围与失败/回退方式。
-- `accept`：给目标运行环境的读侧正向证据；PR 合并与 CI 通过不能代替它。
-
-`answer` 代表用户回答，只能落实真实用户输入。accept 回答可能直接推进卡状态；authorize/decide 回答只记决策并关闭 ask，授权动作实际成功后才使用 `fanout --ok`。这些多卡操作逐卡提交；部分失败或结果未知时先核对已落决策和状态，再决定如何恢复，不能假定整批原子或安全重试。
-
-`decide --by user` 受决策通道限制；设置通道不构成用户授权。decision 卡要求有效用户决定晚于最近验收时间；若同秒等条件导致拒绝，核对原始回答与时间再处理，不能虚构一次新回答以过闸。
-
-## 记录本次尝试
+Example (replace the database, task ID, and SHA with verified values):
 
 ```bash
-nawaban --db <目标库> handoff <ID> --outcome handed_off \
-  --summary "<完成内容、证据和剩余工作>" --now "<当前状态与下一步>"
+nawaban --db <target db> ref <ID> --kind merge_sha --value <actual merge SHA>
+nawaban --db <target db> transition <ID> --to done
 ```
 
-- outcome 选真实结果。`completed` 仅用于 staging-verified/done，且不表示已经真人验收；仍待合并/执行时用 `handed_off`，有具体阻塞用 `blocked`。
-- handoff 结束本 session 的认领记录，不自动推进到 done。明确放弃 owner 时加 `--release`；它会让 claimed/in_progress 回到 open，其他状态保留而清 owner。
-- 完成授权范围内的工作后，按 [nawaban-wrapup](../../nawaban-wrapup/SKILL.md) 查遗漏。恢复身份见 [运行入口](runtime.md)。
+The CLI and the database validate legal transitions. `waiting_on` is not a freely editable field; a `staging-verified` task cannot switch its wait type through a same-state transition. Follow the rework or re-verification path the CLI allows and keep the original evidence.
+
+## When the user must act
+
+Keep doing work that existing authorization covers. Only when a required decision or authorization is missing, or the project requires human acceptance, build one specific question with `nawaban ask --help` and attach material the user can review.
+
+- `decide`: at least two options, each with its consequence.
+- `authorize`: the action to take, what it affects, and how failure is handled or rolled back.
+- `accept`: positive evidence read from the target runtime. A merged PR or green CI does not replace it.
+
+`answer` records the user's answer and carries only real user input. An `accept` answer may advance the task's status directly; an `authorize` or `decide` answer only records the decision and closes the ask, and `fanout --ok` runs only after the authorized action has actually succeeded. These multi-task operations commit task by task: on partial failure or an unknown result, check which decisions and statuses landed before recovering, and never assume the batch is atomic or safe to retry.
+
+`decide --by user` is limited by the decision channel; setting the channel is not user authorization. A `decision` wait requires a valid user decision later than the latest acceptance time. If a same-second timestamp or a similar condition rejects it, check the original answer and its time; never invent a new answer to pass the gate.
+
+## Record this attempt
+
+```bash
+nawaban --db <target db> handoff <ID> --outcome handed_off \
+  --summary "<what was done, evidence, and remaining work>" --now "<current state and next step>"
+```
+
+- Choose the outcome that matches what happened. `completed` is only for `staging-verified` or `done`, and does not mean a human has accepted it; use `handed_off` while a merge or an action is still pending, and `blocked` for a specific blocker.
+- A handoff ends this session's claim record; it does not advance the task to `done`. Add `--release` only to give up ownership: `claimed` and `in_progress` return to `open`, other statuses stay and lose their owner.
+- After finishing the authorized work, check for leftovers with [nawaban-wrapup](../../nawaban-wrapup/SKILL.md). Restoring identity is covered in [Runtime and identity](runtime.md).

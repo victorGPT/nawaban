@@ -1,25 +1,25 @@
 ---
 name: nawaban-wrapup
-description: 结束或交接 nawaban 工作时，检查本 session 未收尾的认领并记录真实交接态。
+description: Use when ending or handing off nawaban work. Checks this session's unfinished claims and records the real handoff state.
 ---
 
-# nawaban 收尾
+# nawaban wrap-up
 
-沿用本次工作的 CLI、目标库和会话身份；不确定时读 [运行入口与身份](../nawaban/references/runtime.md)。相对链接按本 Skill 的真实路径解析。
-
-```bash
-nawaban --db <目标库绝对路径> wrapup
-```
-
-它检查本 session 尚未结束的认领记录，不是所有活跃卡，也不证明任务已 done。跨 session 接手、已写过 handoff 后又继续工作的情况，还需核对本次实际处理的卡。
-
-按每张卡的真实结果构造 `handoff`：选择一个 outcome，填写 summary、now；CLI 输出是示意模板，含 `|` 占位符且未保留显式 `--db`，不能原样执行。仍需确认交付或归档条件时读 [交付与收尾](../nawaban/references/cards.md)。
+Keep the CLI, target database, and session identity used for this work; when unsure, read [Runtime and identity](../nawaban/references/runtime.md). Resolve relative links from this skill's real path.
 
 ```bash
-nawaban --db <同一目标库绝对路径> handoff <ID> --outcome handed_off \
-  --summary "<已完成、剩余与证据>" --now "<当前状态与下一步>"
+nawaban --db <absolute path of target db> wrapup
 ```
 
-有已保存的产物时加 `--artifact <实际存在的路径>`；明确交接并放弃 owner 时才加 `--release`。handoff 记录尝试结果，不自动把任务状态改为 done。可在授权范围内完成的剩余工作继续完成；真正阻塞则如实交接。
+It lists this session's claim records that have not ended, not every active task, and it does not prove a task is done. When you took over from another session, or kept working after writing a handoff, also check the tasks this session actually handled.
 
-完成条件：本次处理的卡反映当前状态，产物可访问，未完成项有接手所需信息。
+Build a `handoff` from each task's real result: pick one outcome and fill in the summary and `now`. The CLI output is an illustrative template: it contains `|` placeholders and drops the explicit `--db`, so it cannot run as printed. When delivery or archive conditions still need checking, read [Delivery and wrap-up](../nawaban/references/cards.md).
+
+```bash
+nawaban --db <same absolute path of target db> handoff <ID> --outcome handed_off \
+  --summary "<done, remaining, and evidence>" --now "<current state and next step>"
+```
+
+Add `--artifact <path that exists>` when an artifact was saved; add `--release` only when handing off and giving up ownership. A handoff records the attempt's result and does not set the task to done. Finish remaining work that authorization covers; when truly blocked, hand off as it is.
+
+Done when: every task this session handled reflects its current state, artifacts are reachable, and unfinished items carry what the next session needs to pick them up.
