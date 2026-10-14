@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `scripts/eval_skill_trigger.py` adds seven wrap-up and handoff cases and records which nawaban skill loaded first. Folding `nawaban-wrapup` into the task skill was measured and not adopted: Sonnet loaded a skill first on 11/21 wrap-up runs, down from 19/21 (`docs/skill-trigger-evaluation.md`).
 - The task skill's gate table and PR notes now document the merge gate: run `gh pr merge` as a single command on a branch that contains the latest main with all checks green. No gate decision changed.
 - The `nawaban` skill description now says to use it before changing files, committing or branching in a repository with a board, and the skill tells sessions to give shell writes an absolute path inside the worktree, because the write gate does not follow `cd`. In `docs/skill-trigger-evaluation.md` sessions loaded the skill before acting in 34/42 held-out runs, up from 27/42, and gate rejections fell from 27 to 5.
 - `scripts/eval_gates.py` reports each pass rate with a 95% interval, counts unfinished runs and skill loads, and says when a score has no headroom or two variants differ by less than the noise. New `scripts/eval_skill_trigger.py` measures whether a session loads the task skill before acting and stays away from it otherwise, with a held-out split and `--regrade` for saved transcripts.
