@@ -8,7 +8,7 @@ import re
 def test_every_cli_subcommand_is_registered_in_glossary():
     root = Path(__file__).resolve().parents[1]
     source = (root / "nawaban" / "cli.py").read_text(encoding="utf-8")
-    glossary = (root / "CONTEXT.md").read_text(encoding="utf-8")
+    glossary = (root / "GLOSSARY.md").read_text(encoding="utf-8")
     commands = set(re.findall(r"\.add_parser\(\s*['\"]([^'\"]+)['\"]", source))
     entries = re.findall(
         r"^\*\*([^*\n]+)\*\*\([^\n)]+\)\n(.*?)(?=^\*\*|^#{1,6} |\Z)",
@@ -16,7 +16,7 @@ def test_every_cli_subcommand_is_registered_in_glossary():
         flags=re.MULTILINE | re.DOTALL,
     )
     assert commands, "No argparse subcommands found in nawaban/cli.py"
-    assert entries, "No bilingual glossary entries found in CONTEXT.md"
+    assert entries, "No bilingual glossary entries found in GLOSSARY.md"
     registered = set()
     for _, body in entries:
         for line in body.splitlines():
@@ -24,7 +24,7 @@ def test_every_cli_subcommand_is_registered_in_glossary():
                 registered.update(re.findall(r"`([^`\n]+)`", line))
     assert {"deps", "transition", "notify", "notifications", "notify-read"} <= commands
     missing = sorted(commands - registered)
-    assert not missing, "CLI subcommands missing from CONTEXT.md: " + ", ".join(missing)
+    assert not missing, "CLI subcommands missing from GLOSSARY.md: " + ", ".join(missing)
 
 
 def test_no_compatibility_names_return():
@@ -54,7 +54,7 @@ def test_no_compatibility_names_return():
 
 def test_every_english_ui_message_is_registered_in_glossary():
     root = Path(__file__).resolve().parents[1]
-    glossary = (root / "CONTEXT.md").read_text(encoding="utf-8")
+    glossary = (root / "GLOSSARY.md").read_text(encoding="utf-8")
     registered = set(re.findall(r"^\*\*([^*\n]+)\*\*\(", glossary, re.MULTILINE))
     messages_section = glossary.split("### Interface messages\n", 1)[1].split("|---|---|---|\n", 1)[1]
     registered.update(
@@ -67,7 +67,7 @@ def test_every_english_ui_message_is_registered_in_glossary():
     assert english, "English UI messages must not be empty"
     assert english.keys() == chinese.keys(), "Locale keys must match"
     missing = sorted({value for value in english.values() if value not in registered})
-    assert not missing, "English UI messages missing from CONTEXT.md: " + ", ".join(missing)
+    assert not missing, "English UI messages missing from GLOSSARY.md: " + ", ".join(missing)
     for key, value in english.items():
         assert set(re.findall(r"\{\w+\}", value)) == set(re.findall(r"\{\w+\}", chinese[key])), key
 
