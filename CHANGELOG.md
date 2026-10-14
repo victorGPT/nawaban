@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The director skill now replies to a dispatched worker with `notify --kind reply`, matching the worker protocol; stopping and resuming the session is kept only for a director window that did not dispatch the worker. It also re-runs `dispatch --parent` after each child card passes, describes an optional integration branch for cards that ship together, and reviews the combined diff before closing a batch. The director now merges a card's PR itself once the card passes acceptance, a review finds no blocking issue and checks are green; a merge that deploys to production still goes to the user. The worker brief now says not to merge PRs and to bring the target branch in before opening one.
 - The bilingual glossary is now `GLOSSARY.md` instead of `CONTEXT.md`, the name the upstream domain skills read since their v1.3.0. Its format is unchanged; README, the web UI notes and `tests/test_glossary.py` point at the new name.
 - The task skill's gate table and PR notes now document the merge gate: run `gh pr merge` as a single command on a branch that contains the latest main with all checks green. No gate decision changed.
 - The `nawaban` skill description now says to use it before changing files, committing or branching in a repository with a board, and the skill tells sessions to give shell writes an absolute path inside the worktree, because the write gate does not follow `cd`. In `docs/skill-trigger-evaluation.md` sessions loaded the skill before acting in 34/42 held-out runs, up from 27/42, and gate rejections fell from 27 to 5.
