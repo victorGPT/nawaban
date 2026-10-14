@@ -115,7 +115,8 @@ CREATE INDEX IF NOT EXISTS idx_letters_unread ON letters(read_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_letters_task   ON letters(task_id, created_at);
 """
 
-LETTER_KINDS = ("done", "blocked", "stage", "claim")
+# turn = worker 每轮停下时自动送回主控的最后一段话;reply = 主控回给 worker 的话。
+LETTER_KINDS = ("done", "blocked", "stage", "claim", "turn", "reply")
 
 SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS tasks (

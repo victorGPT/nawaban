@@ -1,5 +1,5 @@
 {
-  "description": "nawaban gates: main-checkout write gate, merge gate, branch gate, session banner, headless compile gate, main-checkout dirt watch.",
+  "description": "nawaban gates: main-checkout write gate, merge gate, branch gate, session banner, headless compile gate, main-checkout dirt watch, worker turn report.",
   "hooks": {
     "SessionStart": [
       {
@@ -52,6 +52,17 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/foreman_maintree_watch.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/worker_report.py\"",
+            "async": true,
+            "asyncRewake": true,
+            "timeout": 86400
           }
         ]
       }

@@ -559,7 +559,7 @@ def main(argv: list[str] | None = None) -> int:
     for f in db.META_FIELDS:
         p.add_argument(f"--set-{f}", dest=f"set_{f}")
 
-    p = sub.add_parser("notify", help="写信(worker→总监汇报,NAWABAN-LETTERS-DB-001)")
+    p = sub.add_parser("notify", help="写信(worker→总监汇报;reply 是主控回话给派出的 worker)")
     p.add_argument("task_id")
     p.add_argument("--kind", required=True, choices=list(db.LETTER_KINDS))
     p.add_argument("--msg", required=True)
