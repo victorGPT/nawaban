@@ -47,7 +47,7 @@ git worktree add <独立工位路径> -b task/<ID>
 |---|---|
 | 无卡、需要拆分目标或记录决策 | [建卡与需求边界](references/grill-protocol.md) |
 | claim 占用提示或依赖/编辑/归档被拒 | [占用协调](references/locks.md)、[状态与 hook 闸](references/gates.md)，只读相关项 |
-| 总监派单或明确采用 worker 协议 | [Worker 协议](references/director-worker.md) |
+| 本会话是主控派出的 worker，或明确采用 worker 协议 | [Worker 协议](references/director-worker.md) |
 | PR 在范围内或项目要求独立评审 | [PR 与评审](references/review-pr.md)；追加 PR 提交或冲突时再读 [Git 协作](references/git-shared-tree.md) |
 | 需要额外能力或读取旧 Markdown 卡 | [能力目录](references/skill-shelf.md)、[历史卡](references/md-cards.md)，按需二选一 |
 
