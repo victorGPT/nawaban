@@ -1,16 +1,16 @@
 <!-- Historical Markdown workflow reference; current tasks use nawaban DB. -->
-# 开工看板
+# Task board
 
-> 实时读任务卡 frontmatter · 卡一改这里就变 · 唯一人看视图。
-> 改状态改卡本身,锁真相在卡。验收队列按 waiting_on 分流:红标「等拍板」才是在等你,其余各有各的等。
-> 用法:把仓库的 .foreman/ 目录当 Obsidian vault 打开(需 Dataview 插件),本文件放 vault 根。
+> Reads task frontmatter live, so this view changes whenever a task file changes. It is the only human-facing view.
+> Change status in the task file itself; the task holds the truth. The ready-for-acceptance column is split by waiting_on: only the red "Waiting on decision" tag is waiting on you; the others wait on something else.
+> Usage: open the repository's .foreman/ directory as an Obsidian vault (needs the Dataview plugin) and put this file at the vault root.
 
 ```dataviewjs
 const cols = [
-  { k: "staging-verified", t: "验收队列", ico: "⏰", c: "#c0392b" },
-  { k: "in_progress",      t: "进行中", ico: "🔵", c: "#3b82f6" },
-  { k: "claimed",          t: "已认领", ico: "📌", c: "#d19a00" },
-  { k: "open",             t: "待认领", ico: "📥", c: "#8a8a8a" },
+  { k: "staging-verified", t: "Ready for acceptance", ico: "⏰", c: "#c0392b" },
+  { k: "in_progress",      t: "In progress", ico: "🔵", c: "#3b82f6" },
+  { k: "claimed",          t: "Assigned", ico: "📌", c: "#d19a00" },
+  { k: "open",             t: "Unassigned", ico: "📥", c: "#8a8a8a" },
 ];
 const ps = dv.pages('"tasks"').where(p => p.file.path.includes("/active/") && p.status && p.status !== "done");
 
@@ -46,7 +46,7 @@ for (const col of cols) {
     }
     if (p.status === "staging-verified") {
       const w = String(p.waiting_on ?? "decision");
-      const wt = meta.createEl("span", { text: w === "decision" ? "等拍板" : w });
+      const wt = meta.createEl("span", { text: w === "decision" ? "Waiting on decision" : w });
       wt.style.cssText = w === "decision"
         ? "background:#c0392b;color:#fff;border-radius:4px;padding:0 5px;font-weight:600"
         : "background:var(--background-modifier-border);color:var(--text-muted);border-radius:4px;padding:0 5px";
@@ -56,7 +56,7 @@ for (const col of cols) {
 }
 ```
 
-### ✅ 最近完成
+### ✅ Recently done
 
 ```dataview
 LIST

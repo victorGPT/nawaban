@@ -1,61 +1,59 @@
 ---
 name: nawaban
-description: 在有 nawaban 看板的仓库里改文件、提交或开分支之前使用，哪怕只改一个字：说明该在哪个工位改，任务卡怎么认领、推进、恢复和交接。只读文件或回答问题时不需要。
-metadata:
-  version: "6.0.0"
+description: Use before changing files, committing, or creating a branch in a repository with a nawaban board, even for a one-character edit. Says which worktree to edit in and how to claim, advance, resume, and hand off a task. Not needed for only reading files or answering questions.
 ---
 
-# nawaban 任务协作
+# nawaban task work
 
-让任务卡、工作区和交付证据保持一致，完成用户授权的目标。nawaban 管卡、工位与状态；实现方法和交付范围遵循目标项目。
+Keep the task, its worktree, and the delivery evidence in agreement while you finish what the user authorized. nawaban owns tasks, worktrees, and status; the target project owns implementation method and delivery scope.
 
-## 开始或续做
+## Start or resume
 
-读取目标卡的 `success`、`constraints`、`touches`、owner、status、now 和相关 refs；按需读关联 ADR。以当前用户要求和项目 tracker 为准，已有决策与同一范围的授权继续有效。
+Read the target task's `success`, `constraints`, `touches`, owner, status, `now`, and refs; read a linked ADR when the work needs it. The current user request and the project's tracker win; earlier decisions and authorization for the same scope stay valid.
 
-- **查询或评审**：读取所需状态与证据即可。请求“看看谁在做”不触发认领、建卡或编辑。
-- **实施**：确认可验证的完成条件，再认领并进入本卡工位。仅对会改变范围、行为或风险的缺失决定提问；其余选择自行处理。
-- **续做**：先核对 owner、最新 handoff 与现有 worktree，复用本卡工位；已完成的步骤无需重跑。卡已回收为 open 时重新 claim → start，别人的 owner 需要先协调。
+- **Query or review**: read the state and evidence you need. "Who is working on what" is answered without claiming, creating a task, or editing.
+- **Implement**: confirm a checkable completion condition, then claim and move into the task's worktree. Ask only about a missing decision that changes scope, behaviour, or risk; settle every other choice yourself.
+- **Resume**: check the owner, the latest handoff, and the existing worktree first, and reuse that worktree; skip steps already done. A task returned to `open` needs claim → start again; another owner's task needs coordination first.
 
-首次使用或跨项目时读 [运行入口与身份](references/runtime.md)，确认 CLI、目标数据库和会话身份。相对链接按本 Skill 的真实路径解析（安装入口可能是符号链接）。
+On first use, or across projects, read [Runtime and identity](references/runtime.md) to confirm the CLI, the target database, and the session identity. Resolve relative links from this skill's real path (an installed entry may be a symlink).
 
-## 认领与工位
+## Claim and worktree
 
-写操作携带会话提供的 `NAWABAN_OWNER` 和 `CLAUDE_CODE_SESSION_ID`。所有操作保持同一目标库；以下命令中的占位符先替换为已核实的值。
+Every write carries the `NAWABAN_OWNER` and `CLAUDE_CODE_SESSION_ID` the session provides. Use one target database throughout, and replace each placeholder below with a verified value.
 
 ```bash
-nawaban --db <目标库绝对路径> claim <ID>
-nawaban --db <目标库绝对路径> start <ID> --now "<当前要完成的工作>"
-git worktree add <独立工位路径> -b task/<ID>
+nawaban --db <absolute path of target db> claim <ID>
+nawaban --db <absolute path of target db> start <ID> --now "<the work in progress now>"
+git worktree add <worktree path> -b task/<ID>
 ```
 
-仅在本卡还没有工位时创建 worktree。共享主树保持 `main`，项目文件在本卡 worktree 修改；用命令行写文件（重定向、`tee`、`sed -i`）时目标写成 worktree 内的绝对路径，写入闸不跟命令里的 `cd`；已授权的仓外文件按 touches 实址处理。范围扩大先确认授权并通过 `scope` 落板，再编辑。claim 的占用 WARN 是协调提示，不能代替范围合同。
+Create a worktree only when the task has none. The shared main checkout stays on `main`; edit project files in the task's worktree. When a shell command writes a file (redirect, `tee`, `sed -i`), give it an absolute path inside the worktree: the write gate does not follow a `cd` in the command. Authorized files outside the repository are handled by their real paths in `touches`. When scope grows, confirm the authorization and record it with `scope` before editing. The overlap WARN from `claim` is a coordination hint, not a scope contract.
 
-## 推进与完成
+## Advance and finish
 
-工位里出现不是本卡改动引起的测试失败时，不能标成「之前就坏的」跳过：用 `nawaban blame <失败的文件>` 找到被弄坏的 done 卡，建修复卡并 `link --kind regresses`，再回到本卡。
+When a test fails in your worktree and your change did not cause it, do not skip it as "already broken": run `nawaban blame <failing file>` to find the done task that broke it, create a fix task, `link --kind regresses`, then return to your task.
 
-持续完成已授权的实现、相关检查及其修复，直到 success 满足或出现需要外部输入的具体阻塞。依据受影响行为选择验证；检查通过后，仅因新变更、失败或未解风险补验。涉及运行效果时检查目标运行环境；本地测试、部署结果与真人验收分别记录。
+Keep doing the authorized implementation, its checks, and their fixes until `success` is met or a specific blocker needs outside input. Pick verification from the behaviour affected; after checks pass, re-verify only for a new change, a failure, or an open risk. When the work has a runtime effect, check the target runtime environment; record local tests, deploy results, and human acceptance separately.
 
-交付边界由用户和项目决定：本地文件、commit、PR、合并、部署各自需要对应范围的授权。本 Skill 不自动要求开 PR、部署或另接一张卡。未合并工作记录 commit/artifact 和真实交接态，不能为了 done 填造 merge_sha。
+The user and the project set the delivery boundary: local files, commit, PR, merge, and deploy each need authorization of matching scope. This skill does not by itself require a PR, a deploy, or another task. For unmerged work, record the commit or artifact and the real handoff state; never invent a `merge_sha` to reach done.
 
-结束前按 [交付与收尾](references/cards.md) 同步 status、now、refs 和 handoff；如有待办，留下证据、剩余工作与一个明确下一步。仅需清点本 session 时使用 [nawaban-wrapup](../nawaban-wrapup/SKILL.md)。
+Before stopping, sync status, `now`, refs, and handoff as in [Delivery and wrap-up](references/cards.md); with work left, leave the evidence, the remaining work, and one clear next step. To review only this session's claims, use [nawaban-wrapup](../nawaban-wrapup/SKILL.md).
 
-## 按情况读取
+## Read when
 
-| 当前情况 | 参考 |
+| Situation | Reference |
 |---|---|
-| 无卡、需要拆分目标或记录决策 | [建卡与需求边界](references/grill-protocol.md) |
-| claim 占用提示或依赖/编辑/归档被拒 | [占用协调](references/locks.md)、[状态与 hook 闸](references/gates.md)，只读相关项 |
-| 本会话是主控派出的 worker，或明确采用 worker 协议 | [Worker 协议](references/director-worker.md) |
-| PR 在范围内或项目要求独立评审 | [PR 与评审](references/review-pr.md)；追加 PR 提交或冲突时再读 [Git 协作](references/git-shared-tree.md) |
-| 需要额外能力或读取旧 Markdown 卡 | [能力目录](references/skill-shelf.md)、[历史卡](references/md-cards.md)，按需二选一 |
+| No task yet, a goal to split, or a decision to record | [Creating tasks and scoping](references/grill-protocol.md) |
+| Overlap warning from `claim`, or a dependency, edit, or archive rejected | [Overlap coordination](references/locks.md), [Status and hook gates](references/gates.md); read only the relevant rows |
+| This session is a worker dispatched by a director, or explicitly follows the worker protocol | [Worker protocol](references/director-worker.md) |
+| A PR is in scope or the project requires independent review | [PR and review](references/review-pr.md); for adding commits to a PR or resolving a conflict, also [Git collaboration](references/git-shared-tree.md) |
+| An extra capability is needed, or an old Markdown task is being read | [Capability catalogue](references/skill-shelf.md) or [Historical tasks](references/md-cards.md), whichever applies |
 
-## 外部能力解析
+## External capabilities
 
-只在下列条件成立且能力已启用时加载；可选能力缺失不阻塞普通任务。此表也供可选 skill_shelf 盘点工具读取。
+Load these only when the condition holds and the capability is enabled; a missing optional capability does not block ordinary work. The optional skill_shelf inventory tool also reads this table.
 
-| 条件 | 可选能力 |
+| Condition | Optional capability |
 |---|---|
-| 重要需求分叉尚未解决 | `grilling` 或当前需求澄清能力 |
-| 项目要求特定实现或评审方法 | 按项目选择 `tdd`、`code-review` 或已启用的等价能力 |
+| An important requirement fork is unresolved | `grilling` or the current requirement-clarifying capability |
+| The project requires a specific implementation or review method | `tdd`, `code-review`, or an enabled equivalent, as the project chooses |

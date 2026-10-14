@@ -1,35 +1,35 @@
-# Worker 协议
+# Worker protocol
 
-仅在本会话是被主控派出的 worker，或项目明确采用本协议时加载；普通用户任务按 [主流程](../SKILL.md) 执行。
+Load this only when this session is a worker dispatched by a director, or the project explicitly adopts this protocol; ordinary user tasks follow the [main flow](../SKILL.md).
 
-## 进场
+## Arriving
 
-先读卡；`constraints` 中的 `skills:` 是本卡已选定能力，按当前启用名称解析。方法取决于本次目标：Skill 文案用 writing-for-agents，领域/ADR、原型、TDD 或部署说明仅在对应工作确实需要时加载。
+Read the task first. A `skills:` entry in `constraints` names a capability already chosen for this task; resolve it by the currently enabled name. Pick methods from the goal: writing-for-agents for skill text; domain modelling, ADRs, prototypes, TDD, or deploy notes only when the work actually needs them.
 
-本会话由 `nawaban dispatch` 起，所在目录已是本卡的独立工位，不再另建。卡完成或交接后主控用 `nawaban dismiss` 停掉会话并清理工位；工位里有没提交或没推送的改动时它不清理。提交、推送和开 PR 仍各自需要卡或派单说明的授权：授权覆盖到的，停下前做完；没覆盖的留在工位，并在汇报里写明留了什么。不在 worker 里再起具名子 agent 当 worker；子 agent 只用于查代码和评审。
+This session was started by `nawaban dispatch`, and its directory is already the task's worktree; do not create another. Once the task is finished or handed off, the director runs `nawaban dismiss` to stop the session and remove the worktree; it leaves a worktree with uncommitted or unpushed changes in place. Commit, push, and opening a PR each still need authorization from the task or the dispatch brief: do what that authorization covers before stopping, leave the rest in the worktree, and say what was left in your report. Never start a named sub-agent as a worker from inside a worker; use sub-agents only for searching code and for review.
 
-## 汇报
+## Reporting
 
-使用同一目标数据库和真实会话身份：
+Use the same target database and the real session identity:
 
-- 阶段进展：`nawaban --db <目标库> notify <ID> --kind stage --msg "<结果、证据与下一步>"`。
-- 具体阻塞：写 blocked 信，说明事实和需要的动作；有可独立推进的工作继续处理。
-- 验收责任：按卡的 success 逐条验证，登记实际 acceptance_run 和被审版本；未满足时不报 done。
-- 需要用户动作：经 ask 提交材料；notify 汇报状态，两者不互相替代。
-- 扩界：在 blocked 信里写明所需路径与理由；得到覆盖该动作的授权并确认 scope 已落板后再编辑。沿用已有授权，避免重复申请。
+- Stage progress: `nawaban --db <target db> notify <ID> --kind stage --msg "<result, evidence, and next step>"`.
+- A specific blocker: send a `blocked` notification stating the facts and the action needed; keep doing any work that can proceed independently.
+- Acceptance: verify the task's `success` item by item and register the actual `acceptance_run` and the reviewed version; report `done` only when every item is met.
+- The user must act: submit material through `ask`; report status with `notify`. Neither replaces the other.
+- Scope growth: name the paths and the reason in a `blocked` notification; edit only after authorization covering the change arrives and the `scope` change is on the board. Reuse authorization you already have instead of asking again.
 
-本地 nawaban notify 是板内记录；外部消息或通知仍需对应授权。结束或交接前记录真实结果与剩余阻塞，不能用 idle 代替交接。
+A local `nawaban notify` is a record on the board; outside messages or notifications still need their own authorization. Before stopping or handing off, record the real result and any remaining blocker; going idle is not a handoff.
 
-## Worker 停下时的回报与回话
+## Reports and replies when a worker stops
 
-用 `dispatch` 派出的 worker 每一轮停下,它这一轮的最后一段话会自动送到派它的会话,并把那个会话叫醒;不需要去 worker 的窗格里看,也不需要另挂监听。送来的每段话最多 1500 字,超出的部分会截断并注明;要看全文读卡上的信(`notifications --task <ID>`)。
+Each time a worker started by `dispatch` stops, the last message of its turn is sent to the session that dispatched it and wakes that session; nobody needs to watch the worker's pane or run a listener. Each message carries at most 1500 characters; longer text is truncated with a note, and the full text is in the task's notifications (`notifications --task <ID>`).
 
-主控收到回报后:
+When the director receives a report:
 
-- 只是进展或已完成:不用回。完成与否仍以卡的状态和 done 信为准。
-- worker 留了问题,且是主控能定的(实现选型、范围内的取舍、先做哪一步、要不要等某个检查):直接回 `nawaban --db <目标库> notify <ID> --kind reply --msg "<决定和理由>"`。worker 会被叫醒并接着干。
-- 产品语义分叉、对外承诺、生产发布这三类:主控不自己回。用 `ask` 把材料交给用户,再回 worker 一句「已转给用户,先做不依赖它的部分」。
+- Progress or completion only: no reply needed. Whether the task is done is still decided by its status and its `done` notification.
+- The worker left a question the director can settle (implementation choice, a trade-off inside scope, which step comes first, whether to wait for a check): reply with `nawaban --db <target db> notify <ID> --kind reply --msg "<decision and reason>"`. The worker wakes up and continues.
+- A product-semantics fork, an external commitment, or a production release: the director does not answer these. It hands the material to the user through `ask`, then tells the worker the question went to the user and to do the work that does not depend on it.
 
-Worker 一侧:要主控决定的事写在停下前的最后一段话里,带上自己的建议;不要在窗格里等人。主控的回话会直接出现在 worker 的会话里。
+On the worker side: put whatever the director must decide in the last message before stopping, with your recommendation, and stop instead of waiting in the pane. The director's reply appears directly in the worker's session.
 
-回报只对派发记录里记了主控会话的 worker 生效,回话只认派它的那个会话写的;用户自己开的会话停下时不送任何东西。`dismiss` 之后不再送、不再等。主控会话换了(重开窗口)就收不到旧 worker 的回报,这时读卡上的信。
+Reports are sent only for workers whose dispatch record names a director session, and a reply is accepted only from the session that dispatched the worker; a session the user opened sends nothing when it stops. After `dismiss`, nothing is sent and nothing waits. If the director session changes (the window was reopened), it no longer receives the old workers' reports; read the task's notifications instead.

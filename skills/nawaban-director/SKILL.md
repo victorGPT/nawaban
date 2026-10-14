@@ -1,109 +1,109 @@
 ---
 name: nawaban-director
-description: 本窗口担任主控（总监）时使用：把一个需求拆成卡派给独立的 worker 会话，读 worker 的来信并回话，汇总验收，收官对账。本窗口自己动手改文件时不用它，用 nawaban。
+description: Use when this window acts as the director, splitting one request into tasks and dispatching them to separate worker sessions, reading and replying to workers' notifications, rolling up acceptance, and closing out the batch. When this window edits files itself, use nawaban instead.
 ---
 
-# nawaban 主控
+# nawaban director
 
-主控把一个需求变成若干张卡，派给独立的 worker 会话，再凭板上的证据把结果收回来。
+The director turns one request into several tasks, dispatches them to separate worker sessions, and brings the results back on the evidence recorded on the board.
 
-主控写板不写树：建卡、连依赖、记决定、回答提问、标已读都是主控的活，项目文件由 worker 改。本窗口要自己改文件时，换用 [nawaban](../nawaban/SKILL.md)，按普通任务认领一张卡。
+The director writes the board, not the tree: creating tasks, linking dependencies, recording decisions, answering questions, and marking notifications read are the director's work; workers change project files. When this window needs to change files itself, switch to [nawaban](../nawaban/SKILL.md) and claim a task like any ordinary one.
 
-命令写成 `nawaban --db <目标库绝对路径> <动词>`，参数查 `--help`。入口、目标库和会话身份见 [运行入口与身份](../nawaban/references/runtime.md)。
+Commands take the form `nawaban --db <absolute path of target db> <verb>`; look up flags with `--help`. Entry point, target database, and session identity are in [Runtime and identity](../nawaban/references/runtime.md).
 
-## 六条规矩
+## Six rules
 
-1. **主控不改项目文件。** 不写代码，不替 worker 定实现方法。发现要改的东西，建卡或写回已有的卡。
-2. **卡只写做什么和怎么算做完。** 不写怎么做。验收条目写不成可观察的结果，就不派，先回去问清需求。
-3. **一张卡一个会话，用派发命令起。** 子 agent 只用来查询和评审，不当 worker。
-4. **卡是事实源。** 来信和 worker 送回来的话是它自己的说法；下结论前回卡核对状态、refs 和事件。
-5. **验收只认板上的证据。** 板上没有的验证当作没做。需要人拍板的事走 ask，等 answer 落板。
-6. **只升级三类事：产品语义分叉、对外承诺、生产发布。** 其余自己定。收官前从板上对账，不凭记忆宣布做完。
+1. **The director changes no project files.** It writes no code and does not choose the worker's implementation method. Anything that needs changing becomes a new task or goes onto an existing one.
+2. **A task says what to do and how to tell it is done, never how to do it.** When an acceptance criterion cannot be written as an observable result, do not dispatch; go back and clarify the requirement.
+3. **One task, one session, started by the dispatch command.** Sub-agents are only for searching and review, never workers.
+4. **The task is the source of truth.** Notifications and the messages workers send back are the worker's own account; check the task's status, refs, and events before concluding.
+5. **Acceptance counts only evidence on the board.** Verification not on the board did not happen. Decisions that need a human go through `ask` and wait for the `answer` to land on the board.
+6. **Escalate only three things: a product-semantics fork, an external commitment, a production release.** Settle everything else yourself. Before closing out, reconcile against the board, not memory.
 
-第 6 条的判据：答案会改变用户看到的行为、对外说出去的话或线上状态，就交给用户；否则主控自己定并记到卡上。
+The test for rule 6: if the answer changes what the user sees, what is said to the outside, or the live system, hand it to the user; otherwise decide and record it on the task.
 
-## 拆卡与发卡
+## Splitting and creating tasks
 
-需要独立交付、不同 owner 或有先后阻塞时才拆。字段写法见 [建卡与需求边界](../nawaban/references/grill-protocol.md)。
+Split only for separate delivery, different owners, or an ordering constraint. Field conventions are in [Creating tasks and scoping](../nawaban/references/grill-protocol.md).
 
-- 子卡用 `create <ID> --title "<标题>" --context "- <背景>" --split-from <父卡> --success '<JSON 数组>' --touch <路径>` 建，批量派发靠这条拆卡关系找子卡。
-- 先后顺序用 `link <被挡卡> <前置卡> --kind depends_on` 表达。拆自同一张父卡不等于互相依赖。
-- 两张卡的 `touches` 重叠时，要么排先后，要么在卡上写明各自只动哪一部分。
-- 子卡要合在一起交付（一个 PR 进 main）时用集成分支：从 main 建 `int/<父卡>` 并推到远端，每张子卡建卡时加 `--constraints '["PR 目标分支：int/<父卡>"]'`。worker 照派单说明，开 PR 前先把最新 main 和目标分支都合进自己的分支：合并门禁要求 PR 的 HEAD 包含最新 main，`gh pr update-branch` 只同步目标分支，补不进 main。子卡 PR 合进集成分支、集成分支合进 main，都按下文「合并」一节由主控合。
+- Create a subtask with `create <ID> --title "<title>" --context "- <background>" --split-from <parent> --success '<JSON array>' --touch <path>`; batch dispatch finds subtasks through this split relation.
+- Express order with `link <blocked task> <prerequisite task> --kind depends_on`. Splitting from the same parent does not make tasks depend on each other.
+- When two tasks' `touches` overlap, either order them or write on each task which part it changes.
+- When subtasks must ship together (one PR into `main`), use an integration branch: create `int/<parent>` from `main`, push it, and give each subtask `--constraints '["PR target branch: int/<parent>"]'` when creating it. Per the dispatch brief, the worker merges the latest `main` and the target branch into its own branch before opening the PR: the merge gate requires the PR's HEAD to contain the latest `main`, and `gh pr update-branch` only syncs the target branch, so it cannot bring `main` in. Subtask PRs into the integration branch and the integration branch into `main` are merged by the director, as in the Merging section below.
 
-## 派发与收工
+## Dispatching and dismissing
 
-在目标仓库里执行：
-
-```bash
-nawaban --db <目标库> dispatch <ID>                      # 单张
-nawaban --db <目标库> dispatch --parent <父卡> --dry-run  # 只看哪些会派、哪些不派及原因
-nawaban --db <目标库> dispatch --parent <父卡>            # 派出待办且前置卡都已完成的子卡
-nawaban --db <目标库> dismiss <ID>                       # 卡完成或交接后收工
-```
-
-- `dispatch` 起一个以卡号命名的独立会话，给它一个独立工位，把卡的内容作为第一条消息交给它，并把会话编号记到卡上。认领由 worker 进场后自己做。
-- 派发起的是 Claude Code 会话，执行派发的机器上要有 `claude` 命令；没有时 `dispatch` 会报会话没起来，这一节和下一节的回话办法都用不了，改由人逐张开工。
-- 没有终端复用器也能派：这时会话在后台运行，用 `claude agents` 查看。
-- 已被认领、不是待办、前置卡未完成、同名会话还在跑的卡不会派，命令会说出原因。
-- `dismiss` 停掉会话并清理工位。工位里还有没提交或没推送的改动时不清理，并说明原因；先让 worker 提交推送，或自己确认这些改动可以丢。
-- 子卡报 done 并验收通过后，再跑一次 `dispatch --parent <父卡>`：前置卡刚完成的子卡这时才派得出去。
-- 卡验收通过的当轮就收工。活做完了但会话还开着、工位还挂着，算没收尾。
-
-不用 Agent 工具起具名子 agent 当 worker：它没有自己的会话编号，看板记不到它，它的输出还会全部流回主控窗口。
-
-## 来信与回话
-
-worker 用信件汇报阶段、阻塞和完成：
+Run these in the target repository:
 
 ```bash
-nawaban --db <目标库> notifications --unread              # 所有未读
-nawaban --db <目标库> notifications --unread --task <ID>  # 只看一张卡；卡号要写全，不支持前缀
-nawaban --db <目标库> notify-read <信件编号>...            # 处理完标已读
+nawaban --db <target db> dispatch <ID>                      # one task
+nawaban --db <target db> dispatch --parent <parent> --dry-run  # which would be dispatched, which not, and why
+nawaban --db <target db> dispatch --parent <parent>            # dispatch open subtasks whose prerequisites are all done
+nawaban --db <target db> dismiss <ID>                       # after the task is done or handed off
 ```
 
-worker 每轮停下时，它这一轮的最后一段话也可能被直接送到主控窗口。信件和送回来的话按同一种方式处理：
+- `dispatch` starts a separate session named after the task ID, gives it its own worktree, sends the task as its first message, and records the session ID on the task. The worker claims the task itself once it arrives.
+- Dispatch starts Claude Code sessions, so the machine running it needs the `claude` command. Without it, `dispatch` reports that the session did not start, and neither this section nor the replying in the next one works; a person then starts each task by hand.
+- Dispatch also works without a terminal multiplexer: the session then runs in the background, visible through `claude agents`.
+- A task that is already claimed, not open, has unfinished prerequisites, or has a same-named session still running is not dispatched; the command says why.
+- `dismiss` stops the session and removes the worktree. It leaves a worktree with uncommitted or unpushed changes in place and says why; first have the worker commit and push, or confirm yourself that the changes can be discarded.
+- After a subtask reports done and passes acceptance, run `dispatch --parent <parent>` again: subtasks whose prerequisite just finished can only be dispatched now.
+- Dismiss a task in the same turn it passes acceptance. Finished work with the session still open and the worktree still in place is not wrapped up.
 
-1. 先回卡核对：`context <ID>` 看状态、当前态、事件和 refs。送回来的话有长度上限，被截断时以卡为准。
-2. worker 留了问题，主控能定的当轮就定：`notify <ID> --kind reply --msg "<决定和理由>"`。回话落在卡上，并叫醒 worker 接着干，送达规则见 [Worker 协议](../nawaban/references/director-worker.md)。答复改了验收条目时，另用 `decide --set-success` 落板。用户的回答也由主控转成回话，不要让用户去 worker 的窗口里代答。
-   回话只认派它的那个会话。本窗口不是派它的会话（窗口重开过）时，按卡上以 `dispatch` 开头的事件里记的 backend 直接送话：
-   - `"backend": "claude-bg"`：在它的工位目录里先 `claude stop <会话编号前 8 位>`，再 `claude --bg --resume <会话编号> "<答复>"`。必须先停再续：会话只是空闲、没停时直接续，会另起一个副本，原来的 worker 收不到。
-   - `"backend": "herdr"`：`herdr agent prompt <卡号小写> "<答复>"`。
-3. 属于三类升级事项的，不自己回，转给用户（见下节的 ask）。
-4. 判断 worker 是否做完，看卡的状态和来信，不看会话是否显示空闲。
-5. 范围要扩：worker 说明路径和理由，主控同意后用 `scope <ID> --add <路径> --reason "<理由>"` 落板，worker 才能改。
+Never use the Agent tool to start a named sub-agent as a worker: it has no session ID of its own, the board cannot record it, and all of its output flows back into the director's window.
 
-## 验收与收官
+## Notifications and replies
 
-逐条对照卡的 `success`，每条都要在板上找到对应的证据：测试结果、PR、运行记录。分清真实跑过的和只用替身测过的；没验证的条目照实写没验证，退回 worker 补，主控不替它跑。
-
-### 合并
-
-用户已授权：一张卡验收通过、评审没有阻塞问题，主控当轮合并它的 PR，不再问用户。
-
-1. 评审：用子 agent 只读评审 PR 的 diff，或用项目规定的评审；结论用 `event <ID> --kind verify` 记到卡上。有阻塞问题就退回 worker，修完重新评审。
-2. 合并：先 `gh pr checks <PR> --watch` 等 CI 全绿；分支落后 main 时，目标是 main 的 PR 用 `gh pr update-branch <PR>`；目标是集成分支的，回话让 worker 把最新 main 合进来再推送。都要再等一轮 CI。然后把 `gh pr merge <PR> -R <OWNER/REPO>` 作为一条独立命令运行，细节见 [PR 与评审](../nawaban/references/review-pr.md)。
-3. 落板：回话告诉 worker 合并的 SHA，让它按 [交付与收尾](../nawaban/references/cards.md) 登记 `merge_sha` 并转 done，再 `dismiss`。
-
-合并会触发生产部署的仓库，合并就是生产发布，改走 `ask --kind authorize`。集成分支合进 main 前，先做完收官第 4 项的整体评审。
-
-需要用户拍板时：
+Workers report stages, blockers, and completion through notifications:
 
 ```bash
-nawaban --db <目标库> ask --kind decide --question "<一句疑问句>" --evidence "<材料>" --task <ID> --option "<选项>|<后果>" --option "<选项>|<后果>"
-nawaban --db <目标库> ask --kind authorize --question "<一句疑问句>" --evidence "<材料>" --task <ID> --blast "<谁受影响>|<改什么>|<怎么回滚>"
-nawaban --db <目标库> ask --kind accept --question "<一句疑问句>" --evidence "<读到的实际结果>" --task <ID>
-nawaban --db <目标库> inbox                               # 还有哪些没答
-nawaban --db <目标库> answer <ask 编号> --verdict "<用户原话>"
+nawaban --db <target db> notifications --unread              # all unread
+nawaban --db <target db> notifications --unread --task <ID>  # one task; the full task ID, prefixes are not supported
+nawaban --db <target db> notify-read <notification ID>...     # mark read after handling
 ```
 
-`decide` 至少两个 `--option`，`authorize` 的 `--blast` 要三段，缺了命令会拒绝。`accept` 的材料要是读到的实际结果，只写「PR 已合并」「CI 绿」会被拒。用户在对话里回答的，由主控用 `answer` 原话写回。`answer` 只记下决定，不替人执行；它提示还要跑 `fanout <ask 编号> --ok|--failed` 时，等被授权的动作真的做完再跑。
+Each time a worker stops, the last message of its turn may also be sent straight to the director's window. Handle notifications and these messages the same way:
 
-宣布收官前，四项都查一遍：
+1. Check the task first: `context <ID>` shows its status, current state, events, and refs. Messages sent back have a length limit; when one is truncated, the task wins.
+2. When the worker left a question the director can settle, settle it in the same turn: `notify <ID> --kind reply --msg "<decision and reason>"`. The reply lands on the task and wakes the worker to continue; delivery rules are in the [Worker protocol](../nawaban/references/director-worker.md). When the answer changes an acceptance criterion, also record it with `decide --set-success`. The user's answers also reach the worker as the director's replies; never send the user to answer in the worker's window.
+   A reply is accepted only from the session that dispatched the worker. When this window is not that session (the window was reopened), send the message directly according to the backend recorded in the task's event that starts with `dispatch`:
+   - `"backend": "claude-bg"`: in its worktree directory, first `claude stop <first 8 characters of the session ID>`, then `claude --bg --resume <session ID> "<reply>"`. Stop before resuming: resuming a session that is only idle, not stopped, starts a copy, and the original worker never receives the reply.
+   - `"backend": "herdr"`: `herdr agent prompt <lowercase task ID> "<reply>"`.
+3. One of the three escalation kinds: do not answer it yourself; pass it to the user (see `ask` in the next section).
+4. Judge whether a worker is done from the task's status and its notifications, not from whether its session looks idle.
+5. Scope growth: the worker names the paths and the reason; once the director agrees, record it with `scope <ID> --add <path> --reason "<reason>"`, and only then may the worker change them.
 
-1. `dispatch --parent <父卡> --dry-run` 列出每张子卡的当前状态，没有还在做或没人做的卡。
-2. 对每张子卡跑 `notifications --unread --task <子卡号>`，都为空。库里别的卡的未读信不归本批管，不替别人标已读。
-3. `inbox` 里没有本批卡的未答提问。
-4. 本批改动合在一起评审过：用子 agent 评审集成分支（没用集成分支时是本批各 PR）相对 main 的整体 diff，只找跨卡的问题。发现的问题已建卡或写回对应子卡，并已处理完。
+## Acceptance and close-out
 
-有一项不满足就不宣布，向用户报告剩下的是什么。全部满足后，对每张已派出的卡跑过 `dismiss`，再向用户汇报：每张卡一行，写状态、证据指针和没验证的部分。
+Go through the task's `success` item by item; every item needs matching evidence on the board: test results, a PR, a run record. Separate what really ran from what was only tested against doubles; write unverified items as unverified and send them back to the worker; the director does not run them in its place.
+
+### Merging
+
+The user has authorized this: once a task passes acceptance and review finds nothing blocking, the director merges its PR in the same turn without asking the user again.
+
+1. Review: have a sub-agent review the PR diff read-only, or use the review the project requires; record the verdict on the task with `event <ID> --kind verify`. When something blocks, send it back to the worker and review again after the fix.
+2. Merge: wait for all-green CI with `gh pr checks <PR> --watch`. When the branch is behind `main`, a PR targeting `main` gets `gh pr update-branch <PR>`; for a PR targeting an integration branch, reply asking the worker to merge the latest `main` and push. Either way, wait for another CI round. Then run `gh pr merge <PR> -R <OWNER/REPO>` as one standalone command; details are in [PR and review](../nawaban/references/review-pr.md).
+3. Record: reply to the worker with the merge SHA so it registers `merge_sha` and transitions to done as in [Delivery and wrap-up](../nawaban/references/cards.md), then `dismiss`.
+
+In a repository where merging triggers a production deploy, merging is a production release: use `ask --kind authorize` instead. Before merging an integration branch into `main`, finish the whole-batch review in close-out item 4.
+
+When the user must decide:
+
+```bash
+nawaban --db <target db> ask --kind decide --question "<one question>" --evidence "<material>" --task <ID> --option "<option>|<consequence>" --option "<option>|<consequence>"
+nawaban --db <target db> ask --kind authorize --question "<one question>" --evidence "<material>" --task <ID> --blast "<who is affected>|<what changes>|<how to roll back>"
+nawaban --db <target db> ask --kind accept --question "<one question>" --evidence "<actual result read>" --task <ID>
+nawaban --db <target db> inbox                               # asks still unanswered
+nawaban --db <target db> answer <ask ID> --verdict "<the user's own words>"
+```
+
+`decide` needs at least two `--option` flags and `authorize` needs a three-part `--blast`; the command refuses otherwise. The material for `accept` must be an actual result you read; "PR merged" or "CI green" alone is refused. When the user answers in the conversation, the director writes it back verbatim with `answer`. `answer` only records the decision and executes nothing; when it says `fanout <ask ID> --ok|--failed` must also run, run it only after the authorized action has actually finished.
+
+Before announcing close-out, check all four:
+
+1. `dispatch --parent <parent> --dry-run` lists every subtask's current status, and no task is still in progress or unowned.
+2. `notifications --unread --task <subtask ID>` is empty for every subtask. Unread notifications on other tasks in the database are not this batch's to handle; do not mark them read for others.
+3. `inbox` has no unanswered ask for this batch's tasks.
+4. This batch's changes were reviewed together: a sub-agent reviewed the integration branch's whole diff against `main` (without an integration branch, the batch's PRs), looking only for cross-task problems. Every problem found was made a task or written onto the matching subtask, and has been handled.
+
+If any item fails, do not announce; report to the user what remains. When all pass, make sure `dismiss` has run for every dispatched task, then report to the user: one line per task with its status, an evidence pointer, and what was not verified.

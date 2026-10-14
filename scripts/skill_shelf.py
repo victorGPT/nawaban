@@ -27,7 +27,7 @@ OUT = Path(os.environ.get("NAWABAN_SHELF_OUTPUT", _STATE / "skill-shelf.md"))
 def dispatch_table_names() -> set[str]:
     """已进 dispatch 表的那几个 —— 货架上给它们打 ✓,免得重复评估。"""
     text = NAWABAN_SKILL.read_text(encoding="utf-8")
-    sec = text.split("## 外部能力解析")[1].split("\n## ")[0]
+    sec = text.split("## External capabilities")[1].split("\n## ")[0]
     return {name for line in sec.splitlines() if line.startswith("|")
             for name in re.findall(r"`/?([a-z][a-z0-9:-]+)`", line)}
 

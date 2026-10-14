@@ -1,37 +1,37 @@
 ---
 name: nawaban-setup
-description: 将 nawaban 接入一个项目，配置任务库、Web 和所需 hooks；已有板的日常任务用 nawaban。
+description: Connect nawaban to a project, setting up its task database, the Web board, and the hooks it needs; for day-to-day tasks on an existing board, use nawaban.
 metadata:
   version: "3.0.0"
 ---
 
-# nawaban 项目接入
+# Connecting nawaban to a project
 
-完成条件：目标项目使用明确的一份任务库，所需 CLI/Web 入口可运行，只有实际接线并验证的集成被报告为已生效。
+Done when: the target project uses one explicitly named task database, the CLI and Web entry points it needs run, and only integrations actually wired and verified are reported as active.
 
-## 接入目标项目
+## Connect the target project
 
-先确认用户要接入的项目、已有任务库和需要的入口。沿用已有安装和数据库；缺安装时按 [安装与集成](../../README.md#install-as-a-plugin) 处理，CLI、数据寻址和身份约定见 [运行入口与身份](../nawaban/references/runtime.md)。相对链接按本 Skill 的真实路径解析。
+First confirm the project to connect, any existing task database, and the entry points needed. Reuse an existing installation and database. When the installation is missing, follow [Install and integration](../../README.md#install-as-a-plugin); CLI, data addressing, and identity conventions are in [Runtime and identity](../nawaban/references/runtime.md). Resolve relative links from this skill's real path.
 
-新板在目标项目共享主树创建：
+Create a new board in the target project's shared main checkout:
 
 ```bash
-nawaban --db <目标项目主树>/.nawaban/nawaban.db init
+nawaban --db <target project main checkout>/.nawaban/nawaban.db init
 ```
 
-已有板直接引用；迁移已有数据是独立的数据操作，需要覆盖迁移的授权、备份和恢复方案。`.nawaban/` 与兼容旧板的 `.foreman/` 保持本地私有；Git 项目用 `git rev-parse --git-path info/exclude` 定位本地排除文件，补齐缺少的排除规则。
+Point at an existing board directly. Migrating existing data is a separate data operation and needs authorization covering the migration, a backup, and a recovery plan. Keep `.nawaban/` and the legacy `.foreman/` local and private; in a Git project, find the local exclude file with `git rev-parse --git-path info/exclude` and add the missing exclude rules.
 
-用户需要 Web 时启动 `python3 "$NAWABAN_HOME/nawaban/board_view.py" --db <目标库绝对路径>`，使用可用端口。确认所访问首页和任务 API 属于该项目。Web 默认 localhost，访问权限包含收件箱操作权限；跨设备接入需要明确的信任边界。
+When the user wants the Web board, start `python3 "$NAWABAN_HOME/nawaban/board_view.py" --db <absolute path of target db>` on an available port. Confirm the home page and the task API you open belong to this project. The Web board listens on localhost by default, and access includes inbox actions; access from other devices needs an explicit trust boundary.
 
-## 只接所需集成
+## Connect only the integrations needed
 
-- 需要 Agent 技能时，按安装说明启用插件中的 `nawaban`、`nawaban-director`、`nawaban-setup`、`nawaban-wrapup` 四个技能；手动接入时保留目录之间的相对资源路径。
-- 需要编辑与分支约束时，读 [Claude Code 与 Codex hooks](../../README.md#install-as-a-plugin)。库层状态校验随 CLI 生效，编辑/分支保护依赖实际安装 hooks；[闸表](../nawaban/references/gates.md) 用于排查。
-- Herdr、GitHub、CI 和部署 helpers 按项目需要配置；接入 nawaban 不自动启用它们，也不授权外部消息或部署。
-- 仅在读取历史 Markdown 卡时读 [历史轨说明](../nawaban/references/md-cards.md)；[TEMPLATE.md](TEMPLATE.md) 与 [BOARD.md](BOARD.md) 不用于新建当前事实。
+- When agent skills are needed, enable the plugin's four skills (`nawaban`, `nawaban-director`, `nawaban-setup`, `nawaban-wrapup`) as the install notes say; a manual setup keeps the relative resource paths between their directories.
+- When edit and branch constraints are needed, read [Claude Code and Codex hooks](../../README.md#install-as-a-plugin). Database-level status checks come with the CLI; edit and branch protection depends on hooks actually installed. Use the [gate table](../nawaban/references/gates.md) to troubleshoot.
+- Configure Herdr, GitHub, CI, and deploy helpers as the project needs; connecting nawaban does not enable them and does not authorize outside messages or deploys.
+- Read the [historical track notes](../nawaban/references/md-cards.md) only when reading old Markdown tasks; [TEMPLATE.md](TEMPLATE.md) and [BOARD.md](BOARD.md) are not for recording current facts.
 
-## 验证后交付
+## Verify, then deliver
 
-演练写入用临时库与测试身份；目标已有库通过只读检查核对。SessionStart 有回收副作用，真实库上不能拿它做 smoke。
+Rehearse writes on a temporary database with a test identity; check the target's existing database read-only. SessionStart reclaims tasks as a side effect, so never smoke-test it on the real database.
 
-报告已接通的入口、目标数据库、实际验证与剩余依赖。新项目接入不要求凭空创建业务任务；用户已有待执行任务时再用 [nawaban](../nawaban/SKILL.md) 建卡或认领。
+Report the entry points connected, the target database, what was actually verified, and the remaining dependencies. Connecting a new project does not call for inventing business tasks; when the user already has work to do, create or claim a task with [nawaban](../nawaban/SKILL.md).

@@ -1,19 +1,19 @@
-# PR 与评审
+# PR and review
 
-只在 PR 属于交付范围或项目要求评审时使用。按项目规定确定需要的评审、CI 与合并条件；安全敏感或关键数据变更应在交付前解决已证实的缺陷。普通文案更新不自动触发原型、二次咨询或跨模型流水线。
+Use this only when a PR is part of the delivery or the project requires review. Follow the project's rules for required review, CI, and merge conditions; a security-sensitive or critical-data change resolves confirmed defects before delivery. An ordinary text update does not by itself call for a prototype, a second opinion, or a cross-model pipeline.
 
-## 准备评审
+## Preparing a review
 
-评审包包含用户要求、卡的 success/constraints/touches、实际变更文件和被审版本。执行器从可用能力选择，结果注明版本、发现与验证限制。
+The review package holds the user's request, the task's `success`, `constraints`, and `touches`, the files actually changed, and the version under review. Pick the reviewer from the available capabilities; its result names the version, the findings, and the limits of its verification.
 
-findings 通过可达调用路径、源码和相关验证判断；严重度不预设真假。修复本次范围内的已证实问题；范围外问题单独记录，涉及新范围或必要取舍时再请求决定。变更后只重查受影响部分和必要门控。
+Judge findings by reachable call paths, the source, and relevant verification; severity says nothing about whether a finding is true. Fix confirmed problems inside this scope; record out-of-scope problems separately and ask for a decision only when they need new scope or a real trade-off. After a change, recheck only the affected parts and the required gates.
 
-项目要求的独立评审缺失或执行失败时标明缺口，不能报告已评审。额外二次意见用于尚未解决、会影响交付的疑点；不按固定次数或阶段例行调用。
+When a review the project requires is missing or failed, name the gap; never report it as reviewed. Ask for an extra second opinion only on an unresolved doubt that affects delivery, not on a fixed schedule.
 
-## 提交与开 PR
+## Committing and opening a PR
 
-授权涵盖 commit、push 和开 PR 时，在本卡 worktree 使用项目规定的 Git 与 GitHub 入口。逐项核对实际 diff，暂存本次交付文件；commit 后将本分支 push 到已核实的远程，再用 `gh pr create` 或项目提供的工具创建 PR。PR 描述包含具体行为变化、验证结果和未完成项。
+When authorization covers commit, push, and PR, use the project's Git and GitHub entry points in the task's worktree. Check the actual diff item by item and stage only this delivery's files; after committing, push the branch to the verified remote, then open the PR with `gh pr create` or the project's tool. The PR description states the concrete behaviour change, the verification results, and what is unfinished.
 
-合并在授权范围内时，装了 hooks 的会话会在合并前核对三件事：PR 分支包含最新 main、checks 非空且全绿、合并命令可被完整核对。先用 `gh pr checks <PR> --watch` 等 CI，分支落后就 `gh pr update-branch <PR>` 并等新一轮 CI；然后把 `gh pr merge <PR> -R <OWNER/REPO>` 作为一条独立命令运行，不加 `cd`、`&&`、管道、`2>&1` 或变量。
+When merging is in scope, a session with the hooks installed checks three things before merging: the PR branch contains the latest `main`, checks are non-empty and all green, and the merge command can be checked in full. Wait for CI with `gh pr checks <PR> --watch`; when the branch is behind, run `gh pr update-branch <PR>` and wait for the new CI round. Then run `gh pr merge <PR> -R <OWNER/REPO>` as one standalone command, with no `cd`, `&&`, pipe, `2>&1`, or variables.
 
-项目自带 helper 时先核实它的提交、历史修改和外部操作行为；nawaban 不随附 PR helper，也不依赖个人安装的脚本。追加 PR 提交或遇到冲突时读 [Git 协作](git-shared-tree.md)。以当前被审版本为准，旧 verdict 不覆盖后续改变。
+When the project ships its own helper, first check what it does to commits, history, and outside systems; nawaban ships no PR helper and depends on no personally installed script. For adding commits to a PR or resolving a conflict, read [Git collaboration](git-shared-tree.md). The current reviewed version is what counts; an old verdict does not cover later changes.

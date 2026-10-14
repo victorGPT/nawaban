@@ -174,3 +174,42 @@ python3 scripts/eval_skill_trigger.py --regrade <dir>/<run id>
 ```
 
 Transcripts and per-run results stay outside the repository.
+
+## Rewriting the skills in English (2026-10-15)
+
+All four skills, their references, `BOARD.md` and `TEMPLATE.md` were rewritten
+in English, descriptions included. Each description keeps the branches of the
+Chinese one it replaces and adds none, so language is the only change. The
+cases stay in Chinese, apart from the two English ones. Claude Code 2.1.299;
+`base` is commit `f130b7e`, `new` is `b5cf413`, both variants ran in one
+interleaved batch, three runs per case and model.
+
+| Split | Variant | Runs | Should load: loaded first | Should load: task skill first | Should not load: stayed out | Gate rejections |
+|---|---|---:|---:|---:|---:|---:|
+| Train | base | 162 | 85/96 | 51/96 | 66/66 | 21 |
+| Train | new | 162 | 83/96 | 48/96 | 66/66 | 31 |
+| Held out | base | 66 | 31/42 | 24/42 | 24/24 | 10 |
+| Held out | new | 66 | 33/42 | 26/42 | 24/24 | 8 |
+
+Pooled over both splits, should-load cases loaded a skill first in 116/138
+runs for both variants, and no should-not-load case loaded a skill in either.
+By model, base → new: Opus 66/69 → 67/69, Sonnet 50/69 → 49/69. Mean cost per
+run was unchanged ($0.14 Opus, $0.06 Sonnet).
+
+- The train drop is Sonnet only: `resume`, `vague_resume` and `scope_grows`
+  went from 1/3 to 0/3 and `before_clear` from 1/3 to 2/3. Held-out moved the
+  other way for both models. These are within the noise of three runs per cell.
+- Sonnet's gate rejections on train rose from 17 to 28. Eight of the eleven
+  extra come from those three cases in runs that never loaded a skill. Two come
+  from `session_end`, where Sonnet loaded `nawaban-wrapup` and then fixed the
+  README typo in the main checkout; the wrap-up skill says nothing about
+  worktrees in either language. One is an `unnamed_edit` run that loaded the
+  task skill and still called `Edit` on the main checkout.
+
+Limits:
+
+- No scripted case exercises `nawaban-director`; its English description was
+  not measured.
+- A first batch was stopped after 47 runs and discarded: the director
+  description contained `director: splitting`, and a colon followed by a space
+  inside an unquoted YAML value breaks the frontmatter.

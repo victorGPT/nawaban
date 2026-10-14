@@ -270,4 +270,4 @@ def test_context_verb_prints_the_card_briefing(board, capsys):
 def test_worker_protocol_names_the_dispatch_command():
     text = (Path(__file__).resolve().parents[1]
             / "skills/nawaban/references/director-worker.md").read_text(encoding="utf-8")
-    assert "nawaban dispatch" in text and "nawaban dismiss" in text and "具名" in text
+    assert "nawaban dispatch" in text and "nawaban dismiss" in text and "named sub-agent" in text
