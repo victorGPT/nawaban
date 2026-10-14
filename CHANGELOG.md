@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `scripts/eval_skill_trigger.py` adds seven wrap-up and handoff cases and records which nawaban skill loaded first. Folding `nawaban-wrapup` into the task skill was measured and not adopted: Sonnet loaded a skill first on 11/21 wrap-up runs, down from 19/21 (`docs/skill-trigger-evaluation.md`).
 - The director skill now replies to a dispatched worker with `notify --kind reply`, matching the worker protocol; stopping and resuming the session is kept only for a director window that did not dispatch the worker. It also re-runs `dispatch --parent` after each child card passes, describes an optional integration branch for cards that ship together, and reviews the combined diff before closing a batch. The director now merges a card's PR itself once the card passes acceptance, a review finds no blocking issue and checks are green; a merge that deploys to production still goes to the user. The worker brief now says not to merge PRs and to bring the target branch in before opening one.
 - The bilingual glossary is now `GLOSSARY.md` instead of `CONTEXT.md`, the name the upstream domain skills read since their v1.3.0. Its format is unchanged; README, the web UI notes and `tests/test_glossary.py` point at the new name.
 - The task skill's gate table and PR notes now document the merge gate: run `gh pr merge` as a single command on a branch that contains the latest main with all checks green. No gate decision changed.

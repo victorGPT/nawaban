@@ -51,8 +51,19 @@ def test_held_out_cases_are_stable_and_cover_both_kinds():
 
 def test_summary_scores_each_kind_by_its_own_rule_and_lists_cases():
     row = {"split": "train", "variant": "v", "model": "m", "finished": True, "denied": 1, "gates": 2, "cost_usd": 0.1}
-    results = [row | {"case": "a", "expect": True, "early": True, "late": True, "ok": True},
-               row | {"case": "a", "expect": True, "early": False, "late": True, "ok": False},
-               row | {"case": "b", "expect": False, "early": False, "late": False, "ok": True}]
-    assert "| m | train | v | 2 | 2/3 | 0.21-0.94 | 1/2 | 1/1 | 2.00 | 0 | 3 | 0.100 |" in evaluation.summarise(results)
-    assert "| m | v | a | yes | 1/2 | 1 |" in evaluation.by_case(results)
+    results = [row | {"case": "a", "expect": True, "early": True, "late": True, "ok": True, "first": "nawaban-wrapup"},
+               row | {"case": "a", "expect": True, "early": False, "late": True, "ok": False, "first": "nawaban"},
+               row | {"case": "b", "expect": False, "early": False, "late": False, "ok": True, "first": None}]
+    assert "| m | train | v | 2 | 2/3 | 0.21-0.94 | 1/2 | 0/2 | 1/1 | 2.00 | 0 | 3 | 0.100 |" in evaluation.summarise(results)
+    assert "| m | v | a | yes | 1/2 | 1 | nawaban, nawaban-wrapup |" in evaluation.by_case(results)
+
+
+def test_first_skill_names_the_first_nawaban_skill_without_its_prefix():
+    calls = [("Skill", {"skill": "pr"}), ("Skill", {"skill": "nawaban:nawaban-wrapup"}), ("Skill", {"skill": "nawaban"})]
+    assert evaluation.first_skill(transcript(*calls)) == "nawaban-wrapup"
+    assert evaluation.first_skill(transcript(("Edit", {}))) is None
+
+
+def test_added_cases_stay_out_of_the_held_out_draw():
+    added = {case for case, *_ in evaluation.WRAPUP_CASES}
+    assert added and not added & evaluation.test_ids()
