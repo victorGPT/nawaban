@@ -29,7 +29,7 @@ description: 本窗口担任主控（总监）时使用：把一个需求拆成�
 - 子卡用 `create <ID> --title "<标题>" --context "- <背景>" --split-from <父卡> --success '<JSON 数组>' --touch <路径>` 建，批量派发靠这条拆卡关系找子卡。
 - 先后顺序用 `link <被挡卡> <前置卡> --kind depends_on` 表达。拆自同一张父卡不等于互相依赖。
 - 两张卡的 `touches` 重叠时，要么排先后，要么在卡上写明各自只动哪一部分。
-- 子卡要合在一起交付（一个 PR 进 main）时用集成分支：从 main 建 `int/<父卡>` 并推到远端，每张子卡建卡时加 `--constraints '["PR 目标分支：int/<父卡>"]'`。worker 照派单说明，开 PR 前先把目标分支最新提交合进自己的分支。子卡 PR 合进集成分支、集成分支合进 main，都按下文「合并」一节由主控合。
+- 子卡要合在一起交付（一个 PR 进 main）时用集成分支：从 main 建 `int/<父卡>` 并推到远端，每张子卡建卡时加 `--constraints '["PR 目标分支：int/<父卡>"]'`。worker 照派单说明，开 PR 前先把最新 main 和目标分支都合进自己的分支：合并门禁要求 PR 的 HEAD 包含最新 main，`gh pr update-branch` 只同步目标分支，补不进 main。子卡 PR 合进集成分支、集成分支合进 main，都按下文「合并」一节由主控合。
 
 ## 派发与收工
 
@@ -82,7 +82,7 @@ worker 每轮停下时，它这一轮的最后一段话也可能被直接送到�
 用户已授权：一张卡验收通过、评审没有阻塞问题，主控当轮合并它的 PR，不再问用户。
 
 1. 评审：用子 agent 只读评审 PR 的 diff，或用项目规定的评审；结论用 `event <ID> --kind verify` 记到卡上。有阻塞问题就退回 worker，修完重新评审。
-2. 合并：先 `gh pr checks <PR> --watch` 等 CI 全绿；分支落后 main 就 `gh pr update-branch <PR>` 再等一轮。然后把 `gh pr merge <PR> -R <OWNER/REPO>` 作为一条独立命令运行，细节见 [PR 与评审](../nawaban/references/review-pr.md)。
+2. 合并：先 `gh pr checks <PR> --watch` 等 CI 全绿；分支落后 main 时，目标是 main 的 PR 用 `gh pr update-branch <PR>`；目标是集成分支的，回话让 worker 把最新 main 合进来再推送。都要再等一轮 CI。然后把 `gh pr merge <PR> -R <OWNER/REPO>` 作为一条独立命令运行，细节见 [PR 与评审](../nawaban/references/review-pr.md)。
 3. 落板：回话告诉 worker 合并的 SHA，让它按 [交付与收尾](../nawaban/references/cards.md) 登记 `merge_sha` 并转 done，再 `dismiss`。
 
 合并会触发生产部署的仓库，合并就是生产发布，改走 `ask --kind authorize`。集成分支合进 main 前，先做完收官第 4 项的整体评审。
