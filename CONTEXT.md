@@ -350,9 +350,9 @@ _Current identifiers_: CLI `backup`.
 
 ### Captured ideas
 
-**Capture**(捕捉)
+**Capture**(灵感)
 An unstructured idea kept outside the task board until an agent links it to a formal task or discards it with a reason.
-捕捉是独立于任务看板的一条想法，由 Agent 转成正式任务并保留来源，或写明原因作废。
+灵感是独立于任务看板的一句话记录，由 Agent 转成正式任务并保留来源，或写明原因作废。
 _Avoid_: quick task, backlog column, task count, 快速建卡, 看板列.
 _Current identifiers_: `captures`; CLI `capture`, `add`, `list`, `convert`, `discard`.
 
@@ -375,25 +375,25 @@ Exact display templates below are part of the English vocabulary. Braced names a
 | Show all columns | 显示全部列 | Board display preferences; presentation only, never task mutation. |
 | All board columns are hidden. | 所有看板列已收起。 | Board display preferences; presentation only, never task mutation. |
 | Hidden columns: {count} · Restore them in Display | 已收起 {count} 列 · 可在「显示」中恢复 | Board display preferences; presentation only, never task mutation. |
-| Capture | 捕捉 | Capture queue only; not task lifecycle |
-| Search ideas, capture IDs or linked tasks | 搜索想法、捕捉编号或关联卡 | Capture queue only; not task lifecycle |
-| Jot down an idea. An agent will turn it into a formal task or record why it was discarded. | 先记下一句想法。Agent 整理后会转成正式卡片，或说明作废原因。 | Capture queue only; not task lifecycle |
-| Idea | 想法 | Capture queue only; not task lifecycle |
-| Save idea | 记下想法 | Capture queue only; not task lifecycle |
+| Ideas | 灵感 | Capture queue only; not task lifecycle |
+| Search ideas, IDs or linked tasks | 搜索灵感、编号或关联卡 | Capture queue only; not task lifecycle |
+| Jot down an idea. An agent will turn it into a formal task or record why it was discarded. | 先记下一条灵感。Agent 整理后会转成正式卡片，或说明作废原因。 | Capture queue only; not task lifecycle |
+| Idea | 灵感 | Capture queue only; not task lifecycle |
+| Save idea | 记下灵感 | Capture queue only; not task lifecycle |
 | Saving… | 正在保存… | Capture queue only; not task lifecycle |
 | Retry save | 重试保存 | Capture queue only; not task lifecycle |
 | Save to: {project} | 记录到：{project} | Capture queue only; not task lifecycle |
-| The save result is unknown. Retrying checks the same idea and will not save a duplicate. | 保存结果未知。重试会核对同一条想法，不会重复保存。 | Capture queue only; not task lifecycle |
-| All captures | 全部捕捉 | Capture queue only; not task lifecycle |
-| Pending | 待处理 | Capture queue only; not task lifecycle |
-| Show pending only | 只看待处理 | Capture queue only; not task lifecycle |
+| The save result is unknown. Retrying checks the same idea and will not save a duplicate. | 保存结果未知。重试会核对同一条灵感，不会重复保存。 | Capture queue only; not task lifecycle |
+| All ideas | 全部灵感 | Capture queue only; not task lifecycle |
+| Unsorted | 未整理 | Capture queue only; not task lifecycle |
+| Show unsorted only | 只看未整理 | Capture queue only; not task lifecycle |
 | Show history | 查看处理记录 | Capture queue only; not task lifecycle |
-| Loading captures… | 正在读取捕捉… | Capture queue only; not task lifecycle |
-| No matching captures | 没有匹配的捕捉 | Capture queue only; not task lifecycle |
+| Loading ideas… | 正在读取灵感… | Capture queue only; not task lifecycle |
+| No matching ideas | 没有匹配的灵感 | Capture queue only; not task lifecycle |
 | Converted | 已转卡 | Capture queue only; not task lifecycle |
 | Discarded | 已作废 | Capture queue only; not task lifecycle |
 | Discard reason: {reason} | 作废原因：{reason} | Capture queue only; not task lifecycle |
-| Captured idea | 来自捕捉 | Capture queue only; not task lifecycle |
+| Captured idea | 来自灵感 | Capture queue only; not task lifecycle |
 | Refresh tasks | 刷新真实数据 | Board toolbar and synchronization status |
 | Filter waiting items | 筛选等待事项 | Board toolbar and synchronization status |
 | All waiting items | 全部等待事项 | Board toolbar and synchronization status |

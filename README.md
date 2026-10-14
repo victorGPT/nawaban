@@ -152,6 +152,6 @@ Continuing a legacy card with the new identity requires its existing, still-open
 full session history; start, handoff, ownership warnings, and the session banner
 use that same check. No schema migration is needed.
 
-## 捕捉想法
+## 记录灵感
 
-侧栏「捕捉」记录独立于任务的一句话想法。Agent 通过 CLI 转卡或写原因作废，保留双向来源与处理历史。用法、存储及重试边界见 [捕捉想法](docs/capture.md)。
+侧栏「灵感」记录独立于任务的一句话灵感。Agent 通过 CLI 转卡或写原因作废，保留双向来源与处理历史。用法、存储及重试边界见 [记录灵感](docs/capture.md)。
