@@ -3,7 +3,7 @@
 The two diagnostic functions are the public interface. They hide matching rules
 and remediation text, leaving enforcement to the caller: new content is rejected,
 while claiming legacy content only warns. Storage constraints remain in db.
-Domain terms are defined in CONTEXT.md.
+Domain terms are defined in GLOSSARY.md.
 """
 
 from __future__ import annotations
