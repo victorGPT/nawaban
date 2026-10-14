@@ -17,14 +17,14 @@ success:                # ★ SDD · what counts as done: checkable criteria · 
 constraints:            # SDD · the floor: what must never happen · invariants shared across tasks are pointers (to design/adr), not copies · delete when none
 sessions:               # append-only history: owner | session-id | date (appended at claim · a new line per relay)
 handoff:                # append-only handoffs: <date> <owner> | done X · Y left · next step at file:line (≤1 line each)
-acceptance:             # one-line pointer to acceptance evidence · the guard requires it when moving to staging-verified; purely internal changes write "internal only · closed by CI" (the done-gate exemption value)
+acceptance:             # one-line pointer to acceptance evidence · the guard requires it when moving to staging-verified; purely internal changes write the done-gate exemption value 「纯内部·CI收口」 verbatim (internal only, closed by CI)
 staging_verified_at:    # ISO time written when moving to staging-verified (reminder anchor · nothing in this package reads it; used by the full-flow Loop)
 waiting_on:             # required when verified: decision = waiting on a decision (the only one to chase) / prod / observe / external
-notes: one-line conclusion  # always a single line of current state · details go under "## Timeline"; no narrative, no prepending
+notes: one-line conclusion  # always a single line of current state · details go under "## 时间线" (the timeline); no narrative, no prepending
 ---
 # CORE-001 · Title (human-readable body · machines only change the frontmatter, never the body)
 
-## Alignment
+## 对齐 (Alignment: `import_md.py` reads this heading verbatim)
 <!-- Summary of the grill decision tree: one line per fork, "question → decision + rejected options (why rejected)" · always keep rejected options · do not copy the transcript;
      when evidence overturns a decision, append a dated line "verification gate fired (<date>): <evidence> · switching to <fallback>"; never overwrite the original line -->
 - <fork 1 → decided Y · rejected X (reason)>
@@ -34,8 +34,8 @@ notes: one-line conclusion  # always a single line of current state · details g
 - Out: <adjacent features explicitly excluded>
 - Depends on: <which task blocks it · delete when none>
 
-## Timeline
-<!-- append-only · newest first · `- <date> <owner> | <event>` · one event per line, never merged; coordination lines start with "coordination:".
+## 时间线 (Timeline: `import_md.py` reads this heading verbatim)
+<!-- append-only · newest first · `- <date> <owner> | <event>` · one event per line, never merged; coordination lines start with "协调:" (coordination).
      Reading on takeover: the newest non-coordination line is the latest real state. The only body section any owner may append to -->
 - <date owner | event>
 
