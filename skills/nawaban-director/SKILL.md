@@ -1,6 +1,6 @@
 ---
 name: nawaban-director
-description: Use when this window acts as the director: splitting one request into tasks and dispatching them to separate worker sessions, reading and replying to workers' notifications, rolling up acceptance, and closing out the batch. When this window edits files itself, use nawaban instead.
+description: Use when this window acts as the director, splitting one request into tasks and dispatching them to separate worker sessions, reading and replying to workers' notifications, rolling up acceptance, and closing out the batch. When this window edits files itself, use nawaban instead.
 ---
 
 # nawaban director
