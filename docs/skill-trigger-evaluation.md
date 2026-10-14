@@ -57,6 +57,40 @@ out. Mean nominal cost per run stayed within $0.02 of base for both models.
 Both changes were kept: train and held-out scores moved the same way in each
 round and no should-not-load case ever loaded a skill.
 
+## Adding the director skill (2026-10-14)
+
+A fourth skill, `nawaban-director`, was added for the window that splits a
+request into cards and dispatches workers. The task skill's description was not
+changed. Same cases, same method, Claude Code 2.1.296; `base` is the commit
+before the skill was added and both variants ran in one interleaved batch.
+
+| Split | Variant | Runs | Should load: loaded first | Should not load: stayed out | Gate rejections |
+|---|---|---:|---:|---:|---:|
+| Train | base | 120 | 61/66 | 54/54 | 11 |
+| Train | new | 120 | 62/66 | 54/54 | 12 |
+| Held out | base | 66 | 35/42 | 24/24 | 3 |
+| Held out | new | 66 | 34/42 | 24/24 | 5 |
+
+Pooled over both splits the count is 96/108 for both variants. The script counts
+any skill whose name contains `nawaban`, so the transcripts were also read by
+skill name: `nawaban` itself loaded first in 81 of 186 base runs and 80 of 186
+new runs (the difference is one Opus run that loaded `nawaban-wrapup` instead),
+and `nawaban-director` was never loaded in any of the 186 new runs.
+
+Six further requests were run against the new variant only, three runs per
+model, and scored by reading which skill loaded first:
+
+- Four director requests (split and dispatch, read workers' letters, roll up
+  acceptance, the same in English): `nawaban-director` first in 22/24 runs. Both
+  misses were Sonnet on "is this card ready to close", which loaded no skill in
+  two of three runs.
+- Two worker requests that mention the director: `nawaban` first in 12/12 runs,
+  `nawaban-director` in none.
+
+These differences are within the run-to-run noise of three runs per cell; they
+show no loss, not a gain. The six extra requests were written after the skill
+description and by the same person, and none of them dispatched a real worker.
+
 ## Reading
 
 - Before the change, a request to edit a file went straight to `Edit`, was
