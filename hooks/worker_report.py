@@ -73,6 +73,8 @@ def waiting(path: Path, task_id: str, session: str, since: int) -> bool:
     """worker 这一轮有没有说自己在等人:报了 blocked,或者卡上有这一轮提的、还没关的 ask。
 
     这一轮从它上一封 turn 信算起;这次派发还没写过 turn 信,就从派发时刻算起。
+    时间只到秒:和上一封 turn 信同一秒提的 ask 属于上一轮(新一轮要等主控回话才开始),
+    和派发同一秒的信与 ask 属于这次派发。
     """
     with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as con:
         last_id, last_at = con.execute(
@@ -80,10 +82,11 @@ def waiting(path: Path, task_id: str, session: str, since: int) -> bool:
             " AND session_id=? AND created_at>?", (task_id, session, since)).fetchone()
         blocked = con.execute(
             "SELECT 1 FROM letters WHERE task_id=? AND kind='blocked' AND session_id=?"
-            " AND id>? AND created_at>?", (task_id, session, last_id or 0, since)).fetchone()
+            " AND id>? AND created_at>=?", (task_id, session, last_id or 0, since)).fetchone()
         asked = con.execute(
             "SELECT 1 FROM asks a JOIN ask_tasks t ON t.ask_id=a.id WHERE t.task_id=?"
-            " AND a.closed_at IS NULL AND a.raised_at>=?", (task_id, last_at or since)).fetchone()
+            " AND a.closed_at IS NULL AND " + ("a.raised_at>?" if last_id else "a.raised_at>=?"),
+            (task_id, last_at if last_id else since)).fetchone()
     return bool(blocked or asked)
 
 

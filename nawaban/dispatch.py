@@ -106,6 +106,8 @@ def _full(con: sqlite3.Connection, coming: int = 0) -> str | None:
 
     运行中 = 派发了还没收工、会话还活着。没收工但会话已经没了的不算,
     否则一个没人收拾的旧派发会永远占着名额。整个任务库共用一个上限:占的是同一台机器。
+    ponytail: 查名额和起会话之间没上锁,两条 dispatch 同时跑能各派一个、超出一个;
+    主控是一条一条派的,真有多个主控同时派再加文件锁。
     """
     limit = int(os.environ.get("NAWABAN_MAX_WORKERS") or MAX_WORKERS)
     live = {entry.get("name") for entry in _agents()}

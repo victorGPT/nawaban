@@ -116,6 +116,21 @@ def test_waiting_is_judged_per_turn(board, monkeypatch):
     assert stop_worker(board, monkeypatch).startswith("[待 review] ")
 
 
+def test_same_second_letters_and_asks_land_in_the_right_turn(board, monkeypatch):
+    dispatched(board)
+    with sqlite3.connect(board) as con:
+        since = con.execute("SELECT MAX(created_at) FROM task_events").fetchone()[0]
+    monkeypatch.setattr(db, "_now", lambda: since)
+    db.add_letter(board, "P-1", kind="blocked", msg="和派发同一秒报的", session_id=WORKER)
+    assert report.waiting(board, "P-1", WORKER, since)
+    monkeypatch.setattr(db, "_now", lambda: since + 1)
+    db.raise_ask(board, kind="decide", question="用 A 还是 B", evidence="两种都可行",
+                 task_ids=["P-1"], raised_by="ac:x", options=["A", "B"])
+    db.add_letter(board, "P-1", kind="turn", msg="上一轮", session_id=WORKER)
+    # 和上一封 turn 信同一秒的 ask 是上一轮提的,这一轮什么也没报。
+    assert not report.waiting(board, "P-1", WORKER, since)
+
+
 def test_director_wakes_with_the_worker_message_and_the_escalation_rule(board, monkeypatch, capsys):
     dispatched(board)
     db.add_letter(board, "P-1", kind="turn", msg="方案 A 还是 B?", session_id=WORKER)
