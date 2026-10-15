@@ -3,14 +3,20 @@
 dispatch 只起会话并把会话编号写到卡的当前进展;认领由 worker 进场后自己做,
 这样 task_sessions 记的是 worker 的会话。派发记录是一条 coord 事件(正文 JSON),
 dismiss 凭它找回会话、窗格和工位。
+
+在 Herdr 里派出的 worker 各占一个 tab,另有一个脱离派单命令的进程守着它的窗格
+(`python3 -m nawaban.dispatch watch <db> <卡号>`):窗格在卡做完之前被关掉,
+就在卡上记一笔,并以 worker 的名义写一封 turn 信,主控停着等信时会被叫醒。
 """
 
 from __future__ import annotations
 
 import json
 import os
+import socket
 import sqlite3
 import subprocess
+import sys
 import time
 from contextlib import closing
 from pathlib import Path
@@ -18,14 +24,24 @@ from pathlib import Path
 from nawaban import db
 
 RUN = subprocess.run  # 测试在这里换成替身,不真起会话
+SPAWN = subprocess.Popen  # 起关窗监听进程;测试同样换掉
 CLI = Path(__file__).resolve().parent / "cli.py"
 _RECORD = "dispatch "
 _FINISHED = ("staging-verified", "done", "cancelled")
+# 主控窗格的身份。herdr 命令省略目标时会落到调用者的窗格上,所以一律不传下去,目标都写明。
+_CALLER = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_SESSION")
+_STARTED = ("--until", "working", "--until", "blocked")
+_SOCKET = os.path.expanduser(os.environ.get("HERDR_SOCKET_PATH", "~/.config/herdr/herdr.sock"))
+
+
+def _herdr_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k not in _CALLER}
 
 
 def _run(*cmd: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    env = _herdr_env() if cmd[0] == "herdr" else None
     try:
-        return RUN(list(cmd), cwd=cwd, capture_output=True, text=True, timeout=120)
+        return RUN(list(cmd), cwd=cwd, env=env, capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as exc:
         return subprocess.CompletedProcess(list(cmd), 127, "", str(exc))
 
@@ -97,23 +113,53 @@ def _session_args(name: str) -> list[str]:
     return ["-w", name, "--name", name, "--permission-mode", "auto"]
 
 
-def _herdr(root: Path, name: str, prompt: str) -> str | None:
-    """在新窗格里起 worker,返回窗格号;任何一步失败都关掉窗格并返回 None。"""
-    split = _run("herdr", "pane", "split", "--direction", "right",
-                 "--cwd", str(root), "--no-focus")
+def _herdr(root: Path, name: str, prompt: str) -> tuple[str, str] | None:
+    """在主控所在工作区新开一个 tab 起 worker,返回 (窗格号, tab 号);任何一步失败都关掉 tab 并返回 None。
+
+    一个 worker 一个 tab:在主控窗格上一次次对半切,切到第五六个窗格只剩几行高,
+    herdr 认不出里面 agent 的状态,交给它的任务说明也会丢回车(herdr 0.9.4 实测)。
+    """
+    workspace = os.environ.get("HERDR_WORKSPACE_ID")
+    made = _run("herdr", "tab", "create", *(("--workspace", workspace) if workspace else ()),
+                "--cwd", str(root), "--label", name, "--no-focus")
     try:
-        pane = json.loads(split.stdout)["result"]["pane"]["pane_id"]
+        result = json.loads(made.stdout)["result"]
+        pane, tab = result["root_pane"]["pane_id"], result["tab"]["tab_id"]
     except (ValueError, KeyError, TypeError):
         return None
-    if split.returncode:
+    if made.returncode:
         return None
-    for cmd in (("herdr", "agent", "start", name, "--kind", "claude", "--pane", pane,
-                 "--", *_session_args(name)),
-                ("herdr", "agent", "prompt", name, prompt)):
-        if _run(*cmd).returncode:
-            _run("herdr", "pane", "close", pane)
-            return None
-    return pane
+    started = _run("herdr", "agent", "start", name, "--kind", "claude", "--pane", pane,
+                   "--", *_session_args(name))
+    if started.returncode or not _submit(pane, prompt):
+        _run("herdr", "tab", "close", tab)
+        return None
+    return pane, tab
+
+
+def _error(done: subprocess.CompletedProcess) -> str:
+    try:
+        return json.loads(done.stdout or done.stderr)["error"]["code"]
+    except (ValueError, KeyError, TypeError):
+        return ""
+
+
+def _submit(pane: str, prompt: str) -> bool:
+    """交任务说明,看到 worker 开工才算交上。
+
+    herdr 0.9.4 实测:文字进了输入框、回车丢了的事会发生,补按一下回车就开工。
+    只补回车,文字绝不重打,否则输入框里是两份。机器忙时 herdr 看到开工慢,
+    会误报没开工;这时多补的回车落在空输入框上,claude 不理会。
+    agent_blocked 这类别的错误不补:回车会替 worker 答掉眼前的确认框。
+    """
+    sent = _run("herdr", "agent", "prompt", pane, prompt, "--wait", *_STARTED,
+                "--timeout", "15000")
+    for _ in range(3):
+        if not sent.returncode or _error(sent) not in ("agent_prompt_stalled", "timeout"):
+            break
+        _run("herdr", "agent", "send-keys", pane, "enter")
+        sent = _run("herdr", "agent", "wait", pane, *_STARTED, "--timeout", "5000")
+    return not sent.returncode
 
 
 def brief(path: Path, task_id: str, name: str) -> str:
@@ -145,13 +191,13 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
         raise db.NawabanError(f"不派 {task_id}:已经有一个叫 {name} 的会话在跑")
     prompt = brief(path, task_id, name)
 
-    pane, output = None, ""
+    pane, tab, output = None, None, ""
     if os.environ.get("HERDR_ENV") == "1" and _trusted(root):
-        pane = _herdr(root, name, prompt)
+        pane, tab = _herdr(root, name, prompt) or (None, None)
         if pane is None and _session(name):
-            # 窗格没关掉、里面的会话还活着:再起后台会话就是两个 worker 做同一张卡。
+            # tab 没关掉、里面的会话还活着:再起后台会话就是两个 worker 做同一张卡。
             raise db.NawabanError(
-                f"不派 {task_id}:Herdr 里的会话 {name} 起了一半没能关掉,请先手工关掉那个窗格")
+                f"不派 {task_id}:Herdr 里的会话 {name} 起了一半没能关掉,请先手工关掉那个 tab")
     if pane is None:
         started = _run("claude", "--bg", *_session_args(name), prompt, cwd=root)
         if started.returncode:
@@ -165,9 +211,9 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
     worktree = live.get("cwd") or str(root / ".claude" / "worktrees" / name)
     # director = 派它的会话:worker 每轮停下的话凭它送回来(hooks/worker_report.py)。
     record = {"backend": "herdr" if pane else "claude-bg", "session": live.get("sessionId"),
-              "pane": pane, "worktree": worktree, "root": str(root),
+              "pane": pane, "tab": tab, "worktree": worktree, "root": str(root),
               "director": os.environ.get("CLAUDE_CODE_SESSION_ID")}
-    where = f"窗格 {pane}" if pane else "后台"
+    where = f"tab {tab} 窗格 {pane}" if pane else "后台"
     try:
         db.add_event(path, task_id, kind="coord", author=author,
                      body=_RECORD + json.dumps(record, ensure_ascii=False),
@@ -176,6 +222,8 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
         # 记不进卡的 worker 没人能找到、没人能收工,所以停掉它。
         _stop(record)
         raise db.NawabanError(f"不派 {task_id}:会话起了但记不进卡,已停掉 —— {exc}") from exc
+    if pane:
+        _spawn_watch(path, task_id)
     if not record["session"]:
         raise db.NawabanError(
             f"{task_id} 的会话已经起了,但没查到它的编号;用 claude agents 确认后手工处理"
@@ -183,7 +231,16 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
     return session
 
 
+def _spawn_watch(path: Path, task_id: str) -> None:
+    # 脱离派单命令的进程组:派单命令结束、主控会话关掉,它都还守着。
+    SPAWN([sys.executable, "-m", "nawaban.dispatch", "watch", str(path), task_id],
+          cwd=CLI.parent.parent, env=_herdr_env(), start_new_session=True,
+          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def _stop(record: dict) -> subprocess.CompletedProcess | None:
+    if record.get("tab"):
+        return _run("herdr", "tab", "close", record["tab"])
     if record["pane"]:
         return _run("herdr", "pane", "close", record["pane"])
     if record["session"]:
@@ -219,14 +276,9 @@ def dismiss(path: Path, task_id: str, *, author: str) -> list[str]:
     """收工:停会话或关窗格,工位干净才清理。返回逐项结果。"""
     with closing(_connect(path)) as con:
         row = _row(con, task_id)
-        leg = con.execute(
-            "SELECT ended_at,outcome FROM task_sessions WHERE task_id=?"
-            " ORDER BY started_at DESC, rowid DESC LIMIT 1", (task_id,)).fetchone()
-        event = con.execute(
-            "SELECT body FROM task_events WHERE task_id=? AND kind='coord' AND body LIKE ?"
-            " ORDER BY id DESC LIMIT 1", (task_id, _RECORD + "{%")).fetchone()
-    handed = bool(leg and leg["ended_at"] and leg["outcome"] in ("completed", "handed_off"))
-    if row["status"] not in _FINISHED and not handed:
+        settled = _settled(con, row)
+        event = _dispatched(con, task_id)
+    if not settled:
         raise db.NawabanError(
             f"不收工 {task_id}:卡还没完成也没交接(当前 {row['status']})")
     if event is None:
@@ -261,6 +313,67 @@ def dismiss(path: Path, task_id: str, *, author: str) -> list[str]:
     return lines
 
 
+def _settled(con: sqlite3.Connection, row: sqlite3.Row) -> bool:
+    """卡做完了或交接了:这时关掉 worker 是收工,不是出事。"""
+    leg = con.execute(
+        "SELECT ended_at,outcome FROM task_sessions WHERE task_id=?"
+        " ORDER BY started_at DESC, rowid DESC LIMIT 1", (row["id"],)).fetchone()
+    handed = bool(leg and leg["ended_at"] and leg["outcome"] in ("completed", "handed_off"))
+    return row["status"] in _FINISHED or handed
+
+
+def _dispatched(con: sqlite3.Connection, task_id: str) -> sqlite3.Row | None:
+    return con.execute(
+        "SELECT body,author FROM task_events WHERE task_id=? AND kind='coord' AND body LIKE ?"
+        " ORDER BY id DESC LIMIT 1", (task_id, _RECORD + "{%")).fetchone()
+
+
+def _alive(pane: str) -> bool:
+    return _run("herdr", "pane", "get", pane).returncode == 0
+
+
+def _wait_closed(pane: str) -> None:
+    """等到窗格不在了才返回。关窗格、关 tab、关工作区各发各的事件,所以每来一个都回头查一次窗格。"""
+    subscribe = {"id": "nawaban-watch", "method": "events.subscribe", "params": {"subscriptions": [
+        {"type": "pane.closed"}, {"type": "tab.closed"}, {"type": "workspace.closed"}]}}
+    while _alive(pane):
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.connect(_SOCKET)
+                with sock.makefile("rw", encoding="utf-8") as stream:
+                    stream.write(json.dumps(subscribe) + "\n")
+                    stream.flush()
+                    stream.readline()  # 订阅确认;订上之前就关掉的窗格由下一句的 _alive 兜住
+                    while _alive(pane) and stream.readline():
+                        pass
+        except OSError:
+            pass
+        if _alive(pane):
+            time.sleep(5)  # 连接断了而窗格还在:过一会儿重新订阅
+
+
+def watch(path: Path, task_id: str) -> None:
+    """守着派出的窗格;它在卡做完或交接之前没了,就在卡上记一笔并告诉主控。"""
+    with closing(_connect(path)) as con:
+        event = _dispatched(con, task_id)
+    if event is None:
+        return
+    record = json.loads(event["body"][len(_RECORD):])
+    _wait_closed(record["pane"])
+    with closing(_connect(path)) as con:
+        row = _row(con, task_id)
+        if _settled(con, row):
+            return
+    msg = (f"worker 的窗格 {record['pane']} 被关掉了,会话 {(record.get('session') or '未知')[:8]}"
+           f" 已经不在;卡还是 {row['status']},没做完也没交接。工位 {record['worktree']} 原样留着。"
+           "要接着做,先把卡交回待办再重新派发,或者有人进工位接手。")
+    db.add_event(path, task_id, kind="coord", author=event["author"], body="pane closed · " + msg,
+                 now=f"worker 窗格 {record['pane']} 被关,卡没做完")
+    if record.get("session"):
+        # 以 worker 的名义写 turn 信:主控停着等的正是这种信(hooks/worker_report.py)。
+        db.add_letter(path, task_id, kind="turn", msg=msg, session_id=record["session"])
+
+
 def _unsaved(worktree: Path) -> str | None:
     """工位里还有会丢的东西就说出是什么;查不了也当有。"""
     status = _run("git", "-C", str(worktree), "status", "--porcelain")
@@ -272,3 +385,10 @@ def _unsaved(worktree: Path) -> str | None:
     if ahead.stdout.strip():
         return "还有没推送的提交"
     return None
+
+
+if __name__ == "__main__":
+    # dispatch 起的关窗监听:python3 -m nawaban.dispatch watch <db> <卡号>
+    _, verb, db_path, card = sys.argv
+    if verb == "watch":
+        watch(Path(db_path), card)
