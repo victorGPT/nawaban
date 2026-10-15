@@ -104,7 +104,7 @@ success rates, false-hint rates, candidate recall ceilings, and limitations.
 
 The same checkout is a Claude Code plugin and a Codex plugin; both read `hooks/hooks.json`.
 
-- **Claude Code:** `claude plugin marketplace add /path/to/nawaban`, then `claude plugin install nawaban@nawaban`. For a one-off session, `claude --plugin-dir /path/to/nawaban` also works. The installed copy updates with `claude plugin update nawaban@nawaban`.
+- **Claude Code:** `claude plugin marketplace add /path/to/nawaban`, then `claude plugin install nawaban@nawaban`. For a one-off session, `claude --plugin-dir /path/to/nawaban` also works. With this directory marketplace, Claude Code loads the hooks straight from the checkout, so after pulling, each hook runs the new code the next time it fires; `claude plugin update` is not needed. Not verified: whether adding or removing an entry in `hooks/hooks.json` needs a new session ([validation](docs/worker-backend-validation.md)).
 - **Codex:** add the checkout as a local marketplace in `~/.codex/config.toml`, then install it. Codex copies the plugin into its cache, so run `codex plugin add` again after pulling.
 
   ```toml
