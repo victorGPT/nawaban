@@ -114,6 +114,8 @@ def test_new_commit_after_review_blocks_merge(board, tmp_path, monkeypatch):
 @pytest.mark.parametrize("command", [
     "gh pr merge 1 -R ac/repo --squash",
     f"gh pr merge 1 -R ac/repo --match-head-commit {NEWER}",
+    f"gh pr merge 1 -R ac/repo --squash --body '--match-head-commit={REVIEWED}'",
+    f"gh pr merge 1 -R ac/repo --squash --body=x -t --match-head-commit {REVIEWED}",
 ])
 def test_merge_not_locked_to_reviewed_commit_blocks(board, tmp_path, monkeypatch, command):
     review(tmp_path, [])
@@ -127,6 +129,25 @@ def test_failed_or_missing_review_blocks_merge(board, tmp_path, monkeypatch):
     review(tmp_path, [finding("major")])
     code, msg = merge(monkeypatch, tmp_path, LOCKED)
     assert code == 2 and "不过" in msg
+
+
+@pytest.mark.parametrize("value, project, gated", [
+    ("#1", None, True),
+    ("1", "repo", True),
+    ("1", "other", False),
+    ("#12", None, False),
+    ("https://github.com/AC/Repo/pull/1/files", None, True),
+    ("https://github.com/ac/repo/pull/12", None, False),
+    ("https://github.com/ac/other/pull/1", None, False),
+])
+def test_pr_ref_forms(tmp_path, monkeypatch, value, project, gated):
+    path = tmp_path / "board.db"
+    db.init_db(path)
+    db.create_task(path, task_id="P-2", title="裸号 ref", project=project)
+    db.add_ref(path, "P-2", kind="pr", value=value)
+    monkeypatch.setenv("NAWABAN_DB", str(path))
+    code, msg = merge(monkeypatch, tmp_path, "gh pr merge 1 --squash")
+    assert (code == 2 and "P-2" in msg) if gated else code == 0
 
 
 def test_pr_not_on_any_task_keeps_ci_only_gate(tmp_path, monkeypatch):
@@ -156,6 +177,24 @@ def test_three_failed_reviews_in_a_row_raise_an_ask(board, tmp_path):
         kind, question = con.execute("SELECT kind, question FROM asks").fetchone()
         linked = con.execute("SELECT task_id FROM ask_tasks").fetchall()
     assert kind == "decide" and "连续 3 次" in question and linked == [("P-1",)]
+    review(tmp_path, [finding("major")])
+    review(tmp_path, [finding("major")])
+    with sqlite3.connect(board) as con:
+        assert con.execute("SELECT COUNT(*) FROM asks").fetchone()[0] == 1
+    review(tmp_path, [finding("major")])  # 再连续 3 次不过:再问一次
+    with sqlite3.connect(board) as con:
+        assert con.execute("SELECT COUNT(*) FROM asks").fetchone()[0] == 2
+
+
+def test_ask_that_failed_to_raise_is_raised_on_the_next_review(board, tmp_path, monkeypatch):
+    for _ in range(2):
+        review(tmp_path, [finding("major")])
+
+    def down(*args, **kwargs):
+        raise db.NawabanError("inbox down")
+    with monkeypatch.context() as m:
+        m.setattr(cli.inbox, "raise_ask", down)
+        assert review(tmp_path, [finding("major")]) == 1
     review(tmp_path, [finding("major")])
     with sqlite3.connect(board) as con:
         assert con.execute("SELECT COUNT(*) FROM asks").fetchone()[0] == 1

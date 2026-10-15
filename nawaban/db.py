@@ -1408,9 +1408,10 @@ def judge_findings(findings: Any) -> tuple[bool, list[dict]]:
 
 def add_review(path: Path | str, task_id: str, *, commit_sha: str, findings: Any,
                author: str, session_id: Optional[str] = None) -> dict:
-    """记一次 review 结论,返回 {id, passed, findings, streak}。
+    """记一次 review 结论,返回 {id, passed, findings, streak, escalate}。
 
-    streak = 记完后这张卡末尾连续不过的次数(通过时为 0)。同一事务里写一条 verify
+    streak = 记完后这张卡末尾连续不过的次数(通过时为 0);escalate = 该给用户提 ask 了
+    (调用方提,evidence 以 "review #<id> " 开头)。同一事务里写一条 verify
     事件,让结论出现在卡的事件流里;完整问题列表在 reviews 表。
     """
     if not re.fullmatch(r"[0-9a-f]{40}", commit_sha or ""):
@@ -1429,31 +1430,56 @@ def add_review(path: Path | str, task_id: str, *, commit_sha: str, findings: Any
                 " session_id, created_at) VALUES (?,?,?,?,?,?,?)",
                 (task_id, commit_sha, int(passed), _jd(judged), author, session_id, _now()))
             _event(con, task_id, "verify", body, author, session_id)
-            streak = 0
-            for (ok,) in con.execute("SELECT passed FROM reviews WHERE task_id=?"
-                                     " ORDER BY id DESC", (task_id,)):
+            fails = []
+            for rid, ok in con.execute("SELECT id, passed FROM reviews WHERE task_id=?"
+                                       " ORDER BY id DESC", (task_id,)):
                 if ok:
                     break
-                streak += 1
-        return {"id": int(cur.lastrowid or 0), "passed": passed,
-                "findings": judged, "streak": streak}
+                fails.append(rid)
+            # 最近 REVIEW_STRIKES 次都不过,且其中没有一次已提过 ask → 该提了。
+            # 按 review 编号认(ask 的 evidence 以 "review #<id> " 开头),所以提 ask 失败后重跑能补上。
+            window = fails[:REVIEW_STRIKES]
+            escalate = len(window) == REVIEW_STRIKES and not con.execute(
+                "SELECT 1 FROM asks a JOIN ask_tasks k ON k.ask_id = a.id"
+                " WHERE k.task_id = ? AND a.kind = 'decide' AND ("
+                + " OR ".join("a.evidence LIKE ?" for _ in window) + ")",
+                (task_id, *(f"review #{rid} %" for rid in window))).fetchone()
+        return {"id": int(cur.lastrowid or 0), "passed": passed, "findings": judged,
+                "streak": len(fails), "escalate": escalate}
     finally:
         con.close()
 
 
+def _pr_ref_matches(value: str, project: Optional[str], owner: str, repo: str, num: str) -> bool:
+    """pr ref 认 URL(…/owner/repo/pull/N…)和裸号("2385" / "#2385",stale_recon 的契约)。
+
+    ponytail: 裸号没有仓库信息,只在卡的 project(本地仓库目录名)等于 GitHub 仓库名或为空时认;
+    目录名与仓库名不同的仓,裸号 ref 认不出,要登记完整 URL。
+    """
+    m = re.search(r"([^/\s]+)/([^/\s]+)/pull/(\d+)(?!\d)", value)
+    if m:
+        return (m[1].lower(), m[2].lower(), m[3]) == (owner.lower(), repo.lower(), num)
+    m = re.fullmatch(r"\s*#?(\d+)\s*", value)
+    return bool(m) and m[1] == num and (project or repo).lower() == repo.lower()
+
+
 def latest_reviews_for_pr(con: sqlite3.Connection, pr_url: str) -> list[tuple]:
     """登记了这个 PR 的每张卡及其最新 review:[(task_id, commit_sha|None, passed|None)]。"""
-    if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
-                       " AND name='reviews'").fetchone():
-        # 只读连接迁移不了旧库:当作一次 review 都没记
-        return [(t, None, None) for (t,) in con.execute(
-            "SELECT DISTINCT task_id FROM task_refs WHERE kind = 'pr'"
-            " AND rtrim(value, '/') = rtrim(?, '/') ORDER BY task_id", (pr_url,))]
-    return con.execute(
-        "SELECT r.task_id, v.commit_sha, v.passed FROM task_refs r"
-        " LEFT JOIN reviews v ON v.id = (SELECT MAX(id) FROM reviews WHERE task_id = r.task_id)"
-        " WHERE r.kind = 'pr' AND rtrim(r.value, '/') = rtrim(?, '/')"
-        " ORDER BY r.task_id", (pr_url,)).fetchall()
+    parts = pr_url.rstrip("/").split("/")
+    owner, repo, num = parts[-4], parts[-3], parts[-1]
+    tasks = sorted({t for t, value, project in con.execute(
+        "SELECT r.task_id, r.value, t.project FROM task_refs r JOIN tasks t ON t.id = r.task_id"
+        " WHERE r.kind = 'pr'") if _pr_ref_matches(value, project, owner, repo, num)})
+    has_reviews = con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                              " AND name='reviews'").fetchone()
+    out = []
+    for t in tasks:
+        # 只读连接迁移不了旧库:没有 reviews 表就当作一次 review 都没记
+        row = has_reviews and con.execute(
+            "SELECT commit_sha, passed FROM reviews WHERE task_id=? ORDER BY id DESC LIMIT 1",
+            (t,)).fetchone()
+        out.append((t, *(row or (None, None))))
+    return out
 
 
 # ── 人侧收件箱(NAWABAN-INBOX-SCHEMA-001)──────────────────────────────

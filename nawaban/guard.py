@@ -267,10 +267,13 @@ def _merge_args(segment: list[str]) -> list[str] | None:
     return repo_args + tokens
 
 
+_VALUE_FLAGS = {"-A", "--author-email", "-b", "--body", "-F", "--body-file",
+                "--match-head-commit", "-t", "--subject"}
+
+
 def _view_args(args: list[str]) -> list[str]:
     result = ["pr", "view"]
-    value_flags = {"-A", "--author-email", "-b", "--body", "-F", "--body-file",
-                   "--match-head-commit", "-t", "--subject"}
+    value_flags = _VALUE_FLAGS
     switches = {"--admin", "--auto", "--disable-auto", "-d", "--delete-branch",
                 "-m", "--merge", "-r", "--rebase", "-s", "--squash"}
     i = 0
@@ -296,12 +299,19 @@ def _view_args(args: list[str]) -> list[str]:
 
 
 def _match_head(args: list[str]) -> str | None:
-    for i, arg in enumerate(args):
-        if arg == "--match-head-commit" and i + 1 < len(args):
-            return args[i + 1]
+    """--match-head-commit 的值;别的选项的值(如 --body 正文)跳过,不当成选项。"""
+    lock, i = None, 0
+    while i < len(args):
+        arg = args[i]
+        if arg in _VALUE_FLAGS:
+            if arg == "--match-head-commit" and i + 1 < len(args):
+                lock = args[i + 1]
+            i += 2
+            continue
         if arg.startswith("--match-head-commit="):
-            return arg.partition("=")[2]
-    return None
+            lock = arg.partition("=")[2]
+        i += 1
+    return lock
 
 
 def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:

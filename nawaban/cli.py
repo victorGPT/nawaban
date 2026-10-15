@@ -823,12 +823,12 @@ def main(argv: list[str] | None = None) -> int:
             for i, f in enumerate(r["findings"], 1):
                 tag = "打回" if f["blocking"] else ("原有·只记录" if f["preexisting"] else "不打回")
                 print(f"    {i}. [{f['effective']}·{tag}] {f['summary']}")
-            if r["streak"] and r["streak"] % db.REVIEW_STRIKES == 0:
-                # ponytail: 与 review 写入分两个事务;ask 失败时 review 已落,重跑 review 不会补提
+            if r["escalate"]:
+                # 与 review 写入分两个事务;ask 没提成时再记一次 review 会补提(add_review 按编号认)
                 aid = inbox.raise_ask(
                     path, kind="decide", task_ids=[a.task_id], raised_by=owner,
                     question=f"{a.task_id} 连续 {r['streak']} 次 review 不过,怎么办?",
-                    evidence=f"最近一次 review #{r['id']} @ {a.commit}:"
+                    evidence=f"review #{r['id']} @ {a.commit} 不过:"
                              + ";".join(f["summary"] for f in r["findings"] if f["blocking"]),
                     options=["继续返工|worker 按问题再改一轮,再 review",
                              "改范围或验收|拆卡或改 success,重新派单",
