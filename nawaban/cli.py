@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import sqlite3
 import subprocess
@@ -263,6 +264,36 @@ def _epic_pick(path: Path, task_id: str, title: str, context: str | None,
     if result is None or result[0] == "none" or result[1] < _EPIC_HINT_THRESHOLD:
         return None
     return names[result[0]], result[1]
+
+
+_GITHUB_REMOTE = re.compile(
+    r"^(?:(?:https?|ssh)://)?(?:[^@/\s]+@)?github\.com(?::\d+)?[:/]"
+    r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", re.IGNORECASE)
+
+
+def _pr_ref_value(value: str) -> str:
+    """裸号("39" / "#39")补成当前仓库 GitHub 远端的完整 PR 链接;补不出就拒。
+
+    合并闸只认完整链接(用户 2026-10-16 定,ask #194),裸号登记进去等于没登记。
+    其他写法原样保存。
+    """
+    m = re.fullmatch(r"\s*#?(\d+)\s*", value)
+    if not m:
+        return value
+    try:
+        out = subprocess.run(["git", "config", "--get-regexp", r"^remote\..*\.url$"],
+                             capture_output=True, text=True, timeout=5).stdout
+    except (OSError, UnicodeError, subprocess.SubprocessError):
+        out = ""
+    repos = {(r[1], r[2]) for line in out.splitlines()
+             if (r := _GITHUB_REMOTE.match(line.split(maxsplit=1)[-1]))}
+    if len({(o.lower(), n.lower()) for o, n in repos}) != 1:
+        found = "、".join(f"{o}/{n}" for o, n in sorted(repos)) or "没有 GitHub 远端"
+        raise db.NawabanError(
+            f"PR 裸号 {value.strip()} 补不出完整链接(当前目录:{found});合并闸只认完整链接,"
+            "改写成 --value https://github.com/<OWNER>/<REPO>/pull/<N>")
+    owner, repo = sorted(repos)[0]
+    return f"https://github.com/{owner}/{repo}/pull/{m[1]}"
 
 
 def _default_project(path: Path, split_from: str | None) -> str | None:
@@ -807,8 +838,9 @@ def main(argv: list[str] | None = None) -> int:
             db.link_tasks(path, a.src, a.dst, kind=a.kind, note=a.note, created_by=owner)
             print(f"✓ link {a.src} -{a.kind}→ {a.dst}")
         elif a.verb == "ref":
-            db.add_ref(path, a.task_id, kind=a.kind, value=a.value, note=a.note)
-            print(f"✓ ref({a.kind}) {a.task_id} → {a.value}")
+            value = _pr_ref_value(a.value) if a.kind == "pr" else a.value
+            db.add_ref(path, a.task_id, kind=a.kind, value=value, note=a.note)
+            print(f"✓ ref({a.kind}) {a.task_id} → {value}")
         elif a.verb == "review":
             owner, sid = _identity(need_session=False)
             try:

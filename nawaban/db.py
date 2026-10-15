@@ -1460,41 +1460,25 @@ def add_review(path: Path | str, task_id: str, *, commit_sha: str, findings: Any
         con.close()
 
 
-_PR_URL = re.compile(r"([^/\s]+)/([^/\s]+)/pull/(\d+)(?!\d)")
-_PR_NUM = re.compile(r"\s*#?(\d+)\s*")
+PR_URL = re.compile(r"//(?:[^@/\s]+@)?([^/\s]+)/([^/\s]+)/([^/\s]+)/pull/(\d+)(?!\d)")
 
 
-def latest_reviews_for_pr(con: sqlite3.Connection, pr_url: str,
-                          local_projects: Sequence[str] | set[str] = ()) -> list[tuple]:
-    """登记了这个 PR 的每张未结束的卡:[(task_id, commit_sha|None, passed|None)]。
+def latest_reviews_for_pr(con: sqlite3.Connection, pr_url: str) -> list[tuple]:
+    """用完整链接登记了这个 PR 的每张未结束的卡:[(task_id, commit_sha|None, passed|None)]。
 
-    done/cancelled 的卡不算。URL ref(…/owner/repo/pull/N…)只认 URL 里的仓库和号。裸号
-    ("2385" / "#2385",stale_recon 的契约)没有仓库信息:同卡有同号 URL → 由那条 URL 定;
-    否则卡的 project 等于 GitHub 仓库名、或在 local_projects 里(调用方确认 cwd 所在仓库
-    就是目标仓库时传本项目名)→ 算;其他项目的卡不算。
+    只认 pr ref 里的 主机/owner/repo/pull/N(用户 2026-10-16 定,ask #194);裸号("2385")不算
+    登记 —— 新写的裸号由 ref 动词补成链接,老卡上的裸号不迁移。done/cancelled 的卡不算。
     """
-    parts = pr_url.rstrip("/").split("/")
-    me = (parts[-4].lower(), parts[-3].lower(), parts[-1])
-    mine = {me[1], *(p.lower() for p in local_projects)}
-    refs: dict[str, list[tuple[str, Optional[str]]]] = {}
-    for t, value, project in con.execute(
-            "SELECT r.task_id, r.value, t.project FROM task_refs r"
-            " JOIN tasks t ON t.id = r.task_id"
-            f" WHERE r.kind = 'pr' AND t.status NOT IN ({_q(TERMINAL)})"):
-        refs.setdefault(t, []).append((value, project))
-    found = set()
-    for t, rows in refs.items():
-        urls = {(m[1].lower(), m[2].lower(), m[3]) for v, _ in rows if (m := _PR_URL.search(v))}
-        if me in urls or any(
-                (m := None if _PR_URL.search(v) else _PR_NUM.fullmatch(v))
-                and m[1] == me[2] and not any(u[2] == m[1] for u in urls)
-                and (p or "").lower() in mine
-                for v, p in rows):
-            found.add(t)
+    m = PR_URL.search(pr_url)
+    me = m and tuple(x.lower() for x in m.groups())
+    found = sorted({t for t, value in con.execute(
+        "SELECT r.task_id, r.value FROM task_refs r JOIN tasks t ON t.id = r.task_id"
+        f" WHERE r.kind = 'pr' AND t.status NOT IN ({_q(TERMINAL)})")
+        if (r := PR_URL.search(value)) and tuple(x.lower() for x in r.groups()) == me})
     has_reviews = con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
                               " AND name='reviews'").fetchone()
     out = []
-    for t in sorted(found):
+    for t in found:
         # 只读连接迁移不了旧库:没有 reviews 表就当作一次 review 都没记
         row = has_reviews and con.execute(
             "SELECT commit_sha, passed FROM reviews WHERE task_id=? ORDER BY id DESC LIMIT 1",

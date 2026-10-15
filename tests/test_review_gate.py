@@ -146,62 +146,90 @@ def one_task_board(tmp_path, monkeypatch, values, project, status="in_progress")
     return path
 
 
-def checkout(tmp_path, name, remote=None, board_dir=True):
-    """合并时所在的本地目录:remote=None 表示不在 git 里;board_dir=False 表示仓库里没有看板目录
-    (看板靠 NAWABAN_DB 指外部共享库)。返回仓库里的子目录,验证按主 worktree 认项目名。"""
-    root = tmp_path / name
-    (root / "src").mkdir(parents=True)
-    if remote:
-        subprocess.run(["git", "init", "-q", str(root)], check=True)
-        subprocess.run(["git", "-C", str(root), "remote", "add", "origin", remote], check=True)
-    if board_dir:
-        (root / ".nawaban").mkdir()
-    return root / "src"
-
-
 REPO39 = "https://github.com/ac/repo/pull/39"
-BZ39 = "https://github.com/victorGPT/bzkanbanv2/pull/39"
-AC = "https://github.com/ac/repo.git"
-NAWABAN = "https://github.com/victorGPT/nawaban.git"
 
 
-# 列:cwd 目录名, cwd 的 remote, 仓库里有看板目录, 卡 project, 卡的 pr ref, 卡状态, 合并的 PR, 拦?
-@pytest.mark.parametrize("name, remote, board_dir, project, refs, status, pr, blocked", [
-    pytest.param("repo", AC, True, "repo", ["39"], "in_progress", REPO39, True, id="1-本仓库裸号"),
-    pytest.param("repo", AC, True, "repo", ["#39"], "open", REPO39, True, id="1-本仓库#号"),
-    pytest.param("nawaban", NAWABAN, True, "nawaban", ["39"], "in_progress", BZ39, False,
-                 id="2-用-R合并别的仓库"),
-    pytest.param("checkout-alias", None, True, "checkout-alias", ["39"], "in_progress", REPO39,
-                 False, id="2-cwd不在git里"),
-    pytest.param("checkout-alias", "git@github.com:ac/repo.git", False, "checkout-alias", ["39"],
-                 "in_progress", REPO39, True, id="3-外部共享看板"),
-    pytest.param("checkout-alias", "ssh://git@github.com/AC/Repo", True, "checkout-alias", ["39"],
-                 "in_progress", REPO39, True, id="4-目录名不等于仓库名"),
-    pytest.param("repo", AC, True, "other", ["39"], "in_progress", REPO39, False,
-                 id="5-其他项目的卡"),
-    pytest.param("repo", AC, True, None, ["39"], "in_progress", REPO39, False, id="5-无项目的卡"),
-    pytest.param("repo", AC, True, "repo", ["39"], "done", REPO39, False, id="5-done卡"),
-    pytest.param("repo", AC, True, "repo", [REPO39], "cancelled", REPO39, False, id="5-cancelled卡"),
-    pytest.param("nawaban", NAWABAN, True, "nawaban", [REPO39 + "/files"], "in_progress", REPO39,
-                 True, id="6-URL与cwd无关"),
-    pytest.param("repo", AC, True, "repo", ["39", "https://github.com/ac/other/pull/39"],
-                 "in_progress", REPO39, False, id="6-同号URL指别的仓库"),
-    pytest.param("repo", AC, True, "repo", ["https://github.com/ac/repo/pull/390"], "in_progress",
-                 REPO39, False, id="6-URL号不同"),
+# 合并闸只按完整 PR 链接认卡(用户 2026-10-16 定,ask #194);合并的是 ac/repo#39。
+# 列:卡 project, 卡的 pr ref, 卡状态, 拦?
+@pytest.mark.parametrize("project, refs, status, blocked", [
+    pytest.param("repo", [REPO39], "in_progress", True, id="完整链接"),
+    pytest.param(None, ["https://GitHub.com/AC/Repo/pull/39/files"], "open", True,
+                 id="链接带后缀与大小写"),
+    pytest.param("nawaban", [REPO39], "in_progress", True, id="链接与卡属于哪个项目无关"),
+    pytest.param("repo", ["39"], "in_progress", False, id="裸号不算登记"),
+    pytest.param("repo", ["#39"], "in_progress", False, id="#号不算登记"),
+    pytest.param("other", ["39"], "in_progress", False, id="其他项目的裸号"),
+    pytest.param("repo", ["https://github.com/someone/repo/pull/39"], "in_progress", False,
+                 id="同名仓库不同owner"),
+    pytest.param("repo", ["https://gitlab.com/ac/repo/pull/39"], "in_progress", False,
+                 id="同名路径不同主机"),
+    pytest.param("repo", ["https://github.com/ac/repo/pull/390"], "in_progress", False,
+                 id="号不同"),
+    pytest.param("repo", [REPO39], "done", False, id="done卡"),
+    pytest.param("repo", [REPO39], "cancelled", False, id="cancelled卡"),
 ])
-def test_which_tasks_refer_to_the_pr(tmp_path, monkeypatch, name, remote, board_dir, project,
-                                     refs, status, pr, blocked):
+def test_which_tasks_refer_to_the_pr(tmp_path, monkeypatch, project, refs, status, blocked):
     one_task_board(tmp_path, monkeypatch, refs, project, status=status)
-    cwd = checkout(tmp_path, name, remote, board_dir)
     monkeypatch.setattr(guard, "_github", lambda args, _: (
         {"statusCheckRollup": [{"name": "t", "status": "COMPLETED", "conclusion": "SUCCESS"}],
-         "headRefOid": REVIEWED, "url": pr}
+         "headRefOid": REVIEWED, "url": REPO39}
         if args[:2] == ["pr", "view"] else
         {"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}}))
-    owner_repo = "/".join(pr.split("/")[3:5])
-    code, msg = guard.judge_merge(f"gh pr merge 39 -R {owner_repo} --squash", str(cwd))
+    code, msg = guard.judge_merge("gh pr merge 39 -R ac/repo --squash", str(tmp_path))
     assert (code == 2 and "P-2" in msg and "没有 review 结论" in msg) if blocked else \
         (code, msg) == (0, "")
+
+
+def test_review_gate_starts_no_subprocess(board, tmp_path, monkeypatch):
+    # hook 预算 10 秒:两次 gh 之外,review 闸只读看板,不起 git 等子进程
+    def no_subprocess(*args, **kwargs):
+        raise AssertionError(f"subprocess started: {args}")
+    monkeypatch.setattr(guard.subprocess, "run", no_subprocess)
+    with pytest.raises(guard.Unverified, match="没有 review 结论"):
+        guard._review_gate(str(tmp_path), PR, REVIEWED, REVIEWED)
+
+
+def git_checkout(tmp_path, monkeypatch, *remotes):
+    root = tmp_path / "checkout"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    for i, url in enumerate(remotes):
+        subprocess.run(["git", "-C", str(root), "remote", "add", f"r{i}", url], check=True)
+    monkeypatch.chdir(root)
+
+
+@pytest.mark.parametrize("remotes, value, stored", [
+    (["https://github.com/ac/repo.git"], "39", REPO39),
+    (["git@github.com:ac/repo.git", "https://github.com/ac/repo"], "#39", REPO39),
+    (["ssh://git@github.com/ac/repo.git"], " 39 ", REPO39),
+    ([], "https://github.com/other/x/pull/7", "https://github.com/other/x/pull/7"),
+])
+def test_bare_pr_ref_is_written_as_full_url(tmp_path, monkeypatch, capsys, remotes, value, stored):
+    path = tmp_path / "board.db"
+    db.init_db(path)
+    db.create_task(path, task_id="P-3", title="登记 PR")
+    git_checkout(tmp_path, monkeypatch, *remotes)
+    assert cli.main(["--db", str(path), "ref", "P-3", "--kind", "pr", "--value", value]) == 0
+    with sqlite3.connect(path) as con:
+        assert con.execute("SELECT value FROM task_refs WHERE kind='pr'").fetchall() == [(stored,)]
+
+
+@pytest.mark.parametrize("remotes", [
+    None,  # 不在 git 里
+    [],  # 没有远端
+    ["https://gitlab.com/ac/repo.git"],  # 没有 GitHub 远端
+    ["https://github.com/me/repo.git", "https://github.com/ac/repo.git"],  # 指向不同仓库
+])
+def test_bare_pr_ref_that_cannot_be_completed_is_refused(tmp_path, monkeypatch, capsys, remotes):
+    path = tmp_path / "board.db"
+    db.init_db(path)
+    db.create_task(path, task_id="P-3", title="登记 PR")
+    if remotes is not None:
+        git_checkout(tmp_path, monkeypatch, *remotes)
+    assert cli.main(["--db", str(path), "ref", "P-3", "--kind", "pr", "--value", "39"]) == 1
+    assert "https://github.com/<OWNER>/<REPO>/pull/<N>" in capsys.readouterr().err
+    with sqlite3.connect(path) as con:
+        assert con.execute("SELECT COUNT(*) FROM task_refs").fetchone()[0] == 0
 
 
 def test_pr_not_on_any_task_keeps_ci_only_gate(tmp_path, monkeypatch):

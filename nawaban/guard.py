@@ -20,7 +20,8 @@ compound commands must be split. Scripts/eval/API merges and direct pushes are
 outside coverage. Post-preflight races still require server-side protection.
 
 review gate (NAWABAN-REVIEW-GATE-001): when the board has an unfinished task whose
-`pr` ref is this PR, the task's latest review must pass on the PR head commit and the merge
+`pr` ref is this PR's full URL (bare numbers do not count), the task's latest review must
+pass on the PR head commit and the merge
 must carry `--match-head-commit <that commit>`, which GitHub enforces server side.
 
 身份铁律:owner 只从环境来(NAWABAN_OWNER → tmux → session-id),与 md 版同链。
@@ -314,25 +315,19 @@ def _match_head(args: list[str]) -> str | None:
     return lock
 
 
-_REMOTE = re.compile(r"[:/]([^/:\s]+)/([^/\s]+?)(?:\.git)?/?$")
-
-
-def _target_projects(cwd: str, owner: str, repo: str) -> set[str]:
-    """cwd 所在仓库就是要合并的 GitHub 仓库(某个 remote 指向 owner/repo)时,返回本项目
-    可能的名字:看板推出的项目名 + 仓库主 worktree 目录名;不是(或认不出)→ 空集,
-    本项目卡上的裸号就不算这个 PR(用 -R 在别的仓库里合并,不受 cwd 所在项目影响)。"""
-    try:
-        out = subprocess.run(["git", "-C", cwd, "config", "--get-regexp", r"^remote\..*\.url$"],
-                             capture_output=True, text=True, timeout=3).stdout
-    except (OSError, UnicodeError, subprocess.SubprocessError):
-        return set()
-    if not any((m := _REMOTE.search(line.split(maxsplit=1)[-1]))
-               and (m[1].lower(), m[2].lower()) == (owner.lower(), repo.lower())
-               for line in out.splitlines()):
-        return set()
-    tree = enclosing_tree(Path(cwd))
-    # 外部共享看板、仓库里没有看板目录时,board_project 推不出或推到上层目录,靠目录名认
-    return {n for n in (db.board_project(cwd), tree[1].name if tree else None) if n}
+def _board_file(cwd: str) -> Path | None:
+    """合并时用的看板:NAWABAN_DB,否则 cwd 所在仓库的主树或 cwd 祖先里的看板。
+    只做 stat,不起 git 子进程 —— 两次 gh 查询已经占掉 hook 10 秒预算的大半。"""
+    env = os.environ.get("NAWABAN_DB")
+    if env:
+        board = Path(env).expanduser()
+        return board if board.is_file() else None
+    here = Path(cwd)
+    tree = enclosing_tree(here)
+    for root in (*((tree[1],) if tree else ()), here, *here.parents):
+        if (board := db.board_db(root)).is_file():
+            return board
+    return None
 
 
 def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
@@ -340,15 +335,13 @@ def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
 
     没有看板 / 没有未结束的卡登记这个 PR → 不管(只剩 CI 闸)。看板在但读不了 → 拦。
     """
-    board = db.resolve_db(cwd)
-    if not board.is_file():
+    board = _board_file(cwd)
+    if board is None:
         return
-    owner, repo = urlsplit(url).path.strip("/").split("/")[:2]
-    local = _target_projects(cwd, owner, repo)
     try:
         con = sqlite3.connect(f"file:{board}?mode=ro", uri=True, timeout=5)
         try:
-            rows = db.latest_reviews_for_pr(con, url, local)
+            rows = db.latest_reviews_for_pr(con, url)
         finally:
             con.close()
     except sqlite3.Error as exc:
