@@ -19,8 +19,8 @@ still a no-op; failed queries and empty checks deny. Queries are read-only;
 compound commands must be split. Scripts/eval/API merges and direct pushes are
 outside coverage. Post-preflight races still require server-side protection.
 
-review gate (NAWABAN-REVIEW-GATE-001): when the board has a task whose `pr` ref is
-this PR, the task's latest review must pass on the PR head commit and the merge
+review gate (NAWABAN-REVIEW-GATE-001): when the board has an unfinished task whose
+`pr` ref is this PR, the task's latest review must pass on the PR head commit and the merge
 must carry `--match-head-commit <that commit>`, which GitHub enforces server side.
 
 身份铁律:owner 只从环境来(NAWABAN_OWNER → tmux → session-id),与 md 版同链。
@@ -317,8 +317,8 @@ def _match_head(args: list[str]) -> str | None:
 def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
     """登记了这个 PR 的卡:最新 review 必须通过、审的就是 PR head,且合并锁定在这个提交。
 
-    没有看板 / 没有卡登记这个 PR → 不管(只剩 CI 闸)。看板在但读不了、或有卡的裸号 ref
-    认不出仓库 → 拦。
+    没有看板 / 没有未结束的卡登记这个 PR → 不管(只剩 CI 闸)。看板在但读不了、或本项目
+    未结束的卡有裸号 ref 认不出仓库 → 拦。
     """
     board = db.resolve_db(cwd)
     if not board.is_file():
@@ -326,7 +326,7 @@ def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
     try:
         con = sqlite3.connect(f"file:{board}?mode=ro", uri=True, timeout=5)
         try:
-            rows = db.latest_reviews_for_pr(con, url)
+            rows = db.latest_reviews_for_pr(con, url, db.board_project(cwd))
         finally:
             con.close()
     except sqlite3.Error as exc:

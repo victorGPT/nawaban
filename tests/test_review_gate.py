@@ -38,15 +38,20 @@ def review(tmp_path, findings, commit=REVIEWED) -> int:
                      "--commit", commit, "--findings", str(f)])
 
 
-def merge(monkeypatch, tmp_path, command, head=REVIEWED):
+def merge(monkeypatch, tmp_path, command, head=REVIEWED, url=PR, local_project=None):
+    """local_project:合并命令所在的本地项目(该目录下有 .nawaban/)。"""
     def github(args, cwd):
         if args[:2] == ["pr", "view"]:
             return {"statusCheckRollup": [{"name": "t", "status": "COMPLETED",
                                            "conclusion": "SUCCESS"}],
-                    "headRefOid": head, "url": PR}
+                    "headRefOid": head, "url": url}
         return {"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}}
     monkeypatch.setattr(guard, "_github", github)
-    return guard.judge_merge(command, str(tmp_path))
+    cwd = tmp_path
+    if local_project:
+        cwd = tmp_path / local_project
+        (cwd / ".nawaban").mkdir(parents=True, exist_ok=True)
+    return guard.judge_merge(command, str(cwd))
 
 
 LOCKED = f"gh pr merge 1 -R ac/repo --squash --match-head-commit {REVIEWED}"
@@ -132,37 +137,62 @@ def test_failed_or_missing_review_blocks_merge(board, tmp_path, monkeypatch):
     assert code == 2 and "不过" in msg
 
 
+def one_task_board(tmp_path, monkeypatch, values, project, status="in_progress"):
+    path = tmp_path / "board.db"
+    db.init_db(path)
+    db.create_task(path, task_id="P-2", title="裸号 ref", project=project)
+    for value in values:
+        db.add_ref(path, "P-2", kind="pr", value=value)
+    if status != "open":
+        with sqlite3.connect(path) as con:  # 夹具:直接摆状态,不走状态机
+            con.execute("UPDATE tasks SET status=?, owner='ac:x' WHERE id='P-2'", (status,))
+    monkeypatch.setenv("NAWABAN_DB", str(path))
+    return path
+
+
+# 合并时所在的本地项目是 checkout-alias(本地目录名 ≠ GitHub 仓库名 repo)
 @pytest.mark.parametrize("values, project, expected", [
     (["1"], "repo", "没有 review 结论"),
     (["#1"], "Repo", "没有 review 结论"),
     (["https://github.com/AC/Repo/pull/1/files"], None, "没有 review 结论"),
     (["1", "https://github.com/ac/repo/pull/1"], "checkout-alias", "没有 review 结论"),
-    (["1"], "checkout-alias", "认不出"),  # 本地目录名 ≠ 仓库名:拦,要求登记完整 URL
-    (["#1"], None, "认不出"),
+    (["1"], "checkout-alias", "认不出"),  # 本项目的卡认不出仓库:拦,要求登记完整 URL
+    (["#1"], None, None),  # 不知道属于哪个项目的卡:不拦
+    (["1"], "other", None),  # 其他项目的卡:不拦
     (["1", "https://github.com/ac/other/pull/1"], "checkout-alias", None),  # 裸号由同卡 URL 定
     (["#12"], "repo", None),
     (["https://github.com/ac/repo/pull/12"], None, None),
     (["https://github.com/ac/other/pull/1"], None, None),
 ])
 def test_pr_ref_forms(tmp_path, monkeypatch, values, project, expected):
-    path = tmp_path / "board.db"
-    db.init_db(path)
-    db.create_task(path, task_id="P-2", title="裸号 ref", project=project)
-    for value in values:
-        db.add_ref(path, "P-2", kind="pr", value=value)
-    monkeypatch.setenv("NAWABAN_DB", str(path))
-    code, msg = merge(monkeypatch, tmp_path, "gh pr merge 1 --squash")
+    one_task_board(tmp_path, monkeypatch, values, project)
+    code, msg = merge(monkeypatch, tmp_path, "gh pr merge 1 --squash",
+                      local_project="checkout-alias")
     assert (code == 2 and "P-2" in msg and expected in msg) if expected else code == 0
 
 
+def test_other_projects_bare_ref_does_not_block(tmp_path, monkeypatch):
+    one_task_board(tmp_path, monkeypatch, ["39"], "nawaban")
+    code, msg = merge(monkeypatch, tmp_path, "gh pr merge 39 -R victorGPT/bzkanbanv2 --squash",
+                      url="https://github.com/victorGPT/bzkanbanv2/pull/39",
+                      local_project="bzkanbanv2")
+    assert (code, msg) == (0, "")
+
+
+@pytest.mark.parametrize("status", ["done", "cancelled"])
+@pytest.mark.parametrize("values, project", [
+    (["1"], "repo"), (["1"], "checkout-alias"), ([PR], None)])
+def test_finished_task_does_not_block(tmp_path, monkeypatch, status, values, project):
+    one_task_board(tmp_path, monkeypatch, values, project, status=status)
+    code, msg = merge(monkeypatch, tmp_path, "gh pr merge 1 --squash",
+                      local_project="checkout-alias")
+    assert (code, msg) == (0, "")
+
+
 def test_unidentifiable_ref_blocks_even_after_passing_review(tmp_path, monkeypatch):
-    path = tmp_path / "board.db"
-    db.init_db(path)
-    db.create_task(path, task_id="P-2", title="裸号 ref", project="checkout-alias")
-    db.add_ref(path, "P-2", kind="pr", value="1")
+    path = one_task_board(tmp_path, monkeypatch, ["1"], "checkout-alias")
     db.add_review(path, "P-2", commit_sha=REVIEWED, findings=[], author="ac:x")
-    monkeypatch.setenv("NAWABAN_DB", str(path))
-    code, msg = merge(monkeypatch, tmp_path, LOCKED)
+    code, msg = merge(monkeypatch, tmp_path, LOCKED, local_project="checkout-alias")
     assert code == 2 and "完整 URL" in msg
 
 
