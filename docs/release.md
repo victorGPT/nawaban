@@ -45,6 +45,20 @@ Hook scripts are read on every call, so a publish or rollback reaches open sessi
 
 The skills load from the same directory. The session banner's `board-up.sh` hint now names the clone; the clone has no built `nawaban/webui/dist`, so either keep the board running from where it was built or build it there once with `npm --prefix ~/.nawaban/plugin/nawaban/webui ci && npm --prefix ~/.nawaban/plugin/nawaban/webui run build`. The `nawaban` CLI used in shells and dispatch briefs is whatever path you call; calling the development checkout's `cli.py` runs development code against the same database.
 
+### Checked after switching (2026-10-16)
+
+The marketplace was switched to `/Users/victor/.nawaban/plugin` (at `8a32a62`). Then a new `claude -p` session was started from a development worktree on a non-`main` branch. That worktree had an uncommitted edit making `hooks/foreman_session_start.py` print `DEV-MARKER`; running that file directly printed it. While the session ran, `ps -axEww` was sampled every 0.1 s:
+
+| Check | Result |
+|---|---|
+| SessionStart hook process | `/Users/victor/.nawaban/plugin/hooks/foreman_session_start.py`, `CLAUDE_PLUGIN_ROOT=/Users/victor/.nawaban/plugin` |
+| Stop hook processes | `/Users/victor/.nawaban/plugin/nawaban/compile_gate_headless.sh`, `/Users/victor/.nawaban/plugin/hooks/foreman_maintree_watch.sh` |
+| Session banner | `board-up.sh` hint names `/Users/victor/.nawaban/plugin/nawaban/board-up.sh` |
+| `DEV-MARKER` in the session's hook output | 0 occurrences |
+| `worker_report.py` of sessions started before the switch | Still `CLAUDE_PLUGIN_ROOT=/Users/victor/nawaban`, until restarted |
+
+The main checkout itself was not switched or edited in this check.
+
 ### Undoing the switch
 
 Before switching, copy the files `marketplace add` changes:
