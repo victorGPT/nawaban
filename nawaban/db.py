@@ -1466,37 +1466,31 @@ _PR_NUM = re.compile(r"\s*#?(\d+)\s*")
 
 def latest_reviews_for_pr(con: sqlite3.Connection, pr_url: str,
                           local_projects: Sequence[str] | set[str] = ()) -> list[tuple]:
-    """登记了这个 PR 的每张卡:[(task_id, commit_sha|None, passed|None, 认不出仓库的裸号|None)]。
+    """登记了这个 PR 的每张未结束的卡:[(task_id, commit_sha|None, passed|None)]。
 
-    只看没结束的卡(done/cancelled 不拦合并)。pr ref 认 URL(…/owner/repo/pull/N…)和裸号
-    ("2385" / "#2385",stale_recon 的契约)。裸号没有仓库信息:同卡有同号 URL → 由那条 URL 定;
-    卡的 project(本地仓库目录名)等于仓库名 → 就是它;卡属于 local_projects(合并时所在本地
-    项目的可能名字)却认不出 → 如实返回让合并闸拦下,要登记完整 URL;其他项目的卡 → 不算。
+    done/cancelled 的卡不算。URL ref(…/owner/repo/pull/N…)只认 URL 里的仓库和号。裸号
+    ("2385" / "#2385",stale_recon 的契约)没有仓库信息:同卡有同号 URL → 由那条 URL 定;
+    否则卡的 project 等于 GitHub 仓库名、或在 local_projects 里(调用方确认 cwd 所在仓库
+    就是目标仓库时传本项目名)→ 算;其他项目的卡不算。
     """
     parts = pr_url.rstrip("/").split("/")
     me = (parts[-4].lower(), parts[-3].lower(), parts[-1])
-    here = {p.lower() for p in local_projects}
+    mine = {me[1], *(p.lower() for p in local_projects)}
     refs: dict[str, list[tuple[str, Optional[str]]]] = {}
     for t, value, project in con.execute(
             "SELECT r.task_id, r.value, t.project FROM task_refs r"
             " JOIN tasks t ON t.id = r.task_id"
             f" WHERE r.kind = 'pr' AND t.status NOT IN ({_q(TERMINAL)})"):
         refs.setdefault(t, []).append((value, project))
-    found: dict[str, Optional[str]] = {}
+    found = set()
     for t, rows in refs.items():
         urls = {(m[1].lower(), m[2].lower(), m[3]) for v, _ in rows if (m := _PR_URL.search(v))}
-        if me in urls:
-            found[t] = None
-            continue
-        for value, project in rows:
-            m = None if _PR_URL.search(value) else _PR_NUM.fullmatch(value)
-            if not m or m[1] != me[2] or any(u[2] == m[1] for u in urls):
-                continue
-            if (project or "").lower() == me[1]:
-                found[t] = None
-                break
-            if (project or "").lower() in here:
-                found.setdefault(t, value)
+        if me in urls or any(
+                (m := None if _PR_URL.search(v) else _PR_NUM.fullmatch(v))
+                and m[1] == me[2] and not any(u[2] == m[1] for u in urls)
+                and (p or "").lower() in mine
+                for v, p in rows):
+            found.add(t)
     has_reviews = con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
                               " AND name='reviews'").fetchone()
     out = []
@@ -1505,7 +1499,7 @@ def latest_reviews_for_pr(con: sqlite3.Connection, pr_url: str,
         row = has_reviews and con.execute(
             "SELECT commit_sha, passed FROM reviews WHERE task_id=? ORDER BY id DESC LIMIT 1",
             (t,)).fetchone()
-        out.append((t, *(row or (None, None)), found[t]))
+        out.append((t, *(row or (None, None))))
     return out
 
 

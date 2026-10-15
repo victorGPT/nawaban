@@ -314,36 +314,47 @@ def _match_head(args: list[str]) -> str | None:
     return lock
 
 
-def _local_projects(cwd: str) -> set[str]:
-    """合并时所在的本地项目可能叫什么:看板目录推出的项目名,加上仓库主 worktree 的目录名
-    (不在 git 里就是 cwd 目录名)。NAWABAN_DB 指外部看板、仓库里没有看板目录时,前者推不出
-    或推到上层目录,靠后者认出本项目的卡。"""
+_REMOTE = re.compile(r"[:/]([^/:\s]+)/([^/\s]+?)(?:\.git)?/?$")
+
+
+def _target_projects(cwd: str, owner: str, repo: str) -> set[str]:
+    """cwd 所在仓库就是要合并的 GitHub 仓库(某个 remote 指向 owner/repo)时,返回本项目
+    可能的名字:看板推出的项目名 + 仓库主 worktree 目录名;不是(或认不出)→ 空集,
+    本项目卡上的裸号就不算这个 PR(用 -R 在别的仓库里合并,不受 cwd 所在项目影响)。"""
+    try:
+        out = subprocess.run(["git", "-C", cwd, "config", "--get-regexp", r"^remote\..*\.url$"],
+                             capture_output=True, text=True, timeout=3).stdout
+    except (OSError, UnicodeError, subprocess.SubprocessError):
+        return set()
+    if not any((m := _REMOTE.search(line.split(maxsplit=1)[-1]))
+               and (m[1].lower(), m[2].lower()) == (owner.lower(), repo.lower())
+               for line in out.splitlines()):
+        return set()
     tree = enclosing_tree(Path(cwd))
-    return {n for n in (db.board_project(cwd), (tree[1] if tree else Path(cwd)).name) if n}
+    # 外部共享看板、仓库里没有看板目录时,board_project 推不出或推到上层目录,靠目录名认
+    return {n for n in (db.board_project(cwd), tree[1].name if tree else None) if n}
 
 
 def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
     """登记了这个 PR 的卡:最新 review 必须通过、审的就是 PR head,且合并锁定在这个提交。
 
-    没有看板 / 没有未结束的卡登记这个 PR → 不管(只剩 CI 闸)。看板在但读不了、或本项目
-    未结束的卡有裸号 ref 认不出仓库 → 拦。
+    没有看板 / 没有未结束的卡登记这个 PR → 不管(只剩 CI 闸)。看板在但读不了 → 拦。
     """
     board = db.resolve_db(cwd)
     if not board.is_file():
         return
+    owner, repo = urlsplit(url).path.strip("/").split("/")[:2]
+    local = _target_projects(cwd, owner, repo)
     try:
         con = sqlite3.connect(f"file:{board}?mode=ro", uri=True, timeout=5)
         try:
-            rows = db.latest_reviews_for_pr(con, url, _local_projects(cwd))
+            rows = db.latest_reviews_for_pr(con, url, local)
         finally:
             con.close()
     except sqlite3.Error as exc:
         raise Unverified(f"看板读不了,无法确认 review 结论:{exc}") from exc
     redo = f"nawaban review <ID> --commit {head} --findings <问题列表.json>"
-    for task, sha, passed, ambiguous in rows:
-        if ambiguous:
-            raise Unverified(f"{task} 的 PR ref『{ambiguous}』认不出是哪个仓库的 PR;"
-                             f"给它登记完整 URL:nawaban ref {task} --kind pr --value <PR URL>")
+    for task, sha, passed in rows:
         if sha is None:
             raise Unverified(f"{task} 登记了这个 PR,但卡上没有 review 结论;审完记:{redo}")
         if not passed:

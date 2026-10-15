@@ -39,20 +39,15 @@ def review(tmp_path, findings, commit=REVIEWED) -> int:
                      "--commit", commit, "--findings", str(f)])
 
 
-def merge(monkeypatch, tmp_path, command, head=REVIEWED, url=PR, local_project=None):
-    """local_project:合并命令所在的本地项目(该目录下有 .nawaban/)。"""
+def merge(monkeypatch, tmp_path, command, head=REVIEWED):
     def github(args, cwd):
         if args[:2] == ["pr", "view"]:
             return {"statusCheckRollup": [{"name": "t", "status": "COMPLETED",
                                            "conclusion": "SUCCESS"}],
-                    "headRefOid": head, "url": url}
+                    "headRefOid": head, "url": PR}
         return {"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}}
     monkeypatch.setattr(guard, "_github", github)
-    cwd = tmp_path
-    if local_project:
-        cwd = tmp_path / local_project
-        (cwd / ".nawaban").mkdir(parents=True, exist_ok=True)
-    return guard.judge_merge(command, str(cwd))
+    return guard.judge_merge(command, str(tmp_path))
 
 
 LOCKED = f"gh pr merge 1 -R ac/repo --squash --match-head-commit {REVIEWED}"
@@ -151,68 +146,62 @@ def one_task_board(tmp_path, monkeypatch, values, project, status="in_progress")
     return path
 
 
-# 合并时所在的本地项目是 checkout-alias(本地目录名 ≠ GitHub 仓库名 repo)
-@pytest.mark.parametrize("values, project, expected", [
-    (["1"], "repo", "没有 review 结论"),
-    (["#1"], "Repo", "没有 review 结论"),
-    (["https://github.com/AC/Repo/pull/1/files"], None, "没有 review 结论"),
-    (["1", "https://github.com/ac/repo/pull/1"], "checkout-alias", "没有 review 结论"),
-    (["1"], "checkout-alias", "认不出"),  # 本项目的卡认不出仓库:拦,要求登记完整 URL
-    (["#1"], None, None),  # 不知道属于哪个项目的卡:不拦
-    (["1"], "other", None),  # 其他项目的卡:不拦
-    (["1", "https://github.com/ac/other/pull/1"], "checkout-alias", None),  # 裸号由同卡 URL 定
-    (["#12"], "repo", None),
-    (["https://github.com/ac/repo/pull/12"], None, None),
-    (["https://github.com/ac/other/pull/1"], None, None),
+def checkout(tmp_path, name, remote=None, board_dir=True):
+    """合并时所在的本地目录:remote=None 表示不在 git 里;board_dir=False 表示仓库里没有看板目录
+    (看板靠 NAWABAN_DB 指外部共享库)。返回仓库里的子目录,验证按主 worktree 认项目名。"""
+    root = tmp_path / name
+    (root / "src").mkdir(parents=True)
+    if remote:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        subprocess.run(["git", "-C", str(root), "remote", "add", "origin", remote], check=True)
+    if board_dir:
+        (root / ".nawaban").mkdir()
+    return root / "src"
+
+
+REPO39 = "https://github.com/ac/repo/pull/39"
+BZ39 = "https://github.com/victorGPT/bzkanbanv2/pull/39"
+AC = "https://github.com/ac/repo.git"
+NAWABAN = "https://github.com/victorGPT/nawaban.git"
+
+
+# 列:cwd 目录名, cwd 的 remote, 仓库里有看板目录, 卡 project, 卡的 pr ref, 卡状态, 合并的 PR, 拦?
+@pytest.mark.parametrize("name, remote, board_dir, project, refs, status, pr, blocked", [
+    pytest.param("repo", AC, True, "repo", ["39"], "in_progress", REPO39, True, id="1-本仓库裸号"),
+    pytest.param("repo", AC, True, "repo", ["#39"], "open", REPO39, True, id="1-本仓库#号"),
+    pytest.param("nawaban", NAWABAN, True, "nawaban", ["39"], "in_progress", BZ39, False,
+                 id="2-用-R合并别的仓库"),
+    pytest.param("checkout-alias", None, True, "checkout-alias", ["39"], "in_progress", REPO39,
+                 False, id="2-cwd不在git里"),
+    pytest.param("checkout-alias", "git@github.com:ac/repo.git", False, "checkout-alias", ["39"],
+                 "in_progress", REPO39, True, id="3-外部共享看板"),
+    pytest.param("checkout-alias", "ssh://git@github.com/AC/Repo", True, "checkout-alias", ["39"],
+                 "in_progress", REPO39, True, id="4-目录名不等于仓库名"),
+    pytest.param("repo", AC, True, "other", ["39"], "in_progress", REPO39, False,
+                 id="5-其他项目的卡"),
+    pytest.param("repo", AC, True, None, ["39"], "in_progress", REPO39, False, id="5-无项目的卡"),
+    pytest.param("repo", AC, True, "repo", ["39"], "done", REPO39, False, id="5-done卡"),
+    pytest.param("repo", AC, True, "repo", [REPO39], "cancelled", REPO39, False, id="5-cancelled卡"),
+    pytest.param("nawaban", NAWABAN, True, "nawaban", [REPO39 + "/files"], "in_progress", REPO39,
+                 True, id="6-URL与cwd无关"),
+    pytest.param("repo", AC, True, "repo", ["39", "https://github.com/ac/other/pull/39"],
+                 "in_progress", REPO39, False, id="6-同号URL指别的仓库"),
+    pytest.param("repo", AC, True, "repo", ["https://github.com/ac/repo/pull/390"], "in_progress",
+                 REPO39, False, id="6-URL号不同"),
 ])
-def test_pr_ref_forms(tmp_path, monkeypatch, values, project, expected):
-    one_task_board(tmp_path, monkeypatch, values, project)
-    code, msg = merge(monkeypatch, tmp_path, "gh pr merge 1 --squash",
-                      local_project="checkout-alias")
-    assert (code == 2 and "P-2" in msg and expected in msg) if expected else code == 0
-
-
-def test_other_projects_bare_ref_does_not_block(tmp_path, monkeypatch):
-    one_task_board(tmp_path, monkeypatch, ["39"], "nawaban")
-    code, msg = merge(monkeypatch, tmp_path, "gh pr merge 39 -R victorGPT/bzkanbanv2 --squash",
-                      url="https://github.com/victorGPT/bzkanbanv2/pull/39",
-                      local_project="bzkanbanv2")
-    assert (code, msg) == (0, "")
-
-
-@pytest.mark.parametrize("status", ["done", "cancelled"])
-@pytest.mark.parametrize("values, project", [
-    (["1"], "repo"), (["1"], "checkout-alias"), ([PR], None)])
-def test_finished_task_does_not_block(tmp_path, monkeypatch, status, values, project):
-    one_task_board(tmp_path, monkeypatch, values, project, status=status)
-    code, msg = merge(monkeypatch, tmp_path, "gh pr merge 1 --squash",
-                      local_project="checkout-alias")
-    assert (code, msg) == (0, "")
-
-
-@pytest.mark.parametrize("in_git", [False, True])
-def test_external_board_still_blocks_own_projects_bare_ref(tmp_path, monkeypatch, in_git):
-    # NAWABAN_DB 指外部共享看板,仓库里没有 .nawaban/:本项目卡的裸号认不出仓库照样拦
-    one_task_board(tmp_path, monkeypatch, ["39"], "checkout-alias")
-    checkout = tmp_path / "checkout-alias"
-    cwd = checkout / "src" if in_git else checkout
-    cwd.mkdir(parents=True)
-    if in_git:
-        subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+def test_which_tasks_refer_to_the_pr(tmp_path, monkeypatch, name, remote, board_dir, project,
+                                     refs, status, pr, blocked):
+    one_task_board(tmp_path, monkeypatch, refs, project, status=status)
+    cwd = checkout(tmp_path, name, remote, board_dir)
     monkeypatch.setattr(guard, "_github", lambda args, _: (
         {"statusCheckRollup": [{"name": "t", "status": "COMPLETED", "conclusion": "SUCCESS"}],
-         "headRefOid": REVIEWED, "url": "https://github.com/ac/repo/pull/39"}
+         "headRefOid": REVIEWED, "url": pr}
         if args[:2] == ["pr", "view"] else
         {"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}}))
-    code, msg = guard.judge_merge("gh pr merge 39 -R ac/repo --squash", str(cwd))
-    assert code == 2 and "P-2" in msg and "完整 URL" in msg
-
-
-def test_unidentifiable_ref_blocks_even_after_passing_review(tmp_path, monkeypatch):
-    path = one_task_board(tmp_path, monkeypatch, ["1"], "checkout-alias")
-    db.add_review(path, "P-2", commit_sha=REVIEWED, findings=[], author="ac:x")
-    code, msg = merge(monkeypatch, tmp_path, LOCKED, local_project="checkout-alias")
-    assert code == 2 and "完整 URL" in msg
+    owner_repo = "/".join(pr.split("/")[3:5])
+    code, msg = guard.judge_merge(f"gh pr merge 39 -R {owner_repo} --squash", str(cwd))
+    assert (code == 2 and "P-2" in msg and "没有 review 结论" in msg) if blocked else \
+        (code, msg) == (0, "")
 
 
 def test_pr_not_on_any_task_keeps_ci_only_gate(tmp_path, monkeypatch):
