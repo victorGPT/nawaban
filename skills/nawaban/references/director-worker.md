@@ -13,7 +13,7 @@ This session was started by `nawaban dispatch`, and its directory is already the
 Use the same target database and the real session identity:
 
 - Stage progress: `nawaban --db <target db> notify <ID> --kind stage --msg "<result, evidence, and next step>"`.
-- A specific blocker: send a `blocked` notification stating the facts and the action needed; keep doing any work that can proceed independently.
+- A specific blocker: send a `blocked` notification stating the facts and the action needed; keep doing any work that can proceed independently. Do not also mark yourself blocked in Herdr (`herdr pane report-agent --state blocked`): Herdr then rejects every `herdr agent prompt` to your pane, and that is one of the ways the director's reply reaches you.
 - Acceptance: verify the task's `success` item by item and register the actual `acceptance_run` and the reviewed version; report `done` only when every item is met.
 - The user must act: submit material through `ask`; report status with `notify`. Neither replaces the other.
 - Scope growth: name the paths and the reason in a `blocked` notification; edit only after authorization covering the change arrives and the `scope` change is on the board. Reuse authorization you already have instead of asking again.

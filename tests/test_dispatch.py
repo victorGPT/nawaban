@@ -35,8 +35,9 @@ class Backend:
                                   "cwd": str(self.root / ".claude/worktrees" / name)})
         elif cmd[:2] == ["claude", "agents"]:
             out = json.dumps(self.sessions)
-        elif cmd[:3] == ["herdr", "pane", "split"]:
-            out = json.dumps({"result": {"pane": {"pane_id": "w1:p9"}}})
+        elif cmd[:3] == ["herdr", "tab", "create"]:
+            out = json.dumps({"result": {"root_pane": {"pane_id": "w1:p9"},
+                                         "tab": {"tab_id": "w1:t9"}}})
         elif "--git-common-dir" in cmd:
             out = str(self.root / ".git")
         elif "status" in cmd:
@@ -66,6 +67,7 @@ def board(tmp_path):
 def backend(tmp_path, monkeypatch):
     fake = Backend(tmp_path)
     monkeypatch.setattr(dispatch, "RUN", fake)
+    monkeypatch.setattr(dispatch, "SPAWN", lambda cmd, **_: fake.calls.append(cmd))
     monkeypatch.delenv("HERDR_ENV", raising=False)
     return fake
 
@@ -108,11 +110,11 @@ def test_dispatch_records_who_dispatched_and_tells_the_worker_how_to_report(
     assert "最后一段话会自动送回派你的主控" in launch[-1] and "不要在这里等人回话" in launch[-1]
 
 
-def test_dispatch_inside_herdr_opens_a_new_pane(board, backend, monkeypatch):
+def test_dispatch_inside_herdr_opens_a_new_tab(board, backend, monkeypatch):
     monkeypatch.setenv("HERDR_ENV", "1")
     monkeypatch.setattr(dispatch, "_trusted", lambda root: True)
     assert run(board, "dispatch", "P-1") == 0
-    assert backend.ran("herdr", "pane", "split") and backend.ran("herdr", "agent", "prompt")
+    assert backend.ran("herdr", "tab", "create") and backend.ran("herdr", "agent", "prompt")
     [start] = backend.ran("herdr", "agent", "start")
     assert start[3:8] == ["p-1", "--kind", "claude", "--pane", "w1:p9"]
     assert not backend.ran("claude", "--bg")
@@ -124,7 +126,7 @@ def test_herdr_failure_falls_back_to_a_background_session(board, backend, monkey
     monkeypatch.setattr(dispatch, "_trusted", lambda root: True)
     backend.fail = (("herdr", "agent", "start"),)
     assert run(board, "dispatch", "P-1") == 0
-    assert backend.ran("herdr", "pane", "close", "w1:p9")
+    assert backend.ran("herdr", "tab", "close", "w1:t9")
     assert backend.ran("claude", "--bg")
     assert SID in task(board, "P-1")["now"]
 
@@ -132,7 +134,7 @@ def test_herdr_failure_falls_back_to_a_background_session(board, backend, monkey
 def test_half_started_herdr_session_blocks_the_fallback(board, backend, monkeypatch, capsys):
     monkeypatch.setenv("HERDR_ENV", "1")
     monkeypatch.setattr(dispatch, "_trusted", lambda root: True)
-    backend.fail = (("herdr", "agent", "prompt"), ("herdr", "pane", "close"))
+    backend.fail = (("herdr", "agent", "prompt"), ("herdr", "tab", "close"))
     assert run(board, "dispatch", "P-1") == 1
     assert "没能关掉" in capsys.readouterr().err
     assert not backend.ran("claude", "--bg")
@@ -223,16 +225,16 @@ def test_dismiss_stops_the_session_and_removes_a_clean_worktree(finished, backen
                      ["branch", "-d", "worktree-p-1"]]
 
 
-def test_dismiss_closes_the_pane_of_a_herdr_worker(board, backend, monkeypatch):
+def test_dismiss_closes_the_tab_of_a_herdr_worker(board, backend, monkeypatch):
     monkeypatch.setenv("HERDR_ENV", "1")
     monkeypatch.setattr(dispatch, "_trusted", lambda root: True)
     assert run(board, "dispatch", "P-1") == 0
-    db.claim_task(board, "P-1", owner="ac:w", session_id="w")
-    db.start_task(board, "P-1", owner="ac:w", session_id="w", now="做完了")
-    db.handoff(board, "P-1", owner="ac:w", session_id="w", outcome="handed_off",
+    db.claim_task(board, "P-1", owner="ac:w", session_id=SID)
+    db.start_task(board, "P-1", owner="ac:w", session_id=SID, now="做完了")
+    db.handoff(board, "P-1", owner="ac:w", session_id=SID, outcome="handed_off",
                summary="交接", now="等评审")
     assert run(board, "dismiss", "P-1") == 0
-    assert backend.ran("herdr", "pane", "close", "w1:p9")
+    assert backend.ran("herdr", "tab", "close", "w1:t9")
     assert not backend.ran("claude", "stop")
 
 

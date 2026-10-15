@@ -62,7 +62,7 @@ nawaban --db <target db> notifications --unread --task <ID>  # one task; the ful
 nawaban --db <target db> notify-read <notification ID>...     # mark read after handling
 ```
 
-Each time a worker stops, the last message of its turn may also be sent straight to the director's window. Handle notifications and these messages the same way:
+Each time a worker stops, the last message of its turn may also be sent straight to the director's window. When a Herdr worker's pane, tab, or workspace is closed before its task is finished or handed off, a message of the same kind says so and the task gets an event starting with `pane closed`; nobody needs to start a listener for this. Handle notifications and these messages the same way:
 
 1. Check the task first: `context <ID>` shows its status, current state, events, and refs. Messages sent back have a length limit; when one is truncated, the task wins.
 2. When the worker left a question the director can settle, settle it in the same turn: `notify <ID> --kind reply --msg "<decision and reason>"`. The reply lands on the task and wakes the worker to continue; delivery rules are in the [Worker protocol](../nawaban/references/director-worker.md). When the answer changes an acceptance criterion, also record it with `decide --set-success`. The user's answers also reach the worker as the director's replies; never send the user to answer in the worker's window.
@@ -72,6 +72,7 @@ Each time a worker stops, the last message of its turn may also be sent straight
 3. One of the three escalation kinds: do not answer it yourself; pass it to the user (see `ask` in the next section).
 4. Judge whether a worker is done from the task's status and its notifications, not from whether its session looks idle.
 5. Scope growth: the worker names the paths and the reason; once the director agrees, record it with `scope <ID> --add <path> --reason "<reason>"`, and only then may the worker change them.
+6. Never mark a worker as blocked in Herdr (`herdr pane report-agent --state blocked`), and tell workers not to either; a blocker goes on the board as `notify --kind blocked`. Herdr treats a blocked pane as sitting at an approval dialog and rejects every `herdr agent prompt` to it with `agent_blocked` before sending anything. Dispatch hands the worker its brief that way, and the `"backend": "herdr"` reply in step 2 goes the same way, so the worker would never get either.
 
 ## Acceptance and close-out
 
