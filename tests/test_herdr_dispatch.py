@@ -85,6 +85,11 @@ def run(board, *argv) -> int:
     return cli.main(["--db", str(board), *argv])
 
 
+def record_id(board) -> int:
+    with sqlite3.connect(board) as con:
+        return con.execute("SELECT MAX(id) FROM task_events WHERE body LIKE 'dispatch {%'").fetchone()[0]
+
+
 def record(board) -> dict:
     with sqlite3.connect(board) as con:
         [(body,)] = con.execute("SELECT body FROM task_events WHERE body LIKE 'dispatch {%'")
@@ -139,7 +144,7 @@ def test_herdr_never_sees_the_director_pane(board, herdr):
 def test_dispatch_starts_a_detached_pane_watcher(board, herdr):
     assert run(board, "dispatch", "P-1") == 0
     [(cmd, kw)] = herdr.spawned
-    assert cmd[1:] == ["-m", "nawaban.dispatch", "watch", str(board), "P-1"]
+    assert cmd[1:] == ["-m", "nawaban.dispatch", "watch", str(board), "P-1", str(record_id(board))]
     assert kw["start_new_session"] and kw["cwd"] == ROOT
 
 
@@ -161,7 +166,7 @@ def watched(board, herdr, monkeypatch):
 
 def test_closing_an_unfinished_worker_pane_wakes_the_director(watched):
     db.claim_task(watched, "P-1", owner="ac:w", session_id=WORKER)
-    dispatch.watch(watched, "P-1")
+    dispatch.watch(watched, "P-1", record_id(watched))
     with sqlite3.connect(watched) as con:
         [(body,)] = con.execute("SELECT body FROM task_events WHERE body LIKE 'pane closed%'")
         [(now,)] = con.execute("SELECT now FROM tasks WHERE id='P-1'")
@@ -181,10 +186,77 @@ def test_closing_a_finished_worker_pane_is_silent(watched, finish):
     else:
         db.handoff(watched, "P-1", owner="ac:w", session_id=WORKER, outcome="handed_off",
                    summary="交接", now="等评审")
-    dispatch.watch(watched, "P-1")
+    dispatch.watch(watched, "P-1", record_id(watched))
     with sqlite3.connect(watched) as con:
         assert not con.execute("SELECT 1 FROM task_events WHERE body LIKE 'pane closed%'").fetchall()
         assert not con.execute("SELECT 1 FROM letters").fetchall()
+
+
+NEW = "dddddddd-1111-2222-3333-444444444444"
+
+
+def redispatch(board, *, dismiss=True):
+    """上一次派发收工(或不收工直接改派),同一张卡再派给新的 worker。"""
+    if dismiss:
+        db.add_event(board, "P-1", kind="coord", author="ac:x", body="dismiss · 窗格 w1:p9 已关")
+    new = {"backend": "herdr", "session": NEW, "pane": "w1:p10", "tab": "w1:t10",
+           "worktree": "/wt", "root": "/", "director": DIRECTOR}
+    db.add_event(board, "P-1", kind="coord", author="ac:x", body="dispatch " + json.dumps(new))
+
+
+def pane_closed(board) -> list:
+    with sqlite3.connect(board) as con:
+        return con.execute("SELECT body FROM task_events WHERE body LIKE 'pane closed%'").fetchall()
+
+
+def handed_back(board):
+    """上一个 worker 交接并把卡放回待办。"""
+    db.claim_task(board, "P-1", owner="ac:w", session_id=WORKER)
+    db.start_task(board, "P-1", owner="ac:w", session_id=WORKER, now="在做")
+    db.handoff(board, "P-1", owner="ac:w", session_id=WORKER, outcome="handed_off",
+               summary="交接", now="放回待办", release=True)
+
+
+@pytest.mark.parametrize("dismiss", [True, False])
+def test_an_old_watcher_stays_silent_once_its_dispatch_is_replaced(watched, monkeypatch, dismiss):
+    first = record_id(watched)
+
+    def meanwhile(pane):  # 旧窗格关掉之前,这张卡已经收工或改派,新 worker 认领并开工
+        redispatch(watched, dismiss=dismiss)
+        db.claim_task(watched, "P-1", owner="ac:new", session_id=NEW)
+        db.add_event(watched, "P-1", kind="note", author="ac:new", body="开工", now="新 worker 在做")
+    monkeypatch.setattr(dispatch, "_wait_closed", meanwhile)
+    dispatch.watch(watched, "P-1", first)
+    assert not pane_closed(watched)
+    with sqlite3.connect(watched) as con:
+        assert not con.execute("SELECT 1 FROM letters").fetchall()
+        assert con.execute("SELECT now FROM tasks WHERE id='P-1'").fetchone()[0] == "新 worker 在做"
+
+
+def test_a_late_old_watcher_never_watches_the_new_worker(watched, monkeypatch):
+    first = record_id(watched)
+    redispatch(watched)
+    waited = []
+    monkeypatch.setattr(dispatch, "_wait_closed", waited.append)
+    dispatch.watch(watched, "P-1", first)
+    assert not waited and not pane_closed(watched)
+
+
+def test_a_new_worker_closed_before_claiming_is_reported_despite_the_old_handoff(watched):
+    handed_back(watched)
+    redispatch(watched)
+    dispatch.watch(watched, "P-1", record_id(watched))
+    [(body,)] = pane_closed(watched)
+    assert "w1:p10" in body
+    with sqlite3.connect(watched) as con:
+        assert con.execute("SELECT session_id FROM letters").fetchall() == [(NEW,)]
+
+
+def test_dismiss_does_not_count_the_previous_workers_handoff(watched, capsys):
+    handed_back(watched)
+    redispatch(watched)
+    assert run(watched, "dismiss", "P-1") == 1
+    assert "卡还没完成也没交接" in capsys.readouterr().err
 
 
 def test_a_pane_closed_in_the_dispatch_second_still_wakes_the_director(board, herdr, monkeypatch):
@@ -193,14 +265,14 @@ def test_a_pane_closed_in_the_dispatch_second_still_wakes_the_director(board, he
     monkeypatch.setattr(dispatch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + 1))
     monkeypatch.setattr(dispatch, "_wait_closed", lambda pane: None)
     assert run(board, "dispatch", "P-1") == 0
-    dispatch.watch(board, "P-1")
+    dispatch.watch(board, "P-1", record_id(board))
     _, directing = report.roles(board, DIRECTOR)
     assert report.take(board, {t: ("turn", *peer) for t, peer in directing.items()})
 
 
 def test_a_relative_board_path_reaches_the_watcher_as_absolute(tmp_path, herdr, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    dispatch._spawn_watch(Path("board.db"), "P-1")
+    dispatch._spawn_watch(Path("board.db"), "P-1", 7)
     [(cmd, _)] = herdr.spawned
     assert cmd[4] == str(tmp_path.resolve() / "board.db")
 

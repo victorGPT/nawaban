@@ -229,9 +229,9 @@ def test_dismiss_closes_the_tab_of_a_herdr_worker(board, backend, monkeypatch):
     monkeypatch.setenv("HERDR_ENV", "1")
     monkeypatch.setattr(dispatch, "_trusted", lambda root: True)
     assert run(board, "dispatch", "P-1") == 0
-    db.claim_task(board, "P-1", owner="ac:w", session_id="w")
-    db.start_task(board, "P-1", owner="ac:w", session_id="w", now="做完了")
-    db.handoff(board, "P-1", owner="ac:w", session_id="w", outcome="handed_off",
+    db.claim_task(board, "P-1", owner="ac:w", session_id=SID)
+    db.start_task(board, "P-1", owner="ac:w", session_id=SID, now="做完了")
+    db.handoff(board, "P-1", owner="ac:w", session_id=SID, outcome="handed_off",
                summary="交接", now="等评审")
     assert run(board, "dismiss", "P-1") == 0
     assert backend.ran("herdr", "tab", "close", "w1:t9")

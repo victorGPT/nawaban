@@ -223,7 +223,8 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
         _stop(record)
         raise db.NawabanError(f"不派 {task_id}:会话起了但记不进卡,已停掉 —— {exc}") from exc
     if pane:
-        _spawn_watch(path, task_id)
+        with closing(_connect(path)) as con:
+            _spawn_watch(path, task_id, _dispatched(con, task_id)["id"])
     if not record["session"]:
         raise db.NawabanError(
             f"{task_id} 的会话已经起了,但没查到它的编号;用 claude agents 确认后手工处理"
@@ -231,10 +232,12 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
     return session
 
 
-def _spawn_watch(path: Path, task_id: str) -> None:
+def _spawn_watch(path: Path, task_id: str, event_id: int) -> None:
     # 脱离派单命令的进程组:派单命令结束、主控会话关掉,它都还守着。
     # 它的工作目录是插件根,相对的 --db 到那里就指错了库。
-    SPAWN([sys.executable, "-m", "nawaban.dispatch", "watch", str(Path(path).resolve()), task_id],
+    # 带上派发事件号:它只管这一次派发,起得晚了也不会去盯同一张卡后来派的 worker。
+    SPAWN([sys.executable, "-m", "nawaban.dispatch", "watch", str(Path(path).resolve()), task_id,
+           str(event_id)],
           cwd=CLI.parent.parent, env=_herdr_env(), start_new_session=True,
           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -277,14 +280,14 @@ def dismiss(path: Path, task_id: str, *, author: str) -> list[str]:
     """收工:停会话或关窗格,工位干净才清理。返回逐项结果。"""
     with closing(_connect(path)) as con:
         row = _row(con, task_id)
-        settled = _settled(con, row)
         event = _dispatched(con, task_id)
+        record = json.loads(event["body"][len(_RECORD):]) if event else {}
+        settled = _settled(con, row, record)
     if not settled:
         raise db.NawabanError(
             f"不收工 {task_id}:卡还没完成也没交接(当前 {row['status']})")
     if event is None:
         raise db.NawabanError(f"不收工 {task_id}:卡上没有派发记录,不知道该关哪个会话")
-    record = json.loads(event["body"][len(_RECORD):])
 
     stopped = _stop(record)
     if stopped is None:
@@ -314,19 +317,32 @@ def dismiss(path: Path, task_id: str, *, author: str) -> list[str]:
     return lines
 
 
-def _settled(con: sqlite3.Connection, row: sqlite3.Row) -> bool:
-    """卡做完了或交接了:这时关掉 worker 是收工,不是出事。"""
+def _settled(con: sqlite3.Connection, row: sqlite3.Row, record: dict) -> bool:
+    """卡做完了,或这次派发的 worker 交接了:这时关掉 worker 是收工,不是出事。
+
+    只看这次派发的会话:上一个 worker 交接后重派,新 worker 还没认领时它的窗格被关,照样要报。
+    """
     leg = con.execute(
-        "SELECT ended_at,outcome FROM task_sessions WHERE task_id=?"
-        " ORDER BY started_at DESC, rowid DESC LIMIT 1", (row["id"],)).fetchone()
+        "SELECT ended_at,outcome FROM task_sessions WHERE task_id=? AND session_id=?"
+        " ORDER BY started_at DESC, rowid DESC LIMIT 1",
+        (row["id"], record.get("session") or "")).fetchone()
     handed = bool(leg and leg["ended_at"] and leg["outcome"] in ("completed", "handed_off"))
     return row["status"] in _FINISHED or handed
 
 
 def _dispatched(con: sqlite3.Connection, task_id: str) -> sqlite3.Row | None:
     return con.execute(
-        "SELECT body,author,created_at FROM task_events WHERE task_id=? AND kind='coord'"
+        "SELECT id,body,author,created_at FROM task_events WHERE task_id=? AND kind='coord'"
         " AND body LIKE ? ORDER BY id DESC LIMIT 1", (task_id, _RECORD + "{%")).fetchone()
+
+
+def _current(con: sqlite3.Connection, task_id: str) -> int | None:
+    """卡上还作数的那次派发的事件号;最近一条是收工记录就是 None(与 hooks/worker_report.py 同口径)。"""
+    got = con.execute(
+        "SELECT id, body LIKE 'dispatch {%' FROM task_events WHERE task_id=? AND kind='coord'"
+        " AND (body LIKE 'dispatch {%' OR body LIKE 'dismiss ·%') ORDER BY id DESC LIMIT 1",
+        (task_id,)).fetchone()
+    return got[0] if got and got[1] else None
 
 
 def _alive(pane: str) -> bool:
@@ -366,17 +382,22 @@ def _wait_closed(pane: str) -> None:
             return
 
 
-def watch(path: Path, task_id: str) -> None:
-    """守着派出的窗格;它在卡做完或交接之前没了,就在卡上记一笔并告诉主控。"""
+def watch(path: Path, task_id: str, event_id: int) -> None:
+    """守着一次派发的窗格;它在卡做完或交接之前没了,就在卡上记一笔并告诉主控。
+
+    只对这一次派发负责:它已被收工或被新的派发替换,就什么都不写。
+    """
     with closing(_connect(path)) as con:
-        event = _dispatched(con, task_id)
-    if event is None:
-        return
+        event = con.execute("SELECT id,body,author,created_at FROM task_events WHERE id=?"
+                            " AND task_id=? AND body LIKE ?",
+                            (event_id, task_id, _RECORD + "{%")).fetchone()
+        if event is None or _current(con, task_id) != event_id:
+            return
     record = json.loads(event["body"][len(_RECORD):])
     _wait_closed(record["pane"])
     with closing(_connect(path)) as con:
         row = _row(con, task_id)
-        if _settled(con, row):
+        if _current(con, task_id) != event_id or _settled(con, row, record):
             return
     msg = (f"worker 的窗格 {record['pane']} 被关掉了,会话 {(record.get('session') or '未知')[:8]}"
            f" 已经不在;卡还是 {row['status']},没做完也没交接。工位 {record['worktree']} 原样留着。"
@@ -405,7 +426,7 @@ def _unsaved(worktree: Path) -> str | None:
 
 
 if __name__ == "__main__":
-    # dispatch 起的关窗监听:python3 -m nawaban.dispatch watch <db> <卡号>
-    _, verb, db_path, card = sys.argv
+    # dispatch 起的关窗监听:python3 -m nawaban.dispatch watch <db> <卡号> <派发事件号>
+    _, verb, db_path, card, event_id = sys.argv
     if verb == "watch":
-        watch(Path(db_path), card)
+        watch(Path(db_path), card, int(event_id))
