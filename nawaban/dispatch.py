@@ -464,20 +464,27 @@ def watch(path: Path, task_id: str, event_id: int) -> None:
     record = json.loads(event["body"][len(_RECORD):])
     _wait_closed(record["pane"])
     with closing(_connect(path)) as con:
-        row = _row(con, task_id)
-        if _current(con, task_id) != event_id or _settled(con, row, record):
+        if _current(con, task_id) != event_id or _settled(con, _row(con, task_id), record):
             return
-    msg = (f"worker 的窗格 {record['pane']} 被关掉了,会话 {(record.get('session') or '未知')[:8]}"
-           f" 已经不在;卡还是 {row['status']},没做完也没交接。工位 {record['worktree']} 原样留着。"
-           "要接着做,先把卡交回待办再重新派发,或者有人进工位接手。")
-    db.add_event(path, task_id, kind="coord", author=event["author"], body="pane closed · " + msg,
-                 now=f"worker 窗格 {record['pane']} 被关,卡没做完")
-    if record.get("session"):
-        # 以 worker 的名义写 turn 信:主控停着等的正是这种信(hooks/worker_report.py)。
-        # 它只收派发之后那一秒起的信,同一秒里关掉的窗格要等到下一秒再写。
+        # 主控只收派发之后那一秒起的信(hooks/worker_report.py),同一秒里关掉的窗格等到下一秒再写。
         while db._now() <= event["created_at"]:
             time.sleep(0.2)
-        db.add_letter(path, task_id, kind="turn", msg=msg, session_id=record["session"])
+        # 上面那次只是读;作数的复核和写入在同一把写锁里。dismiss、改派走 add_event 也要这把锁,
+        # 插不进两步之间,旧窗格的告警就盖不掉新 worker 的当前进展。
+        with db._txn(con):
+            row = _row(con, task_id)
+            if _current(con, task_id) != event_id or _settled(con, row, record):
+                return
+            msg = (f"worker 的窗格 {record['pane']} 被关掉了,会话 {(record.get('session') or '未知')[:8]}"
+                   f" 已经不在;卡还是 {row['status']},没做完也没交接。工位 {record['worktree']} 原样留着。"
+                   "要接着做,先把卡交回待办再重新派发,或者有人进工位接手。")
+            db._event(con, task_id, "coord", "pane closed · " + msg, event["author"], None)
+            con.execute("UPDATE tasks SET now=? WHERE id=?",
+                        (f"worker 窗格 {record['pane']} 被关,卡没做完", task_id))
+            if record.get("session"):
+                # 以 worker 的名义写 turn 信:主控停着等的正是这种信。
+                con.execute("INSERT INTO letters (task_id, kind, msg, session_id, created_at)"
+                            " VALUES (?,'turn',?,?,?)", (task_id, msg, record["session"], db._now()))
 
 
 def _unsaved(worktree: Path) -> str | None:

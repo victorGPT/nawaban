@@ -233,6 +233,29 @@ def test_an_old_watcher_stays_silent_once_its_dispatch_is_replaced(watched, monk
         assert con.execute("SELECT now FROM tasks WHERE id='P-1'").fetchone()[0] == "新 worker 在做"
 
 
+def test_a_dismiss_between_the_check_and_the_write_leaves_no_old_alert(watched, monkeypatch):
+    first = record_id(watched)
+    settled = dispatch._settled
+    raced = []
+
+    # 校验刚放行,写入之前卡被收工、改派,新 worker 开工。watch 头一次 _settled 在写锁外,
+    # 这里才插得进去;放进锁里的话 redispatch 会等这把锁到超时。
+    def checked_then_replaced(con, row, record):
+        verdict = settled(con, row, record)
+        if not raced:
+            raced.append(True)
+            redispatch(watched)
+            db.claim_task(watched, "P-1", owner="ac:new", session_id=NEW)
+            db.add_event(watched, "P-1", kind="note", author="ac:new", body="开工", now="新 worker 在做")
+        return verdict
+    monkeypatch.setattr(dispatch, "_settled", checked_then_replaced)
+    dispatch.watch(watched, "P-1", first)
+    assert raced and not pane_closed(watched)
+    with sqlite3.connect(watched) as con:
+        assert not con.execute("SELECT 1 FROM letters").fetchall()
+        assert con.execute("SELECT now FROM tasks WHERE id='P-1'").fetchone()[0] == "新 worker 在做"
+
+
 def test_a_late_old_watcher_never_watches_the_new_worker(watched, monkeypatch):
     first = record_id(watched)
     redispatch(watched)
