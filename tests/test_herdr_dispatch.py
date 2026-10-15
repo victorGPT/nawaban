@@ -155,6 +155,56 @@ def test_a_background_worker_gets_no_pane_watcher(board, herdr, monkeypatch):
 
 
 @pytest.fixture
+def working(board, herdr):
+    assert run(board, "dispatch", "P-1") == 0
+    herdr.calls.clear()
+    return board
+
+
+def prompts_on_card(board) -> list[str]:
+    with sqlite3.connect(board) as con:
+        return [b for (b,) in con.execute("SELECT body FROM task_events WHERE body LIKE 'prompt · %'")]
+
+
+def test_a_reply_is_typed_once_into_the_worker_pane(working, herdr):
+    assert run(working, "prompt", "P-1", "--msg", "先做第二条") == 0
+    [sent] = herdr.ran("herdr", "agent", "prompt")
+    assert sent[3:5] == ["w1:p9", "先做第二条"] and "--wait" in sent
+    assert not herdr.ran("herdr", "agent", "send-keys")
+    assert prompts_on_card(working) == ["prompt · 先做第二条"]
+
+
+def test_a_reply_whose_enter_is_lost_gets_enter_again_not_the_text(working, herdr):
+    herdr.answers = [(1, STALLED), (0, "{}")]
+    assert run(working, "prompt", "P-1", "--msg", "先做第二条") == 0
+    assert len(herdr.ran("herdr", "agent", "prompt")) == 1
+    assert herdr.ran("herdr", "agent", "send-keys") == [["herdr", "agent", "send-keys", "w1:p9", "enter"]]
+
+
+def test_a_reply_never_presses_enter_into_a_blocked_dialog(working, herdr):
+    herdr.answers = [(1, json.dumps({"error": {"code": "agent_blocked"}}))]
+    assert run(working, "prompt", "P-1", "--msg", "先做第二条") == 1
+    assert not herdr.ran("herdr", "agent", "send-keys")
+    assert prompts_on_card(working) == []
+
+
+def test_a_reply_that_never_starts_the_worker_is_reported_as_not_delivered(working, herdr, capsys):
+    herdr.answers = [(1, STALLED)] * 4
+    assert run(working, "prompt", "P-1", "--msg", "先做第二条") == 1
+    assert len(herdr.ran("herdr", "agent", "send-keys")) == 3
+    assert "回话没交上" in capsys.readouterr().err and prompts_on_card(working) == []
+
+
+def test_no_reply_goes_to_a_background_or_dismissed_worker(board, herdr, monkeypatch, capsys):
+    assert run(board, "prompt", "P-1", "--msg", "x") == 1  # 没派过
+    monkeypatch.delenv("HERDR_ENV")
+    assert run(board, "dispatch", "P-1") == 0
+    assert run(board, "prompt", "P-1", "--msg", "x") == 1
+    assert "claude --bg --resume" in capsys.readouterr().err
+    assert not herdr.ran("herdr", "agent", "prompt")
+
+
+@pytest.fixture
 def watched(board, herdr, monkeypatch):
     clock = db._now
     monkeypatch.setattr(db, "_now", lambda: clock() - 1)  # 派发早于之后的信

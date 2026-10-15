@@ -268,6 +268,12 @@ Stopping a dispatched worker's session and removing its worktree once the task i
 _Avoid_: closing a session as proof of completion.
 _Current identifiers_: `task_events` (coord); CLI `dismiss`.
 
+**Pane prompt**(窗格回话)
+Typing a reply straight into a Herdr worker's pane and confirming the worker started on it; a lost Enter is pressed again, the text is never retyped. Used when the window replying is not the one that dispatched the worker.
+窗格回话是把话直接交到 Herdr worker 的窗格并确认它开工；回车丢了只补回车，文字绝不重打。回话的窗口不是派它的那个时用。
+_Avoid_: bare `herdr agent prompt` for replies; sending the same reply through `notify --kind reply` too.
+_Current identifiers_: `task_events` (coord); CLI `prompt`.
+
 ### Relationships and evidence
 
 **Dependencies**(依赖)
