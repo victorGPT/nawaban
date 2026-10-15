@@ -115,6 +115,30 @@ CREATE INDEX IF NOT EXISTS idx_letters_unread ON letters(read_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_letters_task   ON letters(task_id, created_at);
 """
 
+# review 结论(NAWABAN-REVIEW-GATE-001):reviewer 只交问题,过不过由 judge_findings 按固定规则判。
+# commit 钉住审的是哪个提交 —— 合并闸要求 PR head 与它一致。
+REVIEWS_SQL = """
+CREATE TABLE IF NOT EXISTS reviews (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    TEXT NOT NULL REFERENCES tasks(id),
+    commit_sha TEXT NOT NULL,
+    passed     INTEGER NOT NULL CHECK (passed IN (0,1)),
+    findings   TEXT NOT NULL,
+    author     TEXT NOT NULL,
+    session_id TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reviews_task ON reviews(task_id, id);
+CREATE TRIGGER IF NOT EXISTS reviews_no_update BEFORE UPDATE ON reviews
+BEGIN SELECT RAISE(ABORT, 'reviews is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS reviews_no_delete BEFORE DELETE ON reviews
+BEGIN SELECT RAISE(ABORT, 'reviews is append-only'); END;
+"""
+SEVERITIES = ("critical", "major", "minor", "nit")
+# ponytail: 打回门槛是一个常量(主控 2026-10-16 定 major);仓库级配置留到借鉴清单第 8 条。
+REVIEW_BLOCK_AT = "major"
+REVIEW_STRIKES = 3  # 连续这么多次不过 → 自动给用户收件箱提一条 decide
+
 # turn = worker 每轮停下时自动送回主控的最后一段话;reply = 主控回给 worker 的话。
 LETTER_KINDS = ("done", "blocked", "stage", "claim", "turn", "reply")
 
@@ -241,6 +265,7 @@ def init_db(path: Path | str) -> None:
         con.executescript(SCHEMA_SQL)
         con.executescript(ASKS_SQL)
         con.executescript(LETTERS_SQL)
+        con.executescript(REVIEWS_SQL)
         from nawaban.captures import SCHEMA_SQL as CAPTURES_SQL
         con.executescript(CAPTURES_SQL)
     finally:
@@ -303,6 +328,10 @@ def migrate_db(path: Path | str) -> list[str]:
                            " AND name='letters'").fetchone():
             con.executescript(LETTERS_SQL)
             added.append("letters")
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                           " AND name='reviews'").fetchone():
+            con.executescript(REVIEWS_SQL)
+            added.append("reviews")
         if _rebuild_check(con, "tasks", "status", STATUSES, (
                 "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",
                 "CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks(owner, status)")):
@@ -1345,6 +1374,86 @@ def add_ref(path: Path | str, task_id: str, *, kind: str, value: str,
             )
     finally:
         con.close()
+
+
+def judge_findings(findings: Any) -> tuple[bool, list[dict]]:
+    """固定规则判 review:返回 (是否通过, 补上 effective 严重度的问题列表)。
+
+    每条问题要 summary / severity / evidence / preexisting。没证据的 critical 按 major 算;
+    effective 到 REVIEW_BLOCK_AT 且不是原本就有的问题才打回;原有问题只记录。
+    """
+    if not isinstance(findings, list):
+        raise NawabanError("findings 必须是 JSON 数组(没问题就交 [])")
+    rank = SEVERITIES.index
+    judged, passed = [], True
+    for i, f in enumerate(findings, 1):
+        if not isinstance(f, dict):
+            raise NawabanError(f"第 {i} 条问题不是对象")
+        sev, pre = f.get("severity"), f.get("preexisting")
+        if sev not in SEVERITIES:
+            raise NawabanError(f"第 {i} 条 severity 只收 {SEVERITIES},收到 {sev!r}")
+        if not isinstance(pre, bool):
+            raise NawabanError(f"第 {i} 条 preexisting 必须写明 true/false(是否原本就有)")
+        if not _visible(f.get("summary")):
+            raise NawabanError(f"第 {i} 条缺 summary(问题是什么)")
+        evidence = f.get("evidence")
+        if evidence is not None and not isinstance(evidence, str):
+            raise NawabanError(f"第 {i} 条 evidence 必须是字符串")
+        effective = "major" if sev == "critical" and not _visible(evidence) else sev
+        blocking = not pre and rank(effective) <= rank(REVIEW_BLOCK_AT)
+        passed = passed and not blocking
+        judged.append({**f, "effective": effective, "blocking": blocking})
+    return passed, judged
+
+
+def add_review(path: Path | str, task_id: str, *, commit_sha: str, findings: Any,
+               author: str, session_id: Optional[str] = None) -> dict:
+    """记一次 review 结论,返回 {id, passed, findings, streak}。
+
+    streak = 记完后这张卡末尾连续不过的次数(通过时为 0)。同一事务里写一条 verify
+    事件,让结论出现在卡的事件流里;完整问题列表在 reviews 表。
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", commit_sha or ""):
+        raise NawabanError("commit 要完整 40 位小写 SHA(git rev-parse HEAD)—— 合并闸拿它对 PR head")
+    passed, judged = judge_findings(findings)
+    blocking = [f for f in judged if f["blocking"]]
+    body = (f"review {'通过' if passed else '不过'} @ {commit_sha[:12]} · "
+            f"{len(judged)} 条问题,{len(blocking)} 条打回"
+            + "".join(f"\n- [{f['effective']}] {f['summary']}" for f in blocking))[:2048]
+    con = connect(path)
+    try:
+        with _txn(con):
+            _task_row(con, task_id)
+            cur = con.execute(
+                "INSERT INTO reviews (task_id, commit_sha, passed, findings, author,"
+                " session_id, created_at) VALUES (?,?,?,?,?,?,?)",
+                (task_id, commit_sha, int(passed), _jd(judged), author, session_id, _now()))
+            _event(con, task_id, "verify", body, author, session_id)
+            streak = 0
+            for (ok,) in con.execute("SELECT passed FROM reviews WHERE task_id=?"
+                                     " ORDER BY id DESC", (task_id,)):
+                if ok:
+                    break
+                streak += 1
+        return {"id": int(cur.lastrowid or 0), "passed": passed,
+                "findings": judged, "streak": streak}
+    finally:
+        con.close()
+
+
+def latest_reviews_for_pr(con: sqlite3.Connection, pr_url: str) -> list[tuple]:
+    """登记了这个 PR 的每张卡及其最新 review:[(task_id, commit_sha|None, passed|None)]。"""
+    if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                       " AND name='reviews'").fetchone():
+        # 只读连接迁移不了旧库:当作一次 review 都没记
+        return [(t, None, None) for (t,) in con.execute(
+            "SELECT DISTINCT task_id FROM task_refs WHERE kind = 'pr'"
+            " AND rtrim(value, '/') = rtrim(?, '/') ORDER BY task_id", (pr_url,))]
+    return con.execute(
+        "SELECT r.task_id, v.commit_sha, v.passed FROM task_refs r"
+        " LEFT JOIN reviews v ON v.id = (SELECT MAX(id) FROM reviews WHERE task_id = r.task_id)"
+        " WHERE r.kind = 'pr' AND rtrim(r.value, '/') = rtrim(?, '/')"
+        " ORDER BY r.task_id", (pr_url,)).fetchall()
 
 
 # ── 人侧收件箱(NAWABAN-INBOX-SCHEMA-001)──────────────────────────────

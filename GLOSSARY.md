@@ -318,6 +318,12 @@ An observed result and its retrievable record supporting an acceptance criterion
 _Avoid_: planned test, deployment intent, fabricated run.
 _Current identifiers_: `task_refs.kind` = `acceptance_run`.
 
+**Review verdict**(评审结论)
+A reviewer's findings on one commit, each with severity, evidence, and whether it was already there, judged pass or fail by a fixed rule rather than by the director.
+评审结论是 reviewer 针对某个提交交回的问题列表，每条带严重度、证据和是否原本就有，过不过由固定规则判，不由主控判。
+_Avoid_: the director's own impression as the verdict, a verdict that does not name the reviewed commit.
+_Current identifiers_: `reviews`; CLI `review`; `gh pr merge --match-head-commit` in the merge gate.
+
 **Event**(事件)
 A recorded occurrence in a task's history, such as a progress note, verification, handoff, or state change.
 事件是任务历史中的一次记录，例如进展、验证、交接或状态变更。

@@ -588,6 +588,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--value", required=True)
     p.add_argument("--note")
 
+    p = sub.add_parser("review", help="记 review 结论:审的提交 + 问题列表,按固定规则判过不过")
+    p.add_argument("task_id")
+    p.add_argument("--commit", required=True, help="审的提交(完整 40 位 SHA)")
+    p.add_argument("--findings", required=True,
+                   help='问题列表 JSON 文件(- = stdin):[{"summary","severity":'
+                        '"critical|major|minor|nit","evidence","preexisting":bool}]')
+
     p = sub.add_parser("scope", help="扩界:给卡追加 touches(append · 自动落 scope+ 留痕)")
     p.add_argument("task_id")
     p.add_argument("--add", action="append", required=True, help="要纳入的路径(可多次)")
@@ -802,6 +809,31 @@ def main(argv: list[str] | None = None) -> int:
         elif a.verb == "ref":
             db.add_ref(path, a.task_id, kind=a.kind, value=a.value, note=a.note)
             print(f"✓ ref({a.kind}) {a.task_id} → {a.value}")
+        elif a.verb == "review":
+            owner, sid = _identity(need_session=False)
+            try:
+                raw = sys.stdin.read() if a.findings == "-" else Path(a.findings).read_text()
+                findings = json.loads(raw)
+            except (OSError, ValueError) as e:
+                raise db.NawabanError(f"读不了 findings:{e}") from e
+            r = db.add_review(path, a.task_id, commit_sha=a.commit, findings=findings,
+                              author=owner, session_id=sid)
+            print(f"{'✓ review 通过' if r['passed'] else '✗ review 不过'} {a.task_id}"
+                  f" @ {a.commit[:12]}(#{r['id']})")
+            for i, f in enumerate(r["findings"], 1):
+                tag = "打回" if f["blocking"] else ("原有·只记录" if f["preexisting"] else "不打回")
+                print(f"    {i}. [{f['effective']}·{tag}] {f['summary']}")
+            if r["streak"] and r["streak"] % db.REVIEW_STRIKES == 0:
+                # ponytail: 与 review 写入分两个事务;ask 失败时 review 已落,重跑 review 不会补提
+                aid = inbox.raise_ask(
+                    path, kind="decide", task_ids=[a.task_id], raised_by=owner,
+                    question=f"{a.task_id} 连续 {r['streak']} 次 review 不过,怎么办?",
+                    evidence=f"最近一次 review #{r['id']} @ {a.commit}:"
+                             + ";".join(f["summary"] for f in r["findings"] if f["blocking"]),
+                    options=["继续返工|worker 按问题再改一轮,再 review",
+                             "改范围或验收|拆卡或改 success,重新派单",
+                             "放弃|cancel 这张卡"])
+                print(f"⚠ 连续 {r['streak']} 次不过 → 收件箱 ask #{aid}")
         elif a.verb == "scope":
             owner, sid = _identity(need_session=False)
             merged = db.update_touches(path, a.task_id, add=a.add, reason=a.reason,
