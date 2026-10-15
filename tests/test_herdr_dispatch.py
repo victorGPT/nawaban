@@ -187,12 +187,51 @@ def test_closing_a_finished_worker_pane_is_silent(watched, finish):
         assert not con.execute("SELECT 1 FROM letters").fetchall()
 
 
-def test_wait_closed_returns_once_the_pane_is_gone_even_without_a_socket(monkeypatch):
-    alive = iter([True, True, False])
-    monkeypatch.setattr(dispatch, "_alive", lambda pane: next(alive))
+def test_a_pane_closed_in_the_dispatch_second_still_wakes_the_director(board, herdr, monkeypatch):
+    clock = [1_800_000_000]
+    monkeypatch.setattr(db, "_now", lambda: clock[0])
+    monkeypatch.setattr(dispatch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + 1))
+    monkeypatch.setattr(dispatch, "_wait_closed", lambda pane: None)
+    assert run(board, "dispatch", "P-1") == 0
+    dispatch.watch(board, "P-1")
+    _, directing = report.roles(board, DIRECTOR)
+    assert report.take(board, {t: ("turn", *peer) for t, peer in directing.items()})
+
+
+def test_a_relative_board_path_reaches_the_watcher_as_absolute(tmp_path, herdr, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    dispatch._spawn_watch(Path("board.db"), "P-1")
+    [(cmd, _)] = herdr.spawned
+    assert cmd[4] == str(tmp_path.resolve() / "board.db")
+
+
+@pytest.mark.parametrize("code,alive", [
+    ("pane_not_found", False), ("server_not_running", False), ("timeout", True), ("", True)])
+def test_only_herdr_saying_the_pane_is_gone_counts_as_gone(monkeypatch, code, alive):
+    out = json.dumps({"error": {"code": code}}) if code else "garbled"
+    monkeypatch.setattr(dispatch, "RUN", lambda cmd, **_: subprocess.CompletedProcess(cmd, 1, out, ""))
+    assert dispatch._alive("w1:p9") is alive
+
+
+def answers(monkeypatch, *values):
+    left = list(values)
+    monkeypatch.setattr(dispatch, "_alive", lambda pane: left.pop(0))
     monkeypatch.setattr(dispatch, "_SOCKET", "/nonexistent/herdr.sock")
     monkeypatch.setattr(dispatch.time, "sleep", lambda seconds: None)
+    return left
+
+
+def test_wait_closed_returns_once_the_pane_is_gone_even_without_a_socket(monkeypatch):
+    left = answers(monkeypatch, True, True, False, False)
     dispatch._wait_closed("w1:p9")
+    assert not left
+
+
+def test_a_herdr_restart_gap_is_not_taken_for_a_closed_pane(monkeypatch):
+    # 没了 → 再看还在(重启的间隙)→ 接着守 → 真没了 → 再看还是没了
+    left = answers(monkeypatch, False, True, True, False, False, False)
+    dispatch._wait_closed("w1:p9")
+    assert not left
 
 
 def test_director_skill_says_not_to_mark_agents_blocked_in_herdr():

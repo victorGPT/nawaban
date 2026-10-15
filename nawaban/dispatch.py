@@ -233,7 +233,8 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
 
 def _spawn_watch(path: Path, task_id: str) -> None:
     # 脱离派单命令的进程组:派单命令结束、主控会话关掉,它都还守着。
-    SPAWN([sys.executable, "-m", "nawaban.dispatch", "watch", str(path), task_id],
+    # 它的工作目录是插件根,相对的 --db 到那里就指错了库。
+    SPAWN([sys.executable, "-m", "nawaban.dispatch", "watch", str(Path(path).resolve()), task_id],
           cwd=CLI.parent.parent, env=_herdr_env(), start_new_session=True,
           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -324,32 +325,44 @@ def _settled(con: sqlite3.Connection, row: sqlite3.Row) -> bool:
 
 def _dispatched(con: sqlite3.Connection, task_id: str) -> sqlite3.Row | None:
     return con.execute(
-        "SELECT body,author FROM task_events WHERE task_id=? AND kind='coord' AND body LIKE ?"
-        " ORDER BY id DESC LIMIT 1", (task_id, _RECORD + "{%")).fetchone()
+        "SELECT body,author,created_at FROM task_events WHERE task_id=? AND kind='coord'"
+        " AND body LIKE ? ORDER BY id DESC LIMIT 1", (task_id, _RECORD + "{%")).fetchone()
 
 
 def _alive(pane: str) -> bool:
-    return _run("herdr", "pane", "get", pane).returncode == 0
+    """herdr 明说没这个窗格、或者整个 herdr 没在跑,才算没了;超时之类查不准的当它还在。"""
+    got = _run("herdr", "pane", "get", pane)
+    return not got.returncode or _error(got) not in ("pane_not_found", "server_not_running")
+
+
+def _listen(pane: str) -> None:
+    """订阅关闭事件,直到窗格没了或连接断了。关窗格、关 tab、关工作区各发各的事件,
+    所以每来一个都回头查一次窗格,不看事件名。"""
+    subscribe = {"id": "nawaban-watch", "method": "events.subscribe", "params": {"subscriptions": [
+        {"type": "pane.closed"}, {"type": "tab.closed"}, {"type": "workspace.closed"}]}}
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.connect(_SOCKET)
+            with sock.makefile("rw", encoding="utf-8") as stream:
+                stream.write(json.dumps(subscribe) + "\n")
+                stream.flush()
+                stream.readline()  # 订阅确认;订上之前就关掉的窗格由下一句的 _alive 兜住
+                while _alive(pane) and stream.readline():
+                    pass
+    except OSError:
+        pass
 
 
 def _wait_closed(pane: str) -> None:
-    """等到窗格不在了才返回。关窗格、关 tab、关工作区各发各的事件,所以每来一个都回头查一次窗格。"""
-    subscribe = {"id": "nawaban-watch", "method": "events.subscribe", "params": {"subscriptions": [
-        {"type": "pane.closed"}, {"type": "tab.closed"}, {"type": "workspace.closed"}]}}
-    while _alive(pane):
-        try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-                sock.connect(_SOCKET)
-                with sock.makefile("rw", encoding="utf-8") as stream:
-                    stream.write(json.dumps(subscribe) + "\n")
-                    stream.flush()
-                    stream.readline()  # 订阅确认;订上之前就关掉的窗格由下一句的 _alive 兜住
-                    while _alive(pane) and stream.readline():
-                        pass
-        except OSError:
-            pass
-        if _alive(pane):
-            time.sleep(5)  # 连接断了而窗格还在:过一会儿重新订阅
+    """等到窗格不在了才返回。"""
+    while True:
+        while _alive(pane):
+            _listen(pane)
+            if _alive(pane):
+                time.sleep(5)  # 连接断了而窗格还在:过一会儿重新订阅
+        time.sleep(2)  # herdr 重启的间隙也会报没在跑:隔一会儿再看一次才算数
+        if not _alive(pane):
+            return
 
 
 def watch(path: Path, task_id: str) -> None:
@@ -371,6 +384,9 @@ def watch(path: Path, task_id: str) -> None:
                  now=f"worker 窗格 {record['pane']} 被关,卡没做完")
     if record.get("session"):
         # 以 worker 的名义写 turn 信:主控停着等的正是这种信(hooks/worker_report.py)。
+        # 它只收派发之后那一秒起的信,同一秒里关掉的窗格要等到下一秒再写。
+        while db._now() <= event["created_at"]:
+            time.sleep(0.2)
         db.add_letter(path, task_id, kind="turn", msg=msg, session_id=record["session"])
 
 
