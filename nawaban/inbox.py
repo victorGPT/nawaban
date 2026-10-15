@@ -130,7 +130,8 @@ def fanout(path: Path | str, ask_id: int, *, succeeded: bool, owner: str,
 
     succeeded is an observed result, not permission to execute. False records a
     note on the first linked task without moving any task. True records fresh
-    user decisions and advances each task to done through the existing gates.
+    user decisions and advances each task to done through the existing gates;
+    a task already done gets the decision and keeps its state.
     An open ask raises NawabanError. Each write commits separately, so inspect
     persisted decisions and task states after failure rather than blindly retry.
     This preserves the existing closed-ask check; kind and closed_as are not
@@ -146,10 +147,12 @@ def fanout(path: Path | str, ask_id: int, *, succeeded: bool, owner: str,
                      body=f"ask #{ask_id} 授权的动作执行失败 —— 扇出未发生,卡保持原状")
         return task_ids
     os.environ["NAWABAN_DECISION_CHANNEL"] = "inbox"
-    for task_id in task_ids:
-        db.decide(path, task_id, question=detail["question"],
+    for task in detail["tasks"]:
+        db.decide(path, task["id"], question=detail["question"],
                   verdict=f"{detail['answer']} · 动作已成功执行(fanout --ok)", decided_by="user")
-        db.advance_task(path, task_id, to="done", owner=owner, session_id=session_id)
+        # A worker may already have closed the task with its merge_sha; done→done is not a move.
+        if task["status"] != "done":
+            db.advance_task(path, task["id"], to="done", owner=owner, session_id=session_id)
     return task_ids
 
 
