@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import threading
 import sys
 from pathlib import Path
 
@@ -131,23 +132,38 @@ def test_failed_or_missing_review_blocks_merge(board, tmp_path, monkeypatch):
     assert code == 2 and "不过" in msg
 
 
-@pytest.mark.parametrize("value, project, gated", [
-    ("#1", None, True),
-    ("1", "repo", True),
-    ("1", "other", False),
-    ("#12", None, False),
-    ("https://github.com/AC/Repo/pull/1/files", None, True),
-    ("https://github.com/ac/repo/pull/12", None, False),
-    ("https://github.com/ac/other/pull/1", None, False),
+@pytest.mark.parametrize("values, project, expected", [
+    (["1"], "repo", "没有 review 结论"),
+    (["#1"], "Repo", "没有 review 结论"),
+    (["https://github.com/AC/Repo/pull/1/files"], None, "没有 review 结论"),
+    (["1", "https://github.com/ac/repo/pull/1"], "checkout-alias", "没有 review 结论"),
+    (["1"], "checkout-alias", "认不出"),  # 本地目录名 ≠ 仓库名:拦,要求登记完整 URL
+    (["#1"], None, "认不出"),
+    (["1", "https://github.com/ac/other/pull/1"], "checkout-alias", None),  # 裸号由同卡 URL 定
+    (["#12"], "repo", None),
+    (["https://github.com/ac/repo/pull/12"], None, None),
+    (["https://github.com/ac/other/pull/1"], None, None),
 ])
-def test_pr_ref_forms(tmp_path, monkeypatch, value, project, gated):
+def test_pr_ref_forms(tmp_path, monkeypatch, values, project, expected):
     path = tmp_path / "board.db"
     db.init_db(path)
     db.create_task(path, task_id="P-2", title="裸号 ref", project=project)
-    db.add_ref(path, "P-2", kind="pr", value=value)
+    for value in values:
+        db.add_ref(path, "P-2", kind="pr", value=value)
     monkeypatch.setenv("NAWABAN_DB", str(path))
     code, msg = merge(monkeypatch, tmp_path, "gh pr merge 1 --squash")
-    assert (code == 2 and "P-2" in msg) if gated else code == 0
+    assert (code == 2 and "P-2" in msg and expected in msg) if expected else code == 0
+
+
+def test_unidentifiable_ref_blocks_even_after_passing_review(tmp_path, monkeypatch):
+    path = tmp_path / "board.db"
+    db.init_db(path)
+    db.create_task(path, task_id="P-2", title="裸号 ref", project="checkout-alias")
+    db.add_ref(path, "P-2", kind="pr", value="1")
+    db.add_review(path, "P-2", commit_sha=REVIEWED, findings=[], author="ac:x")
+    monkeypatch.setenv("NAWABAN_DB", str(path))
+    code, msg = merge(monkeypatch, tmp_path, LOCKED)
+    assert code == 2 and "完整 URL" in msg
 
 
 def test_pr_not_on_any_task_keeps_ci_only_gate(tmp_path, monkeypatch):
@@ -177,27 +193,38 @@ def test_three_failed_reviews_in_a_row_raise_an_ask(board, tmp_path):
         kind, question = con.execute("SELECT kind, question FROM asks").fetchone()
         linked = con.execute("SELECT task_id FROM ask_tasks").fetchall()
     assert kind == "decide" and "连续 3 次" in question and linked == [("P-1",)]
-    review(tmp_path, [finding("major")])
-    review(tmp_path, [finding("major")])
+
+def asks(board) -> int:
     with sqlite3.connect(board) as con:
-        assert con.execute("SELECT COUNT(*) FROM asks").fetchone()[0] == 1
-    review(tmp_path, [finding("major")])  # 再连续 3 次不过:再问一次
-    with sqlite3.connect(board) as con:
-        assert con.execute("SELECT COUNT(*) FROM asks").fetchone()[0] == 2
+        return con.execute("SELECT COUNT(*) FROM asks").fetchone()[0]
 
 
-def test_ask_that_failed_to_raise_is_raised_on_the_next_review(board, tmp_path, monkeypatch):
-    for _ in range(2):
+def test_one_ask_per_failing_streak(board, tmp_path):
+    for _ in range(6):
         review(tmp_path, [finding("major")])
+    assert asks(board) == 1
+    review(tmp_path, [])
+    for _ in range(3):
+        review(tmp_path, [finding("major")])
+    assert asks(board) == 2  # 通过一次后的新一段连败,再问一次
 
-    def down(*args, **kwargs):
-        raise db.NawabanError("inbox down")
-    with monkeypatch.context() as m:
-        m.setattr(cli.inbox, "raise_ask", down)
-        assert review(tmp_path, [finding("major")]) == 1
-    review(tmp_path, [finding("major")])
+
+def test_concurrent_reviews_raise_one_ask(board):
+    for _ in range(2):
+        db.add_review(board, "P-1", commit_sha=REVIEWED, findings=[finding("major")], author="ac:x")
+    start = threading.Barrier(6)
+
+    def record():
+        start.wait()
+        db.add_review(board, "P-1", commit_sha=REVIEWED, findings=[finding("major")], author="ac:x")
+    workers = [threading.Thread(target=record) for _ in range(6)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
     with sqlite3.connect(board) as con:
-        assert con.execute("SELECT COUNT(*) FROM asks").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM reviews").fetchone()[0] == 8
+    assert asks(board) == 1
 
 
 def test_reviews_are_append_only(board, tmp_path):

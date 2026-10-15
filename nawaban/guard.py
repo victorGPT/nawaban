@@ -317,7 +317,8 @@ def _match_head(args: list[str]) -> str | None:
 def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
     """登记了这个 PR 的卡:最新 review 必须通过、审的就是 PR head,且合并锁定在这个提交。
 
-    没有看板 / 没有卡登记这个 PR → 不管(只剩 CI 闸)。看板在但读不了 → 拦。
+    没有看板 / 没有卡登记这个 PR → 不管(只剩 CI 闸)。看板在但读不了、或有卡的裸号 ref
+    认不出仓库 → 拦。
     """
     board = db.resolve_db(cwd)
     if not board.is_file():
@@ -331,7 +332,10 @@ def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
     except sqlite3.Error as exc:
         raise Unverified(f"看板读不了,无法确认 review 结论:{exc}") from exc
     redo = f"nawaban review <ID> --commit {head} --findings <问题列表.json>"
-    for task, sha, passed in rows:
+    for task, sha, passed, ambiguous in rows:
+        if ambiguous:
+            raise Unverified(f"{task} 的 PR ref『{ambiguous}』认不出是哪个仓库的 PR;"
+                             f"给它登记完整 URL:nawaban ref {task} --kind pr --value <PR URL>")
         if sha is None:
             raise Unverified(f"{task} 登记了这个 PR,但卡上没有 review 结论;审完记:{redo}")
         if not passed:

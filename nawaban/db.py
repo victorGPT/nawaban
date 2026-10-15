@@ -1408,10 +1408,10 @@ def judge_findings(findings: Any) -> tuple[bool, list[dict]]:
 
 def add_review(path: Path | str, task_id: str, *, commit_sha: str, findings: Any,
                author: str, session_id: Optional[str] = None) -> dict:
-    """记一次 review 结论,返回 {id, passed, findings, streak, escalate}。
+    """记一次 review 结论,返回 {id, passed, findings, streak, ask_id}。
 
-    streak = 记完后这张卡末尾连续不过的次数(通过时为 0);escalate = 该给用户提 ask 了
-    (调用方提,evidence 以 "review #<id> " 开头)。同一事务里写一条 verify
+    streak = 记完后这张卡末尾连续不过的次数(通过时为 0)。连败到 REVIEW_STRIKES 次时
+    同一事务里给用户收件箱提一条 decide(每段连败一次),ask_id 是它。同一事务里还写一条 verify
     事件,让结论出现在卡的事件流里;完整问题列表在 reviews 表。
     """
     if not re.fullmatch(r"[0-9a-f]{40}", commit_sha or ""):
@@ -1430,55 +1430,77 @@ def add_review(path: Path | str, task_id: str, *, commit_sha: str, findings: Any
                 " session_id, created_at) VALUES (?,?,?,?,?,?,?)",
                 (task_id, commit_sha, int(passed), _jd(judged), author, session_id, _now()))
             _event(con, task_id, "verify", body, author, session_id)
+            rid = int(cur.lastrowid or 0)
             fails = []
-            for rid, ok in con.execute("SELECT id, passed FROM reviews WHERE task_id=?"
+            for fid, ok in con.execute("SELECT id, passed FROM reviews WHERE task_id=?"
                                        " ORDER BY id DESC", (task_id,)):
                 if ok:
                     break
-                fails.append(rid)
-            # 最近 REVIEW_STRIKES 次都不过,且其中没有一次已提过 ask → 该提了。
-            # 按 review 编号认(ask 的 evidence 以 "review #<id> " 开头),所以提 ask 失败后重跑能补上。
-            window = fails[:REVIEW_STRIKES]
-            escalate = len(window) == REVIEW_STRIKES and not con.execute(
-                "SELECT 1 FROM asks a JOIN ask_tasks k ON k.ask_id = a.id"
-                " WHERE k.task_id = ? AND a.kind = 'decide' AND ("
-                + " OR ".join("a.evidence LIKE ?" for _ in window) + ")",
-                (task_id, *(f"review #{rid} %" for rid in window))).fetchone()
-        return {"id": int(cur.lastrowid or 0), "passed": passed, "findings": judged,
-                "streak": len(fails), "escalate": escalate}
+                fails.append(fid)
+            # 一段连续失败只提一次 ask:按 review 编号认(evidence 以 "review #<id> " 开头)。
+            # 与 review 同一个 BEGIN IMMEDIATE 事务,并发记录也只会有一条。
+            asked = {int(m[1]) for (ev,) in con.execute(
+                "SELECT a.evidence FROM asks a JOIN ask_tasks k ON k.ask_id = a.id"
+                " WHERE k.task_id = ? AND a.kind = 'decide'", (task_id,))
+                if (m := re.match(r"review #(\d+) ", ev))}
+            ask_id = None
+            if len(fails) >= REVIEW_STRIKES and not asked & set(fails):
+                ask_id = _insert_ask(
+                    con, kind="decide", task_ids=[task_id], raised_by=author,
+                    question=f"{task_id} 连续 {len(fails)} 次 review 不过,怎么办?"[:120],
+                    evidence=f"review #{rid} @ {commit_sha} 不过:"
+                             + ";".join(f["summary"] for f in blocking),
+                    options=[{"option": o, "consequence": c} for o, c in (
+                        ("继续返工", "worker 按问题再改一轮,再 review"),
+                        ("改范围或验收", "拆卡或改 success,重新派单"),
+                        ("放弃", "cancel 这张卡"))])
+        return {"id": rid, "passed": passed, "findings": judged,
+                "streak": len(fails), "ask_id": ask_id}
     finally:
         con.close()
 
 
-def _pr_ref_matches(value: str, project: Optional[str], owner: str, repo: str, num: str) -> bool:
-    """pr ref 认 URL(…/owner/repo/pull/N…)和裸号("2385" / "#2385",stale_recon 的契约)。
-
-    ponytail: 裸号没有仓库信息,只在卡的 project(本地仓库目录名)等于 GitHub 仓库名或为空时认;
-    目录名与仓库名不同的仓,裸号 ref 认不出,要登记完整 URL。
-    """
-    m = re.search(r"([^/\s]+)/([^/\s]+)/pull/(\d+)(?!\d)", value)
-    if m:
-        return (m[1].lower(), m[2].lower(), m[3]) == (owner.lower(), repo.lower(), num)
-    m = re.fullmatch(r"\s*#?(\d+)\s*", value)
-    return bool(m) and m[1] == num and (project or repo).lower() == repo.lower()
+_PR_URL = re.compile(r"([^/\s]+)/([^/\s]+)/pull/(\d+)(?!\d)")
+_PR_NUM = re.compile(r"\s*#?(\d+)\s*")
 
 
 def latest_reviews_for_pr(con: sqlite3.Connection, pr_url: str) -> list[tuple]:
-    """登记了这个 PR 的每张卡及其最新 review:[(task_id, commit_sha|None, passed|None)]。"""
+    """登记了这个 PR 的每张卡:[(task_id, commit_sha|None, passed|None, 认不出仓库的裸号|None)]。
+
+    pr ref 认 URL(…/owner/repo/pull/N…)和裸号("2385" / "#2385",stale_recon 的契约)。
+    裸号没有仓库信息:卡的 project(本地仓库目录名)等于仓库名 → 就是它;同卡有同号 URL
+    → 由那条 URL 定;都不是 → 认不出,如实返回让合并闸拦下(fail-closed),要登记完整 URL。
+    """
     parts = pr_url.rstrip("/").split("/")
-    owner, repo, num = parts[-4], parts[-3], parts[-1]
-    tasks = sorted({t for t, value, project in con.execute(
-        "SELECT r.task_id, r.value, t.project FROM task_refs r JOIN tasks t ON t.id = r.task_id"
-        " WHERE r.kind = 'pr'") if _pr_ref_matches(value, project, owner, repo, num)})
+    me = (parts[-4].lower(), parts[-3].lower(), parts[-1])
+    refs: dict[str, list[tuple[str, Optional[str]]]] = {}
+    for t, value, project in con.execute(
+            "SELECT r.task_id, r.value, t.project FROM task_refs r"
+            " JOIN tasks t ON t.id = r.task_id WHERE r.kind = 'pr'"):
+        refs.setdefault(t, []).append((value, project))
+    found: dict[str, Optional[str]] = {}
+    for t, rows in refs.items():
+        urls = {(m[1].lower(), m[2].lower(), m[3]) for v, _ in rows if (m := _PR_URL.search(v))}
+        if me in urls:
+            found[t] = None
+            continue
+        for value, project in rows:
+            m = None if _PR_URL.search(value) else _PR_NUM.fullmatch(value)
+            if not m or m[1] != me[2] or any(u[2] == m[1] for u in urls):
+                continue
+            if (project or "").lower() == me[1]:
+                found[t] = None
+                break
+            found.setdefault(t, value)
     has_reviews = con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
                               " AND name='reviews'").fetchone()
     out = []
-    for t in tasks:
+    for t in sorted(found):
         # 只读连接迁移不了旧库:没有 reviews 表就当作一次 review 都没记
         row = has_reviews and con.execute(
             "SELECT commit_sha, passed FROM reviews WHERE task_id=? ORDER BY id DESC LIMIT 1",
             (t,)).fetchone()
-        out.append((t, *(row or (None, None))))
+        out.append((t, *(row or (None, None)), found[t]))
     return out
 
 
@@ -1547,22 +1569,34 @@ def raise_ask(path: Path | str, *, kind: str, question: str, evidence: str,
         with _txn(con):
             for t in task_ids:
                 _task_row(con, t)  # 幻觉闸:卡不存在当场炸
-            cur = con.execute(
-                "INSERT INTO asks(kind,question,evidence,options,blast,hands_on,"
-                "raised_at,raised_by,confidence,confidence_reason)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (kind, question, evidence, _jd(options), _jd(blast),
-                 int(bool(hands_on)), int(raised_at or _now()), raised_by,
-                 confidence, (confidence_reason or "").strip() or None),
-            )
-            ask_id = int(cur.lastrowid or 0)
-            con.executemany(
-                "INSERT INTO ask_tasks(ask_id,task_id) VALUES(?,?)",
-                [(ask_id, t) for t in dict.fromkeys(task_ids)],
-            )
-        return ask_id
+            return _insert_ask(con, kind=kind, question=question, evidence=evidence,
+                               task_ids=task_ids, raised_by=raised_by, options=options,
+                               blast=blast, hands_on=hands_on, raised_at=raised_at,
+                               confidence=confidence, confidence_reason=confidence_reason)
     finally:
         con.close()
+
+
+def _insert_ask(con: sqlite3.Connection, *, kind: str, question: str, evidence: str,
+                task_ids: Sequence[str], raised_by: str, options: Any = None,
+                blast: Any = None, hands_on: bool = False, raised_at: Optional[int] = None,
+                confidence: Optional[float] = None,
+                confidence_reason: Optional[str] = None) -> int:
+    """在调用方的事务里写 ask 和挂卡;校验由调用方负责。"""
+    cur = con.execute(
+        "INSERT INTO asks(kind,question,evidence,options,blast,hands_on,"
+        "raised_at,raised_by,confidence,confidence_reason)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (kind, question, evidence, _jd(options), _jd(blast),
+         int(bool(hands_on)), int(raised_at or _now()), raised_by,
+         confidence, (confidence_reason or "").strip() or None),
+    )
+    ask_id = int(cur.lastrowid or 0)
+    con.executemany(
+        "INSERT INTO ask_tasks(ask_id,task_id) VALUES(?,?)",
+        [(ask_id, t) for t in dict.fromkeys(task_ids)],
+    )
+    return ask_id
 
 
 def close_ask(path: Path | str, ask_id: int, *, closed_as: str,
