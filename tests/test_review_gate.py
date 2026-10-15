@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import subprocess
 import threading
 import sys
 from pathlib import Path
@@ -187,6 +188,24 @@ def test_finished_task_does_not_block(tmp_path, monkeypatch, status, values, pro
     code, msg = merge(monkeypatch, tmp_path, "gh pr merge 1 --squash",
                       local_project="checkout-alias")
     assert (code, msg) == (0, "")
+
+
+@pytest.mark.parametrize("in_git", [False, True])
+def test_external_board_still_blocks_own_projects_bare_ref(tmp_path, monkeypatch, in_git):
+    # NAWABAN_DB 指外部共享看板,仓库里没有 .nawaban/:本项目卡的裸号认不出仓库照样拦
+    one_task_board(tmp_path, monkeypatch, ["39"], "checkout-alias")
+    checkout = tmp_path / "checkout-alias"
+    cwd = checkout / "src" if in_git else checkout
+    cwd.mkdir(parents=True)
+    if in_git:
+        subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    monkeypatch.setattr(guard, "_github", lambda args, _: (
+        {"statusCheckRollup": [{"name": "t", "status": "COMPLETED", "conclusion": "SUCCESS"}],
+         "headRefOid": REVIEWED, "url": "https://github.com/ac/repo/pull/39"}
+        if args[:2] == ["pr", "view"] else
+        {"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}}))
+    code, msg = guard.judge_merge("gh pr merge 39 -R ac/repo --squash", str(cwd))
+    assert code == 2 and "P-2" in msg and "完整 URL" in msg
 
 
 def test_unidentifiable_ref_blocks_even_after_passing_review(tmp_path, monkeypatch):

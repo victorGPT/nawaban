@@ -314,6 +314,14 @@ def _match_head(args: list[str]) -> str | None:
     return lock
 
 
+def _local_projects(cwd: str) -> set[str]:
+    """合并时所在的本地项目可能叫什么:看板目录推出的项目名,加上仓库主 worktree 的目录名
+    (不在 git 里就是 cwd 目录名)。NAWABAN_DB 指外部看板、仓库里没有看板目录时,前者推不出
+    或推到上层目录,靠后者认出本项目的卡。"""
+    tree = enclosing_tree(Path(cwd))
+    return {n for n in (db.board_project(cwd), (tree[1] if tree else Path(cwd)).name) if n}
+
+
 def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
     """登记了这个 PR 的卡:最新 review 必须通过、审的就是 PR head,且合并锁定在这个提交。
 
@@ -326,7 +334,7 @@ def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
     try:
         con = sqlite3.connect(f"file:{board}?mode=ro", uri=True, timeout=5)
         try:
-            rows = db.latest_reviews_for_pr(con, url, db.board_project(cwd))
+            rows = db.latest_reviews_for_pr(con, url, _local_projects(cwd))
         finally:
             con.close()
     except sqlite3.Error as exc:

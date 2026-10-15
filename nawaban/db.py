@@ -1465,17 +1465,17 @@ _PR_NUM = re.compile(r"\s*#?(\d+)\s*")
 
 
 def latest_reviews_for_pr(con: sqlite3.Connection, pr_url: str,
-                          local_project: Optional[str] = None) -> list[tuple]:
+                          local_projects: Sequence[str] | set[str] = ()) -> list[tuple]:
     """登记了这个 PR 的每张卡:[(task_id, commit_sha|None, passed|None, 认不出仓库的裸号|None)]。
 
     只看没结束的卡(done/cancelled 不拦合并)。pr ref 认 URL(…/owner/repo/pull/N…)和裸号
     ("2385" / "#2385",stale_recon 的契约)。裸号没有仓库信息:同卡有同号 URL → 由那条 URL 定;
-    卡的 project(本地仓库目录名)等于仓库名 → 就是它;卡属于 local_project(合并时所在的本地
-    项目)却认不出 → 如实返回让合并闸拦下,要登记完整 URL;其他项目的卡 → 不算。
+    卡的 project(本地仓库目录名)等于仓库名 → 就是它;卡属于 local_projects(合并时所在本地
+    项目的可能名字)却认不出 → 如实返回让合并闸拦下,要登记完整 URL;其他项目的卡 → 不算。
     """
     parts = pr_url.rstrip("/").split("/")
     me = (parts[-4].lower(), parts[-3].lower(), parts[-1])
-    here = (local_project or "").lower()
+    here = {p.lower() for p in local_projects}
     refs: dict[str, list[tuple[str, Optional[str]]]] = {}
     for t, value, project in con.execute(
             "SELECT r.task_id, r.value, t.project FROM task_refs r"
@@ -1495,7 +1495,7 @@ def latest_reviews_for_pr(con: sqlite3.Connection, pr_url: str,
             if (project or "").lower() == me[1]:
                 found[t] = None
                 break
-            if here and (project or "").lower() == here:
+            if (project or "").lower() in here:
                 found.setdefault(t, value)
     has_reviews = con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
                               " AND name='reviews'").fetchone()
