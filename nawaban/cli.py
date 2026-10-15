@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import sqlite3
 import subprocess
@@ -263,6 +264,42 @@ def _epic_pick(path: Path, task_id: str, title: str, context: str | None,
     if result is None or result[0] == "none" or result[1] < _EPIC_HINT_THRESHOLD:
         return None
     return names[result[0]], result[1]
+
+
+_GITHUB_REMOTE = re.compile(
+    r"^(?:(?:https?|ssh)://)?(?:[^@/\s]+@)?(?:www\.)?github\.com(?::\d+)?[:/]"
+    r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", re.IGNORECASE)
+
+
+def _pr_ref_value(value: str) -> str:
+    """裸号("39" / "#39")补成当前仓库 GitHub 远端的完整 PR 链接;补不出就拒。
+
+    合并闸只认完整链接(用户 2026-10-16 定,ask #194),裸号登记进去等于没登记。
+    其他写法原样保存。
+    """
+    m = re.fullmatch(r"\s*#?(\d+)\s*", value)
+    if not m:
+        return value
+    out = ""
+    try:
+        inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"],
+                                capture_output=True, text=True, timeout=5).stdout.strip()
+        if inside == "true":
+            # --local:只读本仓库的配置,不读全局配置和 GIT_CONFIG_* 环境变量注入的 remote
+            out = subprocess.run(["git", "config", "--local", "--get-regexp",
+                                  r"^remote\..*\.url$"],
+                                 capture_output=True, text=True, timeout=5).stdout
+    except (OSError, UnicodeError, subprocess.SubprocessError):
+        pass
+    repos = {(r[1], r[2]) for line in out.splitlines()
+             if (r := _GITHUB_REMOTE.match(line.split(maxsplit=1)[-1]))}
+    if len({(o.lower(), n.lower()) for o, n in repos}) != 1:
+        found = "、".join(f"{o}/{n}" for o, n in sorted(repos)) or "没有 GitHub 远端"
+        raise db.NawabanError(
+            f"PR 裸号 {value.strip()} 补不出完整链接(当前目录:{found});合并闸只认完整链接,"
+            "改写成 --value https://github.com/<OWNER>/<REPO>/pull/<N>")
+    owner, repo = sorted(repos)[0]
+    return f"https://github.com/{owner}/{repo}/pull/{int(m[1])}"
 
 
 def _default_project(path: Path, split_from: str | None) -> str | None:
@@ -588,6 +625,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--value", required=True)
     p.add_argument("--note")
 
+    p = sub.add_parser("review", help="记 review 结论:审的提交 + 问题列表,按固定规则判过不过")
+    p.add_argument("task_id")
+    p.add_argument("--commit", required=True, help="审的提交(完整 40 位 SHA)")
+    p.add_argument("--findings", required=True,
+                   help='问题列表 JSON 文件(- = stdin):[{"summary","severity":'
+                        '"critical|major|minor|nit","evidence","preexisting":bool}]')
+
     p = sub.add_parser("scope", help="扩界:给卡追加 touches(append · 自动落 scope+ 留痕)")
     p.add_argument("task_id")
     p.add_argument("--add", action="append", required=True, help="要纳入的路径(可多次)")
@@ -800,8 +844,25 @@ def main(argv: list[str] | None = None) -> int:
             db.link_tasks(path, a.src, a.dst, kind=a.kind, note=a.note, created_by=owner)
             print(f"✓ link {a.src} -{a.kind}→ {a.dst}")
         elif a.verb == "ref":
-            db.add_ref(path, a.task_id, kind=a.kind, value=a.value, note=a.note)
-            print(f"✓ ref({a.kind}) {a.task_id} → {a.value}")
+            value = _pr_ref_value(a.value) if a.kind == "pr" else a.value
+            db.add_ref(path, a.task_id, kind=a.kind, value=value, note=a.note)
+            print(f"✓ ref({a.kind}) {a.task_id} → {value}")
+        elif a.verb == "review":
+            owner, sid = _identity(need_session=False)
+            try:
+                raw = sys.stdin.read() if a.findings == "-" else Path(a.findings).read_text()
+                findings = json.loads(raw)
+            except (OSError, ValueError) as e:
+                raise db.NawabanError(f"读不了 findings:{e}") from e
+            r = db.add_review(path, a.task_id, commit_sha=a.commit, findings=findings,
+                              author=owner, session_id=sid)
+            print(f"{'✓ review 通过' if r['passed'] else '✗ review 不过'} {a.task_id}"
+                  f" @ {a.commit[:12]}(#{r['id']})")
+            for i, f in enumerate(r["findings"], 1):
+                tag = "打回" if f["blocking"] else ("原有·只记录" if f["preexisting"] else "不打回")
+                print(f"    {i}. [{f['effective']}·{tag}] {f['summary']}")
+            if r["ask_id"]:
+                print(f"⚠ 连续 {r['streak']} 次不过 → 收件箱 ask #{r['ask_id']}")
         elif a.verb == "scope":
             owner, sid = _identity(need_session=False)
             merged = db.update_touches(path, a.task_id, add=a.add, reason=a.reason,
