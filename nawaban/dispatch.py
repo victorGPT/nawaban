@@ -28,6 +28,7 @@ SPAWN = subprocess.Popen  # 起关窗监听进程;测试同样换掉
 CLI = Path(__file__).resolve().parent / "cli.py"
 _RECORD = "dispatch "
 _FINISHED = ("staging-verified", "done", "cancelled")
+MAX_WORKERS = 4  # 同时运行的 worker 上限;环境变量 NAWABAN_MAX_WORKERS 可改
 # 主控窗格的身份。herdr 命令省略目标时会落到调用者的窗格上,所以一律不传下去,目标都写明。
 _CALLER = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_SESSION")
 _STARTED = ("--until", "working", "--until", "blocked")
@@ -82,19 +83,50 @@ def _repo_root() -> Path:
     return Path(found.stdout.strip()).parent
 
 
+def _agents() -> list[dict] | None:
+    """活着的会话;查不了(命令失败、没有输出、不是 JSON 列表)返回 None。"""
+    got = _run("claude", "agents", "--json")
+    try:
+        listed = json.loads(got.stdout)
+    except ValueError:
+        return None
+    return listed if not got.returncode and isinstance(listed, list) else None
+
+
 def _session(name: str, *, tries: int = 1) -> dict | None:
     """按名字在活着的会话里找;刚起的会话登记有延迟,所以可以多看几次。"""
     for attempt in range(tries):
         if attempt:
             time.sleep(1)
-        try:
-            listed = json.loads(_run("claude", "agents", "--json").stdout or "[]")
-        except ValueError:
-            listed = []
-        for entry in listed:
+        for entry in _agents() or []:
             if entry.get("name") == name:
                 return entry
     return None
+
+
+def _full(con: sqlite3.Connection, coming: int = 0) -> str | None:
+    """同时运行的 worker 加上 coming 张马上要派的到了上限,就说出占着名额的卡;没到返回 None。
+
+    运行中 = 派发了还没收工、会话还活着。没收工但会话已经没了的不算,
+    否则一个没人收拾的旧派发会永远占着名额。整个任务库共用一个上限:占的是同一台机器。
+    ponytail: 查名额和起会话之间没上锁,两条 dispatch 同时跑能各派一个、超出一个;
+    主控是一条一条派的,真有多个主控同时派再加文件锁。
+    """
+    limit = int(os.environ.get("NAWABAN_MAX_WORKERS") or MAX_WORKERS)
+    agents = _agents()
+    if agents is None:
+        # 查不到就不知道在跑几个:按满了算,不能因为查询失败把上限放开。
+        return f"查不到哪些 worker 还活着(claude agents --json 没给出会话列表),按上限 {limit} 个已满处理"
+    live = {entry.get("name") for entry in agents if isinstance(entry, dict)}
+    running = [task_id for (task_id,) in con.execute(
+        "SELECT task_id FROM task_events WHERE id IN ("
+        " SELECT MAX(id) FROM task_events WHERE kind='coord'"
+        " AND (body LIKE 'dispatch {%' OR body LIKE 'dismiss ·%') GROUP BY task_id)"
+        " AND body LIKE 'dispatch {%' ORDER BY id") if task_id.lower() in live]
+    if len(running) + coming < limit:
+        return None
+    return (f"同时运行的 worker 已到上限 {limit} 个(在跑:{'、'.join(running) or '无'}"
+            + (f";本批先派的 {coming} 张" if coming else "") + "),收工一张再派")
 
 
 def _trusted(root: Path) -> bool:
@@ -170,9 +202,33 @@ def brief(path: Path, task_id: str, name: str) -> str:
 你所在的目录已经是这张卡的独立工位(分支 worktree-{name}),直接在这里改;不要再建工位,不要改主树。
 范围:只做这张卡的验收条目。不建新卡,不起别的 worker,不动别的卡,不合并 PR。卡的约束写了 PR 目标分支时,开 PR 前先把最新 main 和它的最新提交都合进本分支,PR 指向它。
 没有人坐在这个窗口前,不要在这里等人回话。你每一轮停下时,最后一段话会自动送回派你的主控;主控的回话会直接出现在这个会话里,收到后接着干。所以停下前把结论、要主控决定的问题和你的建议写在最后一段话里。
-实现选型、命名、测试写法自己定;确实定不了的,另用 {nawaban} notify {task_id} --kind blocked --msg "问题和你的建议" 写到看板上然后停下。做完用 notify --kind done 汇报,附 PR 链接和测试结果。
-
+实现选型、命名、测试写法自己定。要等人回答才能往下做,必须先用 {nawaban} notify {task_id} --kind blocked --msg "问题和你的建议" 报阻塞(要用户拍板的用 ask)再停下;没报阻塞就停下,一律当你交付了,主控会来 review 你的产出。做完用 notify --kind done 汇报,附 PR 链接和测试结果。
+{_upstream(path, task_id)}
 {context_loader.build_context(path, task_id)}"""
+
+
+def _upstream(path: Path, task_id: str) -> str:
+    """前置卡的产出:最近一份完成报告、PR、合并提交。没有前置卡返回空串。"""
+    with closing(_connect(path)) as con:
+        rows = con.execute(
+            "SELECT t.id,t.status,t.title FROM task_edges e JOIN tasks t ON t.id=e.dst"
+            " WHERE e.src=? AND e.kind='depends_on' ORDER BY t.id", (task_id,)).fetchall()
+        parts = []
+        for row in rows:
+            done = con.execute("SELECT msg FROM letters WHERE task_id=? AND kind='done'"
+                               " ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
+            refs = {kind: "、".join(v for (v,) in con.execute(
+                "SELECT value FROM task_refs WHERE task_id=? AND kind=? ORDER BY created_at",
+                (row["id"], kind))) or "(没有)" for kind in ("pr", "merge_sha")}
+            report = done["msg"] if done else "(没有)"
+            if len(report) > 800:
+                report = report[:800] + f"…(全文:notifications --task {row['id']})"
+            parts.append(f"· [{row['id']}] {row['title']} «{row['status']}»\n"
+                         f"  完成报告:{report}\n"
+                         f"  PR:{refs['pr']} · 合并提交:{refs['merge_sha']}")
+    if not parts:
+        return ""
+    return "\n前置卡的产出(在它们的基础上做,别重做):\n" + "\n".join(parts) + "\n"
 
 
 def dispatch(path: Path, task_id: str, *, author: str) -> str:
@@ -189,6 +245,15 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
     name = task_id.lower()
     if _session(name):
         raise db.NawabanError(f"不派 {task_id}:已经有一个叫 {name} 的会话在跑")
+    with closing(_connect(path)) as con:
+        full = _full(con)
+        # 起会话之前的 ask 编号:worker 第一轮提没提 ask 按它判(hooks/worker_report.py)。
+        asks = con.execute("SELECT COALESCE(MAX(id), 0) FROM asks").fetchone()[0]
+    if full:
+        # 没有自动出队:收工腾出名额后由主控再派,卡上记下为什么还没派。
+        db.add_event(path, task_id, kind="coord", author=author, body="queued · " + full,
+                     now=f"排队等派发:{full}"[:200])
+        raise db.NawabanError(f"排队 {task_id}:{full}")
     prompt = brief(path, task_id, name)
 
     pane, tab, output = None, None, ""
@@ -212,7 +277,7 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
     # director = 派它的会话:worker 每轮停下的话凭它送回来(hooks/worker_report.py)。
     record = {"backend": "herdr" if pane else "claude-bg", "session": live.get("sessionId"),
               "pane": pane, "tab": tab, "worktree": worktree, "root": str(root),
-              "director": os.environ.get("CLAUDE_CODE_SESSION_ID")}
+              "director": os.environ.get("CLAUDE_CODE_SESSION_ID"), "asks": asks}
     where = f"tab {tab} 窗格 {pane}" if pane else "后台"
     try:
         db.add_event(path, task_id, kind="coord", author=author,
@@ -261,13 +326,16 @@ def batch(path: Path, parent: str, *, author: str, dry_run: bool) -> list[str]:
             " WHERE e.dst=? AND e.kind='split_from' ORDER BY t.id", (parent,))]
     if not children:
         return [f"{parent} 没有拆出的子卡"]
-    lines = []
+    lines, coming = [], 0
     for row, reason in children:
         head = f"{row['id']} [{row['status']}] "
         if reason:
             lines.append(head + f"不派:{reason}")
         elif dry_run:
-            lines.append(head + "会派出")
+            with closing(_connect(path)) as con:
+                full = _full(con, coming)
+            lines.append(head + (f"会排队:{full}" if full else "会派出"))
+            coming += not full
         else:
             try:
                 lines.append(head + f"已派出 · 会话 {dispatch(path, row['id'], author=author)}")
