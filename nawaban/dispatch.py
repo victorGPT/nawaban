@@ -355,6 +355,7 @@ def _listen(pane: str) -> None:
 
 def _wait_closed(pane: str) -> None:
     """等到窗格不在了才返回。"""
+    # ponytail: herdr 一直报别的错时这里每 5 秒查一次、不会自己退出;真碰上再加次数上限。
     while True:
         while _alive(pane):
             _listen(pane)
