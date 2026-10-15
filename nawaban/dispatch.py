@@ -194,6 +194,29 @@ def _submit(pane: str, prompt: str) -> bool:
     return not sent.returncode
 
 
+def prompt(path: Path, task_id: str, msg: str, *, author: str) -> str:
+    """把话直接交到 Herdr worker 的窗格,和交任务说明一样确认开工、只补回车。返回窗格号。
+
+    给不是派它的会话用(主控窗口重开过):派它的会话回话走 notify --kind reply,
+    那条由 worker 的 Stop 钩子送进去;两条都走,worker 就收到两遍。
+    """
+    with closing(_connect(path)) as con:
+        event = _dispatched(con, task_id)
+        live = event is not None and _current(con, task_id) == event["id"]
+    if not live:
+        raise db.NawabanError(f"不回话 {task_id}:卡上没有还作数的派发")
+    record = json.loads(event["body"][len(_RECORD):])
+    if record.get("backend") != "herdr" or not record.get("pane"):
+        raise db.NawabanError(
+            f"不回话 {task_id}:它是后台会话,不在 Herdr 窗格里;照 nawaban-director 技能用 claude --bg --resume 回话")
+    if not _submit(record["pane"], msg):
+        raise db.NawabanError(
+            f"回话没交上 {task_id}:窗格 {record['pane']} 里的 worker 没开工"
+            "(停在确认框上、窗格已关,或补了三次回车仍没动),去窗格看一眼")
+    db.add_event(path, task_id, kind="coord", author=author, body="prompt · " + msg)
+    return record["pane"]
+
+
 def brief(path: Path, task_id: str, name: str) -> str:
     from nawaban import context_loader  # 它依赖 web 模块;CLI 其余动词没有 web 也要能跑
     nawaban = f"python3 {CLI} --db {path}"

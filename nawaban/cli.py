@@ -688,6 +688,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("dismiss", help="收工:停掉已完成或已交接的卡的 worker 会话并清理工位")
     p.add_argument("task_id")
 
+    p = sub.add_parser("prompt", help="把话直接交到 Herdr worker 的窗格,确认它开工(不是派它的会话回话时用)")
+    p.add_argument("task_id")
+    p.add_argument("--msg", required=True)
+
     sub.add_parser("wrapup", help="收尾清单:列出本 session 未收尾的卡 + 逐张给出补齐命令")
     sub.add_parser("backup", help="全量备份到 <db 目录>/backups/ · 保留 14 天")
     sub.add_parser("init", help="显式建库(唯一允许创建 DB 文件的动词)")
@@ -964,6 +968,9 @@ def main(argv: list[str] | None = None) -> int:
         elif a.verb == "dismiss":
             owner, _ = _identity(need_session=False)
             print(f"✓ dismiss {a.task_id}\n  " + "\n  ".join(dispatch.dismiss(path, a.task_id, author=owner)))
+        elif a.verb == "prompt":
+            owner, _ = _identity(need_session=False)
+            print(f"✓ prompt {a.task_id} → 窗格 {dispatch.prompt(path, a.task_id, a.msg, author=owner)}")
         elif a.verb == "backup":
             dest = db.backup_db(path)
             print(f"✓ backup → {dest}")
