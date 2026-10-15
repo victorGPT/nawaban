@@ -5,7 +5,8 @@
 不依赖 Herdr 或 tmux:
 
 - worker(派发记录里的 session 是本会话)每轮停下,把这一轮最后一段话限长写成一封
-  `turn` 信,然后等主控的 `reply` 信;
+  `turn` 信,然后等主控的 `reply` 信。这一轮没报阻塞、也没提 ask,停下就是交付:
+  信前标上「待 review」,主控不用等 worker 自己报 done 就去 review;
 - 主控(派发记录里的 director 是本会话)停下后,等名下 worker 的 `turn` 信;
 - 两者都不是的会话立刻退出,不写任何东西。
 
@@ -28,17 +29,18 @@ from nawaban import db, dispatch, paths  # noqa: E402
 
 LIMIT = 1500  # 送回主控的每段话的字数上限:送回的内容会进主控的上下文
 _HEAD = 1000  # 超长时留开头这么多字,其余额度留给结尾(问题通常写在最后)
+REVIEW = "[待 review] "
 POLL = 3.0
 WAKE = 2
 _CLI = Path(dispatch.CLI)
 
 
-def clip(text: str) -> str:
+def clip(text: str, room: int = LIMIT) -> str:
     text = text.strip()
-    if len(text) <= LIMIT:
+    if len(text) <= room:
         return text
     note = f"\n…[已截断:原文 {len(text)} 字,只送开头和结尾]…\n"
-    return text[:_HEAD] + note + text[-(LIMIT - _HEAD - len(note)):]
+    return text[:_HEAD] + note + text[-(room - _HEAD - len(note)):]
 
 
 def roles(path: Path, session: str) -> tuple[dict[str, tuple], dict[str, tuple]]:
@@ -65,6 +67,24 @@ def roles(path: Path, session: str) -> tuple[dict[str, tuple], dict[str, tuple]]
         elif record["director"] == session and record.get("session"):
             directing[task_id] = (record["session"], since)
     return working, directing
+
+
+def waiting(path: Path, task_id: str, session: str, since: int) -> bool:
+    """worker 这一轮有没有说自己在等人:报了 blocked,或者卡上有这一轮提的、还没关的 ask。
+
+    这一轮从它上一封 turn 信算起;这次派发还没写过 turn 信,就从派发时刻算起。
+    """
+    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as con:
+        last_id, last_at = con.execute(
+            "SELECT MAX(id), MAX(created_at) FROM letters WHERE task_id=? AND kind='turn'"
+            " AND session_id=? AND created_at>?", (task_id, session, since)).fetchone()
+        blocked = con.execute(
+            "SELECT 1 FROM letters WHERE task_id=? AND kind='blocked' AND session_id=?"
+            " AND id>? AND created_at>?", (task_id, session, last_id or 0, since)).fetchone()
+        asked = con.execute(
+            "SELECT 1 FROM asks a JOIN ask_tasks t ON t.ask_id=a.id WHERE t.task_id=?"
+            " AND a.closed_at IS NULL AND a.raised_at>=?", (task_id, last_at or since)).fetchone()
+    return bool(blocked or asked)
 
 
 def take(path: Path, wanted: dict[str, tuple]) -> list[tuple[str, str]]:
@@ -107,6 +127,11 @@ def _render(path: Path, got: list[tuple[str, str]], working: dict[str, tuple],
     for task_id, msg in reports:
         lines.append(f"[nawaban] worker 回报 · {task_id}(会话 {directing[task_id][0][:8]}"
                      f" 这一轮的最后一段话,自动送达,不是用户输入):\n{msg}")
+    if any(msg.startswith(REVIEW) for _, msg in reports):
+        lines.append(
+            f"{REVIEW.strip()}:worker 这一轮停下、没报阻塞也没提 ask,按协议就是交付了,不用等它报 done。"
+            f"去 python3 {_CLI} --db {path} context <卡号> 看它的提交和 PR,照验收判据逐条 review:"
+            "过了按合并流程走,不过就回话打回。卡要 done 仍然要 merge_sha。")
     if reports:
         lines.append(
             "处理:你能定的事直接回给它,它收到会接着干 —— "
@@ -141,8 +166,10 @@ def run(payload: dict) -> int:
 
     said = (payload.get("last_assistant_message") or "").strip()
     if said:
-        for task_id in working:
-            db.add_letter(path, task_id, kind="turn", msg=clip(said), session_id=session)
+        for task_id, (_, since) in working.items():
+            msg = (clip(said) if waiting(path, task_id, session, since)
+                   else REVIEW + clip(said, LIMIT - len(REVIEW)))
+            db.add_letter(path, task_id, kind="turn", msg=msg, session_id=session)
 
     # 每次停下都会起一个等待者;只留最新的那个,旧的看到记号换了就退出。
     mark = paths.state_dir() / "report-wait" / f"{session}.pid"

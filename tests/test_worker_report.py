@@ -69,12 +69,51 @@ def test_worker_stop_sends_its_last_message_then_wakes_on_the_reply(board, monke
     dispatched(board)
     no_waiting(monkeypatch, then=lambda: cli.main(
         ["--db", str(board), "notify", "P-1", "--kind", "reply", "--msg", "用方案 B,继续"]))
+    db.add_letter(board, "P-1", kind="blocked", msg="方案 A 还是 B", session_id=WORKER)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", DIRECTOR)
     assert report.run(stop(WORKER, "方案 A 还是 B?我建议 B")) == report.WAKE
-    assert letters(board) == [("turn", "方案 A 还是 B?我建议 B", WORKER, 0),
+    assert letters(board) == [("blocked", "方案 A 还是 B", WORKER, 0),
+                              ("turn", "方案 A 还是 B?我建议 B", WORKER, 0),
                               ("reply", "用方案 B,继续", DIRECTOR, 1)]
     woke = capsys.readouterr().err
     assert "用方案 B,继续" in woke and "主控回话 · P-1" in woke
+
+
+def stop_worker(board, monkeypatch, said="PR 已开,测试全绿") -> str:
+    """Let the worker stop once; return the turn letter it left for the director."""
+    no_waiting(monkeypatch, then=lambda: (report.paths.state_dir() / "report-wait"
+                                          / f"{WORKER}.pid").write_text("0"))
+    report.run(stop(WORKER, said))
+    return [msg for kind, msg, _, _ in letters(board) if kind == "turn"][-1]
+
+
+def test_stopping_without_saying_it_waits_is_sent_for_review(board, monkeypatch, capsys):
+    dispatched(board)
+    assert stop_worker(board, monkeypatch) == "[待 review] PR 已开,测试全绿"
+    no_waiting(monkeypatch)
+    assert report.run(stop(DIRECTOR, "已派出")) == report.WAKE
+    woke = capsys.readouterr().err
+    assert "[待 review] PR 已开" in woke and "不用等它报 done" in woke and "merge_sha" in woke
+
+
+@pytest.mark.parametrize("says_it_waits", ["blocked", "ask"])
+def test_a_worker_that_said_it_waits_is_not_sent_for_review(board, monkeypatch, says_it_waits):
+    dispatched(board)
+    if says_it_waits == "blocked":
+        db.add_letter(board, "P-1", kind="blocked", msg="缺账号", session_id=WORKER)
+    else:
+        db.raise_ask(board, kind="decide", question="用 A 还是 B", evidence="两种都可行",
+                     task_ids=["P-1"], raised_by="ac:x", options=["A", "B"])
+    assert stop_worker(board, monkeypatch, "等你定") == "等你定"
+
+
+def test_waiting_is_judged_per_turn(board, monkeypatch):
+    dispatched(board)
+    db.add_letter(board, "P-1", kind="blocked", msg="缺账号", session_id=WORKER)
+    db.add_letter(board, "P-1", kind="turn", msg="等账号", session_id=WORKER)
+    db.add_letter(board, "P-1", kind="blocked", msg="别的会话报的", session_id=STRANGER)
+    # 上一轮报的阻塞、别的会话报的阻塞,都不算这一轮在等人。
+    assert stop_worker(board, monkeypatch).startswith("[待 review] ")
 
 
 def test_director_wakes_with_the_worker_message_and_the_escalation_rule(board, monkeypatch, capsys):
@@ -168,7 +207,8 @@ def test_long_messages_are_cut_and_say_so(board, monkeypatch):
     assert report.run(stop(WORKER, said)) == 0  # 被更新的等待者顶替后退出
     [(kind, msg, _, _)] = letters(board)
     assert kind == "turn" and len(msg) == report.LIMIT
-    assert msg.startswith("头" * 1000) and msg.endswith("尾" * 400) and "腰" not in msg
+    assert msg.startswith(report.REVIEW + "头" * 1000) and msg.endswith("尾" * 400)
+    assert "腰" not in msg
     assert "已截断:原文 5500 字,只送开头和结尾" in msg
     assert report.clip("短话") == "短话"
 

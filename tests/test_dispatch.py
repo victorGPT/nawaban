@@ -108,6 +108,8 @@ def test_dispatch_records_who_dispatched_and_tells_the_worker_how_to_report(
     assert json.loads(body[len("dispatch "):])["director"] == "director-session"
     [launch] = backend.ran("claude", "--bg")
     assert "最后一段话会自动送回派你的主控" in launch[-1] and "不要在这里等人回话" in launch[-1]
+    assert "必须先用" in launch[-1] and "--kind blocked" in launch[-1]
+    assert "没报阻塞就停下,一律当你交付了" in launch[-1]
 
 
 def test_dispatch_inside_herdr_opens_a_new_tab(board, backend, monkeypatch):
@@ -184,6 +186,62 @@ def test_dry_run_lists_children_without_starting_or_changing_anything(family, ba
     assert "P-9" not in out
     assert not backend.launched
     assert dump(family) == before
+
+
+@pytest.fixture
+def six(board):
+    for n in range(2, 7):
+        db.create_task(board, task_id=f"P-{n}", title=f"第 {n} 张子卡", split_from="P")
+    return board
+
+
+def test_only_four_workers_run_at_once_and_the_rest_say_why(six, backend, capsys):
+    assert run(six, "dispatch", "--parent", "P") == 0
+    assert [c[3] for c in backend.ran("claude", "--bg")] == ["p-1", "p-2", "p-3", "p-4"]
+    out = capsys.readouterr().out
+    for n in (5, 6):
+        assert f"P-{n} [open] 排队 P-{n}:同时运行的 worker 已到上限 4 个(在跑:P-1、P-2、P-3、P-4)" in out
+        assert task(six, f"P-{n}")["now"].startswith("排队等派发:同时运行的 worker 已到上限 4 个")
+
+
+def test_dry_run_shows_which_cards_would_queue(six, backend, capsys):
+    before = dump(six)
+    assert run(six, "dispatch", "--parent", "P", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert out.count("会派出") == 4 and "P-5 [open] 会排队:" in out and "本批先派的 4 张" in out
+    assert dump(six) == before
+
+
+def test_the_limit_counts_only_live_undismissed_workers(six, backend, monkeypatch):
+    monkeypatch.setenv("NAWABAN_MAX_WORKERS", "2")
+    for card in ("P-2", "P-3"):  # 派过、没收工,但会话早没了:不占名额
+        db.add_event(six, card, kind="coord", author="t", body='dispatch {"session": null}')
+    assert run(six, "dispatch", "P-1") == 0
+    assert run(six, "dispatch", "P-4") == 0
+    assert run(six, "dispatch", "P-5") == 1  # P-1、P-4 活着,到上限 2
+    db.add_event(six, "P-1", kind="coord", author="t", body="dismiss · 已停")
+    assert run(six, "dispatch", "P-5") == 0  # 收工一张就腾出名额
+
+
+def test_a_successor_brief_carries_its_prerequisite_s_output(board, backend):
+    db.create_task(board, task_id="UP", title="前置卡")
+    db.link_tasks(board, "P-1", "UP", kind="depends_on", created_by="test")
+    db.add_letter(board, "UP", kind="done", msg="第一版", session_id="w")
+    db.add_letter(board, "UP", kind="done", msg="PR #15 已修,测试 493 passed", session_id="w")
+    db.add_ref(board, "UP", kind="pr", value="https://github.com/o/r/pull/15")
+    db.add_ref(board, "UP", kind="merge_sha", value="e2349f13")
+    with sqlite3.connect(board) as con:
+        con.execute("UPDATE tasks SET status='done' WHERE id='UP'")
+    assert run(board, "dispatch", "P-1") == 0
+    brief = backend.ran("claude", "--bg")[0][-1]
+    assert "前置卡的产出" in brief and "[UP] 前置卡 «done»" in brief
+    assert "完成报告:PR #15 已修,测试 493 passed" in brief and "第一版" not in brief
+    assert "PR:https://github.com/o/r/pull/15 · 合并提交:e2349f13" in brief
+
+
+def test_a_card_without_prerequisites_gets_no_handoff_section(board, backend):
+    assert run(board, "dispatch", "P-1") == 0
+    assert "前置卡的产出" not in backend.ran("claude", "--bg")[0][-1]
 
 
 @pytest.mark.parametrize("case,reason", [
