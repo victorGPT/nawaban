@@ -1463,18 +1463,26 @@ def add_review(path: Path | str, task_id: str, *, commit_sha: str, findings: Any
 PR_URL = re.compile(r"//(?:[^@/\s]+@)?([^/\s]+)/([^/\s]+)/([^/\s]+)/pull/(\d+)(?!\d)")
 
 
+def pr_key(value: str) -> Optional[tuple[str, str, str, int]]:
+    """完整 PR 链接 → (主机, owner, repo, 号);主机去掉 www.、大小写不计,号按数值比。"""
+    m = PR_URL.search(value)
+    if not m:
+        return None
+    host, owner, repo, num = m.groups()
+    return host.lower().removeprefix("www."), owner.lower(), repo.lower(), int(num)
+
+
 def latest_reviews_for_pr(con: sqlite3.Connection, pr_url: str) -> list[tuple]:
     """用完整链接登记了这个 PR 的每张未结束的卡:[(task_id, commit_sha|None, passed|None)]。
 
     只认 pr ref 里的 主机/owner/repo/pull/N(用户 2026-10-16 定,ask #194);裸号("2385")不算
     登记 —— 新写的裸号由 ref 动词补成链接,老卡上的裸号不迁移。done/cancelled 的卡不算。
     """
-    m = PR_URL.search(pr_url)
-    me = m and tuple(x.lower() for x in m.groups())
+    me = pr_key(pr_url)
     found = sorted({t for t, value in con.execute(
         "SELECT r.task_id, r.value FROM task_refs r JOIN tasks t ON t.id = r.task_id"
         f" WHERE r.kind = 'pr' AND t.status NOT IN ({_q(TERMINAL)})")
-        if (r := PR_URL.search(value)) and tuple(x.lower() for x in r.groups()) == me})
+        if me and pr_key(value) == me})
     has_reviews = con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
                               " AND name='reviews'").fetchone()
     out = []

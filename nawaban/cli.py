@@ -267,7 +267,7 @@ def _epic_pick(path: Path, task_id: str, title: str, context: str | None,
 
 
 _GITHUB_REMOTE = re.compile(
-    r"^(?:(?:https?|ssh)://)?(?:[^@/\s]+@)?github\.com(?::\d+)?[:/]"
+    r"^(?:(?:https?|ssh)://)?(?:[^@/\s]+@)?(?:www\.)?github\.com(?::\d+)?[:/]"
     r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", re.IGNORECASE)
 
 
@@ -280,11 +280,17 @@ def _pr_ref_value(value: str) -> str:
     m = re.fullmatch(r"\s*#?(\d+)\s*", value)
     if not m:
         return value
+    out = ""
     try:
-        out = subprocess.run(["git", "config", "--get-regexp", r"^remote\..*\.url$"],
-                             capture_output=True, text=True, timeout=5).stdout
+        inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"],
+                                capture_output=True, text=True, timeout=5).stdout.strip()
+        if inside == "true":
+            # --local:只读本仓库的配置,不读全局配置和 GIT_CONFIG_* 环境变量注入的 remote
+            out = subprocess.run(["git", "config", "--local", "--get-regexp",
+                                  r"^remote\..*\.url$"],
+                                 capture_output=True, text=True, timeout=5).stdout
     except (OSError, UnicodeError, subprocess.SubprocessError):
-        out = ""
+        pass
     repos = {(r[1], r[2]) for line in out.splitlines()
              if (r := _GITHUB_REMOTE.match(line.split(maxsplit=1)[-1]))}
     if len({(o.lower(), n.lower()) for o, n in repos}) != 1:
@@ -293,7 +299,7 @@ def _pr_ref_value(value: str) -> str:
             f"PR 裸号 {value.strip()} 补不出完整链接(当前目录:{found});合并闸只认完整链接,"
             "改写成 --value https://github.com/<OWNER>/<REPO>/pull/<N>")
     owner, repo = sorted(repos)[0]
-    return f"https://github.com/{owner}/{repo}/pull/{m[1]}"
+    return f"https://github.com/{owner}/{repo}/pull/{int(m[1])}"
 
 
 def _default_project(path: Path, split_from: str | None) -> str | None:

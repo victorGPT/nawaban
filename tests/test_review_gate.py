@@ -156,6 +156,10 @@ REPO39 = "https://github.com/ac/repo/pull/39"
     pytest.param(None, ["https://GitHub.com/AC/Repo/pull/39/files"], "open", True,
                  id="链接带后缀与大小写"),
     pytest.param("nawaban", [REPO39], "in_progress", True, id="链接与卡属于哪个项目无关"),
+    pytest.param("repo", ["https://github.com/ac/repo/pull/039"], "in_progress", True,
+                 id="号按数值比"),
+    pytest.param("repo", ["https://www.github.com/ac/repo/pull/39"], "in_progress", True,
+                 id="www主机"),
     pytest.param("repo", ["39"], "in_progress", False, id="裸号不算登记"),
     pytest.param("repo", ["#39"], "in_progress", False, id="#号不算登记"),
     pytest.param("other", ["39"], "in_progress", False, id="其他项目的裸号"),
@@ -202,6 +206,7 @@ def git_checkout(tmp_path, monkeypatch, *remotes):
     (["https://github.com/ac/repo.git"], "39", REPO39),
     (["git@github.com:ac/repo.git", "https://github.com/ac/repo"], "#39", REPO39),
     (["ssh://git@github.com/ac/repo.git"], " 39 ", REPO39),
+    (["https://www.github.com/ac/repo"], "#039", REPO39),
     ([], "https://github.com/other/x/pull/7", "https://github.com/other/x/pull/7"),
 ])
 def test_bare_pr_ref_is_written_as_full_url(tmp_path, monkeypatch, capsys, remotes, value, stored):
@@ -230,6 +235,41 @@ def test_bare_pr_ref_that_cannot_be_completed_is_refused(tmp_path, monkeypatch, 
     assert "https://github.com/<OWNER>/<REPO>/pull/<N>" in capsys.readouterr().err
     with sqlite3.connect(path) as con:
         assert con.execute("SELECT COUNT(*) FROM task_refs").fetchone()[0] == 0
+
+
+def inject_remote(tmp_path, monkeypatch, how, url):
+    if how == "env":
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "remote.origin.url")
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", url)
+    else:
+        cfg = tmp_path / "global.gitconfig"
+        cfg.write_text(f'[remote "origin"]\n\turl = {url}\n')
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(cfg))
+
+
+@pytest.mark.parametrize("how", ["env", "global"])
+@pytest.mark.parametrize("cwd", ["/", "tmp"])
+def test_remote_outside_a_repository_is_not_used(tmp_path, monkeypatch, capsys, how, cwd):
+    path = tmp_path / "board.db"
+    db.init_db(path)
+    db.create_task(path, task_id="P-3", title="登记 PR")
+    inject_remote(tmp_path, monkeypatch, how, "https://github.com/ac/repo.git")
+    monkeypatch.chdir("/" if cwd == "/" else tmp_path)
+    assert cli.main(["--db", str(path), "ref", "P-3", "--kind", "pr", "--value", "39"]) == 1
+    assert "补不出完整链接" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("how", ["env", "global"])
+def test_injected_remote_does_not_mix_into_the_repository(tmp_path, monkeypatch, how):
+    path = tmp_path / "board.db"
+    db.init_db(path)
+    db.create_task(path, task_id="P-3", title="登记 PR")
+    git_checkout(tmp_path, monkeypatch, "https://github.com/ac/repo.git")
+    inject_remote(tmp_path, monkeypatch, how, "https://github.com/me/other.git")
+    assert cli.main(["--db", str(path), "ref", "P-3", "--kind", "pr", "--value", "39"]) == 0
+    with sqlite3.connect(path) as con:
+        assert con.execute("SELECT value FROM task_refs").fetchall() == [(REPO39,)]
 
 
 def test_pr_not_on_any_task_keeps_ci_only_gate(tmp_path, monkeypatch):
