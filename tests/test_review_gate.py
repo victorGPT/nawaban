@@ -40,7 +40,7 @@ def review(tmp_path, findings, commit=REVIEWED) -> int:
 
 
 def merge(monkeypatch, tmp_path, command, head=REVIEWED):
-    def github(args, cwd):
+    def github(args, cwd, *_):
         if args[:2] == ["pr", "view"]:
             return {"statusCheckRollup": [{"name": "t", "status": "COMPLETED",
                                            "conclusion": "SUCCESS"}],
@@ -174,7 +174,7 @@ REPO39 = "https://github.com/ac/repo/pull/39"
 ])
 def test_which_tasks_refer_to_the_pr(tmp_path, monkeypatch, project, refs, status, blocked):
     one_task_board(tmp_path, monkeypatch, refs, project, status=status)
-    monkeypatch.setattr(guard, "_github", lambda args, _: (
+    monkeypatch.setattr(guard, "_github", lambda args, *_: (
         {"statusCheckRollup": [{"name": "t", "status": "COMPLETED", "conclusion": "SUCCESS"}],
          "headRefOid": REVIEWED, "url": REPO39}
         if args[:2] == ["pr", "view"] else
