@@ -32,8 +32,10 @@ def board(tmp_path, monkeypatch):
     return path
 
 
-def dispatched(board, *, director=DIRECTOR):
+def dispatched(board, *, director=DIRECTOR, asks=0):
     record = {"backend": "claude-bg", "session": WORKER, "pane": None, "director": director}
+    if asks is not None:  # None = 记 ask 编号之前的旧派发记录
+        record["asks"] = asks
     clock = db._now
     db._now = lambda: clock() - 1  # 派发早于之后的信;同一秒内的信不算这次派发的
     try:
@@ -49,8 +51,9 @@ def letters(board) -> list[tuple]:
                            " ORDER BY id").fetchall()
 
 
-def stop(session, said="做完了") -> dict:
-    return {"session_id": session, "last_assistant_message": said, "hook_event_name": "Stop"}
+def stop(session, said="做完了", transcript=None) -> dict:
+    return {"session_id": session, "last_assistant_message": said, "hook_event_name": "Stop",
+            "transcript_path": transcript}
 
 
 def no_waiting(monkeypatch, then=lambda: None):
@@ -79,11 +82,11 @@ def test_worker_stop_sends_its_last_message_then_wakes_on_the_reply(board, monke
     assert "用方案 B,继续" in woke and "主控回话 · P-1" in woke
 
 
-def stop_worker(board, monkeypatch, said="PR 已开,测试全绿") -> str:
+def stop_worker(board, monkeypatch, said="PR 已开,测试全绿", transcript=None) -> str:
     """Let the worker stop once; return the turn letter it left for the director."""
     no_waiting(monkeypatch, then=lambda: (report.paths.state_dir() / "report-wait"
                                           / f"{WORKER}.pid").write_text("0"))
-    report.run(stop(WORKER, said))
+    report.run(stop(WORKER, said, transcript))
     return [msg for kind, msg, _, _ in letters(board) if kind == "turn"][-1]
 
 
@@ -110,25 +113,89 @@ def test_a_worker_that_said_it_waits_is_not_sent_for_review(board, monkeypatch, 
 def test_waiting_is_judged_per_turn(board, monkeypatch):
     dispatched(board)
     db.add_letter(board, "P-1", kind="blocked", msg="缺账号", session_id=WORKER)
-    db.add_letter(board, "P-1", kind="turn", msg="等账号", session_id=WORKER)
+    report.post_turn(board, "P-1", "等账号", WORKER)
     db.add_letter(board, "P-1", kind="blocked", msg="别的会话报的", session_id=STRANGER)
     # 上一轮报的阻塞、别的会话报的阻塞,都不算这一轮在等人。
     assert stop_worker(board, monkeypatch).startswith("[待 review] ")
 
 
-def test_same_second_letters_and_asks_land_in_the_right_turn(board, monkeypatch):
+def ask(board):
+    db.raise_ask(board, kind="decide", question="用 A 还是 B", evidence="两种都可行",
+                 task_ids=["P-1"], raised_by="ac:x", options=["A", "B"])
+
+
+@pytest.fixture
+def one_second(board, monkeypatch):
+    """Dispatch, then freeze the clock on the dispatch's second; returns that second."""
     dispatched(board)
     with sqlite3.connect(board) as con:
         since = con.execute("SELECT MAX(created_at) FROM task_events").fetchone()[0]
     monkeypatch.setattr(db, "_now", lambda: since)
+    return since
+
+
+def test_same_second_blocked_then_turn_does_not_carry_into_the_next_turn(board, one_second):
     db.add_letter(board, "P-1", kind="blocked", msg="和派发同一秒报的", session_id=WORKER)
-    assert report.waiting(board, "P-1", WORKER, since)
-    monkeypatch.setattr(db, "_now", lambda: since + 1)
-    db.raise_ask(board, kind="decide", question="用 A 还是 B", evidence="两种都可行",
-                 task_ids=["P-1"], raised_by="ac:x", options=["A", "B"])
-    db.add_letter(board, "P-1", kind="turn", msg="上一轮", session_id=WORKER)
-    # 和上一封 turn 信同一秒的 ask 是上一轮提的,这一轮什么也没报。
-    assert not report.waiting(board, "P-1", WORKER, since)
+    assert report.waiting(board, "P-1", WORKER, one_second, 0)
+    report.post_turn(board, "P-1", "等账号", WORKER)
+    assert not report.waiting(board, "P-1", WORKER, one_second, 0)
+
+
+def test_same_second_turn_reply_then_new_ask_counts_as_waiting(board, one_second):
+    report.post_turn(board, "P-1", "上一轮", WORKER)
+    db.add_letter(board, "P-1", kind="reply", msg="接着干", session_id=DIRECTOR)
+    ask(board)
+    assert report.waiting(board, "P-1", WORKER, one_second, 0)
+
+
+def test_same_second_ask_before_the_last_turn_belongs_to_that_turn(board, one_second):
+    ask(board)
+    report.post_turn(board, "P-1", "上一轮", WORKER)
+    assert not report.waiting(board, "P-1", WORKER, one_second, 0)
+
+
+def test_old_records_without_ask_numbers_fall_back_to_time(board, monkeypatch):
+    dispatched(board, asks=None)
+    ask(board)
+    assert stop_worker(board, monkeypatch, "等你定") == "等你定"
+
+
+def transcript(tmp_path, *lines) -> str:
+    path = tmp_path / "t.jsonl"
+    path.write_text("\n".join(json.dumps(line, ensure_ascii=False) for line in lines) + "\n",
+                    encoding="utf-8")
+    return str(path)
+
+
+def launched(tool_use_id, result):
+    return {"type": "user", "toolUseResult": result, "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": tool_use_id, "content": "started"}]}}
+
+
+def ended(tool_use_id):
+    return {"type": "queue-operation", "content": (
+        f"<task-notification>\n<task-id>x</task-id>\n<tool-use-id>{tool_use_id}</tool-use-id>\n"
+        "<status>completed</status>\n</task-notification>")}
+
+
+AGENT = {"isAsync": True, "status": "async_launched", "agentId": "a1"}
+SHELL = {"stdout": "", "stderr": "", "backgroundTaskId": "b1"}
+
+
+@pytest.mark.parametrize("lines,busy", [
+    ([launched("toolu_A", AGENT)], True),
+    ([launched("toolu_B", SHELL)], True),
+    ([launched("toolu_A", AGENT), ended("toolu_A")], False),
+    ([launched("toolu_A", AGENT), launched("toolu_B", SHELL), ended("toolu_A")], True),
+    ([launched("toolu_C", {"stdout": "ok"})], False),
+], ids=["sub-agent running", "shell running", "sub-agent finished", "one of two running",
+        "ordinary tool"])
+def test_a_worker_waiting_on_its_own_background_work_is_not_sent_for_review(
+        board, monkeypatch, tmp_path, lines, busy):
+    dispatched(board)
+    msg = stop_worker(board, monkeypatch, "等后台 reviewer", transcript(tmp_path, *lines))
+    assert msg.startswith(report.REVIEW) != busy
+    assert report.background(str(tmp_path / "missing.jsonl")) is False
 
 
 def test_director_wakes_with_the_worker_message_and_the_escalation_rule(board, monkeypatch, capsys):

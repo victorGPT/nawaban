@@ -24,7 +24,7 @@ A local `nawaban notify` is a record on the board; outside messages or notificat
 
 Each time a worker started by `dispatch` stops, the last message of its turn is sent to the session that dispatched it and wakes that session; nobody needs to watch the worker's pane or run a listener. Each message carries at most 1500 characters; longer text is truncated with a note, and the full text is in the task's notifications (`notifications --task <ID>`).
 
-Stopping counts as delivery. When the worker sent no `blocked` notification and raised no open `ask` on its task during that turn, the message starts with `[待 review]`: the worker is treated as having handed in its work, whether or not it reported `done`.
+Stopping counts as delivery. When the worker sent no `blocked` notification, raised no open `ask` on its task during that turn, and has none of its own background sub-agents or background commands still running, the message starts with `[待 review]`: the worker is treated as having handed in its work, whether or not it reported `done`.
 
 When the director receives a report:
 

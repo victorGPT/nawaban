@@ -5,8 +5,8 @@
 不依赖 Herdr 或 tmux:
 
 - worker(派发记录里的 session 是本会话)每轮停下,把这一轮最后一段话限长写成一封
-  `turn` 信,然后等主控的 `reply` 信。这一轮没报阻塞、也没提 ask,停下就是交付:
-  信前标上「待 review」,主控不用等 worker 自己报 done 就去 review;
+  `turn` 信,然后等主控的 `reply` 信。这一轮没报阻塞、没提 ask、也没有自己的后台任务
+  在跑,停下就是交付:信前标上「待 review」,主控不用等 worker 自己报 done 就去 review;
 - 主控(派发记录里的 director 是本会话)停下后,等名下 worker 的 `turn` 信;
 - 两者都不是的会话立刻退出,不写任何东西。
 
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -46,7 +47,7 @@ def clip(text: str, room: int = LIMIT) -> str:
 def roles(path: Path, session: str) -> tuple[dict[str, tuple], dict[str, tuple]]:
     """本会话在哪些卡上是 worker、在哪些卡上是主控;只认还没收工的派发。
 
-    返回 (worker 卡 → (主控会话, 派发时刻), 主控卡 → (worker 会话, 派发时刻))。
+    返回 (worker 卡 → (主控会话, 派发时刻, 派发时最大的 ask 编号), 主控卡 → (worker 会话, 派发时刻))。
     """
     with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as con:
         rows = con.execute(
@@ -63,31 +64,86 @@ def roles(path: Path, session: str) -> tuple[dict[str, tuple], dict[str, tuple]]
         if not record.get("director"):
             continue  # 没记主控的旧派发:没有人等这些话,不送
         if record.get("session") == session:
-            working[task_id] = (record["director"], since)
+            working[task_id] = (record["director"], since, record.get("asks"))
         elif record["director"] == session and record.get("session"):
             directing[task_id] = (record["session"], since)
     return working, directing
 
 
-def waiting(path: Path, task_id: str, session: str, since: int) -> bool:
+def _asks_mark(provenance: str | None) -> int | None:
+    try:
+        return int(json.loads(provenance)["asks"])
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def post_turn(path: Path, task_id: str, msg: str, session: str) -> None:
+    """写一封 turn 信,并记下此刻最大的 ask 编号:下一轮凭它分清哪些 ask 是之后提的。
+
+    worker 已经停下,记编号和写信之间它提不了新的 ask。
+    """
+    with closing(sqlite3.connect(path, timeout=5)) as con:
+        mark = con.execute("SELECT COALESCE(MAX(id), 0) FROM asks").fetchone()[0]
+    letter = db.add_letter(path, task_id, kind="turn", msg=msg, session_id=session)
+    with closing(sqlite3.connect(path, timeout=5)) as con, con:
+        con.execute("UPDATE letters SET provenance=? WHERE id=?",
+                    (json.dumps({"asks": mark}), letter))
+
+
+def waiting(path: Path, task_id: str, session: str, since: int, mark: int | None) -> bool:
     """worker 这一轮有没有说自己在等人:报了 blocked,或者卡上有这一轮提的、还没关的 ask。
 
-    这一轮从它上一封 turn 信算起;这次派发还没写过 turn 信,就从派发时刻算起。
-    时间只到秒:和上一封 turn 信同一秒提的 ask 属于上一轮(新一轮要等主控回话才开始),
-    和派发同一秒的信与 ask 属于这次派发。
+    这一轮从它上一封 turn 信算起,没有就从派发算起;先后按编号判,不按只到秒的时间:
+    blocked 比上一封 turn 信的编号大,ask 比上一封 turn 信(或派发记录)记下的 ask 编号大。
+    没记编号的旧信和旧派发才退回按时间判。worker 会话是这次派发起的,它的信都在派发之后。
     """
     with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as con:
-        last_id, last_at = con.execute(
-            "SELECT MAX(id), MAX(created_at) FROM letters WHERE task_id=? AND kind='turn'"
-            " AND session_id=? AND created_at>?", (task_id, session, since)).fetchone()
+        last = con.execute(
+            "SELECT id, created_at, provenance FROM letters WHERE task_id=? AND kind='turn'"
+            " AND session_id=? AND created_at>=? ORDER BY id DESC LIMIT 1",
+            (task_id, session, since)).fetchone()
         blocked = con.execute(
             "SELECT 1 FROM letters WHERE task_id=? AND kind='blocked' AND session_id=?"
-            " AND id>? AND created_at>=?", (task_id, session, last_id or 0, since)).fetchone()
+            " AND id>? AND created_at>=?", (task_id, session, last[0] if last else 0, since)
+        ).fetchone()
+        if last:
+            mark = _asks_mark(last[2])
+        after = (("a.id>?", mark) if mark is not None
+                 else ("a.raised_at>?", last[1]) if last else ("a.raised_at>=?", since))
         asked = con.execute(
             "SELECT 1 FROM asks a JOIN ask_tasks t ON t.ask_id=a.id WHERE t.task_id=?"
-            " AND a.closed_at IS NULL AND " + ("a.raised_at>?" if last_id else "a.raised_at>=?"),
-            (task_id, last_at if last_id else since)).fetchone()
+            f" AND a.closed_at IS NULL AND {after[0]}", (task_id, after[1])).fetchone()
     return bool(blocked or asked)
+
+
+def background(transcript: str | None) -> bool:
+    """会话自己起的后台任务(后台子 agent、后台命令)还有没跑完的:那是在等机器,不是交付。
+
+    后台启动成功的工具结果带 async_launched 或 backgroundTaskId;任务结束时会话收到
+    一条 <task-notification>,里面写着启动它的 tool-use-id。读不了 transcript 就当没有。
+    """
+    launched, ended = set(), set()
+    try:
+        with open(transcript or "", encoding="utf-8") as lines:
+            for line in lines:
+                if "<task-notification>" in line:
+                    ended.update(re.findall(r"<tool-use-id>([^<]+)</tool-use-id>", line))
+                if "async_launched" not in line and "backgroundTaskId" not in line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                result = entry.get("toolUseResult")
+                if not isinstance(result, dict) or not (
+                        result.get("status") == "async_launched" or result.get("backgroundTaskId")):
+                    continue
+                content = (entry.get("message") or {}).get("content")
+                launched.update(block.get("tool_use_id") for block in content or []
+                                if isinstance(block, dict) and block.get("type") == "tool_result")
+    except OSError:
+        return False
+    return bool(launched - ended - {None})
 
 
 def take(path: Path, wanted: dict[str, tuple]) -> list[tuple[str, str]]:
@@ -132,7 +188,7 @@ def _render(path: Path, got: list[tuple[str, str]], working: dict[str, tuple],
                      f" 这一轮的最后一段话,自动送达,不是用户输入):\n{msg}")
     if any(msg.startswith(REVIEW) for _, msg in reports):
         lines.append(
-            f"{REVIEW.strip()}:worker 这一轮停下、没报阻塞也没提 ask,按协议就是交付了,不用等它报 done。"
+            f"{REVIEW.strip()}:worker 这一轮停下、没报阻塞、没提 ask、也没有后台任务在跑,按协议就是交付了,不用等它报 done。"
             f"去 python3 {_CLI} --db {path} context <卡号> 看它的提交和 PR,照验收判据逐条 review:"
             "过了按合并流程走,不过就回话打回。卡要 done 仍然要 merge_sha。")
     if reports:
@@ -169,10 +225,11 @@ def run(payload: dict) -> int:
 
     said = (payload.get("last_assistant_message") or "").strip()
     if said:
-        for task_id, (_, since) in working.items():
-            msg = (clip(said) if waiting(path, task_id, session, since)
+        busy = background(payload.get("transcript_path"))
+        for task_id, (_, since, asks) in working.items():
+            msg = (clip(said) if busy or waiting(path, task_id, session, since, asks)
                    else REVIEW + clip(said, LIMIT - len(REVIEW)))
-            db.add_letter(path, task_id, kind="turn", msg=msg, session_id=session)
+            post_turn(path, task_id, msg, session)
 
     # 每次停下都会起一个等待者;只留最新的那个,旧的看到记号换了就退出。
     mark = paths.state_dir() / "report-wait" / f"{session}.pid"
@@ -180,7 +237,7 @@ def run(payload: dict) -> int:
     mark.write_text(str(os.getpid()), encoding="utf-8")
     try:
         while working or directing:
-            wanted = {**{t: ("reply", *peer) for t, peer in working.items()},
+            wanted = {**{t: ("reply", *peer[:2]) for t, peer in working.items()},
                       **{t: ("turn", *peer) for t, peer in directing.items()}}
             if got := take(path, wanted):
                 print(_render(path, got, working, directing), file=sys.stderr)

@@ -21,6 +21,7 @@ class Backend:
     def __init__(self, root: Path, *, fail=(), stderr="boom", dirty="", unpushed=""):
         self.root, self.fail, self.stderr, self.registers = root, fail, stderr, True
         self.dirty, self.unpushed = dirty, unpushed
+        self.agents_out = None  # 设了就让 `claude agents --json` 原样输出它
         self.calls: list[list[str]] = []
         self.sessions: list[dict] = []
 
@@ -34,7 +35,7 @@ class Backend:
             self.registers and self.sessions.append({"name": name, "sessionId": SID,
                                   "cwd": str(self.root / ".claude/worktrees" / name)})
         elif cmd[:2] == ["claude", "agents"]:
-            out = json.dumps(self.sessions)
+            out = json.dumps(self.sessions) if self.agents_out is None else self.agents_out
         elif cmd[:3] == ["herdr", "tab", "create"]:
             out = json.dumps({"result": {"root_pane": {"pane_id": "w1:p9"},
                                          "tab": {"tab_id": "w1:t9"}}})
@@ -221,6 +222,29 @@ def test_the_limit_counts_only_live_undismissed_workers(six, backend, monkeypatc
     assert run(six, "dispatch", "P-5") == 1  # P-1、P-4 活着,到上限 2
     db.add_event(six, "P-1", kind="coord", author="t", body="dismiss · 已停")
     assert run(six, "dispatch", "P-5") == 0  # 收工一张就腾出名额
+
+
+@pytest.mark.parametrize("broken", ["exit 1", "empty", "bad json", "not a list"])
+def test_when_live_workers_cannot_be_listed_the_limit_stays_full(six, backend, capsys, broken):
+    if broken == "exit 1":
+        backend.fail = (("claude", "agents"),)
+    else:
+        backend.agents_out = {"empty": "", "bad json": "[{", "not a list": '{"a": 1}'}[broken]
+    assert run(six, "dispatch", "P-1") == 1
+    assert "查不到哪些 worker 还活着" in capsys.readouterr().err
+    assert not backend.launched
+    assert task(six, "P-1")["now"].startswith("排队等派发:查不到哪些 worker 还活着")
+    assert run(six, "dispatch", "--parent", "P", "--dry-run") == 0
+    assert "会派出" not in capsys.readouterr().out
+
+
+def test_the_dispatch_record_notes_the_latest_ask(board, backend):
+    db.raise_ask(board, kind="decide", question="旧问题", evidence="材料", task_ids=["P-1"],
+                 raised_by="ac:x", options=["A", "B"])
+    assert run(board, "dispatch", "P-1") == 0
+    with sqlite3.connect(board) as con:
+        [(body,)] = con.execute("SELECT body FROM task_events WHERE body LIKE 'dispatch {%'")
+    assert json.loads(body[len("dispatch "):])["asks"] == 1
 
 
 def test_a_successor_brief_carries_its_prerequisite_s_output(board, backend):

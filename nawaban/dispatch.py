@@ -83,11 +83,14 @@ def _repo_root() -> Path:
     return Path(found.stdout.strip()).parent
 
 
-def _agents() -> list[dict]:
+def _agents() -> list[dict] | None:
+    """活着的会话;查不了(命令失败、没有输出、不是 JSON 列表)返回 None。"""
+    got = _run("claude", "agents", "--json")
     try:
-        return json.loads(_run("claude", "agents", "--json").stdout or "[]")
+        listed = json.loads(got.stdout)
     except ValueError:
-        return []
+        return None
+    return listed if not got.returncode and isinstance(listed, list) else None
 
 
 def _session(name: str, *, tries: int = 1) -> dict | None:
@@ -95,7 +98,7 @@ def _session(name: str, *, tries: int = 1) -> dict | None:
     for attempt in range(tries):
         if attempt:
             time.sleep(1)
-        for entry in _agents():
+        for entry in _agents() or []:
             if entry.get("name") == name:
                 return entry
     return None
@@ -110,7 +113,11 @@ def _full(con: sqlite3.Connection, coming: int = 0) -> str | None:
     主控是一条一条派的,真有多个主控同时派再加文件锁。
     """
     limit = int(os.environ.get("NAWABAN_MAX_WORKERS") or MAX_WORKERS)
-    live = {entry.get("name") for entry in _agents()}
+    agents = _agents()
+    if agents is None:
+        # 查不到就不知道在跑几个:按满了算,不能因为查询失败把上限放开。
+        return f"查不到哪些 worker 还活着(claude agents --json 没给出会话列表),按上限 {limit} 个已满处理"
+    live = {entry.get("name") for entry in agents if isinstance(entry, dict)}
     running = [task_id for (task_id,) in con.execute(
         "SELECT task_id FROM task_events WHERE id IN ("
         " SELECT MAX(id) FROM task_events WHERE kind='coord'"
@@ -240,6 +247,8 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
         raise db.NawabanError(f"不派 {task_id}:已经有一个叫 {name} 的会话在跑")
     with closing(_connect(path)) as con:
         full = _full(con)
+        # 起会话之前的 ask 编号:worker 第一轮提没提 ask 按它判(hooks/worker_report.py)。
+        asks = con.execute("SELECT COALESCE(MAX(id), 0) FROM asks").fetchone()[0]
     if full:
         # 没有自动出队:收工腾出名额后由主控再派,卡上记下为什么还没派。
         db.add_event(path, task_id, kind="coord", author=author, body="queued · " + full,
@@ -268,7 +277,7 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
     # director = 派它的会话:worker 每轮停下的话凭它送回来(hooks/worker_report.py)。
     record = {"backend": "herdr" if pane else "claude-bg", "session": live.get("sessionId"),
               "pane": pane, "tab": tab, "worktree": worktree, "root": str(root),
-              "director": os.environ.get("CLAUDE_CODE_SESSION_ID")}
+              "director": os.environ.get("CLAUDE_CODE_SESSION_ID"), "asks": asks}
     where = f"tab {tab} 窗格 {pane}" if pane else "后台"
     try:
         db.add_event(path, task_id, kind="coord", author=author,
