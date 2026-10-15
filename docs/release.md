@@ -18,7 +18,7 @@ Tested in an isolated `CLAUDE_CONFIG_DIR`, with the marketplace added as `victor
 
 So a release for other users is:
 
-1. In the PR that should reach them, raise `version` in `.claude-plugin/plugin.json` (patch for fixes, minor for new behaviour).
+1. In the PR that should reach them, raise `version` to the same value in both `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` (patch for fixes, minor for new behaviour).
 2. After it merges, users run `claude plugin marketplace update nawaban && claude plugin update nawaban@nawaban`, then start a new session.
 
 A user who needs code merged without a version bump can run `claude plugin uninstall nawaban@nawaban && claude plugin install nawaban@nawaban`.
