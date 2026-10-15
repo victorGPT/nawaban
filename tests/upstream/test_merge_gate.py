@@ -17,8 +17,14 @@ def test_merge_gate() -> None:
         gh.write_text(
             f"#!{sys.executable}\n"
             "import json, os, sys\n"
-            "with open(os.environ['GH_CALLS'], 'a') as f: f.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            "with open(os.environ['GH_CALLS'], 'a') as f:\n"
+            " f.write(json.dumps([os.environ.get('GH_TOKEN', '-')] + sys.argv[1:]) + '\\n')\n"
             "scenario = os.environ['GH_SCENARIO']\n"
+            "if sys.argv[1:4] == ['auth', 'token', '--user']:\n"
+            " if sys.argv[4] == 'ghost': sys.exit(1)\n"
+            " print('tok-' + sys.argv[4]); sys.exit(0)\n"
+            "if sys.argv[1:3] == ['auth', 'status']: print('work-acct'); sys.exit(0)\n"
+            "if scenario == 'private' and os.environ.get('GH_TOKEN') != 'tok-owner': sys.exit(1)\n"
             "if scenario == 'error': sys.exit(1)\n"
             "if scenario == 'malformed': print('not JSON'); sys.exit(0)\n"
             "if scenario == 'invalid_bytes': sys.stdout.buffer.write(b'\\xff'); sys.exit(0)\n"
@@ -82,7 +88,7 @@ def test_merge_gate() -> None:
                         "gh \\\npr merge 1"):
             check(command, "pending", 2, "Test")
         query = check("gh -R ac/repo pr merge 1 --body 'text gh pr merge 2' --squash")[0]
-        assert query[:5] == ["pr", "view", "-R", "ac/repo", "1"], query
+        assert query[1:6] == ["pr", "view", "-R", "ac/repo", "1"], query
         query = check("gh pr merge https://github.com/ac/repo/pull/1 --repo=ac/repo --squash")[0]
         assert "--repo=ac/repo" in query
         assert len(check("gh pr merge --squash")) == 2
@@ -91,6 +97,20 @@ def test_merge_gate() -> None:
                         "gh pr merge $PR", "gh pr merge 1\necho '",
                         "gh pr checks 1 --watch  # wait\ngh pr merge 1 --squash",
                         "echo '<<EOF'\ngh pr merge 1", "echo hi # <<EOF\ngh pr merge 1"):
+            assert check(command, expected=2, needle="单独运行") == []
+        # 仓库只有某个 gh 账号看得见:带账号前缀的一条命令用该账号查询,全局活跃账号不动。
+        as_owner = "GH_TOKEN=$(gh auth token --user owner) gh pr merge 1 -R ac/repo --squash"
+        check("gh pr merge 1 -R ac/repo", "private", 2, "gh 当前活跃账号 work-acct")
+        check("gh pr merge 1 -R ac/repo", "private", 2, "GH_TOKEN=$(gh auth token --user <账号>)")
+        calls_made = check(as_owner, "private")
+        assert [c[1:3] for c in calls_made] == [["auth", "token"], ["pr", "view"], ["api", "--hostname"]]
+        assert [c[0] for c in calls_made[1:]] == ["tok-owner", "tok-owner"], calls_made
+        check(as_owner.replace("owner", "other"), "private", 2, "gh 账号 other")
+        assert check(as_owner.replace("owner", "ghost"), expected=2, needle="没有登录账号 ghost")[1:] == []
+        for command in (as_owner + "; echo done", "GH_TOKEN=tok gh pr merge 1",
+                        "GH_TOKEN=$(cat /tmp/tok) gh pr merge 1",
+                        "GH_TOKEN=$(gh auth token --user owner) GH_REPO=x/y gh pr merge 1",
+                        "echo hi\n" + as_owner):
             assert check(command, expected=2, needle="单独运行") == []
     print("merge gate OK")
 

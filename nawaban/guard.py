@@ -360,16 +360,48 @@ def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
                          f"--match-head-commit {head}")
 
 
-def _github(args: list[str], cwd: str) -> dict[str, Any]:
+# 唯一放行的前缀:这一条合并用指定账号,不切全局 gh 账号;闸用同一账号查询。
+_ACCOUNT_PREFIX = re.compile(r"\A[ \t]*GH_TOKEN=\$\(gh auth token --user ([A-Za-z0-9-]+)\)[ \t]+")
+_ACCOUNT_HINT = ("这个仓库要用别的 gh 账号的话,单独运行:GH_TOKEN=$(gh auth token --user <账号>) "
+                 "gh pr merge <PR> -R <OWNER/REPO> --match-head-commit <SHA>")
+
+
+def _account_env(account: str) -> dict[str, str]:
+    try:
+        proc = subprocess.run(["gh", "auth", "token", "--user", account],
+                              capture_output=True, text=True, timeout=2)
+    except (OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
+        raise Unverified(f"取不到 gh 账号 {account} 的 token:{type(exc).__name__}") from exc
+    token = proc.stdout.strip()
+    if proc.returncode or not token:
+        raise Unverified(f"本机 gh 没有登录账号 {account}(gh auth token --user {account} 失败)")
+    return {**os.environ, "GH_TOKEN": token}
+
+
+def _active_account() -> str:
+    try:
+        proc = subprocess.run(["gh", "auth", "status", "--active", "--json", "hosts",
+                               "--jq", ".hosts[][].login"],
+                              capture_output=True, text=True, timeout=2)
+        login = proc.stdout.split()[0] if not proc.returncode and proc.stdout.split() else ""
+    except (OSError, UnicodeError, subprocess.TimeoutExpired):
+        login = ""
+    return f"gh 当前活跃账号 {login}" if login else "gh 当前活跃账号(名字没查到)"
+
+
+def _github(args: list[str], cwd: str, account: str | None = None,
+            env: dict[str, str] | None = None) -> dict[str, Any]:
     # Two requests of at most three seconds fit the installed ten-second hook.
     try:
         proc = subprocess.run(["gh", *args], cwd=cwd, capture_output=True,
-                              text=True, timeout=3)
+                              text=True, timeout=3, env=env)
+        failure = None if not proc.returncode else f"failed (exit {proc.returncode})"
     except (OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
-        raise Unverified(f"GitHub query unavailable: {type(exc).__name__}") from exc
-    if proc.returncode:
+        failure = f"unavailable: {type(exc).__name__}"
+    if failure:
         # Do not echo CLI stderr: it may include credentials or private URLs.
-        raise Unverified(f"GitHub query failed (exit {proc.returncode})")
+        who = f"gh 账号 {account}" if account else _active_account() + "\n" + _ACCOUNT_HINT
+        raise Unverified(f"GitHub query {failure} · 查询用的是 {who}")
     try:
         value = json.loads(proc.stdout)
     except ValueError as exc:
@@ -400,6 +432,8 @@ class _ShellInput:
 
 def judge_merge(command: str, cwd: str) -> tuple[int, str]:
     body = _strip_heredoc_bodies(command.replace("\\\n", ""))
+    account = (m := _ACCOUNT_PREFIX.match(body)) and m.group(1)
+    body = body[m.end():] if m else body
     lexer = shlex.shlex(_ShellInput(body), posix=True, punctuation_chars=";&|()\n")
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
@@ -429,7 +463,9 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
         args = merges[0]
         if any("$" in arg or "`" in arg for arg in args):
             raise Unverified(retry)
-        pr = _github(_view_args(args) + ["--json", "statusCheckRollup,headRefOid,url"], cwd)
+        env = _account_env(account) if account else None
+        pr = _github(_view_args(args) + ["--json", "statusCheckRollup,headRefOid,url"],
+                     cwd, account, env)
         checks = pr["statusCheckRollup"]
         if not isinstance(checks, list) or not checks:
             raise Unverified("PR checks 为空，不能证明 CI 已绿；运行 gh pr checks <PR> --watch。")
@@ -448,7 +484,8 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
         if len(parts) != 4 or parts[2] != "pull" or not re.fullmatch(r"[0-9a-f]{40}", head):
             raise Unverified("GitHub PR identity is incomplete")
         compare = _github(["api", "--hostname", url.netloc,
-                           f"repos/{parts[0]}/{parts[1]}/compare/main...{head}"], cwd)
+                           f"repos/{parts[0]}/{parts[1]}/compare/main...{head}"],
+                          cwd, account, env)
         main = compare["base_commit"]["sha"]
         if not main or compare["merge_base_commit"]["sha"] != main:
             raise Unverified("PR base 落后 main；运行 "
