@@ -24,12 +24,15 @@ A local `nawaban notify` is a record on the board; outside messages or notificat
 
 Each time a worker started by `dispatch` stops, the last message of its turn is sent to the session that dispatched it and wakes that session; nobody needs to watch the worker's pane or run a listener. Each message carries at most 1500 characters; longer text is truncated with a note, and the full text is in the task's notifications (`notifications --task <ID>`).
 
+Stopping counts as delivery. When the worker sent no `blocked` notification, raised no open `ask` on its task during that turn, and has none of its own background sub-agents or background commands still running, the message starts with `[待 review]`: the worker is treated as having handed in its work, whether or not it reported `done`.
+
 When the director receives a report:
 
+- `[待 review]`: review the worker's commits and PR against the task's `success` now, without waiting for a `done` notification; send it back with a reply when something fails. Review is not completion: the task still reaches done only with a `merge_sha`.
 - Progress or completion only: no reply needed. Whether the task is done is still decided by its status and its `done` notification.
 - The worker left a question the director can settle (implementation choice, a trade-off inside scope, which step comes first, whether to wait for a check): reply with `nawaban --db <target db> notify <ID> --kind reply --msg "<decision and reason>"`. The worker wakes up and continues.
 - A product-semantics fork, an external commitment, or a production release: the director does not answer these. It hands the material to the user through `ask`, then tells the worker the question went to the user and to do the work that does not depend on it.
 
-On the worker side: put whatever the director must decide in the last message before stopping, with your recommendation, and stop instead of waiting in the pane. The director's reply appears directly in the worker's session.
+On the worker side: to wait for an answer, first send a `blocked` notification (or raise an `ask` for the user), then put whatever the director must decide in the last message before stopping, with your recommendation, and stop instead of waiting in the pane. Stopping without either means you delivered. The director's reply appears directly in the worker's session.
 
 Reports are sent only for workers whose dispatch record names a director session, and a reply is accepted only from the session that dispatched the worker; a session the user opened sends nothing when it stops. After `dismiss`, nothing is sent and nothing waits. If the director session changes (the window was reopened), it no longer receives the old workers' reports; read the task's notifications instead.
