@@ -47,7 +47,7 @@ def merge(monkeypatch, tmp_path, command, head=REVIEWED):
             return {"statusCheckRollup": [{"name": "t", "status": "COMPLETED",
                                            "conclusion": "SUCCESS"}],
                     "headRefOid": head, "url": PR}
-        return {"ahead_by": 0, "commits": []}
+        return {"ahead_by": 0, "commits": [], "runs": []}
     monkeypatch.setattr(guard, "_github", github)
     return guard.judge_merge(command, str(tmp_path))
 
@@ -180,7 +180,7 @@ def test_which_tasks_refer_to_the_pr(tmp_path, monkeypatch, project, refs, statu
         {"statusCheckRollup": [{"name": "t", "status": "COMPLETED", "conclusion": "SUCCESS"}],
          "headRefOid": REVIEWED, "url": REPO39}
         if args[:2] == ["pr", "view"] else
-        {"ahead_by": 0, "commits": []}))
+        {"ahead_by": 0, "commits": [], "runs": []}))
     code, msg = guard.judge_merge("gh pr merge 39 -R ac/repo --squash", str(tmp_path))
     assert (code == 2 and "P-2" in msg and "没有 review 结论" in msg) if blocked else \
         (code, msg) == (0, "")
@@ -374,7 +374,7 @@ def merge_without_checks(monkeypatch, tmp_path, command, *, main=None, head=None
             assert args[2:4] == ["--hostname", "github.com"]
             return {"data": {"repository": {"main": tree("main", args),
                                             "head": tree("head", args)}}}
-        return {"ahead_by": 0, "commits": []}
+        return {"ahead_by": 0, "commits": [], "runs": []}
     monkeypatch.setattr(guard, "_github", github)
     return guard.judge_merge(command, str(tmp_path))
 
@@ -421,6 +421,7 @@ def test_slow_github_blocks_within_the_hook_timeout(board, tmp_path, monkeypatch
         "  'auth token') sleep 1; echo tok ;;\n"
         f"  'pr view') sleep 1; echo '{view}' ;;\n"
         "  'api graphql') exec sleep 30 ;;\n"
+        "  'run list') echo '{\"runs\": []}' ;;\n"
         f"  *) sleep 1; echo '{compare}' ;;\n"
         "esac\n")
     (bin_dir / "gh").chmod(0o755)
@@ -484,7 +485,7 @@ def test_workflow_query_failure_blocks_empty_checks(board, tmp_path, monkeypatch
             raise guard.Unverified("GitHub query failed (exit 1)")
         return {"statusCheckRollup": [], "headRefOid": REVIEWED, "headRefName": "feature",
                 "baseRefName": "main",
-                "url": PR, "ahead_by": 0, "commits": []}
+                "url": PR, "ahead_by": 0, "commits": [], "runs": []}
     monkeypatch.setattr(guard, "_github", github)
     code, msg = guard.judge_merge(LOCKED, str(tmp_path))
     assert code == 2 and "GitHub query failed" in msg
