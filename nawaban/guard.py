@@ -14,10 +14,13 @@ md 版 foreman_guard.py 自此退役未接线。注意:无 nawaban.db 的仓本 
 - nawaban.db 不存在 → no-op(该仓未切换到新板;md 卡仓不受伤)。
 
 merge gate pr checks regression: identified Bash `gh pr merge` calls require all checks
-SUCCESS and a head containing remote main, even without a board. No identity is
-still a no-op; failed queries deny. Empty checks deny unless neither main nor the
-PR head has a workflow that runs on PRs and a task's passing review is locked
-(NAWABAN-NOCI-GATE-001). Queries are read-only;
+SUCCESS and a head containing remote main (a behind PR passes only when main's new
+commits cannot change its CI), even without a board. No identity is
+still a no-op; failed queries deny. Empty checks deny unless neither the PR's base
+branch nor the PR head has a workflow that runs on PRs and a task's passing review
+is locked (NAWABAN-NOCI-GATE-001). The behind check compares the head with main,
+not the base branch, on purpose: a PR into an integration branch is also checked
+against the latest main. Queries are read-only;
 compound commands must be split. Scripts/eval/API merges and direct pushes are
 outside coverage. Post-preflight races still require server-side protection.
 
