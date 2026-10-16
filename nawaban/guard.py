@@ -678,8 +678,9 @@ def judge_merge(command: str, cwd: str, deadline: float | None = None) -> tuple[
 def _main_red(host: str, owner: str, repo: str, cwd: str, account: str | None,
               env: dict[str, str] | None, deadline: float) -> None:
     """main 上 push 触发的 workflow 有红的 → raise,冻结合并(修复 PR 由调用方放行,不走这里)。"""
+    # --event push 在服务端过滤:部署后验证这类 workflow_run 能占满最近 50 条,本地再筛会看不见红。
     data = _github(["run", "list", "-R", f"{host}/{owner}/{repo}", "--branch", "main",
-                    "--limit", "50", "--json",
+                    "--event", "push", "--limit", "50", "--json",
                     "workflowName,status,conclusion,headSha,url,createdAt,event",
                     "--jq", "{runs: .}"], cwd, account, env, deadline)
     runs = data.get("runs")
