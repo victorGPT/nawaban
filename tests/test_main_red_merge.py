@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from nawaban import guard  # noqa: E402
@@ -68,7 +70,24 @@ def test_failed_run_list_query_blocks(monkeypatch, tmp_path):
     assert code == 2 and "GitHub query failed" in msg
 
 
-def test_malformed_run_list_blocks(monkeypatch, tmp_path):
-    code, msg = merge(monkeypatch, tmp_path, [{"workflowName": "test", "status": "completed",
-                                               "conclusion": "failure", "event": "push"}])
+def test_same_named_workflows_are_told_apart_by_id(monkeypatch, tmp_path):
+    runs = [{**run("CI", "success", n=2), "workflowDatabaseId": 20},
+            {**run("CI", "failure", n=1), "workflowDatabaseId": 10}]
+    code, msg = merge(monkeypatch, tmp_path, runs)
+    assert code == 2 and "CI: https://github.com/ac/repo/actions/runs/1" in msg
+
+
+def test_rerun_in_progress_stays_frozen(monkeypatch, tmp_path):
+    rerun = {**run("test", "", n=2), "status": "in_progress", "attempt": 2, "workflowDatabaseId": 10}
+    code, msg = merge(monkeypatch, tmp_path, [rerun, {**run("test", "success", n=1), "workflowDatabaseId": 10}])
+    assert code == 2 and "main 上 test 正在重跑，等结论" in msg and "actions/runs/2" in msg
+
+
+@pytest.mark.parametrize("runs", [
+    [{"workflowName": "test", "status": "completed", "conclusion": "failure", "event": "push"}],
+    [{}],
+    [{"event": "push", "workflowName": "CI", "conclusion": "failure"}],
+])
+def test_malformed_run_list_blocks(monkeypatch, tmp_path, runs):
+    code, msg = merge(monkeypatch, tmp_path, runs)
     assert code == 2 and "形状不对" in msg

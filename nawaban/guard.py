@@ -681,20 +681,25 @@ def _main_red(host: str, owner: str, repo: str, cwd: str, account: str | None,
     # --event push 在服务端过滤:部署后验证这类 workflow_run 能占满最近 50 条,本地再筛会看不见红。
     data = _github(["run", "list", "-R", f"{host}/{owner}/{repo}", "--branch", "main",
                     "--event", "push", "--limit", "50", "--json",
-                    "workflowName,status,conclusion,headSha,url,createdAt,event",
+                    "workflowName,workflowDatabaseId,databaseId,attempt,status,conclusion,"
+                    "headSha,url,createdAt,event",
                     "--jq", "{runs: .}"], cwd, account, env, deadline)
     runs = data.get("runs")
     shape = "main CI 查询结果形状不对，不能确认 main 是否红着；稍后重试合并。"
-    if not isinstance(runs, list) or not all(isinstance(run, dict) for run in runs):
+    if not isinstance(runs, list) or not all(
+            isinstance(run, dict) and all(run.get(k) for k in ("event", "status", "url", "createdAt"))
+            and (run.get("workflowName") or run.get("workflowDatabaseId")) for run in runs):
         raise Unverified(shape)
     try:
         # 只认 push 触发的:定时拨测、部署后验证(workflow_run)、手动触发的失败不冻结合并。
-        red = main_ci.red_runs([run for run in runs if run.get("event") == "push"])
+        red = main_ci.red_runs([run for run in runs if run.get("event") == "push"], rerun_is_red=True)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise Unverified(shape) from exc
     if red:
         raise Unverified("main 红着，冻结合并(修复 PR 除外):\n"
-                         + "".join(f"  {r['workflow']}: {r['url']}\n" for r in red)
+                         + "".join(f"  main 上 {r['workflow']} 正在重跑，等结论:{r['url']}\n"
+                                   if r.get("rerunning") else f"  {r['workflow']}: {r['url']}\n"
+                                   for r in red)
                          + "放行办法：修复 PR 的标题以 Revert 开头，或给它打 main-fix 标签;"
                          "或在 main 上重跑失败的 workflow,转绿后再合并。")
 

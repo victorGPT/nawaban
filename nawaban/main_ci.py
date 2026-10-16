@@ -27,25 +27,34 @@ def state_file(state_dir: Path, project: str) -> Path:
     return state_dir / "main-ci" / f"{project}.json"
 
 
-def red_runs(runs: list[dict]) -> list[dict]:
+def red_runs(runs: list[dict], rerun_is_red: bool = False) -> list[dict]:
     """``gh run list`` 结果(新→旧)→ 每个仍红着的 workflow 及其连续失败段的起点。
 
     起点取连续失败的最早一次：修复卡在第一次变红之后建，后面的红 run 不应再次停线。
     失败一直延续到列表末尾(没见到更早的成功)时起点未知，记 0:任何未完成修复卡都算数。
+    按 workflowDatabaseId 分组(同名的两个 workflow 互不掩盖),没有该字段时退回 workflowName。
+    rerun_is_red(合并闸用):未完成且 attempt>1 的 run 是在重跑，结论未知，按红记并带 rerunning。
     """
-    red: dict[str, dict] = {}
-    settled: set[str] = set()
+    red: dict[str | int, dict] = {}
+    settled: set[str | int] = set()
     for run in runs:
         name = run.get("workflowName") or ""
-        if name in settled or run.get("status") != "completed":
+        key = run.get("workflowDatabaseId") or name
+        if key in settled:
+            continue
+        if run.get("status") != "completed":
+            if rerun_is_red and (run.get("attempt") or 1) > 1 and key not in red:
+                red[key] = {"workflow": name, "url": run["url"], "head_sha": run["headSha"],
+                            "since": 0, "rerunning": True}
+                settled.add(key)
             continue
         if run.get("conclusion") in SETTLED:
-            settled.add(name)
+            settled.add(key)
         elif run.get("conclusion") in FAILED:
-            entry = red.setdefault(name, {"workflow": name, "url": run["url"], "head_sha": run["headSha"]})
+            entry = red.setdefault(key, {"workflow": name, "url": run["url"], "head_sha": run["headSha"]})
             entry["since"] = int(datetime.fromisoformat(run["createdAt"].replace("Z", "+00:00")).timestamp())
-    for name, entry in red.items():
-        if name not in settled:
+    for key, entry in red.items():
+        if key not in settled:
             entry["since"] = 0
     return list(red.values())
 
@@ -54,7 +63,7 @@ def check(repo: Path) -> dict:
     try:
         out = subprocess.run(
             ["gh", "run", "list", "--branch", "main", "--limit", "30",
-             "--json", "workflowName,status,conclusion,headSha,url,createdAt"],
+             "--json", "workflowName,workflowDatabaseId,status,conclusion,headSha,url,createdAt"],
             cwd=repo, capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as e:
         return {"checked_at": int(time.time()), "error": f"{type(e).__name__}: {e}"}
