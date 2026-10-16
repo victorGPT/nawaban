@@ -372,7 +372,8 @@ main:object(expression:$main){...W} head:object(expression:$head){...W}}}
 fragment W on GitObject{... on Tree{entries{name object{... on Blob{text}}}}}"""
 
 
-_PLAIN_NAME = re.compile(r"[A-Za-z0-9_./-]+")
+# 普通名字,可带一对成对的引号;引号只去这一对,名字里的引号字符过不了这条
+_PLAIN_NAME = re.compile(r"""(["']?)([A-Za-z0-9_./-]+)\1""")
 
 
 def _yaml_items(value: str) -> list[str] | None:
@@ -382,8 +383,8 @@ def _yaml_items(value: str) -> list[str] | None:
         if not value.endswith("]"):
             return None
         value = value[1:-1]
-    items = [v.strip().strip("'\"") for v in value.split(",") if v.strip()]
-    return items if all(_PLAIN_NAME.fullmatch(v) for v in items) else None
+    names = [_PLAIN_NAME.fullmatch(v.strip()) for v in value.split(",") if v.strip()]
+    return [m.group(2) for m in names] if all(names) else None
 
 
 def _runs_on_pr(text: str | None, branch: str) -> bool:
@@ -430,9 +431,11 @@ def _runs_on_pr(text: str | None, branch: str) -> bool:
             return True
         patterns = _yaml_items(body[branches].partition(":")[2])
         for c in body[branches + 1:]:
-            if not c.startswith("- ") or patterns is None:
+            if not c.startswith("-") or patterns is None:
                 break
-            patterns = (items := _yaml_items(c[2:])) and patterns + items
+            # `-` 后不是空格(如 tab)读不准,当读不懂
+            items = _yaml_items(c[2:]) if c.startswith("- ") else None
+            patterns = None if items is None else patterns + items
         # 通配和转义过不了 _yaml_items,只剩普通分支名可比
         if not patterns or branch in patterns:
             return True
