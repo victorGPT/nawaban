@@ -498,7 +498,8 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
                           cwd, account, env)
 
         def pr_files() -> Any:
-            left = _MERGE_BUDGET - (time.monotonic() - start)
+            # 没指定账号时，查询失败还要花至多 2 秒查活跃账号名，也得算进预算。
+            left = _MERGE_BUDGET - (time.monotonic() - start) - (0 if account else 2)
             if left < 1:
                 raise Unverified("GitHub 查询用完了 hook 时限，按落后处理；稍后重试合并")
             # REST 的 files 带改名前的 previous_filename;GraphQL 的没有。一页最多 100 个。
@@ -548,7 +549,9 @@ def _paths(files: list[dict[str, Any]]) -> set[str]:
 
 
 def _adds_migration(files: list[dict[str, Any]]) -> bool:
-    return any(f["status"] == "added" and _MIGRATION.search(f["filename"]) for f in files)
+    # 复制或改名进 migrations/ 的文件，在迁移图里也是新节点。
+    return any(f["status"] in ("added", "copied", "renamed") and _MIGRATION.search(f["filename"])
+               for f in files)
 
 
 # Codex 的文件改动走 apply_patch:补丁头里的路径就是写入目标(新增/修改/删除/改名去向)

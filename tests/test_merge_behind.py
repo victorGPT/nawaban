@@ -73,6 +73,13 @@ def test_both_sides_adding_migrations_blocks(messages):
     assert "migrations" in msg and "gh pr update-branch" in msg
 
 
+@pytest.mark.parametrize("entry", [("migrations/versions/0042_a.py", "copied", "migrations/versions/0041.py"),
+                                   ("migrations/versions/0042_a.py", "renamed", "drafts/0042_a.py")])
+def test_migration_copied_or_renamed_in_counts_as_added(entry):
+    msg = blocked(pr(("migrations/versions/0042_b.py", "added", None)), main(["feat: x"], entry))
+    assert "migrations" in msg and "gh pr update-branch" in msg
+
+
 def test_migration_added_on_one_side_only_passes():
     assert "没有重叠" in judged(pr(("migrations/versions/0042_b.py", "added", None)),
                                main(["fix: app"], ("src/app.py", "modified", None)))
@@ -112,8 +119,10 @@ def test_file_the_pr_renamed_away_counts_as_shared():
     assert "docs/tasks/a.md" in msg
 
 
-def test_pr_files_fetched_after_budget_is_spent_blocks(monkeypatch, tmp_path):
-    clock = iter([0.0, 9.0])
+# Without an account prefix a failed query also spends up to 2s naming the active account.
+@pytest.mark.parametrize("elapsed", [9.0, 6.0])
+def test_pr_files_fetched_after_budget_is_spent_blocks(monkeypatch, tmp_path, elapsed):
+    clock = iter([0.0, elapsed])
     monkeypatch.setattr(guard.time, "monotonic", lambda: next(clock))
 
     def github(args, *_):
