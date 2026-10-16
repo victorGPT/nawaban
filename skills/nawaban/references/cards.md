@@ -47,5 +47,6 @@ nawaban --db <target db> handoff <ID> --outcome handed_off \
 ```
 
 - Choose the outcome that matches what happened. `completed` is only for `staging-verified` or `done`, and does not mean a human has accepted it; use `handed_off` while a merge or an action is still pending, and `blocked` for a specific blocker.
-- A handoff ends this session's claim record; it does not advance the task to `done`. Add `--release` only to give up ownership: `claimed` and `in_progress` return to `open`, other statuses stay and lose their owner.
+- A handoff ends this session's claim record and cannot run twice. When more work lands after it (a fix pushed after review), refresh the board with `nawaban event <ID> --body "<what changed>" --now "<current state>"`.
+- A handoff does not advance the task to `done`. Add `--release` only to give up ownership: `claimed` and `in_progress` return to `open`, other statuses stay and lose their owner.
 - After finishing the authorized work, check for leftovers with [nawaban-wrapup](../../nawaban-wrapup/SKILL.md). Restoring identity is covered in [Runtime and identity](runtime.md).
