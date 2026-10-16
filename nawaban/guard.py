@@ -15,7 +15,9 @@ md 版 foreman_guard.py 自此退役未接线。注意:无 nawaban.db 的仓本 
 
 merge gate pr checks regression: identified Bash `gh pr merge` calls require all checks
 SUCCESS and a head containing remote main, even without a board. No identity is
-still a no-op; failed queries and empty checks deny. Queries are read-only;
+still a no-op; failed queries deny. Empty checks deny unless neither main nor the
+PR head has a workflow that runs on PRs and a task's passing review is locked
+(NAWABAN-NOCI-GATE-001). Queries are read-only;
 compound commands must be split. Scripts/eval/API merges and direct pushes are
 outside coverage. Post-preflight races still require server-side protection.
 
@@ -330,14 +332,15 @@ def _board_file(cwd: str) -> Path | None:
     return None
 
 
-def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
+def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> bool:
     """登记了这个 PR 的卡:最新 review 必须通过、审的就是 PR head,且合并锁定在这个提交。
 
-    没有看板 / 没有未结束的卡登记这个 PR → 不管(只剩 CI 闸)。看板在但读不了 → 拦。
+    没有看板 / 没有未结束的卡登记这个 PR → 不管(只剩 CI 闸),返回 False。看板在但读不了 → 拦。
+    返回 True 表示有卡登记了这个 PR,且 review 闸全部通过。
     """
     board = _board_file(cwd)
     if board is None:
-        return
+        return False
     try:
         con = sqlite3.connect(f"file:{board}?mode=ro", uri=True, timeout=5)
         try:
@@ -358,6 +361,82 @@ def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
     if rows and lock != head:
         raise Unverified("合并没有锁定到审过的提交;运行 gh pr merge <PR> -R <OWNER/REPO> "
                          f"--match-head-commit {head}")
+    return bool(rows)
+
+
+# 这些事件不会在 PR head 提交上产生 checks;别的事件一律当会产生(fail closed)。
+_OFF_PR_EVENTS = {"workflow_dispatch", "schedule", "repository_dispatch", "workflow_call",
+                  "release", "workflow_run"}
+_WORKFLOWS_QUERY = """query($o:String!,$r:String!,$main:String!,$head:String!){repository(owner:$o,name:$r){
+main:object(expression:$main){...W} head:object(expression:$head){...W}}}
+fragment W on GitObject{... on Tree{entries{name object{... on Blob{text}}}}}"""
+
+
+def _yaml_items(value: str) -> list[str]:
+    return [v.strip().strip("'\"") for v in value.strip().strip("[]").split(",") if v.strip()]
+
+
+def _runs_on_pr(text: str | None, branch: str) -> bool:
+    """这份 workflow 会不会在 PR head 上跑出 checks。读不懂一律算会。
+
+    ponytail: 只认 `on:` 的常见写法,不引 yaml(它是可选依赖);锚点、多文档等写法都按「会」拦。
+    """
+    if text is None:
+        return True
+    lines = [line for raw in text.splitlines()
+             if (line := re.sub(r"(^|\s)#.*", "", raw).rstrip())]
+    start = next((i for i, line in enumerate(lines)
+                  if re.fullmatch(r"""["']?on["']?\s*:.*""", line)), None)
+    if start is None:
+        return True
+    inline = lines[start].partition(":")[2]
+    if inline.strip():  # on: push / on: [push, workflow_dispatch]:内联写法没有分支过滤
+        return any(e not in _OFF_PR_EVENTS for e in _yaml_items(inline))
+    block = []
+    for line in lines[start + 1:]:
+        if not line[0].isspace():
+            break
+        block.append(line)
+    if not block:
+        return True
+    indent = len(block[0]) - len(block[0].lstrip())
+    for i, line in enumerate(block):
+        if len(line) - len(line.lstrip()) != indent:
+            continue
+        event, _, rest = line.strip().removeprefix("- ").partition(":")
+        event = event.strip().strip("'\"")
+        if event in _OFF_PR_EVENTS:
+            continue
+        if event != "push" or rest.strip():
+            return True
+        body = []
+        for child in block[i + 1:]:
+            if len(child) - len(child.lstrip()) <= indent:
+                break
+            body.append(child.strip())
+        branches = next((j for j, c in enumerate(body) if c.startswith("branches:")), None)
+        if branches is None:  # 不限分支的 push 也会在 PR 分支上跑
+            return True
+        patterns = _yaml_items(body[branches].partition(":")[2])
+        for c in body[branches + 1:]:
+            if not c.startswith("- "):
+                break
+            patterns.append(c[2:].strip().strip("'\""))
+        if not patterns or any(p == branch or set(p) & set("*?[]!+") for p in patterns):
+            return True
+    return False
+
+
+def _has_pr_ci(owner: str, repo: str, head: str, branch: str, cwd: str,
+               account: str | None, env: dict[str, str] | None) -> bool:
+    """main 或 PR head 上有没有会在 PR 上跑的 workflow(两边都看:PR 可能删掉 main 上的 CI)。"""
+    data = _github(["api", "graphql", "-f", f"query={_WORKFLOWS_QUERY}", "-F", f"o={owner}",
+                    "-F", f"r={repo}", "-F", "main=main:.github/workflows",
+                    "-F", f"head={head}:.github/workflows"], cwd, account, env)
+    trees = data["data"]["repository"]
+    return any(_runs_on_pr(entry["object"] and entry["object"].get("text"), branch)
+               for tree in (trees["main"], trees["head"]) if tree
+               for entry in tree["entries"] if entry["name"].endswith((".yml", ".yaml")))
 
 
 # 唯一放行的前缀:这一条合并用指定账号,不切全局 gh 账号;闸用同一账号查询。
@@ -430,6 +509,9 @@ class _ShellInput:
         return line
 
 
+_NO_CHECKS = "PR checks 为空，不能证明 CI 已绿；运行 gh pr checks <PR> --watch。"
+
+
 def judge_merge(command: str, cwd: str) -> tuple[int, str]:
     body = _strip_heredoc_bodies(command.replace("\\\n", ""))
     account = (m := _ACCOUNT_PREFIX.match(body)) and m.group(1)
@@ -464,11 +546,11 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
         if any("$" in arg or "`" in arg for arg in args):
             raise Unverified(retry)
         env = _account_env(account) if account else None
-        pr = _github(_view_args(args) + ["--json", "statusCheckRollup,headRefOid,url"],
+        pr = _github(_view_args(args) + ["--json", "statusCheckRollup,headRefOid,headRefName,url"],
                      cwd, account, env)
         checks = pr["statusCheckRollup"]
-        if not isinstance(checks, list) or not checks:
-            raise Unverified("PR checks 为空，不能证明 CI 已绿；运行 gh pr checks <PR> --watch。")
+        if not isinstance(checks, list):
+            raise Unverified(_NO_CHECKS)
         failed = []
         for check in checks:
             state = check.get("conclusion") if check.get("status") == "COMPLETED" else check.get("state")
@@ -491,7 +573,14 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
             raise Unverified("PR base 落后 main；运行 "
                              f"gh pr update-branch {shlex.quote(pr['url'])} "
                              "或 git fetch origin && git rebase origin/main，然后等待新 CI 全绿。")
-        _review_gate(cwd, pr["url"], head, _match_head(args))
+        reviewed = _review_gate(cwd, pr["url"], head, _match_head(args))
+        # checks 为空:只有仓库根本没有会在 PR 上跑的 workflow、且卡上 review 已过并锁定提交时才放行
+        if not checks and not reviewed:
+            raise Unverified(_NO_CHECKS + "仓库没有在 PR 上跑的 workflow 时,把 PR 链接登记到卡上"
+                             "并 review 通过,合并锁定审过的提交即可。")
+        if not checks and _has_pr_ci(parts[0], parts[1], head, pr["headRefName"],
+                                     cwd, account, env):
+            raise Unverified(_NO_CHECKS + "仓库有会在 PR 上跑的 workflow,等它们跑完。")
     except (Unverified, KeyError, TypeError, AttributeError) as exc:
         return 2, f"🚫 merge gate: {exc}\n"
     return 0, ""
