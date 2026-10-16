@@ -47,7 +47,7 @@ def merge(monkeypatch, tmp_path, command, head=REVIEWED):
             return {"statusCheckRollup": [{"name": "t", "status": "COMPLETED",
                                            "conclusion": "SUCCESS"}],
                     "headRefOid": head, "url": PR}
-        return {"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}}
+        return {"ahead_by": 0, "commits": []}
     monkeypatch.setattr(guard, "_github", github)
     return guard.judge_merge(command, str(tmp_path))
 
@@ -180,7 +180,7 @@ def test_which_tasks_refer_to_the_pr(tmp_path, monkeypatch, project, refs, statu
         {"statusCheckRollup": [{"name": "t", "status": "COMPLETED", "conclusion": "SUCCESS"}],
          "headRefOid": REVIEWED, "url": REPO39}
         if args[:2] == ["pr", "view"] else
-        {"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}}))
+        {"ahead_by": 0, "commits": []}))
     code, msg = guard.judge_merge("gh pr merge 39 -R ac/repo --squash", str(tmp_path))
     assert (code == 2 and "P-2" in msg and "没有 review 结论" in msg) if blocked else \
         (code, msg) == (0, "")
@@ -374,7 +374,7 @@ def merge_without_checks(monkeypatch, tmp_path, command, *, main=None, head=None
             assert args[2:4] == ["--hostname", "github.com"]
             return {"data": {"repository": {"main": tree("main", args),
                                             "head": tree("head", args)}}}
-        return {"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}}
+        return {"ahead_by": 0, "commits": []}
     monkeypatch.setattr(guard, "_github", github)
     return guard.judge_merge(command, str(tmp_path))
 
@@ -414,7 +414,7 @@ def test_slow_github_blocks_within_the_hook_timeout(board, tmp_path, monkeypatch
     bin_dir.mkdir()
     view = json.dumps({"statusCheckRollup": [], "headRefOid": REVIEWED, "headRefName": "feature",
                        "baseRefName": "main", "url": PR})
-    compare = json.dumps({"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}})
+    compare = json.dumps({"ahead_by": 0, "commits": []})
     (bin_dir / "gh").write_text(
         "#!/bin/sh\n"
         'case "$1 $2" in\n'
@@ -428,7 +428,7 @@ def test_slow_github_blocks_within_the_hook_timeout(board, tmp_path, monkeypatch
     started = time.monotonic()
     code, msg = guard.judge_merge(f"GH_TOKEN=$(gh auth token --user ac) {LOCKED}", str(tmp_path))
     elapsed = time.monotonic() - started
-    assert code == 2 and ("TimeoutExpired" in msg or "总时限" in msg), (msg, elapsed)
+    assert code == 2 and ("TimeoutExpired" in msg or "hook 时限" in msg), (msg, elapsed)
     assert 3.5 < elapsed < 5, elapsed
 
 
@@ -439,7 +439,7 @@ def test_hook_deadline_reaches_the_merge_gate(monkeypatch):
     monkeypatch.setattr(guard.subprocess, "run", no_subprocess)
     payload = {"tool_name": "Bash", "cwd": str(ROOT), "tool_input": {"command": LOCKED}}
     code, msg = guard.judge(payload, deadline=time.monotonic())
-    assert code == 2 and "总时限" in msg
+    assert code == 2 and "hook 时限" in msg
 
 
 @pytest.mark.parametrize("check", [
@@ -484,8 +484,7 @@ def test_workflow_query_failure_blocks_empty_checks(board, tmp_path, monkeypatch
             raise guard.Unverified("GitHub query failed (exit 1)")
         return {"statusCheckRollup": [], "headRefOid": REVIEWED, "headRefName": "feature",
                 "baseRefName": "main",
-                "url": PR, "base_commit": {"sha": "b" * 40},
-                "merge_base_commit": {"sha": "b" * 40}}
+                "url": PR, "ahead_by": 0, "commits": []}
     monkeypatch.setattr(guard, "_github", github)
     code, msg = guard.judge_merge(LOCKED, str(tmp_path))
     assert code == 2 and "GitHub query failed" in msg

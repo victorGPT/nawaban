@@ -35,11 +35,17 @@ def test_merge_gate() -> None:
             " if scenario == 'status': check = {'context': 'legacy CI', 'state': 'SUCCESS'}\n"
             " if scenario == 'status_pending': check = {'context': 'legacy CI', 'state': 'PENDING'}\n"
             " print(json.dumps({'statusCheckRollup': [] if scenario == 'empty' else [check],\n"
-            "   'headRefOid': 'a' * 40, 'url': 'https://github.com/ac/repo/pull/1'}))\n"
+            "   'headRefOid': 'a' * 40, 'url': 'https://github.com/ac/repo/pull/1',\n"
+            "   'changedFiles': 1}))\n"
+            "elif sys.argv[1] == 'api' and sys.argv[-1] == 'repos/ac/repo/pulls/1/files?per_page=100':\n"
+            " print(json.dumps({'files': [{'filename': 'src/app.py', 'status': 'modified'}]}))\n"
             "elif sys.argv[1] == 'api':\n"
-            " assert sys.argv[-1] == 'repos/ac/repo/compare/main...' + 'a' * 40, sys.argv\n"
-            " print(json.dumps({'base_commit': {'sha': 'b' * 40},\n"
-            "   'merge_base_commit': {'sha': ('c' if scenario == 'behind' else 'b') * 40}}))\n"
+            " assert sys.argv[-1] == 'repos/ac/repo/compare/' + 'a' * 40 + '...main', sys.argv\n"
+            " msgs = {'behind': ['fix: app'], 'skip_ci': ['chore(deploy): prod 指针 [skip ci]'],\n"
+            "         'truncated': ['fix: app']}.get(scenario, [])\n"
+            " print(json.dumps({'ahead_by': 2 if scenario == 'truncated' else len(msgs),\n"
+            "   'commits': [{'sha': 'c' * 40, 'commit': {'message': m}} for m in msgs],\n"
+            "   'files': [{'filename': 'src/app.py', 'status': 'modified'}] if msgs else []}))\n"
             "else: raise AssertionError(sys.argv)\n"
         )
         gh.chmod(0o755)
@@ -49,7 +55,7 @@ def test_merge_gate() -> None:
         env.update(NAWABAN_OWNER="ac:test", PATH=f"{tmp}:{os.environ['PATH']}", GH_CALLS=str(calls))
 
         def check(command: str, scenario: str = "success", expected: int = 0,
-                  needle: str = "", identity: bool = True) -> list[list[str]]:
+                  needle: str = "", identity: bool = True, out: str = "") -> list[list[str]]:
             calls.write_text("")
             current = {**env, "GH_SCENARIO": scenario}
             if not identity:
@@ -61,6 +67,7 @@ def test_merge_gate() -> None:
                 capture_output=True, text=True, env=current,
             )
             assert result.returncode == expected and needle in result.stderr, (command, scenario, result)
+            assert out in result.stdout, (command, scenario, result)
             return [json.loads(line) for line in calls.read_text().splitlines()]
 
         merge = "gh pr merge 1 --squash"
@@ -70,7 +77,10 @@ def test_merge_gate() -> None:
         # Preserve the current source snapshot's explicit SKIPPED allowance.
         assert len(check(merge, "SKIPPED")) == 2
         check(merge, "status_pending", 2, "legacy CI")
+        # 落后 main 的判法细节在 tests/test_merge_behind.py;这里只验 hook 进程的出口。
+        assert len(check(merge, "skip_ci", out='"additionalContext"')) == 3
         check(merge, "behind", 2, "gh pr update-branch")
+        check(merge, "truncated", 2, "完整清单")
         for scenario in ("empty", "error", "malformed", "invalid_bytes"):
             check(merge, scenario, 2, "merge gate")
         assert len(check(merge)) == 2
