@@ -39,8 +39,9 @@ import shlex
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -368,6 +369,8 @@ _ACCOUNT_HINT = ("这个仓库要用别的 gh 账号的话,单独运行:GH_TOKEN
 
 # GitHub Actions 认的跳过标记;只认这些,只改 docs 的提交不算(docs 可能被测试读)。
 _SKIP_CI = re.compile(r"\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]")
+_MIGRATION = re.compile(r"(?:^|/)migrations/")
+_MERGE_BUDGET = 8.5  # 秒；装好的 hook 超时是 10 秒，超时 = 命令照跑，所以得自己先停
 
 
 def _account_env(account: str) -> dict[str, str]:
@@ -394,11 +397,12 @@ def _active_account() -> str:
 
 
 def _github(args: list[str], cwd: str, account: str | None = None,
-            env: dict[str, str] | None = None) -> dict[str, Any]:
-    # Two requests of at most three seconds fit the installed ten-second hook.
+            env: dict[str, str] | None = None, timeout: float = 3) -> dict[str, Any]:
+    # Two requests of at most three seconds fit the installed ten-second hook;
+    # a third one gets only what is left of _MERGE_BUDGET.
     try:
         proc = subprocess.run(["gh", *args], cwd=cwd, capture_output=True,
-                              text=True, timeout=3, env=env)
+                              text=True, timeout=timeout, env=env)
         failure = None if not proc.returncode else f"failed (exit {proc.returncode})"
     except (OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
         failure = f"unavailable: {type(exc).__name__}"
@@ -457,6 +461,7 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
     if not merges:
         return 0, ""
     retry = "请单独运行 gh pr merge <PR> -R <OWNER/REPO>，保持当前 cwd 和环境不变。"
+    start = time.monotonic()
     try:
         if parse_failed or len(segments) != 1:
             raise Unverified(retry)
@@ -468,7 +473,7 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
         if any("$" in arg or "`" in arg for arg in args):
             raise Unverified(retry)
         env = _account_env(account) if account else None
-        pr = _github(_view_args(args) + ["--json", "statusCheckRollup,headRefOid,url"],
+        pr = _github(_view_args(args) + ["--json", "statusCheckRollup,headRefOid,url,changedFiles"],
                      cwd, account, env)
         checks = pr["statusCheckRollup"]
         if not isinstance(checks, list) or not checks:
@@ -491,19 +496,59 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
         compare = _github(["api", "--hostname", url.netloc,
                            f"repos/{parts[0]}/{parts[1]}/compare/{head}...main"],
                           cwd, account, env)
-        behind = compare["commits"]
-        update = (f"运行 gh pr update-branch {shlex.quote(pr['url'])} "
-                  "或 git fetch origin && git rebase origin/main，然后等待新 CI 全绿。")
-        if (not isinstance(compare["ahead_by"], int) or not isinstance(behind, list)
-                or len(behind) != compare["ahead_by"]):
-            raise Unverified("拿不到 PR 落后 main 的完整提交清单，按落后处理；" + update)
-        # 落后的全是 CI 自己会跳过的提交时，同步后 CI 结论不变，不必 update-branch。
-        if not all(_SKIP_CI.search(c["commit"]["message"]) for c in behind):
-            raise Unverified("PR base 落后 main；" + update)
+
+        def pr_files() -> Any:
+            left = _MERGE_BUDGET - (time.monotonic() - start)
+            if left < 1:
+                raise Unverified("GitHub 查询用完了 hook 时限，按落后处理；稍后重试合并")
+            # REST 的 files 带改名前的 previous_filename;GraphQL 的没有。一页最多 100 个。
+            return _github(["api", "--hostname", url.netloc, "--jq", "{files: .}",
+                            f"repos/{parts[0]}/{parts[1]}/pulls/{parts[3]}/files?per_page=100"],
+                           cwd, account, env, min(3, left))["files"]
+
+        note = _behind_note(pr, compare, pr_files)
         _review_gate(cwd, pr["url"], head, _match_head(args))
     except (Unverified, KeyError, TypeError, AttributeError) as exc:
         return 2, f"🚫 merge gate: {exc}\n"
-    return 0, ""
+    return 0, note
+
+
+def _behind_note(pr: dict[str, Any], compare: dict[str, Any], pr_files: Callable[[], Any]) -> str:
+    """PR 落后 main 时判能否不同步就合：能则返回放行说明，不能则 raise。"""
+    behind = compare["commits"]
+    if behind == [] and compare["ahead_by"] == 0:
+        return ""
+    update = (f"运行 gh pr update-branch {shlex.quote(pr['url'])} "
+              "或 git fetch origin && git rebase origin/main，然后等待新 CI 全绿。")
+    incomplete = "拿不到 main 新增提交或两边改动文件的完整清单，按落后处理；" + update
+    main_files = compare["files"]
+    # compare 最多回 250 个提交、300 个文件。
+    if (not isinstance(compare["ahead_by"], int) or not isinstance(behind, list)
+            or len(behind) != compare["ahead_by"]
+            or not isinstance(main_files, list) or len(main_files) >= 300):
+        raise Unverified(incomplete)
+    mine = pr_files()
+    if not isinstance(mine, list) or len(mine) != pr["changedFiles"]:
+        raise Unverified(incomplete)
+    # 两边各加一个迁移文件，名字不同也会撞编号或 alembic head。
+    if _adds_migration(main_files) and _adds_migration(mine):
+        raise Unverified("PR 和 main 都新增了 migrations 下的文件；" + update)
+    # 落后的全是 CI 自己会跳过的提交时，同步后 CI 结论不变。
+    if all(_SKIP_CI.search(c["commit"]["message"]) for c in behind):
+        return f"merge gate: PR 落后 main 的 {len(behind)} 个提交都带跳过 CI 标记，放行。\n"
+    if overlap := sorted(_paths(main_files) & _paths(mine)):
+        raise Unverified(f"PR base 落后 main，且 main 新增提交也改了 {', '.join(overlap[:5])}；" + update)
+    return (f"merge gate: PR 落后 main {len(behind)} 个提交，但两边改的文件没有重叠，放行；"
+            "合并后由 main CI 兜底，main 变红就停线修。\n")
+
+
+def _paths(files: list[dict[str, Any]]) -> set[str]:
+    # 改名的两头都算：一边改名，另一边改旧名的文件，也是同一个文件。
+    return {f["filename"] for f in files} | {f["previous_filename"] for f in files if f.get("previous_filename")}
+
+
+def _adds_migration(files: list[dict[str, Any]]) -> bool:
+    return any(f["status"] == "added" and _MIGRATION.search(f["filename"]) for f in files)
 
 
 # Codex 的文件改动走 apply_patch:补丁头里的路径就是写入目标(新增/修改/删除/改名去向)
@@ -528,11 +573,11 @@ def judge(payload: dict) -> tuple[int, str]:
     if not target:
         if payload.get("tool_name") != "Bash":
             return 0, ""
-        # Bash 只报 BLOCK,不报 WARN:tripwire 有误报,别拿噪音淹掉真信号
+        # Bash 只报 BLOCK,不报 WARN:tripwire 有误报,别拿噪音淹掉真信号;唯一例外是合并闸的放行理由
         base = Path(payload.get("cwd") or os.getcwd())
-        code, msg = judge_merge(tool_input.get("command") or "", str(base))
+        code, note = judge_merge(tool_input.get("command") or "", str(base))
         if code == 2:
-            return code, msg
+            return code, note
         for t in _bash_write_targets(tool_input.get("command") or ""):
             # 相对路径按 payload cwd 落地 —— enclosing_tree 靠 parents 上溯,相对路径走不到树根
             code, msg = _judge_target(payload, owner, str(Path(t).expanduser())
@@ -540,7 +585,7 @@ def judge(payload: dict) -> tuple[int, str]:
                                       else str(base / t))
             if code == 2:
                 return code, msg
-        return 0, ""
+        return 0, note
     return _judge_target(payload, owner, target)
 
 
@@ -585,7 +630,11 @@ def main() -> int:
     except Exception:
         return 0
     code, msg = judge(payload)
-    if msg:
+    if code == 0 and msg and payload.get("tool_name") == "Bash":
+        # 放行的合并要让 agent 看见理由；exit 0 的 stderr 只进日志。
+        json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                          "additionalContext": msg}}, sys.stdout)
+    elif msg:
         sys.stderr.write(msg)
     return code
 

@@ -35,18 +35,17 @@ def test_merge_gate() -> None:
             " if scenario == 'status': check = {'context': 'legacy CI', 'state': 'SUCCESS'}\n"
             " if scenario == 'status_pending': check = {'context': 'legacy CI', 'state': 'PENDING'}\n"
             " print(json.dumps({'statusCheckRollup': [] if scenario == 'empty' else [check],\n"
-            "   'headRefOid': 'a' * 40, 'url': 'https://github.com/ac/repo/pull/1'}))\n"
+            "   'headRefOid': 'a' * 40, 'url': 'https://github.com/ac/repo/pull/1',\n"
+            "   'changedFiles': 1}))\n"
+            "elif sys.argv[1] == 'api' and sys.argv[-1] == 'repos/ac/repo/pulls/1/files?per_page=100':\n"
+            " print(json.dumps({'files': [{'filename': 'src/app.py', 'status': 'modified'}]}))\n"
             "elif sys.argv[1] == 'api':\n"
             " assert sys.argv[-1] == 'repos/ac/repo/compare/' + 'a' * 40 + '...main', sys.argv\n"
-            " msgs = {'behind': ['docs: only README'],\n"
-            "   'skip_ci': ['chore(deploy): prod 指针 [skip ci]', 'x [ci skip]', 'x\\n\\n[no ci]',\n"
-            "               'x [skip actions]', 'x [actions skip]'],\n"
-            "   'mixed': ['chore(deploy): prod 指针 [skip ci]', 'docs: only README'],\n"
-            "   'truncated': ['x [skip ci]']}.get(scenario, [])\n"
-            " ahead = 2 if scenario == 'truncated' else len(msgs)\n"
-            " commits = [{'sha': 'c' * 40, 'commit': {'message': m}} for m in msgs]\n"
-            " if scenario == 'no_list': commits = None\n"
-            " print(json.dumps({'ahead_by': ahead, 'commits': commits}))\n"
+            " msgs = {'behind': ['fix: app'], 'skip_ci': ['chore(deploy): prod 指针 [skip ci]'],\n"
+            "         'truncated': ['fix: app']}.get(scenario, [])\n"
+            " print(json.dumps({'ahead_by': 2 if scenario == 'truncated' else len(msgs),\n"
+            "   'commits': [{'sha': 'c' * 40, 'commit': {'message': m}} for m in msgs],\n"
+            "   'files': [{'filename': 'src/app.py', 'status': 'modified'}] if msgs else []}))\n"
             "else: raise AssertionError(sys.argv)\n"
         )
         gh.chmod(0o755)
@@ -56,7 +55,7 @@ def test_merge_gate() -> None:
         env.update(NAWABAN_OWNER="ac:test", PATH=f"{tmp}:{os.environ['PATH']}", GH_CALLS=str(calls))
 
         def check(command: str, scenario: str = "success", expected: int = 0,
-                  needle: str = "", identity: bool = True) -> list[list[str]]:
+                  needle: str = "", identity: bool = True, out: str = "") -> list[list[str]]:
             calls.write_text("")
             current = {**env, "GH_SCENARIO": scenario}
             if not identity:
@@ -68,6 +67,7 @@ def test_merge_gate() -> None:
                 capture_output=True, text=True, env=current,
             )
             assert result.returncode == expected and needle in result.stderr, (command, scenario, result)
+            assert out in result.stdout, (command, scenario, result)
             return [json.loads(line) for line in calls.read_text().splitlines()]
 
         merge = "gh pr merge 1 --squash"
@@ -77,13 +77,10 @@ def test_merge_gate() -> None:
         # Preserve the current source snapshot's explicit SKIPPED allowance.
         assert len(check(merge, "SKIPPED")) == 2
         check(merge, "status_pending", 2, "legacy CI")
-        # main 只多了带跳过标记的提交:同步后 CI 结论不变,放行;混进一个不带标记的(哪怕只改文档)就拦。
-        assert len(check(merge, "skip_ci")) == 2
-        for scenario in ("behind", "mixed"):
-            check(merge, scenario, 2, "gh pr update-branch")
-        for scenario in ("truncated", "no_list"):
-            check(merge, scenario, 2, "完整提交清单")
-            check(merge, scenario, 2, "gh pr update-branch")
+        # 落后 main 的判法细节在 tests/test_merge_behind.py;这里只验 hook 进程的出口。
+        assert len(check(merge, "skip_ci", out='"additionalContext"')) == 3
+        check(merge, "behind", 2, "gh pr update-branch")
+        check(merge, "truncated", 2, "完整清单")
         for scenario in ("empty", "error", "malformed", "invalid_bytes"):
             check(merge, scenario, 2, "merge gate")
         assert len(check(merge)) == 2
