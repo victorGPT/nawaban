@@ -41,6 +41,7 @@ import shlex
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -332,7 +333,8 @@ def _board_file(cwd: str) -> Path | None:
     return None
 
 
-def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> bool:
+def _review_gate(cwd: str, url: str, head: str, lock: str | None,
+                 timeout: float = 5) -> bool:
     """登记了这个 PR 的卡:最新 review 必须通过、审的就是 PR head,且合并锁定在这个提交。
 
     没有看板 / 没有未结束的卡登记这个 PR → 不管(只剩 CI 闸),返回 False。看板在但读不了 → 拦。
@@ -342,7 +344,7 @@ def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> bool:
     if board is None:
         return False
     try:
-        con = sqlite3.connect(f"file:{board}?mode=ro", uri=True, timeout=5)
+        con = sqlite3.connect(f"file:{board}?mode=ro", uri=True, timeout=timeout)
         try:
             rows = db.latest_reviews_for_pr(con, url)
         finally:
@@ -387,12 +389,46 @@ def _yaml_items(value: str) -> list[str] | None:
     return [m.group(2) for m in names] if all(names) else None
 
 
+def _spans_lines(text: str) -> bool:
+    """有没有引号串或流式 [..] {..} 跨行。续行可以顶格写成 `on: ...`,逐行读会被它骗。
+
+    ponytail: 块标量正文也按同样规则扫,里面不成对的引号会多拦一次(fail closed)。
+    """
+    quote, depth = None, 0
+    for line in text.splitlines():
+        if quote or depth:
+            return True
+        prev, i = " ", 0
+        while i < len(line):
+            c = line[i]
+            if quote == '"':
+                if c == "\\":
+                    i += 1
+                elif c == '"':
+                    quote = None
+            elif quote == "'":
+                if c == "'" and line[i + 1:i + 2] == "'":
+                    i += 1
+                elif c == "'":
+                    quote = None
+            elif c == "#" and prev.isspace():
+                break
+            elif c in "\"'" and prev in " \t:-[{,":
+                quote = c
+            elif c in "[{" and prev in " \t:-[{,":
+                depth += 1
+            elif c in "]}" and depth:
+                depth -= 1
+            prev, i = c, i + 1
+    return bool(quote or depth)
+
+
 def _runs_on_pr(text: str | None, branch: str) -> bool:
     """这份 workflow 会不会在 PR head 上跑出 checks。读不懂一律算会。
 
     ponytail: 只认 `on:` 的常见写法,不引 yaml(它是可选依赖);锚点、多文档等写法都按「会」拦。
     """
-    if text is None:
+    if text is None or _spans_lines(text):
         return True
     lines = [line for raw in text.splitlines()
              if (line := re.sub(r"(^|\s)#.*", "", raw).rstrip())]
@@ -425,14 +461,16 @@ def _runs_on_pr(text: str | None, branch: str) -> bool:
             return True
         body = []
         for child in block[i + 1:]:
-            if len(child) - len(child.lstrip()) <= indent:
+            if (depth := len(child) - len(child.lstrip())) <= indent:
                 break
-            body.append(child.strip())
-        branches = next((j for j, c in enumerate(body) if c.startswith("branches:")), None)
+            body.append((depth, child.strip()))
+        # 只认 push 的直接子键;更深处(如块标量里)写的 branches: 不算
+        branches = next((j for j, (depth, c) in enumerate(body)
+                         if depth == body[0][0] and c.startswith("branches:")), None)
         if branches is None:  # 不限分支的 push 也会在 PR 分支上跑
             return True
-        patterns = _yaml_items(body[branches].partition(":")[2])
-        for c in body[branches + 1:]:
+        patterns = _yaml_items(body[branches][1].partition(":")[2])
+        for _, c in body[branches + 1:]:
             if not c.startswith("-") or patterns is None:
                 break
             # `-` 后不是空格(如 tab)读不准,当读不懂
@@ -444,12 +482,12 @@ def _runs_on_pr(text: str | None, branch: str) -> bool:
     return False
 
 
-def _has_pr_ci(owner: str, repo: str, head: str, branch: str, cwd: str,
-               account: str | None, env: dict[str, str] | None) -> bool:
-    """main 或 PR head 上有没有会在 PR 上跑的 workflow(两边都看:PR 可能删掉 main 上的 CI)。"""
-    data = _github(["api", "graphql", "-f", f"query={_WORKFLOWS_QUERY}", "-F", f"o={owner}",
-                    "-F", f"r={repo}", "-F", "main=main:.github/workflows",
-                    "-F", f"head={head}:.github/workflows"], cwd, account, env)
+def _has_pr_ci(host: str, owner: str, repo: str, base: str, head: str, branch: str, cwd: str,
+               account: str | None, env: dict[str, str] | None, deadline: float) -> bool:
+    """PR 的 base 分支或 head 上有没有会在 PR 上跑的 workflow(两边都看:PR 可能删掉 base 上的 CI)。"""
+    data = _github(["api", "graphql", "--hostname", host, "-f", f"query={_WORKFLOWS_QUERY}",
+                    "-f", f"o={owner}", "-f", f"r={repo}", "-f", f"main={base}:.github/workflows",
+                    "-f", f"head={head}:.github/workflows"], cwd, account, env, deadline)
     trees = data["data"]["repository"]
     return any(_runs_on_pr(entry["object"] and entry["object"].get("text"), branch)
                for tree in (trees["main"], trees["head"]) if tree
@@ -462,10 +500,21 @@ _ACCOUNT_HINT = ("这个仓库要用别的 gh 账号的话,单独运行:GH_TOKEN
                  "gh pr merge <PR> -R <OWNER/REPO> --match-head-commit <SHA>")
 
 
-def _account_env(account: str) -> dict[str, str]:
+# hook 超时 10 秒,超时不拦 = 放行;整次判定限 8 秒,留 2 秒给进程启动。每次子调用只用剩余时间。
+_BUDGET = 8.0
+
+
+def _left(deadline: float, cap: float) -> float:
+    left = deadline - time.monotonic()
+    if left <= 0.05:
+        raise Unverified(f"合并闸查询超过总时限 {_BUDGET:g} 秒,不能确认;网络恢复后重试。")
+    return min(cap, left)
+
+
+def _account_env(account: str, deadline: float) -> dict[str, str]:
     try:
         proc = subprocess.run(["gh", "auth", "token", "--user", account],
-                              capture_output=True, text=True, timeout=2)
+                              capture_output=True, text=True, timeout=_left(deadline, 2))
     except (OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
         raise Unverified(f"取不到 gh 账号 {account} 的 token:{type(exc).__name__}") from exc
     token = proc.stdout.strip()
@@ -474,29 +523,30 @@ def _account_env(account: str) -> dict[str, str]:
     return {**os.environ, "GH_TOKEN": token}
 
 
-def _active_account() -> str:
+def _active_account(deadline: float) -> str:
     try:
         proc = subprocess.run(["gh", "auth", "status", "--active", "--json", "hosts",
                                "--jq", ".hosts[][].login"],
-                              capture_output=True, text=True, timeout=2)
+                              capture_output=True, text=True, timeout=_left(deadline, 2))
         login = proc.stdout.split()[0] if not proc.returncode and proc.stdout.split() else ""
-    except (OSError, UnicodeError, subprocess.TimeoutExpired):
+    except (OSError, UnicodeError, subprocess.TimeoutExpired, Unverified):
         login = ""
     return f"gh 当前活跃账号 {login}" if login else "gh 当前活跃账号(名字没查到)"
 
 
-def _github(args: list[str], cwd: str, account: str | None = None,
-            env: dict[str, str] | None = None) -> dict[str, Any]:
-    # Two requests of at most three seconds fit the installed ten-second hook.
+def _github(args: list[str], cwd: str, account: str | None,
+            env: dict[str, str] | None, deadline: float) -> dict[str, Any]:
+    timeout = _left(deadline, 3)
     try:
         proc = subprocess.run(["gh", *args], cwd=cwd, capture_output=True,
-                              text=True, timeout=3, env=env)
+                              text=True, timeout=timeout, env=env)
         failure = None if not proc.returncode else f"failed (exit {proc.returncode})"
     except (OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
         failure = f"unavailable: {type(exc).__name__}"
     if failure:
         # Do not echo CLI stderr: it may include credentials or private URLs.
-        who = f"gh 账号 {account}" if account else _active_account() + "\n" + _ACCOUNT_HINT
+        who = (f"gh 账号 {account}" if account
+               else _active_account(deadline) + "\n" + _ACCOUNT_HINT)
         raise Unverified(f"GitHub query {failure} · 查询用的是 {who}")
     try:
         value = json.loads(proc.stdout)
@@ -530,6 +580,7 @@ _NO_CHECKS = "PR checks 为空，不能证明 CI 已绿；运行 gh pr checks <P
 
 
 def judge_merge(command: str, cwd: str) -> tuple[int, str]:
+    deadline = time.monotonic() + _BUDGET
     body = _strip_heredoc_bodies(command.replace("\\\n", ""))
     account = (m := _ACCOUNT_PREFIX.match(body)) and m.group(1)
     body = body[m.end():] if m else body
@@ -562,9 +613,9 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
         args = merges[0]
         if any("$" in arg or "`" in arg for arg in args):
             raise Unverified(retry)
-        env = _account_env(account) if account else None
-        pr = _github(_view_args(args) + ["--json", "statusCheckRollup,headRefOid,headRefName,url"],
-                     cwd, account, env)
+        env = _account_env(account, deadline) if account else None
+        pr = _github(_view_args(args) + ["--json", "statusCheckRollup,headRefOid,headRefName,"
+                                         "baseRefName,url"], cwd, account, env, deadline)
         checks = pr["statusCheckRollup"]
         if not isinstance(checks, list):
             raise Unverified(_NO_CHECKS)
@@ -584,19 +635,19 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
             raise Unverified("GitHub PR identity is incomplete")
         compare = _github(["api", "--hostname", url.netloc,
                            f"repos/{parts[0]}/{parts[1]}/compare/main...{head}"],
-                          cwd, account, env)
+                          cwd, account, env, deadline)
         main = compare["base_commit"]["sha"]
         if not main or compare["merge_base_commit"]["sha"] != main:
             raise Unverified("PR base 落后 main；运行 "
                              f"gh pr update-branch {shlex.quote(pr['url'])} "
                              "或 git fetch origin && git rebase origin/main，然后等待新 CI 全绿。")
-        reviewed = _review_gate(cwd, pr["url"], head, _match_head(args))
+        reviewed = _review_gate(cwd, pr["url"], head, _match_head(args), _left(deadline, 5))
         # checks 为空:只有仓库根本没有会在 PR 上跑的 workflow、且卡上 review 已过并锁定提交时才放行
         if not checks and not reviewed:
             raise Unverified(_NO_CHECKS + "仓库没有在 PR 上跑的 workflow 时,把 PR 链接登记到卡上"
                              "并 review 通过,合并锁定审过的提交即可。")
-        if not checks and _has_pr_ci(parts[0], parts[1], head, pr["headRefName"],
-                                     cwd, account, env):
+        if not checks and _has_pr_ci(url.netloc, parts[0], parts[1], pr["baseRefName"], head,
+                                     pr["headRefName"], cwd, account, env, deadline):
             raise Unverified(_NO_CHECKS + "仓库有会在 PR 上跑的 workflow,等它们跑完。")
     except (Unverified, KeyError, TypeError, AttributeError) as exc:
         return 2, f"🚫 merge gate: {exc}\n"

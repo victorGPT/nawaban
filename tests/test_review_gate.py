@@ -1,10 +1,12 @@
 """Review verdicts are judged by fixed rules and merges are locked to the reviewed commit."""
 
 import json
+import os
 import sqlite3
 import subprocess
 import threading
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -355,16 +357,23 @@ DEPLOY_ONLY = {"deploy-staging.yml": "name: s\non:\n  push:\n    branches: [main
 PR_CI = {"test.yml": "on:\n  pull_request:\njobs: {}\n"}
 
 
-def merge_without_checks(monkeypatch, tmp_path, command, *, main=None, head=None, checks=()):
-    def tree(files):
+def merge_without_checks(monkeypatch, tmp_path, command, *, main=None, head=None, checks=(),
+                         base="main", others=None):
+    refs = {"main": main, REVIEWED: head, **(others or {})}
+
+    def tree(field, args):
+        ref = next(a for a in args if a.startswith(field + "=")).partition("=")[2]
+        files = refs.get(ref.removesuffix(":.github/workflows"))
         return files and {"entries": [{"name": n, "object": {"text": t}} for n, t in files.items()]}
 
     def github(args, cwd, *_):
         if args[:2] == ["pr", "view"]:
             return {"statusCheckRollup": list(checks), "headRefOid": REVIEWED,
-                    "headRefName": "feature", "url": PR}
+                    "headRefName": "feature", "baseRefName": base, "url": PR}
         if args[:2] == ["api", "graphql"]:
-            return {"data": {"repository": {"main": tree(main), "head": tree(head)}}}
+            assert args[2:4] == ["--hostname", "github.com"]
+            return {"data": {"repository": {"main": tree("main", args),
+                                            "head": tree("head", args)}}}
         return {"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}}
     monkeypatch.setattr(guard, "_github", github)
     return guard.judge_merge(command, str(tmp_path))
@@ -388,6 +397,38 @@ def test_repo_with_pr_ci_still_blocks_empty_checks(board, tmp_path, monkeypatch,
     review(tmp_path, [])
     code, msg = merge_without_checks(monkeypatch, tmp_path, LOCKED, main=main, head=head)
     assert code == 2 and "PR checks 为空" in msg and "等它们跑完" in msg
+
+
+def test_workflows_are_read_from_the_pr_base_branch(board, tmp_path, monkeypatch):
+    review(tmp_path, [])
+    code, msg = merge_without_checks(monkeypatch, tmp_path, LOCKED, main=DEPLOY_ONLY,
+                                     head=DEPLOY_ONLY, base="develop", others={"develop": PR_CI})
+    assert code == 2 and "等它们跑完" in msg
+
+
+def test_slow_github_blocks_within_the_hook_timeout(board, tmp_path, monkeypatch):
+    # 假 gh:每步都慢到接近单次上限,累计会超过 hook 的 10 秒;总时限必须先到并拦下
+    review(tmp_path, [])
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    view = json.dumps({"statusCheckRollup": [], "headRefOid": REVIEWED, "headRefName": "feature",
+                       "baseRefName": "main", "url": PR})
+    compare = json.dumps({"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}})
+    (bin_dir / "gh").write_text(
+        "#!/bin/sh\n"
+        'case "$1 $2" in\n'
+        "  'auth token') sleep 1.9; echo tok ;;\n"
+        f"  'pr view') sleep 2.9; echo '{view}' ;;\n"
+        "  'api graphql') exec sleep 6 ;;\n"
+        f"  *) sleep 2.9; echo '{compare}' ;;\n"
+        "esac\n")
+    (bin_dir / "gh").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    started = time.monotonic()
+    code, msg = guard.judge_merge(f"GH_TOKEN=$(gh auth token --user ac) {LOCKED}", str(tmp_path))
+    elapsed = time.monotonic() - started
+    assert code == 2 and ("TimeoutExpired" in msg or "总时限" in msg), (msg, elapsed)
+    assert 7 < elapsed < 9, elapsed
 
 
 @pytest.mark.parametrize("check", [
@@ -431,6 +472,7 @@ def test_workflow_query_failure_blocks_empty_checks(board, tmp_path, monkeypatch
         if args[:2] == ["api", "graphql"]:
             raise guard.Unverified("GitHub query failed (exit 1)")
         return {"statusCheckRollup": [], "headRefOid": REVIEWED, "headRefName": "feature",
+                "baseRefName": "main",
                 "url": PR, "base_commit": {"sha": "b" * 40},
                 "merge_base_commit": {"sha": "b" * 40}}
     monkeypatch.setattr(guard, "_github", github)
@@ -463,6 +505,14 @@ def test_workflow_query_failure_blocks_empty_checks(board, tmp_path, monkeypatch
     pytest.param("on:\n  push:\n    branches:\n      - main\n      -\tfeature\n", True,
                  id="列表项用tab分隔"),
     pytest.param("jobs: {}\n", True, id="没有on"),
+    pytest.param("on:\n  push:\n    paths-ignore:\n      - |\n        branches: [main]\n", True,
+                 id="块标量里的branches不算"),
+    pytest.param('x: "a\non: workflow_dispatch\n"\non: pull_request\n', True, id="顶格引号串跨行"),
+    pytest.param('jobs:\n  a:\n    run: "x\non: workflow_dispatch\n  y"\non: pull_request\n',
+                 True, id="嵌套引号串顶格续行"),
+    pytest.param("on: workflow_dispatch\nenv: {a: 1,\n  b: 2}\n", True, id="流式映射跨行"),
+    pytest.param("on:\n  workflow_dispatch:\njobs:\n  a:\n    steps:\n      - run: echo \"it's\" "
+                 "${{ x }} [ok]\n", False, id="同行闭合的引号和括号"),
     pytest.param("---\non:\n  workflow_dispatch:\n", False, id="开头的文档标记"),
     pytest.param("on: workflow_dispatch\n---\non: pull_request\n", True, id="多文档"),
     pytest.param(None, True, id="不是文本"),
