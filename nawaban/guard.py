@@ -396,6 +396,8 @@ def _runs_on_pr(text: str | None, branch: str) -> bool:
         return True
     lines = [line for raw in text.splitlines()
              if (line := re.sub(r"(^|\s)#.*", "", raw).rstrip())]
+    if any(line.startswith("---") for line in lines[1:]):  # 多文档:只认第一份不可靠
+        return True
     start = next((i for i, line in enumerate(lines)
                   if re.fullmatch(r"""["']?on["']?\s*:.*""", line)), None)
     if start is None:

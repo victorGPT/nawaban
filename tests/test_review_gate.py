@@ -463,6 +463,8 @@ def test_workflow_query_failure_blocks_empty_checks(board, tmp_path, monkeypatch
     pytest.param("on:\n  push:\n    branches:\n      - main\n      -\tfeature\n", True,
                  id="列表项用tab分隔"),
     pytest.param("jobs: {}\n", True, id="没有on"),
+    pytest.param("---\non:\n  workflow_dispatch:\n", False, id="开头的文档标记"),
+    pytest.param("on: workflow_dispatch\n---\non: pull_request\n", True, id="多文档"),
     pytest.param(None, True, id="不是文本"),
 ])
 def test_which_workflows_run_on_the_pr(text, runs):
