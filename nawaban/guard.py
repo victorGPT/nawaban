@@ -372,8 +372,18 @@ main:object(expression:$main){...W} head:object(expression:$head){...W}}}
 fragment W on GitObject{... on Tree{entries{name object{... on Blob{text}}}}}"""
 
 
-def _yaml_items(value: str) -> list[str]:
-    return [v.strip().strip("'\"") for v in value.strip().strip("[]").split(",") if v.strip()]
+_PLAIN_NAME = re.compile(r"[A-Za-z0-9_./-]+")
+
+
+def _yaml_items(value: str) -> list[str] | None:
+    """`a` 或同一行闭合的 `[a, b]` → 名字列表。跨行、转义、通配等读不准的写法 → None。"""
+    value = value.strip()
+    if value.startswith("["):
+        if not value.endswith("]"):
+            return None
+        value = value[1:-1]
+    items = [v.strip().strip("'\"") for v in value.split(",") if v.strip()]
+    return items if all(_PLAIN_NAME.fullmatch(v) for v in items) else None
 
 
 def _runs_on_pr(text: str | None, branch: str) -> bool:
@@ -391,7 +401,8 @@ def _runs_on_pr(text: str | None, branch: str) -> bool:
         return True
     inline = lines[start].partition(":")[2]
     if inline.strip():  # on: push / on: [push, workflow_dispatch]:内联写法没有分支过滤
-        return any(e not in _OFF_PR_EVENTS for e in _yaml_items(inline))
+        events = _yaml_items(inline)
+        return events is None or any(e not in _OFF_PR_EVENTS for e in events)
     block = []
     for line in lines[start + 1:]:
         if not line[0].isspace():
@@ -419,10 +430,11 @@ def _runs_on_pr(text: str | None, branch: str) -> bool:
             return True
         patterns = _yaml_items(body[branches].partition(":")[2])
         for c in body[branches + 1:]:
-            if not c.startswith("- "):
+            if not c.startswith("- ") or patterns is None:
                 break
-            patterns.append(c[2:].strip().strip("'\""))
-        if not patterns or any(p == branch or set(p) & set("*?[]!+") for p in patterns):
+            patterns = (items := _yaml_items(c[2:])) and patterns + items
+        # 通配和转义过不了 _yaml_items,只剩普通分支名可比
+        if not patterns or branch in patterns:
             return True
     return False
 

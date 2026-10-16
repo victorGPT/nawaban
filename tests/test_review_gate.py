@@ -454,6 +454,10 @@ def test_workflow_query_failure_blocks_empty_checks(board, tmp_path, monkeypatch
     pytest.param("on:\n  pull_request_target:\n", True, id="pull_request_target"),
     pytest.param("on:\n  merge_group:\n", True, id="merge_group"),
     pytest.param("on: {push: {branches: [main]}}\n", True, id="流式映射读不懂"),
+    pytest.param("on: [workflow_dispatch,\n  pull_request]\n", True, id="跨行流式列表"),
+    pytest.param('on:\n  push:\n    branches: ["\\u0066eature"]\n', True, id="分支名带转义"),
+    pytest.param('on:\n  push:\n    branches:\n      - "\\x66eature"\n', True, id="列表分支名带转义"),
+    pytest.param("on:\n  push:\n    branches: [main,\n      feature]\n", True, id="跨行分支列表"),
     pytest.param("jobs: {}\n", True, id="没有on"),
     pytest.param(None, True, id="不是文本"),
 ])
