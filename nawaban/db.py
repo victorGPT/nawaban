@@ -1168,6 +1168,16 @@ def handoff(path: Path | str, task_id: str, *, owner: str, session_id: str,
                 (_now(), outcome, summary, task_id, session_id),
             )
             if cur.rowcount != 1:
+                # 交接后又推了修正(NAWABAN-NOW-AFTER-HANDOFF-001):handoff 不收第二次,
+                # 刷当前态的入口是 event --now —— 报错里直接指路,别让人去试 start。
+                # 只在卡仍归这条履历的 owner 时指路;别人持有的卡报错照旧。
+                if con.execute("SELECT 1 FROM task_sessions s JOIN tasks t ON t.id=s.task_id"
+                               " WHERE s.task_id=? AND s.session_id=? AND t.owner=s.owner",
+                               (task_id, session_id)).fetchone():
+                    raise NawabanError(
+                        f"{task_id} 本 session 已交接过,handoff 不重复收尾。"
+                        f"交接后又有进展,刷当前态用:\n"
+                        f"  nawaban event {task_id} --body \"<新进展>\" --now \"<当前态>\"")
                 raise NawabanError(f"无未收尾的 session 履历({task_id} × {session_id}):先 claim/start")
             _event(con, task_id, "handoff", body or summary, owner, session_id)
             con.execute("UPDATE tasks SET now=? WHERE id=?", (now, task_id))
