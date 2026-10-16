@@ -366,6 +366,10 @@ _ACCOUNT_HINT = ("这个仓库要用别的 gh 账号的话,单独运行:GH_TOKEN
                  "gh pr merge <PR> -R <OWNER/REPO> --match-head-commit <SHA>")
 
 
+# GitHub Actions 认的跳过标记;只认这些,只改 docs 的提交不算(docs 可能被测试读)。
+_SKIP_CI = re.compile(r"\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]")
+
+
 def _account_env(account: str) -> dict[str, str]:
     try:
         proc = subprocess.run(["gh", "auth", "token", "--user", account],
@@ -483,14 +487,19 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
         head = pr["headRefOid"]
         if len(parts) != 4 or parts[2] != "pull" or not re.fullmatch(r"[0-9a-f]{40}", head):
             raise Unverified("GitHub PR identity is incomplete")
+        # head...main: commits = main 上 PR 没有的提交(PR 落后的那些)。
         compare = _github(["api", "--hostname", url.netloc,
-                           f"repos/{parts[0]}/{parts[1]}/compare/main...{head}"],
+                           f"repos/{parts[0]}/{parts[1]}/compare/{head}...main"],
                           cwd, account, env)
-        main = compare["base_commit"]["sha"]
-        if not main or compare["merge_base_commit"]["sha"] != main:
-            raise Unverified("PR base 落后 main；运行 "
-                             f"gh pr update-branch {shlex.quote(pr['url'])} "
-                             "或 git fetch origin && git rebase origin/main，然后等待新 CI 全绿。")
+        behind = compare["commits"]
+        update = (f"运行 gh pr update-branch {shlex.quote(pr['url'])} "
+                  "或 git fetch origin && git rebase origin/main，然后等待新 CI 全绿。")
+        if (not isinstance(compare["ahead_by"], int) or not isinstance(behind, list)
+                or len(behind) != compare["ahead_by"]):
+            raise Unverified("拿不到 PR 落后 main 的完整提交清单，按落后处理；" + update)
+        # 落后的全是 CI 自己会跳过的提交时，同步后 CI 结论不变，不必 update-branch。
+        if not all(_SKIP_CI.search(c["commit"]["message"]) for c in behind):
+            raise Unverified("PR base 落后 main；" + update)
         _review_gate(cwd, pr["url"], head, _match_head(args))
     except (Unverified, KeyError, TypeError, AttributeError) as exc:
         return 2, f"🚫 merge gate: {exc}\n"

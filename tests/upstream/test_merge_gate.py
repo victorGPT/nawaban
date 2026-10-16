@@ -37,9 +37,16 @@ def test_merge_gate() -> None:
             " print(json.dumps({'statusCheckRollup': [] if scenario == 'empty' else [check],\n"
             "   'headRefOid': 'a' * 40, 'url': 'https://github.com/ac/repo/pull/1'}))\n"
             "elif sys.argv[1] == 'api':\n"
-            " assert sys.argv[-1] == 'repos/ac/repo/compare/main...' + 'a' * 40, sys.argv\n"
-            " print(json.dumps({'base_commit': {'sha': 'b' * 40},\n"
-            "   'merge_base_commit': {'sha': ('c' if scenario == 'behind' else 'b') * 40}}))\n"
+            " assert sys.argv[-1] == 'repos/ac/repo/compare/' + 'a' * 40 + '...main', sys.argv\n"
+            " msgs = {'behind': ['docs: only README'],\n"
+            "   'skip_ci': ['chore(deploy): prod 指针 [skip ci]', 'x [ci skip]', 'x\\n\\n[no ci]',\n"
+            "               'x [skip actions]', 'x [actions skip]'],\n"
+            "   'mixed': ['chore(deploy): prod 指针 [skip ci]', 'docs: only README'],\n"
+            "   'truncated': ['x [skip ci]']}.get(scenario, [])\n"
+            " ahead = 2 if scenario == 'truncated' else len(msgs)\n"
+            " commits = [{'sha': 'c' * 40, 'commit': {'message': m}} for m in msgs]\n"
+            " if scenario == 'no_list': commits = None\n"
+            " print(json.dumps({'ahead_by': ahead, 'commits': commits}))\n"
             "else: raise AssertionError(sys.argv)\n"
         )
         gh.chmod(0o755)
@@ -70,7 +77,13 @@ def test_merge_gate() -> None:
         # Preserve the current source snapshot's explicit SKIPPED allowance.
         assert len(check(merge, "SKIPPED")) == 2
         check(merge, "status_pending", 2, "legacy CI")
-        check(merge, "behind", 2, "gh pr update-branch")
+        # main 只多了带跳过标记的提交:同步后 CI 结论不变,放行;混进一个不带标记的(哪怕只改文档)就拦。
+        assert len(check(merge, "skip_ci")) == 2
+        for scenario in ("behind", "mixed"):
+            check(merge, scenario, 2, "gh pr update-branch")
+        for scenario in ("truncated", "no_list"):
+            check(merge, scenario, 2, "完整提交清单")
+            check(merge, scenario, 2, "gh pr update-branch")
         for scenario in ("empty", "error", "malformed", "invalid_bytes"):
             check(merge, scenario, 2, "merge gate")
         assert len(check(merge)) == 2

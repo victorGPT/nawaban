@@ -45,7 +45,7 @@ def merge(monkeypatch, tmp_path, command, head=REVIEWED):
             return {"statusCheckRollup": [{"name": "t", "status": "COMPLETED",
                                            "conclusion": "SUCCESS"}],
                     "headRefOid": head, "url": PR}
-        return {"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}}
+        return {"ahead_by": 0, "commits": []}
     monkeypatch.setattr(guard, "_github", github)
     return guard.judge_merge(command, str(tmp_path))
 
@@ -178,7 +178,7 @@ def test_which_tasks_refer_to_the_pr(tmp_path, monkeypatch, project, refs, statu
         {"statusCheckRollup": [{"name": "t", "status": "COMPLETED", "conclusion": "SUCCESS"}],
          "headRefOid": REVIEWED, "url": REPO39}
         if args[:2] == ["pr", "view"] else
-        {"base_commit": {"sha": "b" * 40}, "merge_base_commit": {"sha": "b" * 40}}))
+        {"ahead_by": 0, "commits": []}))
     code, msg = guard.judge_merge("gh pr merge 39 -R ac/repo --squash", str(tmp_path))
     assert (code == 2 and "P-2" in msg and "没有 review 结论" in msg) if blocked else \
         (code, msg) == (0, "")
