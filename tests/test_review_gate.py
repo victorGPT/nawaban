@@ -407,7 +407,8 @@ def test_workflows_are_read_from_the_pr_base_branch(board, tmp_path, monkeypatch
 
 
 def test_slow_github_blocks_within_the_hook_timeout(board, tmp_path, monkeypatch):
-    # 假 gh:每步都慢到接近单次上限,累计会超过 hook 的 10 秒;总时限必须先到并拦下
+    # 总预算调成 4 秒;假 gh 每步 1 秒(离单步上限至少 1 秒),graphql 一直挂 —— 拦下它的只能是总时限
+    monkeypatch.setattr(guard, "_BUDGET", 4.0)
     review(tmp_path, [])
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -417,10 +418,10 @@ def test_slow_github_blocks_within_the_hook_timeout(board, tmp_path, monkeypatch
     (bin_dir / "gh").write_text(
         "#!/bin/sh\n"
         'case "$1 $2" in\n'
-        "  'auth token') sleep 1.9; echo tok ;;\n"
-        f"  'pr view') sleep 2.9; echo '{view}' ;;\n"
-        "  'api graphql') exec sleep 6 ;;\n"
-        f"  *) sleep 2.9; echo '{compare}' ;;\n"
+        "  'auth token') sleep 1; echo tok ;;\n"
+        f"  'pr view') sleep 1; echo '{view}' ;;\n"
+        "  'api graphql') exec sleep 30 ;;\n"
+        f"  *) sleep 1; echo '{compare}' ;;\n"
         "esac\n")
     (bin_dir / "gh").chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
@@ -428,7 +429,17 @@ def test_slow_github_blocks_within_the_hook_timeout(board, tmp_path, monkeypatch
     code, msg = guard.judge_merge(f"GH_TOKEN=$(gh auth token --user ac) {LOCKED}", str(tmp_path))
     elapsed = time.monotonic() - started
     assert code == 2 and ("TimeoutExpired" in msg or "总时限" in msg), (msg, elapsed)
-    assert 7 < elapsed < 9, elapsed
+    assert 3.5 < elapsed < 5, elapsed
+
+
+def test_hook_deadline_reaches_the_merge_gate(monkeypatch):
+    # main() 从进程入口起算的时限经 judge() 传到合并闸;已经用完就不再发查询,直接拦
+    def no_subprocess(*args, **kwargs):
+        raise AssertionError(f"subprocess started: {args}")
+    monkeypatch.setattr(guard.subprocess, "run", no_subprocess)
+    payload = {"tool_name": "Bash", "cwd": str(ROOT), "tool_input": {"command": LOCKED}}
+    code, msg = guard.judge(payload, deadline=time.monotonic())
+    assert code == 2 and "总时限" in msg
 
 
 @pytest.mark.parametrize("check", [

@@ -579,8 +579,8 @@ class _ShellInput:
 _NO_CHECKS = "PR checks 为空，不能证明 CI 已绿；运行 gh pr checks <PR> --watch。"
 
 
-def judge_merge(command: str, cwd: str) -> tuple[int, str]:
-    deadline = time.monotonic() + _BUDGET
+def judge_merge(command: str, cwd: str, deadline: float | None = None) -> tuple[int, str]:
+    deadline = time.monotonic() + _BUDGET if deadline is None else deadline
     body = _strip_heredoc_bodies(command.replace("\\\n", ""))
     account = (m := _ACCOUNT_PREFIX.match(body)) and m.group(1)
     body = body[m.end():] if m else body
@@ -658,8 +658,8 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
 _PATCH_TARGET = re.compile(r"^[ \t]*\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+?)\s*$", re.M)  # Codex 先 trim 再认头;+行是正文
 
 
-def judge(payload: dict) -> tuple[int, str]:
-    """返回 (exit_code, stderr 消息)。0=放行(可带 WARN),2=BLOCK。"""
+def judge(payload: dict, deadline: float | None = None) -> tuple[int, str]:
+    """返回 (exit_code, stderr 消息)。0=放行(可带 WARN),2=BLOCK。deadline 见 _BUDGET。"""
     owner = resolve_owner(payload.get("session_id"))
     if not owner:
         return 0, ""  # 非 foreman 会话
@@ -678,7 +678,7 @@ def judge(payload: dict) -> tuple[int, str]:
             return 0, ""
         # Bash 只报 BLOCK,不报 WARN:tripwire 有误报,别拿噪音淹掉真信号
         base = Path(payload.get("cwd") or os.getcwd())
-        code, msg = judge_merge(tool_input.get("command") or "", str(base))
+        code, msg = judge_merge(tool_input.get("command") or "", str(base), deadline)
         if code == 2:
             return code, msg
         for t in _bash_write_targets(tool_input.get("command") or ""):
@@ -728,11 +728,12 @@ def _judge_target(payload: dict, owner: str, target: str) -> tuple[int, str]:
 
 
 def main() -> int:
+    deadline = time.monotonic() + _BUDGET  # 从进程入口算,resolve_owner 的 tmux 调用也算在内
     try:
         payload = json.load(sys.stdin)
     except Exception:
         return 0
-    code, msg = judge(payload)
+    code, msg = judge(payload, deadline)
     if msg:
         sys.stderr.write(msg)
     return code
