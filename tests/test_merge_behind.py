@@ -104,6 +104,8 @@ def test_malformed_response_blocks_in_judge_merge(monkeypatch, tmp_path, view, c
     def github(args, *_):
         if args[-1].endswith("/files?per_page=100"):
             return {"files": view["files"]}
+        if args[:2] == ["run", "list"]:
+            return {"runs": []}
         if args[:2] == ["pr", "view"]:
             return {**view, "statusCheckRollup": [{"name": "t", "status": "COMPLETED", "conclusion": "SUCCESS"}],
                     "headRefOid": "a" * 40, "url": PR_URL}
@@ -132,6 +134,8 @@ def test_pr_files_fetched_after_budget_is_spent_blocks(monkeypatch, tmp_path, el
                     "headRefOid": "a" * 40, "url": PR_URL, "changedFiles": 1}
         if args[-1].endswith("/files?per_page=100"):
             pytest.fail("third request started after the budget was spent")
+        if args[:2] == ["run", "list"]:
+            return {"runs": []}
         return main(["fix: a"], ("docs/a.md", "added", None))
     monkeypatch.setattr(guard, "_github", github)
     code, msg = guard.judge_merge("gh pr merge 1 -R ac/repo --squash", str(tmp_path))

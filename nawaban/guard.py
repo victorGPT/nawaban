@@ -21,7 +21,10 @@ still a no-op; failed queries deny. Empty checks deny unless neither the PR's ba
 branch nor the PR head has a workflow that runs on PRs and a task's passing review
 is locked (NAWABAN-NOCI-GATE-001). The behind check compares the head with main,
 not the base branch, on purpose: a PR into an integration branch is also checked
-against the latest main. Queries are read-only;
+against the latest main. While a workflow triggered by `push` on main has its latest
+settled run failed (cancelled/skipped/neutral runs are passed over; scheduled,
+workflow_run and manual runs do not count), merges are frozen except fix PRs: a title
+starting with `Revert` or a `main-fix` label. Queries are read-only;
 compound commands must be split. Scripts/eval/API merges and direct pushes are
 outside coverage. Post-preflight races still require server-side protection.
 
@@ -52,7 +55,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nawaban.owner_identity import owner_from_session  # noqa: E402
-from nawaban import db  # noqa: E402
+from nawaban import db, main_ci  # noqa: E402
 
 LOCKED = ("claimed", "in_progress")
 
@@ -622,7 +625,8 @@ def judge_merge(command: str, cwd: str, deadline: float | None = None) -> tuple[
             raise Unverified(retry)
         env = _account_env(account, deadline) if account else None
         pr = _github(_view_args(args) + ["--json", "statusCheckRollup,headRefOid,headRefName,"
-                                         "baseRefName,url,changedFiles"], cwd, account, env, deadline)
+                                         "baseRefName,url,changedFiles,title,labels"],
+                     cwd, account, env, deadline)
         checks = pr["statusCheckRollup"]
         if not isinstance(checks, list):
             raise Unverified(_NO_CHECKS)
@@ -640,13 +644,18 @@ def judge_merge(command: str, cwd: str, deadline: float | None = None) -> tuple[
         head = pr["headRefOid"]
         if len(parts) != 4 or parts[2] != "pull" or not re.fullmatch(r"[0-9a-f]{40}", head):
             raise Unverified("GitHub PR identity is incomplete")
+        fix_pr = (str(pr.get("title") or "").startswith("Revert")
+                  or any(isinstance(label, dict) and label.get("name") == "main-fix"
+                         for label in pr.get("labels") or []))
+        if not fix_pr:
+            _main_red(url.netloc, parts[0], parts[1], cwd, account, env, deadline)
         # head...main: commits = main 上 PR 没有的提交(PR 落后的那些)。
         compare = _github(["api", "--hostname", url.netloc,
                            f"repos/{parts[0]}/{parts[1]}/compare/{head}...main"],
                           cwd, account, env, deadline)
 
         def pr_files() -> Any:
-            _left(deadline, 3)  # 时限用完就不发这第三个请求
+            _left(deadline, 3)  # 时限用完就不发这最后一个请求
             # REST 的 files 带改名前的 previous_filename;GraphQL 的没有。一页最多 100 个。
             return _github(["api", "--hostname", url.netloc, "--jq", "{files: .}",
                             f"repos/{parts[0]}/{parts[1]}/pulls/{parts[3]}/files?per_page=100"],
@@ -664,6 +673,35 @@ def judge_merge(command: str, cwd: str, deadline: float | None = None) -> tuple[
     except (Unverified, KeyError, TypeError, AttributeError) as exc:
         return 2, f"🚫 merge gate: {exc}\n"
     return 0, note
+
+
+def _main_red(host: str, owner: str, repo: str, cwd: str, account: str | None,
+              env: dict[str, str] | None, deadline: float) -> None:
+    """main 上 push 触发的 workflow 有红的 → raise,冻结合并(修复 PR 由调用方放行,不走这里)。"""
+    # --event push 在服务端过滤:部署后验证这类 workflow_run 能占满最近 50 条,本地再筛会看不见红。
+    data = _github(["run", "list", "-R", f"{host}/{owner}/{repo}", "--branch", "main",
+                    "--event", "push", "--limit", "50", "--json",
+                    "workflowName,workflowDatabaseId,databaseId,attempt,status,conclusion,"
+                    "headSha,url,createdAt,event",
+                    "--jq", "{runs: .}"], cwd, account, env, deadline)
+    runs = data.get("runs")
+    shape = "main CI 查询结果形状不对，不能确认 main 是否红着；稍后重试合并。"
+    if not isinstance(runs, list) or not all(
+            isinstance(run, dict) and all(run.get(k) for k in ("event", "status", "url", "createdAt"))
+            and (run.get("workflowName") or run.get("workflowDatabaseId")) for run in runs):
+        raise Unverified(shape)
+    try:
+        # 只认 push 触发的:定时拨测、部署后验证(workflow_run)、手动触发的失败不冻结合并。
+        red = main_ci.red_runs([run for run in runs if run.get("event") == "push"], rerun_is_red=True)
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise Unverified(shape) from exc
+    if red:
+        raise Unverified("main 红着，冻结合并(修复 PR 除外):\n"
+                         + "".join(f"  main 上 {r['workflow']} 正在重跑，等结论:{r['url']}\n"
+                                   if r.get("rerunning") else f"  {r['workflow']}: {r['url']}\n"
+                                   for r in red)
+                         + "放行办法：修复 PR 的标题以 Revert 开头，或给它打 main-fix 标签;"
+                         "或在 main 上重跑失败的 workflow,转绿后再合并。")
 
 
 def _behind_note(pr: dict[str, Any], compare: dict[str, Any], pr_files: Callable[[], Any]) -> str:

@@ -37,6 +37,8 @@ def test_merge_gate() -> None:
             " print(json.dumps({'statusCheckRollup': [] if scenario == 'empty' else [check],\n"
             "   'headRefOid': 'a' * 40, 'url': 'https://github.com/ac/repo/pull/1',\n"
             "   'changedFiles': 1}))\n"
+            "elif sys.argv[1:3] == ['run', 'list']:\n"
+            " print(json.dumps({'runs': []}))\n"
             "elif sys.argv[1] == 'api' and sys.argv[-1] == 'repos/ac/repo/pulls/1/files?per_page=100':\n"
             " print(json.dumps({'files': [{'filename': 'src/app.py', 'status': 'modified'}]}))\n"
             "elif sys.argv[1] == 'api':\n"
@@ -75,18 +77,18 @@ def test_merge_gate() -> None:
         for state in ("FAILURE", "CANCELLED", "NEUTRAL"):
             check(merge, state, 2, state)
         # Preserve the current source snapshot's explicit SKIPPED allowance.
-        assert len(check(merge, "SKIPPED")) == 2
+        assert len(check(merge, "SKIPPED")) == 3
         check(merge, "status_pending", 2, "legacy CI")
         # 落后 main 的判法细节在 tests/test_merge_behind.py;这里只验 hook 进程的出口。
-        assert len(check(merge, "skip_ci", out='"additionalContext"')) == 3
+        assert len(check(merge, "skip_ci", out='"additionalContext"')) == 4
         check(merge, "behind", 2, "gh pr update-branch")
         check(merge, "truncated", 2, "完整清单")
         for scenario in ("empty", "error", "malformed", "invalid_bytes"):
             check(merge, scenario, 2, "merge gate")
-        assert len(check(merge)) == 2
-        assert len(check(merge + " # merge after checks")) == 2
-        assert len(check(merge + " --body '#'")) == 2
-        assert len(check(merge, "status")) == 2
+        assert len(check(merge)) == 3
+        assert len(check(merge + " # merge after checks")) == 3
+        assert len(check(merge + " --body '#'")) == 3
+        assert len(check(merge, "status")) == 3
         assert check(merge, "pending", identity=False) == []
         for command in ("gh pr view 1", "gh pr checks 1", "echo 'gh pr merge 1'", "git push origin main",
                         "cat <<'EOF'\ngh pr merge 1\nEOF\n"):
@@ -101,7 +103,7 @@ def test_merge_gate() -> None:
         assert query[1:6] == ["pr", "view", "-R", "ac/repo", "1"], query
         query = check("gh pr merge https://github.com/ac/repo/pull/1 --repo=ac/repo --squash")[0]
         assert "--repo=ac/repo" in query
-        assert len(check("gh pr merge --squash")) == 2
+        assert len(check("gh pr merge --squash")) == 3
         for command in ("cd /tmp && gh pr merge 1", "gh pr update-branch 1; gh pr merge 1",
                         "GH_REPO=other/repo gh pr merge 1", "env GH_REPO=other/repo gh pr merge 1",
                         "gh pr merge $PR", "gh pr merge 1\necho '",
@@ -113,8 +115,9 @@ def test_merge_gate() -> None:
         check("gh pr merge 1 -R ac/repo", "private", 2, "gh 当前活跃账号 work-acct")
         check("gh pr merge 1 -R ac/repo", "private", 2, "GH_TOKEN=$(gh auth token --user <账号>)")
         calls_made = check(as_owner, "private")
-        assert [c[1:3] for c in calls_made] == [["auth", "token"], ["pr", "view"], ["api", "--hostname"]]
-        assert [c[0] for c in calls_made[1:]] == ["tok-owner", "tok-owner"], calls_made
+        assert [c[1:3] for c in calls_made] == [["auth", "token"], ["pr", "view"], ["run", "list"],
+                                              ["api", "--hostname"]]
+        assert [c[0] for c in calls_made[1:]] == ["tok-owner"] * 3, calls_made
         check(as_owner.replace("owner", "other"), "private", 2, "gh 账号 other")
         assert check(as_owner.replace("owner", "ghost"), expected=2, needle="没有登录账号 ghost")[1:] == []
         for command in (as_owner + "; echo done", "GH_TOKEN=tok gh pr merge 1",
