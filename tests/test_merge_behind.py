@@ -119,8 +119,9 @@ def test_file_the_pr_renamed_away_counts_as_shared():
     assert "docs/tasks/a.md" in msg
 
 
-# Without an account prefix a failed query also spends up to 2s naming the active account.
-@pytest.mark.parametrize("elapsed", [9.0, 6.0])
+# The third request starts only while the shared deadline has time left; naming the active
+# account after a failed query is bounded by the same deadline.
+@pytest.mark.parametrize("elapsed", [9.0, 8.0])
 def test_pr_files_fetched_after_budget_is_spent_blocks(monkeypatch, tmp_path, elapsed):
     clock = iter([0.0, elapsed])
     monkeypatch.setattr(guard.time, "monotonic", lambda: next(clock))

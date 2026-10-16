@@ -1,10 +1,12 @@
 """Review verdicts are judged by fixed rules and merges are locked to the reviewed commit."""
 
 import json
+import os
 import sqlite3
 import subprocess
 import threading
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -347,3 +349,183 @@ def test_migration_adds_reviews_table(tmp_path):
                           " DROP TABLE reviews;")
     assert "reviews" in db.migrate_db(path)
     assert db.migrate_db(path) == []
+
+
+# NAWABAN-NOCI-GATE-001:checks 为空时,仓库没有在 PR 上跑的 workflow 才看 review 放行
+DEPLOY_ONLY = {"deploy-staging.yml": "name: s\non:\n  push:\n    branches: [main]\njobs: {}\n",
+               "deploy-production.yml": "# 手动\non:\n  workflow_dispatch:\njobs: {}\n"}
+PR_CI = {"test.yml": "on:\n  pull_request:\njobs: {}\n"}
+
+
+def merge_without_checks(monkeypatch, tmp_path, command, *, main=None, head=None, checks=(),
+                         base="main", others=None):
+    refs = {"main": main, REVIEWED: head, **(others or {})}
+
+    def tree(field, args):
+        ref = next(a for a in args if a.startswith(field + "=")).partition("=")[2]
+        files = refs.get(ref.removesuffix(":.github/workflows"))
+        return files and {"entries": [{"name": n, "object": {"text": t}} for n, t in files.items()]}
+
+    def github(args, cwd, *_):
+        if args[:2] == ["pr", "view"]:
+            return {"statusCheckRollup": list(checks), "headRefOid": REVIEWED,
+                    "headRefName": "feature", "baseRefName": base, "url": PR}
+        if args[:2] == ["api", "graphql"]:
+            assert args[2:4] == ["--hostname", "github.com"]
+            return {"data": {"repository": {"main": tree("main", args),
+                                            "head": tree("head", args)}}}
+        return {"ahead_by": 0, "commits": []}
+    monkeypatch.setattr(guard, "_github", github)
+    return guard.judge_merge(command, str(tmp_path))
+
+
+@pytest.mark.parametrize("main, head", [
+    pytest.param(DEPLOY_ONLY, DEPLOY_ONLY, id="只有push-main和手动部署"),
+    pytest.param(None, None, id="没有workflows目录"),
+])
+def test_repo_without_pr_ci_merges_after_locked_review(board, tmp_path, monkeypatch, main, head):
+    review(tmp_path, [])
+    assert merge_without_checks(monkeypatch, tmp_path, LOCKED, main=main, head=head) == (0, "")
+
+
+@pytest.mark.parametrize("main, head", [
+    pytest.param(PR_CI, PR_CI, id="main和head都有PR-CI"),
+    pytest.param(PR_CI, DEPLOY_ONLY, id="PR删掉了main上的CI"),
+    pytest.param(DEPLOY_ONLY, {**DEPLOY_ONLY, **PR_CI}, id="PR新加CI"),
+])
+def test_repo_with_pr_ci_still_blocks_empty_checks(board, tmp_path, monkeypatch, main, head):
+    review(tmp_path, [])
+    code, msg = merge_without_checks(monkeypatch, tmp_path, LOCKED, main=main, head=head)
+    assert code == 2 and "PR checks 为空" in msg and "等它们跑完" in msg
+
+
+def test_workflows_are_read_from_the_pr_base_branch(board, tmp_path, monkeypatch):
+    review(tmp_path, [])
+    code, msg = merge_without_checks(monkeypatch, tmp_path, LOCKED, main=DEPLOY_ONLY,
+                                     head=DEPLOY_ONLY, base="develop", others={"develop": PR_CI})
+    assert code == 2 and "等它们跑完" in msg
+
+
+def test_slow_github_blocks_within_the_hook_timeout(board, tmp_path, monkeypatch):
+    # 总预算调成 4 秒;假 gh 每步 1 秒(离单步上限至少 1 秒),graphql 一直挂 —— 拦下它的只能是总时限
+    monkeypatch.setattr(guard, "_BUDGET", 4.0)
+    review(tmp_path, [])
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    view = json.dumps({"statusCheckRollup": [], "headRefOid": REVIEWED, "headRefName": "feature",
+                       "baseRefName": "main", "url": PR})
+    compare = json.dumps({"ahead_by": 0, "commits": []})
+    (bin_dir / "gh").write_text(
+        "#!/bin/sh\n"
+        'case "$1 $2" in\n'
+        "  'auth token') sleep 1; echo tok ;;\n"
+        f"  'pr view') sleep 1; echo '{view}' ;;\n"
+        "  'api graphql') exec sleep 30 ;;\n"
+        f"  *) sleep 1; echo '{compare}' ;;\n"
+        "esac\n")
+    (bin_dir / "gh").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    started = time.monotonic()
+    code, msg = guard.judge_merge(f"GH_TOKEN=$(gh auth token --user ac) {LOCKED}", str(tmp_path))
+    elapsed = time.monotonic() - started
+    assert code == 2 and ("TimeoutExpired" in msg or "hook 时限" in msg), (msg, elapsed)
+    assert 3.5 < elapsed < 5, elapsed
+
+
+def test_hook_deadline_reaches_the_merge_gate(monkeypatch):
+    # main() 从进程入口起算的时限经 judge() 传到合并闸;已经用完就不再发查询,直接拦
+    def no_subprocess(*args, **kwargs):
+        raise AssertionError(f"subprocess started: {args}")
+    monkeypatch.setattr(guard.subprocess, "run", no_subprocess)
+    payload = {"tool_name": "Bash", "cwd": str(ROOT), "tool_input": {"command": LOCKED}}
+    code, msg = guard.judge(payload, deadline=time.monotonic())
+    assert code == 2 and "hook 时限" in msg
+
+
+@pytest.mark.parametrize("check", [
+    {"name": "t", "status": "IN_PROGRESS", "conclusion": ""},
+    {"name": "t", "status": "COMPLETED", "conclusion": "FAILURE"},
+])
+def test_unfinished_or_failed_checks_still_block(board, tmp_path, monkeypatch, check):
+    review(tmp_path, [])
+    code, msg = merge_without_checks(monkeypatch, tmp_path, LOCKED, main=PR_CI, head=PR_CI,
+                                     checks=[check])
+    assert code == 2 and "checks 未全部 success" in msg
+
+
+def test_repo_without_pr_ci_blocks_failed_or_missing_review(board, tmp_path, monkeypatch):
+    code, msg = merge_without_checks(monkeypatch, tmp_path, LOCKED, main=DEPLOY_ONLY)
+    assert code == 2 and "没有 review 结论" in msg
+    review(tmp_path, [finding("major")])
+    code, msg = merge_without_checks(monkeypatch, tmp_path, LOCKED, main=DEPLOY_ONLY)
+    assert code == 2 and "不过" in msg
+
+
+def test_repo_without_pr_ci_blocks_unlocked_merge(board, tmp_path, monkeypatch):
+    review(tmp_path, [])
+    code, msg = merge_without_checks(monkeypatch, tmp_path, "gh pr merge 1 -R ac/repo --squash",
+                                     main=DEPLOY_ONLY)
+    assert code == 2 and f"--match-head-commit {REVIEWED}" in msg
+
+
+def test_repo_without_pr_ci_blocks_pr_on_no_task(tmp_path, monkeypatch):
+    path = tmp_path / "board.db"
+    db.init_db(path)
+    monkeypatch.setenv("NAWABAN_DB", str(path))
+    code, msg = merge_without_checks(monkeypatch, tmp_path, LOCKED, main=DEPLOY_ONLY)
+    assert code == 2 and "PR checks 为空" in msg and "登记到卡上" in msg
+
+
+def test_workflow_query_failure_blocks_empty_checks(board, tmp_path, monkeypatch):
+    review(tmp_path, [])
+
+    def github(args, cwd, *_):
+        if args[:2] == ["api", "graphql"]:
+            raise guard.Unverified("GitHub query failed (exit 1)")
+        return {"statusCheckRollup": [], "headRefOid": REVIEWED, "headRefName": "feature",
+                "baseRefName": "main",
+                "url": PR, "ahead_by": 0, "commits": []}
+    monkeypatch.setattr(guard, "_github", github)
+    code, msg = guard.judge_merge(LOCKED, str(tmp_path))
+    assert code == 2 and "GitHub query failed" in msg
+
+
+@pytest.mark.parametrize("text, runs", [
+    pytest.param("on:\n  push:\n    branches: [main]\n", False, id="push-main"),
+    pytest.param("'on':\n  push:\n    branches:\n      - main\n      - release\n    paths: [x]\n",
+                 False, id="push分支列表"),
+    pytest.param("on:\n  workflow_dispatch:\n  schedule:\n    - cron: '0 0 * * *'\n", False,
+                 id="手动和定时"),
+    pytest.param("on: [workflow_dispatch]\n", False, id="内联手动"),
+    pytest.param("on: push\n", True, id="内联push"),
+    pytest.param("on:\n  push:\n", True, id="push不限分支"),
+    pytest.param("on:\n  - push\n", True, id="列表push"),
+    pytest.param("on:\n  push:\n    branches: ['**']\n", True, id="push通配"),
+    pytest.param("on:\n  push:\n    branches: [feature]\n", True, id="push到PR分支"),
+    pytest.param("on:\n  push:\n    branches-ignore: [main]\n", True, id="branches-ignore"),
+    pytest.param("on:\n  pull_request_target:\n", True, id="pull_request_target"),
+    pytest.param("on:\n  merge_group:\n", True, id="merge_group"),
+    pytest.param("on: {push: {branches: [main]}}\n", True, id="流式映射读不懂"),
+    pytest.param("on: [workflow_dispatch,\n  pull_request]\n", True, id="跨行流式列表"),
+    pytest.param('on:\n  push:\n    branches: ["\\u0066eature"]\n', True, id="分支名带转义"),
+    pytest.param('on:\n  push:\n    branches:\n      - "\\x66eature"\n', True, id="列表分支名带转义"),
+    pytest.param("on:\n  push:\n    branches: [main,\n      feature]\n", True, id="跨行分支列表"),
+    pytest.param("on:\n  push:\n    branches:\n      - \"feature'\"\n", True, id="分支名带引号字符"),
+    pytest.param("on:\n  push:\n    branches: [\"feature'\"]\n", True, id="流式分支名带引号字符"),
+    pytest.param("on:\n  push:\n    branches:\n      - main\n      -\tfeature\n", True,
+                 id="列表项用tab分隔"),
+    pytest.param("jobs: {}\n", True, id="没有on"),
+    pytest.param("on:\n  push:\n    paths-ignore:\n      - |\n        branches: [main]\n", True,
+                 id="块标量里的branches不算"),
+    pytest.param('x: "a\non: workflow_dispatch\n"\non: pull_request\n', True, id="顶格引号串跨行"),
+    pytest.param('jobs:\n  a:\n    run: "x\non: workflow_dispatch\n  y"\non: pull_request\n',
+                 True, id="嵌套引号串顶格续行"),
+    pytest.param("on: workflow_dispatch\nenv: {a: 1,\n  b: 2}\n", True, id="流式映射跨行"),
+    pytest.param("on:\n  workflow_dispatch:\njobs:\n  a:\n    steps:\n      - run: echo \"it's\" "
+                 "${{ x }} [ok]\n", False, id="同行闭合的引号和括号"),
+    pytest.param("---\non:\n  workflow_dispatch:\n", False, id="开头的文档标记"),
+    pytest.param("on: workflow_dispatch\n---\non: pull_request\n", True, id="多文档"),
+    pytest.param(None, True, id="不是文本"),
+])
+def test_which_workflows_run_on_the_pr(text, runs):
+    assert guard._runs_on_pr(text, "feature") is runs

@@ -15,7 +15,9 @@ md 版 foreman_guard.py 自此退役未接线。注意:无 nawaban.db 的仓本 
 
 merge gate pr checks regression: identified Bash `gh pr merge` calls require all checks
 SUCCESS and a head containing remote main, even without a board. No identity is
-still a no-op; failed queries and empty checks deny. Queries are read-only;
+still a no-op; failed queries deny. Empty checks deny unless neither main nor the
+PR head has a workflow that runs on PRs and a task's passing review is locked
+(NAWABAN-NOCI-GATE-001). Queries are read-only;
 compound commands must be split. Scripts/eval/API merges and direct pushes are
 outside coverage. Post-preflight races still require server-side protection.
 
@@ -331,16 +333,18 @@ def _board_file(cwd: str) -> Path | None:
     return None
 
 
-def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
+def _review_gate(cwd: str, url: str, head: str, lock: str | None,
+                 timeout: float = 5) -> bool:
     """登记了这个 PR 的卡:最新 review 必须通过、审的就是 PR head,且合并锁定在这个提交。
 
-    没有看板 / 没有未结束的卡登记这个 PR → 不管(只剩 CI 闸)。看板在但读不了 → 拦。
+    没有看板 / 没有未结束的卡登记这个 PR → 不管(只剩 CI 闸),返回 False。看板在但读不了 → 拦。
+    返回 True 表示有卡登记了这个 PR,且 review 闸全部通过。
     """
     board = _board_file(cwd)
     if board is None:
-        return
+        return False
     try:
-        con = sqlite3.connect(f"file:{board}?mode=ro", uri=True, timeout=5)
+        con = sqlite3.connect(f"file:{board}?mode=ro", uri=True, timeout=timeout)
         try:
             rows = db.latest_reviews_for_pr(con, url)
         finally:
@@ -359,6 +363,135 @@ def _review_gate(cwd: str, url: str, head: str, lock: str | None) -> None:
     if rows and lock != head:
         raise Unverified("合并没有锁定到审过的提交;运行 gh pr merge <PR> -R <OWNER/REPO> "
                          f"--match-head-commit {head}")
+    return bool(rows)
+
+
+# 这些事件不会在 PR head 提交上产生 checks;别的事件一律当会产生(fail closed)。
+_OFF_PR_EVENTS = {"workflow_dispatch", "schedule", "repository_dispatch", "workflow_call",
+                  "release", "workflow_run"}
+_WORKFLOWS_QUERY = """query($o:String!,$r:String!,$main:String!,$head:String!){repository(owner:$o,name:$r){
+main:object(expression:$main){...W} head:object(expression:$head){...W}}}
+fragment W on GitObject{... on Tree{entries{name object{... on Blob{text}}}}}"""
+
+
+# 普通名字,可带一对成对的引号;引号只去这一对,名字里的引号字符过不了这条
+_PLAIN_NAME = re.compile(r"""(["']?)([A-Za-z0-9_./-]+)\1""")
+
+
+def _yaml_items(value: str) -> list[str] | None:
+    """`a` 或同一行闭合的 `[a, b]` → 名字列表。跨行、转义、通配等读不准的写法 → None。"""
+    value = value.strip()
+    if value.startswith("["):
+        if not value.endswith("]"):
+            return None
+        value = value[1:-1]
+    names = [_PLAIN_NAME.fullmatch(v.strip()) for v in value.split(",") if v.strip()]
+    return [m.group(2) for m in names] if all(names) else None
+
+
+def _spans_lines(text: str) -> bool:
+    """有没有引号串或流式 [..] {..} 跨行。续行可以顶格写成 `on: ...`,逐行读会被它骗。
+
+    ponytail: 块标量正文也按同样规则扫,里面不成对的引号会多拦一次(fail closed)。
+    """
+    quote, depth = None, 0
+    for line in text.splitlines():
+        if quote or depth:
+            return True
+        prev, i = " ", 0
+        while i < len(line):
+            c = line[i]
+            if quote == '"':
+                if c == "\\":
+                    i += 1
+                elif c == '"':
+                    quote = None
+            elif quote == "'":
+                if c == "'" and line[i + 1:i + 2] == "'":
+                    i += 1
+                elif c == "'":
+                    quote = None
+            elif c == "#" and prev.isspace():
+                break
+            elif c in "\"'" and prev in " \t:-[{,":
+                quote = c
+            elif c in "[{" and prev in " \t:-[{,":
+                depth += 1
+            elif c in "]}" and depth:
+                depth -= 1
+            prev, i = c, i + 1
+    return bool(quote or depth)
+
+
+def _runs_on_pr(text: str | None, branch: str) -> bool:
+    """这份 workflow 会不会在 PR head 上跑出 checks。读不懂一律算会。
+
+    ponytail: 只认 `on:` 的常见写法,不引 yaml(它是可选依赖);锚点、多文档等写法都按「会」拦。
+    """
+    if text is None or _spans_lines(text):
+        return True
+    lines = [line for raw in text.splitlines()
+             if (line := re.sub(r"(^|\s)#.*", "", raw).rstrip())]
+    if any(line.startswith("---") for line in lines[1:]):  # 多文档:只认第一份不可靠
+        return True
+    start = next((i for i, line in enumerate(lines)
+                  if re.fullmatch(r"""["']?on["']?\s*:.*""", line)), None)
+    if start is None:
+        return True
+    inline = lines[start].partition(":")[2]
+    if inline.strip():  # on: push / on: [push, workflow_dispatch]:内联写法没有分支过滤
+        events = _yaml_items(inline)
+        return events is None or any(e not in _OFF_PR_EVENTS for e in events)
+    block = []
+    for line in lines[start + 1:]:
+        if not line[0].isspace():
+            break
+        block.append(line)
+    if not block:
+        return True
+    indent = len(block[0]) - len(block[0].lstrip())
+    for i, line in enumerate(block):
+        if len(line) - len(line.lstrip()) != indent:
+            continue
+        event, _, rest = line.strip().removeprefix("- ").partition(":")
+        event = event.strip().strip("'\"")
+        if event in _OFF_PR_EVENTS:
+            continue
+        if event != "push" or rest.strip():
+            return True
+        body = []
+        for child in block[i + 1:]:
+            if (depth := len(child) - len(child.lstrip())) <= indent:
+                break
+            body.append((depth, child.strip()))
+        # 只认 push 的直接子键;更深处(如块标量里)写的 branches: 不算
+        branches = next((j for j, (depth, c) in enumerate(body)
+                         if depth == body[0][0] and c.startswith("branches:")), None)
+        if branches is None:  # 不限分支的 push 也会在 PR 分支上跑
+            return True
+        patterns = _yaml_items(body[branches][1].partition(":")[2])
+        for _, c in body[branches + 1:]:
+            if not c.startswith("-") or patterns is None:
+                break
+            # `-` 后不是空格(如 tab)读不准,当读不懂
+            items = _yaml_items(c[2:]) if c.startswith("- ") else None
+            patterns = None if items is None else patterns + items
+        # 通配和转义过不了 _yaml_items,只剩普通分支名可比
+        if not patterns or branch in patterns:
+            return True
+    return False
+
+
+def _has_pr_ci(host: str, owner: str, repo: str, base: str, head: str, branch: str, cwd: str,
+               account: str | None, env: dict[str, str] | None, deadline: float) -> bool:
+    """PR 的 base 分支或 head 上有没有会在 PR 上跑的 workflow(两边都看:PR 可能删掉 base 上的 CI)。"""
+    data = _github(["api", "graphql", "--hostname", host, "-f", f"query={_WORKFLOWS_QUERY}",
+                    "-f", f"o={owner}", "-f", f"r={repo}", "-f", f"main={base}:.github/workflows",
+                    "-f", f"head={head}:.github/workflows"], cwd, account, env, deadline)
+    trees = data["data"]["repository"]
+    return any(_runs_on_pr(entry["object"] and entry["object"].get("text"), branch)
+               for tree in (trees["main"], trees["head"]) if tree
+               for entry in tree["entries"] if entry["name"].endswith((".yml", ".yaml")))
 
 
 # 唯一放行的前缀:这一条合并用指定账号,不切全局 gh 账号;闸用同一账号查询。
@@ -370,13 +503,21 @@ _ACCOUNT_HINT = ("这个仓库要用别的 gh 账号的话,单独运行:GH_TOKEN
 # GitHub Actions 认的跳过标记;只认这些,只改 docs 的提交不算(docs 可能被测试读)。
 _SKIP_CI = re.compile(r"\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]")
 _MIGRATION = re.compile(r"(?:^|/)migrations/")
-_MERGE_BUDGET = 8.5  # 秒；装好的 hook 超时是 10 秒，超时 = 命令照跑，所以得自己先停
+# hook 超时 10 秒,超时不拦 = 命令照跑;整次判定限 8 秒,留 2 秒给进程启动。每次子调用只用剩余时间。
+_BUDGET = 8.0
 
 
-def _account_env(account: str) -> dict[str, str]:
+def _left(deadline: float, cap: float) -> float:
+    left = deadline - time.monotonic()
+    if left <= 0.05:
+        raise Unverified(f"GitHub 查询用完了 hook 时限(总 {_BUDGET:g} 秒),不能确认;稍后重试合并。")
+    return min(cap, left)
+
+
+def _account_env(account: str, deadline: float) -> dict[str, str]:
     try:
         proc = subprocess.run(["gh", "auth", "token", "--user", account],
-                              capture_output=True, text=True, timeout=2)
+                              capture_output=True, text=True, timeout=_left(deadline, 2))
     except (OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
         raise Unverified(f"取不到 gh 账号 {account} 的 token:{type(exc).__name__}") from exc
     token = proc.stdout.strip()
@@ -385,21 +526,20 @@ def _account_env(account: str) -> dict[str, str]:
     return {**os.environ, "GH_TOKEN": token}
 
 
-def _active_account() -> str:
+def _active_account(deadline: float) -> str:
     try:
         proc = subprocess.run(["gh", "auth", "status", "--active", "--json", "hosts",
                                "--jq", ".hosts[][].login"],
-                              capture_output=True, text=True, timeout=2)
+                              capture_output=True, text=True, timeout=_left(deadline, 2))
         login = proc.stdout.split()[0] if not proc.returncode and proc.stdout.split() else ""
-    except (OSError, UnicodeError, subprocess.TimeoutExpired):
+    except (OSError, UnicodeError, subprocess.TimeoutExpired, Unverified):
         login = ""
     return f"gh 当前活跃账号 {login}" if login else "gh 当前活跃账号(名字没查到)"
 
 
-def _github(args: list[str], cwd: str, account: str | None = None,
-            env: dict[str, str] | None = None, timeout: float = 3) -> dict[str, Any]:
-    # Two requests of at most three seconds fit the installed ten-second hook;
-    # a third one gets only what is left of _MERGE_BUDGET.
+def _github(args: list[str], cwd: str, account: str | None,
+            env: dict[str, str] | None, deadline: float) -> dict[str, Any]:
+    timeout = _left(deadline, 3)
     try:
         proc = subprocess.run(["gh", *args], cwd=cwd, capture_output=True,
                               text=True, timeout=timeout, env=env)
@@ -408,7 +548,8 @@ def _github(args: list[str], cwd: str, account: str | None = None,
         failure = f"unavailable: {type(exc).__name__}"
     if failure:
         # Do not echo CLI stderr: it may include credentials or private URLs.
-        who = f"gh 账号 {account}" if account else _active_account() + "\n" + _ACCOUNT_HINT
+        who = (f"gh 账号 {account}" if account
+               else _active_account(deadline) + "\n" + _ACCOUNT_HINT)
         raise Unverified(f"GitHub query {failure} · 查询用的是 {who}")
     try:
         value = json.loads(proc.stdout)
@@ -438,7 +579,11 @@ class _ShellInput:
         return line
 
 
-def judge_merge(command: str, cwd: str) -> tuple[int, str]:
+_NO_CHECKS = "PR checks 为空，不能证明 CI 已绿；运行 gh pr checks <PR> --watch。"
+
+
+def judge_merge(command: str, cwd: str, deadline: float | None = None) -> tuple[int, str]:
+    deadline = time.monotonic() + _BUDGET if deadline is None else deadline
     body = _strip_heredoc_bodies(command.replace("\\\n", ""))
     account = (m := _ACCOUNT_PREFIX.match(body)) and m.group(1)
     body = body[m.end():] if m else body
@@ -461,7 +606,6 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
     if not merges:
         return 0, ""
     retry = "请单独运行 gh pr merge <PR> -R <OWNER/REPO>，保持当前 cwd 和环境不变。"
-    start = time.monotonic()
     try:
         if parse_failed or len(segments) != 1:
             raise Unverified(retry)
@@ -472,12 +616,12 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
         args = merges[0]
         if any("$" in arg or "`" in arg for arg in args):
             raise Unverified(retry)
-        env = _account_env(account) if account else None
-        pr = _github(_view_args(args) + ["--json", "statusCheckRollup,headRefOid,url,changedFiles"],
-                     cwd, account, env)
+        env = _account_env(account, deadline) if account else None
+        pr = _github(_view_args(args) + ["--json", "statusCheckRollup,headRefOid,headRefName,"
+                                         "baseRefName,url,changedFiles"], cwd, account, env, deadline)
         checks = pr["statusCheckRollup"]
-        if not isinstance(checks, list) or not checks:
-            raise Unverified("PR checks 为空，不能证明 CI 已绿；运行 gh pr checks <PR> --watch。")
+        if not isinstance(checks, list):
+            raise Unverified(_NO_CHECKS)
         failed = []
         for check in checks:
             state = check.get("conclusion") if check.get("status") == "COMPLETED" else check.get("state")
@@ -495,20 +639,24 @@ def judge_merge(command: str, cwd: str) -> tuple[int, str]:
         # head...main: commits = main 上 PR 没有的提交(PR 落后的那些)。
         compare = _github(["api", "--hostname", url.netloc,
                            f"repos/{parts[0]}/{parts[1]}/compare/{head}...main"],
-                          cwd, account, env)
+                          cwd, account, env, deadline)
 
         def pr_files() -> Any:
-            # 没指定账号时，查询失败还要花至多 2 秒查活跃账号名，也得算进预算。
-            left = _MERGE_BUDGET - (time.monotonic() - start) - (0 if account else 2)
-            if left < 1:
-                raise Unverified("GitHub 查询用完了 hook 时限，按落后处理；稍后重试合并")
+            _left(deadline, 3)  # 时限用完就不发这第三个请求
             # REST 的 files 带改名前的 previous_filename;GraphQL 的没有。一页最多 100 个。
             return _github(["api", "--hostname", url.netloc, "--jq", "{files: .}",
                             f"repos/{parts[0]}/{parts[1]}/pulls/{parts[3]}/files?per_page=100"],
-                           cwd, account, env, min(3, left))["files"]
+                           cwd, account, env, deadline)["files"]
 
         note = _behind_note(pr, compare, pr_files)
-        _review_gate(cwd, pr["url"], head, _match_head(args))
+        reviewed = _review_gate(cwd, pr["url"], head, _match_head(args), _left(deadline, 5))
+        # checks 为空:只有仓库根本没有会在 PR 上跑的 workflow、且卡上 review 已过并锁定提交时才放行
+        if not checks and not reviewed:
+            raise Unverified(_NO_CHECKS + "仓库没有在 PR 上跑的 workflow 时,把 PR 链接登记到卡上"
+                             "并 review 通过,合并锁定审过的提交即可。")
+        if not checks and _has_pr_ci(url.netloc, parts[0], parts[1], pr["baseRefName"], head,
+                                     pr["headRefName"], cwd, account, env, deadline):
+            raise Unverified(_NO_CHECKS + "仓库有会在 PR 上跑的 workflow,等它们跑完。")
     except (Unverified, KeyError, TypeError, AttributeError) as exc:
         return 2, f"🚫 merge gate: {exc}\n"
     return 0, note
@@ -558,8 +706,8 @@ def _adds_migration(files: list[dict[str, Any]]) -> bool:
 _PATCH_TARGET = re.compile(r"^[ \t]*\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+?)\s*$", re.M)  # Codex 先 trim 再认头;+行是正文
 
 
-def judge(payload: dict) -> tuple[int, str]:
-    """返回 (exit_code, stderr 消息)。0=放行(可带 WARN),2=BLOCK。"""
+def judge(payload: dict, deadline: float | None = None) -> tuple[int, str]:
+    """返回 (exit_code, stderr 消息)。0=放行(可带 WARN),2=BLOCK。deadline 见 _BUDGET。"""
     owner = resolve_owner(payload.get("session_id"))
     if not owner:
         return 0, ""  # 非 foreman 会话
@@ -578,7 +726,7 @@ def judge(payload: dict) -> tuple[int, str]:
             return 0, ""
         # Bash 只报 BLOCK,不报 WARN:tripwire 有误报,别拿噪音淹掉真信号;唯一例外是合并闸的放行理由
         base = Path(payload.get("cwd") or os.getcwd())
-        code, note = judge_merge(tool_input.get("command") or "", str(base))
+        code, note = judge_merge(tool_input.get("command") or "", str(base), deadline)
         if code == 2:
             return code, note
         for t in _bash_write_targets(tool_input.get("command") or ""):
@@ -628,11 +776,12 @@ def _judge_target(payload: dict, owner: str, target: str) -> tuple[int, str]:
 
 
 def main() -> int:
+    deadline = time.monotonic() + _BUDGET  # 从进程入口算,resolve_owner 的 tmux 调用也算在内
     try:
         payload = json.load(sys.stdin)
     except Exception:
         return 0
-    code, msg = judge(payload)
+    code, msg = judge(payload, deadline)
     if code == 0 and msg and payload.get("tool_name") == "Bash":
         # 放行的合并要让 agent 看见理由；exit 0 的 stderr 只进日志。
         json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse",
