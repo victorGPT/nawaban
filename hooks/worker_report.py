@@ -11,11 +11,13 @@ tells the model what to send, and reports failures:
   letter to its director with SendMessage. A turn with no blocker, no open ask and no background
   work of its own is a hand-in: the letter starts with "[待 review]". The director's name is looked
   up from its session ID in `claude agents --json`; when it is not running, the worker is told the
-  report is kept on the board instead and stops. The next stop (stop_hook_active) passes through.
-- PostToolUse on SendMessage: a worker's report that arrived marks its letter read; one that did
-  not is left unread and the worker is told not to retry or send it anywhere else. A message sent to
-  a dispatched worker's name is written as a `reply` letter (read when delivered); when the worker
-  cannot be reached, the sender is told the message is kept on the board but was not delivered.
+  report is kept on the board instead and stops. The next stop (stop_hook_active) passes through
+  unless the worker did more than send in between; then it is reported like any other turn.
+- PostToolUse on SendMessage: a report sent with exactly the text the hook gave marks its letter
+  read; one that did not arrive is left unread and the worker is told not to retry or send it
+  anywhere else. A message to a dispatched worker's name is written as a `reply` letter, and a
+  worker's own message to its director as a `stage` letter (read when delivered). When the other
+  side cannot be reached, or the board cannot take the letter, the sender is told.
 - Any other session, or a board-less directory: nothing is written and nothing is printed.
 
 Nothing waits or polls: SendMessage itself wakes an idle receiver and leaves both session IDs as
