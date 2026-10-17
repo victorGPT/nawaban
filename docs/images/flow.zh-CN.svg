@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 970 470" width="970" height="470" role="img" aria-labelledby="ttl">
+<title id="ttl">nawaban 如何协调 agent：agent 认领任务卡，在自己的 worktree 里干活并开 PR；三道闸拦住撞车；问题进你的收件箱；看板记录每一步。</title>
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;text-anchor:middle;fill:#1f2328}
+.t{font-size:15px;font-weight:600} .s{font-size:12px;fill:#59636e} .l{font-size:12px;fill:#59636e}
+.bg{fill:#fff;stroke:#d1d9e0} .box{fill:#fff;stroke:#8c959f;stroke-width:1.5}
+.gate .box{fill:#f6f8fa;stroke:#59636e;stroke-dasharray:4 3}
+.hum .box{stroke:#bc4c00} .board{fill:#f6f8fa;stroke:#d1d9e0}
+.flow{fill:none;stroke:#0969da;stroke-width:2;stroke-dasharray:6 6;animation:march 1.2s linear infinite}
+.ask{fill:none;stroke:#bc4c00;stroke-width:2;stroke-dasharray:6 6;animation:march 1.2s linear infinite}
+.tie{stroke:#59636e;stroke-width:1.5}
+.step .box{animation:lit 10s linear infinite}
+.d1 .box{animation-delay:0s} .d2 .box{animation-delay:2s} .d3 .box{animation-delay:4s} .d4 .box{animation-delay:6s} .d5 .box{animation-delay:8s}
+@keyframes march{to{stroke-dashoffset:-12}}
+@keyframes lit{0%,18%{stroke:#0969da;stroke-width:3}22%,100%{stroke:#8c959f;stroke-width:1.5}}
+@media (prefers-reduced-motion:reduce){.flow,.ask,.step .box{animation:none}}
+</style>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#0969da"/></marker>
+<marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#bc4c00"/></marker>
+</defs>
+<rect class="bg" x="0.5" y="0.5" width="969" height="469" rx="8"/>
+<g class="step d1"><rect class="box" x="30" y="40" width="150" height="64" rx="8"/><text class="t" x="105.0" y="68.0">Agent 会话</text><text class="s" x="105.0" y="88.0">Claude Code 或 Codex</text></g>
+<path class="flow" marker-end="url(#a)" d="M180 72H218"/>
+<g class="step d2"><rect class="box" x="220" y="40" width="150" height="64" rx="8"/><text class="t" x="295.0" y="68.0">任务卡</text><text class="s" x="295.0" y="88.0">改文件前先认领</text></g>
+<path class="flow" marker-end="url(#a)" d="M370 72H408"/>
+<g class="step d3"><rect class="box" x="410" y="40" width="150" height="64" rx="8"/><text class="t" x="485.0" y="68.0">Worktree</text><text class="s" x="485.0" y="88.0">一张卡一个</text></g>
+<path class="flow" marker-end="url(#a)" d="M560 72H598"/>
+<g class="step d4"><rect class="box" x="600" y="40" width="150" height="64" rx="8"/><text class="t" x="675.0" y="68.0">PR</text><text class="s" x="675.0" y="88.0">评审并合并</text></g>
+<path class="flow" marker-end="url(#a)" d="M750 72H788"/>
+<g class="step d5"><rect class="box" x="790" y="40" width="150" height="64" rx="8"/><text class="t" x="865.0" y="68.0">完成</text><text class="s" x="865.0" y="88.0">证据记在卡上</text></g>
+<path class="tie" d="M295 104V156"/><text class="l" x="321" y="134">拦截</text>
+<g class="gate"><rect class="box" x="205" y="156" width="180" height="56" rx="8"/><text class="t" x="295.0" y="180.0">认领闸</text><text class="s" x="295.0" y="200.0">前置任务没做完</text></g>
+<path class="tie" d="M485 104V156"/><text class="l" x="511" y="134">拦截</text>
+<g class="gate"><rect class="box" x="395" y="156" width="180" height="56" rx="8"/><text class="t" x="485.0" y="180.0">写入与分支闸</text><text class="s" x="485.0" y="200.0">主工作区不被改动</text></g>
+<path class="tie" d="M675 104V156"/><text class="l" x="701" y="134">拦截</text>
+<g class="gate"><rect class="box" x="585" y="156" width="180" height="56" rx="8"/><text class="t" x="675.0" y="180.0">合并闸</text><text class="s" x="675.0" y="200.0">检查没全绿</text></g>
+<path class="ask" marker-end="url(#b)" d="M120 104V292H298"/><text class="l" x="210" y="284">只问一次，带上材料</text>
+<g class="hum"><rect class="box" x="300" y="260" width="170" height="64" rx="8"/><text class="t" x="385.0" y="288.0">收件箱</text><text class="s" x="385.0" y="308.0">你的决定只排这一队</text></g>
+<path class="ask" marker-end="url(#b)" d="M470 292H538"/>
+<g class="hum"><rect class="box" x="540" y="260" width="170" height="64" rx="8"/><text class="t" x="625.0" y="288.0">你</text><text class="s" x="625.0" y="308.0">拍板、授权、验收</text></g>
+<path class="ask" marker-end="url(#b)" d="M625 324V360H60V106"/><text class="l" x="342" y="352">你的回答回到 agent</text>
+<rect class="board" x="30" y="392" width="910" height="52" rx="8"/><text class="t" x="80" y="423">看板</text><text class="s" x="520" y="423">SQLite 文件加本地网页。每次认领、拦截、提问和回答都记在这里。</text>
+</svg>
