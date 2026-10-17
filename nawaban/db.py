@@ -214,6 +214,8 @@ CREATE TABLE IF NOT EXISTS task_refs (
     value      TEXT NOT NULL,
     note       TEXT,
     created_at INTEGER NOT NULL,
+    author     TEXT,
+    session_id TEXT,
     PRIMARY KEY (task_id, kind, value)
 );
 
@@ -332,6 +334,11 @@ def migrate_db(path: Path | str) -> list[str]:
                            " AND name='reviews'").fetchone():
             con.executescript(REVIEWS_SQL)
             added.append("reviews")
+        cols = {r[1] for r in con.execute("PRAGMA table_info(task_refs)")}
+        for col in ("author", "session_id"):
+            if col not in cols:
+                con.execute(f"ALTER TABLE task_refs ADD COLUMN {col} TEXT")
+                added.append(f"task_refs.{col}")
         if _rebuild_check(con, "tasks", "status", STATUSES, (
                 "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",
                 "CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks(owner, status)")):
@@ -1370,7 +1377,8 @@ def _reaches(con: sqlite3.Connection, *, start: str, target: str) -> bool:
 
 
 def add_ref(path: Path | str, task_id: str, *, kind: str, value: str,
-            note: Optional[str] = None) -> None:
+            note: Optional[str] = None, author: Optional[str] = None,
+            session_id: Optional[str] = None) -> None:
     if kind == "artifact" and not Path(value).expanduser().is_file():
         raise NawabanError(f"保存闸:artifact 文件不存在 → {value}")
     con = connect(path)
@@ -1378,12 +1386,26 @@ def add_ref(path: Path | str, task_id: str, *, kind: str, value: str,
         _task_row(con, task_id)
         with _txn(con):
             con.execute(
-                "INSERT OR IGNORE INTO task_refs (task_id, kind, value, note, created_at)"
-                " VALUES (?,?,?,?,?)",
-                (task_id, kind, value, note, _now()),
+                "INSERT OR IGNORE INTO task_refs (task_id, kind, value, note, created_at,"
+                " author, session_id) VALUES (?,?,?,?,?,?,?)",
+                (task_id, kind, value, note, _now(), author, session_id),
             )
     finally:
         con.close()
+
+
+def _refuse_self_review(con: sqlite3.Connection, task_id: str, author: str,
+                        session_id: Optional[str]) -> None:
+    """写这张卡的会话和登记它 PR 的会话不能给它记 review:review 要另派 review worker 做。"""
+    who = {author} | ({session_id} if session_id else set())
+    rows = con.execute(
+        "SELECT owner, session_id FROM task_sessions WHERE task_id=?"
+        " UNION ALL SELECT author, session_id FROM task_refs WHERE task_id=? AND kind='pr'",
+        (task_id, task_id)).fetchall()
+    if who & {v for row in rows for v in row if v}:
+        raise NawabanError(
+            f"自审闸:{author} 做过 {task_id} 或登记了它的 PR,不能给它记 review。"
+            "另派一个 review worker 来审。")
 
 
 def judge_findings(findings: Any) -> tuple[bool, list[dict]]:
@@ -1435,6 +1457,7 @@ def add_review(path: Path | str, task_id: str, *, commit_sha: str, findings: Any
     try:
         with _txn(con):
             _task_row(con, task_id)
+            _refuse_self_review(con, task_id, author, session_id)
             cur = con.execute(
                 "INSERT INTO reviews (task_id, commit_sha, passed, findings, author,"
                 " session_id, created_at) VALUES (?,?,?,?,?,?,?)",
