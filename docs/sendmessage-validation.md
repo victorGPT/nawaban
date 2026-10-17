@@ -15,7 +15,7 @@ Throwaway sessions `spike-*` in `~/Developer/sendmsg-rehearsal/spike`, with a lo
 | Does a message wake an idle background session? | Yes: `spike-dir` was idle after its first turn and started a new turn when the worker's report arrived |
 | Sending to a stopped session | `tool_response.success: false`, `message: "No agent named 'spike-dir' is reachable. Did you mean: spike-def?"`. Nothing is queued. The sender retried once with the same name and did not switch to the suggested one |
 | Addressing after a restart | This session was resumed during the work: its pid went from 34001 to 86150 and its socket path changed with it; its session ID and its name `nawaban-sendmsg-001` stayed. Address by name, not by the `uds:` path |
-| Environment of `--bg` sessions | A variable set when starting `claude --bg` did not reach that session's hooks; hooks find the board from their `cwd` |
+| Environment of `--bg` sessions | A variable set when starting `claude --bg` did not reach that session's hooks; the session ran with the environment of the already running Claude Code daemon (the R-2 run below saw its `HERDR_ENV=1`). Hooks find the board from their `cwd` |
 | `claude agents --json` | About 0.2 s; it has `sessionId` and `name` but no pid or socket |
 
 ### Permission modes
@@ -60,15 +60,33 @@ Session IDs from `claude agents --json`, taken before the reply, after it, and a
 
 Neither transcript has a line with another session ID.
 
+### Second run on the final code (R-3)
+
+After review fixes (a report is confirmed only by its exact text, a stop after more work is reported again, a worker's own messages are recorded, finished or handed-off workers are not blocked), the same rehearsal ran again at `ef835c6` on task `R-3`, director `rehearsal-director-3` (`025b8241`), worker `r-3` (`b49ee99a`), `"backend": "claude-bg"`:
+
+| Time | Step | Evidence |
+|---|---|---|
+| 06:41:41 | Worker sends `blocked` after committing line 1 | letters #9 |
+| 06:42:00 → 06:42:09 | Turn letter #10 written, sent, marked read | letters #10 `read_at` |
+| 06:42:12 | Director (woken from idle) replies "第二行写 GRAPE" with SendMessage | reply letter #11, read at 06:42:13 |
+| 06:42:37 | Worker commits line 2, sends `done` | letters #12 |
+| 06:42:44 → 06:42:52 | `[待 review]` turn letter #13 written, sent, marked read | letters #13 `read_at` |
+
+Both reports were identical to the hook's text. `claude agents --json` at 06:42:10 (before the reply) and 06:42:54 (after): director `025b8241-b5fd-4e46-94bd-cefbf849b0b0`, worker `b49ee99a-ac77-4560-9ba8-3a5525cb4423`, unchanged. (The `state` field lagged: the director still read `working` minutes after its transcript shows the turn ended at 06:42:56.)
+
+A run in between (`R-2`) was discarded: its director's `dispatch` took the Herdr branch, because a background session gets its environment from the Claude Code daemon, which had `HERDR_ENV=1`; the Herdr worker was started without this branch's plugin and wrote no turn letter. `R-3` was dispatched with `HERDR_ENV=0`.
+
 ### The other side not running
+
+Director stopped (`claude stop 025b8241`), then `r-3` was asked to stop once more. Its Stop hook wrote turn letter #14 (`read_at` empty) and blocked with: `主控会话 025b8241 现在不在运行(claude agents 里没有它),R-3 这一轮的回报已存进任务库 letters #14,没有送出;主控回来后在 notifications 里能看到。不要调 SendMessage,也不要改发给别的会话。` The worker did not send anything to the director, said the report was kept in #14, and stopped; the next stop passed.
+
+Worker stopped, director sending (first run):
 
 After `claude stop 261bffaa`, the director was asked to send "第三行写 LEMON" to `r-1`. SendMessage returned `No agent named 'r-1' is reachable.`; the PostToolUse hook wrote reply letter #6 with `read_at` empty and gave the director: `[nawaban] 话没送到 worker r-1(R-1):No agent named 'r-1' is reachable. 这条话已存进任务库 letters #6,没有送达。… 不要用 claude --bg --resume 去叫它。` The director repeated that and stopped.
 
-The worker side of the same case (its director not running) was covered by tests only: the hook names the director, says the report is kept as an unread letter, and gives no SendMessage instruction.
-
 ### Real board untouched
 
-On `/Users/victor/nawaban/.nawaban/nawaban.db`, read-only: no task `R-1`, and no letters, events or task sessions from the two rehearsal sessions or with the rehearsal's words (0 rows each).
+On `/Users/victor/nawaban/.nawaban/nawaban.db`, read-only, after all three runs: no task `R-1`–`R-3`, and no letters, events or task sessions from any of the six rehearsal sessions or with the rehearsal's words (0 rows each).
 
 ## Behaviour changes
 
