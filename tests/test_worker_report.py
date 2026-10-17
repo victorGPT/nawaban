@@ -385,11 +385,14 @@ def test_the_turn_that_finishes_the_card_is_sent_once_then_stops_pass(board, cap
     else:
         db.handoff(board, "P-1", owner="ac:w", session_id=WORKER, outcome=finish,
                    summary="交接", now="等评审")
-    # 转 done / 交接的这一轮正是主控在等的那句话:照常拦下送一次,不标待 review(没有东西要审)。
-    out = hook(stop(WORKER, "已合并,两张卡转 done"), capsys)
+    # 转 done / 交接的这一轮正是主控在等的那句话:照常拦下送一次。卡完成了就没有东西要审,
+    # 不标待 review;卡没完成的交接是交付,照常标。
+    out = hook(stop(WORKER, "这一轮做完了"), capsys)
     assert out["decision"] == "block" and 'to 写 "nawaban-aa"' in out["reason"]
-    assert "-REVIEW" not in out["reason"]
-    assert letters(board) == [("turn", "已合并,两张卡转 done", WORKER, 0)]
+    review = finish == "handed_off"
+    assert ("-REVIEW" in out["reason"]) is review
+    said = "[待 review] 这一轮做完了" if review else "这一轮做完了"
+    assert letters(board) == [("turn", said, WORKER, 0)]
     assert hook(stop(WORKER, "已发给主控", again=True), capsys) is None
     for _ in range(3):  # 之后每一轮都放行,不再送,不会一轮轮被拦
         assert hook(stop(WORKER, "随口一句"), capsys) is None

@@ -238,12 +238,12 @@ def _block(reason: str) -> None:
     print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
 
 
-def _settled(path: Path, task_id: str, session: str, since: int) -> bool | None:
+def _settled(path: Path, task_id: str, session: str, since: int) -> str | bool | None:
     """卡做完了,或这个 worker 已经交接(与 dispatch 收工同口径)。
 
-    做完的那一轮是主控正等着的话,照常送一次:返回 True。送过之后再停下不是在交差,不拦也不送:
-    返回 None(卡不在了也是 None)。「送过」看这个 worker 最近一封 turn 信有没有 settled 记号,
-    重新认领后写的普通信会盖掉它,再收尾时再送一次。还在干活返回 False。
+    做完 / 交接的那一轮是主控正等着的话,照常送一次:返回卡的状态。送过之后再停下不是在交差,
+    不拦也不送:返回 None(卡不在了也是 None)。「送过」看这个 worker 最近一封 turn 信有没有
+    settled 记号,重新认领后写的普通信会盖掉它,再收尾时再送一次。还在干活返回 False。
     """
     with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as con:
         con.row_factory = sqlite3.Row
@@ -259,7 +259,7 @@ def _settled(path: Path, task_id: str, session: str, since: int) -> bool | None:
         sent = bool(last and json.loads(last[0])["settled"])
     except (TypeError, ValueError, KeyError):
         sent = False
-    return None if sent else True
+    return None if sent else row["status"]
 
 
 def on_stop(path: Path, payload: dict, session: str) -> int:
@@ -284,10 +284,11 @@ def on_stop(path: Path, payload: dict, session: str) -> int:
     busy = background(transcript)
     asks, sent = [], {}
     for task_id, (director, since, mark) in working.items():
-        # 收尾那一轮不标待 review:卡已经做完或交出去了,没有东西等主控派人审。
-        msg = (clip(said) if settled[task_id] or busy or waiting(path, task_id, session, since, mark)
+        # 卡已经完成的那一轮不标待 review:没有东西等主控派人审。卡没完成的交接照常是交付。
+        msg = (clip(said) if settled[task_id] in dispatch._FINISHED or busy
+               or waiting(path, task_id, session, since, mark)
                else REVIEW + clip(said, LIMIT - len(REVIEW)))
-        letter = post_turn(path, task_id, msg, session, settled=settled[task_id])
+        letter = post_turn(path, task_id, msg, session, settled=bool(settled[task_id]))
         name = session_name(director)
         if name is None:
             asks.append(
