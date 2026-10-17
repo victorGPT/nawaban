@@ -97,6 +97,8 @@ def test_stopping_without_saying_it_waits_is_sent_for_review(board, monkeypatch,
     assert report.run(stop(DIRECTOR, "已派出")) == report.WAKE
     woke = capsys.readouterr().err
     assert "[待 review] PR 已开" in woke and "不用等它报 done" in woke and "merge_sha" in woke
+    assert "主控不审也不合" in woke and "-REVIEW" in woke and "dispatch" in woke
+    assert "逐条 review" not in woke
 
 
 @pytest.mark.parametrize("says_it_waits", ["blocked", "ask"])

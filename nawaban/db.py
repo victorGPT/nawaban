@@ -1770,9 +1770,10 @@ def import_task(path: Path | str, *, task_id: str, title: str, status: str,
                 )
             for r in refs:
                 con.execute(
-                    "INSERT OR IGNORE INTO task_refs (task_id, kind, value, note, created_at)"
-                    " VALUES (?,?,?,?,?)",
-                    (task_id, r["kind"], r["value"], r.get("note"), r["created_at"]),
+                    "INSERT OR IGNORE INTO task_refs (task_id, kind, value, note, created_at,"
+                    " author, session_id) VALUES (?,?,?,?,?,?,?)",
+                    (task_id, r["kind"], r["value"], r.get("note"), r["created_at"],
+                     r.get("author"), r.get("session_id")),
                 )
         return True
     finally:
