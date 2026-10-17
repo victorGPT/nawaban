@@ -75,6 +75,7 @@ On `/Users/victor/nawaban/.nawaban/nawaban.db`, read-only: no task `R-1`, and no
 - The Stop hook is synchronous now (no `async` / `asyncRewake`), so it can block. Each worker stop costs one extra short model turn: the SendMessage call and a closing line.
 - Directors no longer start a waiting process when they stop, and `report-wait/<session>.pid` files are no longer written.
 - A Herdr worker pane closed before its task is finished still gets the `pane closed` event and an unread `turn` letter, but nothing wakes the director for it: waking needs a Claude session to call SendMessage, and the pane watcher is a plain process.
+- Publishing: hook scripts are read on every call, but a session keeps the hook registration it started with. A worker still on the old `async` + `asyncRewake` registration runs the new script, whose `block` an async hook ignores: its turn letter is written but reaches the director only if an old director waiting process is still running. Publish between batches, or restart running director–worker pairs after publishing.
 - `notify --kind reply` still records a reply but no longer reaches the worker. `nawaban prompt` (Herdr pane) still works and is no longer needed for replies.
 
 ## Not verified

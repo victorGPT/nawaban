@@ -200,6 +200,8 @@ def on_stop(path: Path, payload: dict, session: str) -> int:
     if not working:
         return 0  # 不是派出的 worker:什么都不写、什么都不送
     pending = _pending(session)
+    # ponytail: 标记文件判「这是送完回报之后的那次停下」。送信那轮被插进来的消息接成新一轮、
+    # 之后又被别的钩子拦下时,那一轮的回报会被当成已送跳过;真碰上就在标记里记下转录行号来比。
     if payload.get("stop_hook_active") and pending.exists():
         pending.unlink()  # 送完回报之后的那次停下:这一轮已经报过了
         return 0
