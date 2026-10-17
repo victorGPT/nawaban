@@ -106,9 +106,11 @@ def test_dispatch_records_who_dispatched_and_tells_the_worker_how_to_report(
     assert run(board, "dispatch", "P-1") == 0
     with sqlite3.connect(board) as con:
         [(body,)] = con.execute("SELECT body FROM task_events WHERE body LIKE 'dispatch {%'")
-    assert json.loads(body[len("dispatch "):])["director"] == "director-session"
+    record = json.loads(body[len("dispatch "):])
+    assert record["director"] == "director-session" and record["name"] == "p-1"
     [launch] = backend.ran("claude", "--bg")
-    assert "最后一段话会自动送回派你的主控" in launch[-1] and "不要在这里等人回话" in launch[-1]
+    assert "用 SendMessage 把最后一段话原样发给派你的主控" in launch[-1]
+    assert "不要在这里等人回话" in launch[-1]
     assert "必须先用" in launch[-1] and "--kind blocked" in launch[-1]
     assert "没报阻塞就停下,一律当你交付了" in launch[-1]
 
