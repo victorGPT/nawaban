@@ -7,7 +7,7 @@ description: Use when this window acts as the director, splitting one request in
 
 The director turns one request into several tasks, dispatches them to separate worker sessions, and brings the results back on the evidence recorded on the board.
 
-The director writes the board, not the tree: creating tasks, linking dependencies, recording decisions, answering questions, and marking notifications read are the director's work; workers change project files. When this window needs to change files itself, switch to [nawaban](../nawaban/SKILL.md) and claim a task like any ordinary one.
+The director writes the board, not the tree: creating tasks, linking dependencies, recording decisions, answering questions, and marking notifications read are the director's work; workers change project files. The director does not review or merge either: a separately dispatched review worker reviews each PR and merges it once the review passes. When this window needs to change files itself, switch to [nawaban](../nawaban/SKILL.md) and claim a task like any ordinary one.
 
 Commands take the form `nawaban --db <absolute path of target db> <verb>`; look up flags with `--help`. Entry point, target database, and session identity are in [Runtime and identity](../nawaban/references/runtime.md).
 
@@ -15,7 +15,7 @@ Commands take the form `nawaban --db <absolute path of target db> <verb>`; look 
 
 1. **The director changes no project files.** It writes no code and does not choose the worker's implementation method. Anything that needs changing becomes a new task or goes onto an existing one.
 2. **A task says what to do and how to tell it is done, never how to do it.** When an acceptance criterion cannot be written as an observable result, do not dispatch; go back and clarify the requirement.
-3. **One task, one session, started by the dispatch command.** Sub-agents are only for searching and review, never workers.
+3. **One task, one session, started by the dispatch command.** Sub-agents are only for searching, never workers or reviewers.
 4. **The task is the source of truth.** Notifications and the messages workers send back are the worker's own account; check the task's status, refs, and events before concluding.
 5. **Acceptance counts only evidence on the board.** Verification not on the board did not happen. Decisions that need a human go through `ask` and wait for the `answer` to land on the board.
 6. **Escalate only three things: a product-semantics fork, an external commitment, a production release.** Settle everything else yourself. Before closing out, reconcile against the board, not memory.
@@ -29,7 +29,7 @@ Split only for separate delivery, different owners, or an ordering constraint. F
 - Create a subtask with `create <ID> --title "<title>" --context "- <background>" --split-from <parent> --success '<JSON array>' --touch <path>`; batch dispatch finds subtasks through this split relation.
 - Express order with `link <blocked task> <prerequisite task> --kind depends_on`. Splitting from the same parent does not make tasks depend on each other.
 - When two tasks' `touches` overlap, either order them or write on each task which part it changes.
-- When subtasks must ship together (one PR into `main`), use an integration branch: create `int/<parent>` from `main`, push it, and give each subtask `--constraints '["PR target branch: int/<parent>"]'` when creating it. Per the dispatch brief, the worker merges the latest `main` and the target branch into its own branch before opening the PR: the merge gate requires the PR's HEAD to contain the latest `main`, and `gh pr update-branch` only syncs the target branch, so it cannot bring `main` in. Subtask PRs into the integration branch and the integration branch into `main` are merged by the director, as in the Merging section below.
+- When subtasks must ship together (one PR into `main`), use an integration branch: create `int/<parent>` from `main`, push it, and give each subtask `--constraints '["PR target branch: int/<parent>"]'` when creating it. Per the dispatch brief, the worker merges the latest `main` and the target branch into its own branch before opening the PR: the merge gate requires the PR's HEAD to contain the latest `main`, and `gh pr update-branch` only syncs the target branch, so it cannot bring `main` in. Subtask PRs into the integration branch and the integration branch into `main` are reviewed and merged by review workers, as in the Merging section below.
 
 ## Dispatching and dismissing
 
@@ -79,15 +79,16 @@ Each time a worker stops, the last message of its turn may also be sent straight
 
 Go through the task's `success` item by item; every item needs matching evidence on the board: test results, a PR, a run record. Separate what really ran from what was only tested against doubles; write unverified items as unverified and send them back to the worker; the director does not run them in its place.
 
-### Merging
+### Review and merging
 
-The user has authorized this: once a task passes acceptance and review finds nothing blocking, the director merges its PR in the same turn without asking the user again.
+The director neither reviews nor merges. A review worker, dispatched separately for each PR, does both; the session that wrote the code or registered the PR cannot record a review for its task, and the `review` command refuses it.
 
-1. Review: have a sub-agent review the PR diff read-only at the PR's head commit, or use the review the project requires. The reviewer returns only findings, each with `summary`, `severity` (`critical`, `major`, `minor`, `nit`), `evidence` (file:line and how to make it fail), and `preexisting` (true when the problem was there before this PR). Record them with `review <ID> --commit <full head SHA> --findings <JSON file>`; the command decides pass or fail, not you. A finding blocks when it is `major` or worse and not preexisting; a `critical` without evidence counts as `major`; preexisting problems are recorded only. When it fails, send the blocking findings back to the worker and review again after the fix. After 3 failed reviews in a row the command puts a `decide` ask in the user's inbox; wait for its answer instead of starting a fourth round.
-2. Merge: wait for all-green CI with `gh pr checks <PR> --watch`. When the branch is behind `main`, a PR targeting `main` gets `gh pr update-branch <PR>`; for a PR targeting an integration branch, reply asking the worker to merge the latest `main` and push. Either way, wait for another CI round. Any new commit, including the merge commit `update-branch` creates, needs a new review, so bring the branch up to date before step 1 when you can. Then run `gh pr merge <PR> -R <OWNER/REPO> --match-head-commit <reviewed SHA>` as one standalone command; details are in [PR and review](../nawaban/references/review-pr.md). When the repository belongs to a gh account other than the active one, put `GH_TOKEN=$(gh auth token --user <account>)` in front of that command, for the nawaban repository `--user victorGPT`; do not switch the global gh account.
-3. Record: reply to the worker with the merge SHA so it registers `merge_sha` and transitions to done as in [Delivery and wrap-up](../nawaban/references/cards.md), then `dismiss`.
+1. Ready for review: the implementing worker brings its branch up to date with `main`, waits for green CI, registers the PR with `ref <ID> --kind pr`, and sends `[待 review]` with the PR and its head SHA. It then stays parked; do not dismiss it.
+2. Dispatch the reviewer: create `<ID>-REVIEW` with `--context` naming the task and the PR, `--success '["The PR of <ID> has a recorded review at its head commit, and is merged once that review passes"]'`, and no `--touch`, then `dispatch <ID>-REVIEW`. The review worker follows [Review worker](../nawaban/references/director-worker.md#review-worker).
+3. When the review fails, the reviewer notifies the director with the blocking findings. Reply to the implementing worker with them; when it sends `[待 review]` with a new SHA, reply to the same review worker to review that commit. After 3 failed reviews in a row the `review` command puts a `decide` ask in the user's inbox; wait for its answer instead of asking for a fourth round.
+4. When the review passes, the review worker merges, records `merge_sha`, moves both tasks to done, and notifies the director with the merge SHA. Then `dismiss` the implementing worker and the review worker.
 
-In a repository where merging triggers a production deploy, merging is a production release: use `ask --kind authorize` instead. Before merging an integration branch into `main`, finish the whole-batch review in close-out item 4.
+In a repository where merging triggers a production deploy, merging is a production release: the review worker raises `ask --kind authorize` instead of merging, and merges only after the answer lands. Before an integration branch is merged into `main`, finish the whole-batch review in close-out item 4.
 
 When the user must decide:
 
@@ -106,6 +107,6 @@ Before announcing close-out, check all four:
 1. `dispatch --parent <parent> --dry-run` lists every subtask's current status, and no task is still in progress or unowned.
 2. `notifications --unread --task <subtask ID>` is empty for every subtask. Unread notifications on other tasks in the database are not this batch's to handle; do not mark them read for others.
 3. `inbox` has no unanswered ask for this batch's tasks.
-4. This batch's changes were reviewed together: a sub-agent reviewed the integration branch's whole diff against `main` (without an integration branch, the batch's PRs), looking only for cross-task problems. Every problem found was made a task or written onto the matching subtask, and has been handled.
+4. This batch's changes were reviewed together: a dispatched review worker reviewed the integration branch's whole diff against `main` (without an integration branch, the batch's PRs), looking only for cross-task problems. Every problem found was made a task or written onto the matching subtask, and has been handled.
 
 If any item fails, do not announce; report to the user what remains. When all pass, make sure `dismiss` has run for every dispatched task, then report to the user: one line per task with its status, an evidence pointer, and what was not verified.

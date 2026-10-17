@@ -4,7 +4,7 @@ Use this only when a PR is part of the delivery or the project requires review. 
 
 ## Preparing a review
 
-The review package holds the user's request, the task's `success`, `constraints`, and `touches`, the files actually changed, and the version under review. Pick the reviewer from the available capabilities; its result names the version, the findings, and the limits of its verification.
+The review package holds the user's request, the task's `success`, `constraints`, and `touches`, the files actually changed, and the version under review. The review recorded with `nawaban review` must come from another session: dispatch a review worker on its own task (`<ID>-REVIEW`), which follows the [Review worker](director-worker.md#review-worker) protocol. This holds when a single session did the work alone too. The command refuses a session that worked on the task or registered its PR. The reviewer's result names the version, the findings, and the limits of its verification.
 
 Judge findings by reachable call paths, the source, and relevant verification; severity says nothing about whether a finding is true. Fix confirmed problems inside this scope; record out-of-scope problems separately and ask for a decision only when they need new scope or a real trade-off. After a change, recheck only the affected parts and the required gates.
 

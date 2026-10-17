@@ -849,7 +849,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"✓ link {a.src} -{a.kind}→ {a.dst}")
         elif a.verb == "ref":
             value = _pr_ref_value(a.value) if a.kind == "pr" else a.value
-            db.add_ref(path, a.task_id, kind=a.kind, value=value, note=a.note)
+            try:
+                owner, sid = _identity(need_session=False)
+            except db.NawabanError:
+                owner, sid = None, None
+            db.add_ref(path, a.task_id, kind=a.kind, value=value, note=a.note,
+                       author=owner, session_id=sid)
             print(f"✓ ref({a.kind}) {a.task_id} → {value}")
         elif a.verb == "review":
             owner, sid = _identity(need_session=False)

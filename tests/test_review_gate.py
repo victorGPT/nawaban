@@ -530,3 +530,40 @@ def test_workflow_query_failure_blocks_empty_checks(board, tmp_path, monkeypatch
 ])
 def test_which_workflows_run_on_the_pr(text, runs):
     assert guard._runs_on_pr(text, "feature") is runs
+
+
+def test_session_that_worked_the_task_cannot_review_it(board):
+    db.claim_task(board, "P-1", owner="ac:worker", session_id="worker")
+    with pytest.raises(db.NawabanError, match="自审闸"):
+        db.add_review(board, "P-1", commit_sha=REVIEWED, findings=[],
+                      author="ac:worker", session_id="worker")
+
+
+def test_session_that_registered_the_pr_cannot_review_it(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "board.db"
+    db.init_db(path)
+    db.create_task(path, task_id="P-1", title="合并前审过")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "opener")
+    monkeypatch.delenv("NAWABAN_OWNER", raising=False)
+    assert cli.main(["--db", str(path), "ref", "P-1", "--kind", "pr", "--value", PR]) == 0
+    assert review(tmp_path, []) != 0
+    assert "自审闸" in capsys.readouterr().err
+    with sqlite3.connect(path) as con:
+        assert con.execute("SELECT COUNT(*) FROM reviews").fetchone()[0] == 0
+
+
+def test_another_session_reviews_as_usual(board):
+    db.claim_task(board, "P-1", owner="ac:worker", session_id="worker")
+    r = db.add_review(board, "P-1", commit_sha=REVIEWED, findings=[finding("major")],
+                      author="ac:reviewer", session_id="reviewer")
+    assert r["passed"] is False
+
+
+def test_old_board_gains_pr_registrant_columns(tmp_path):
+    path = tmp_path / "old.db"
+    db.init_db(path)
+    with sqlite3.connect(path) as con:
+        con.executescript("ALTER TABLE task_refs DROP COLUMN author;"
+                          " ALTER TABLE task_refs DROP COLUMN session_id;")
+    assert db.migrate_db(path) == ["task_refs.author", "task_refs.session_id"]
+    assert db.migrate_db(path) == []
