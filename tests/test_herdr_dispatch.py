@@ -1,7 +1,6 @@
 """Herdr dispatch: every worker gets going on its own, nothing lands in the director's pane,
-and a worker pane closed before the card is finished reaches the director."""
+and a worker pane closed before the card is finished is left on the board for the director."""
 
-import importlib.util
 import json
 import sqlite3
 import subprocess
@@ -13,10 +12,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from nawaban import cli, db, dispatch  # noqa: E402
-
-spec = importlib.util.spec_from_file_location("worker_report", ROOT / "hooks" / "worker_report.py")
-report = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(report)
 
 WORKER = "aaaaaaaa-1111-2222-3333-444444444444"
 DIRECTOR = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -200,7 +195,7 @@ def test_no_reply_goes_to_a_background_or_dismissed_worker(board, herdr, monkeyp
     monkeypatch.delenv("HERDR_ENV")
     assert run(board, "dispatch", "P-1") == 0
     assert run(board, "prompt", "P-1", "--msg", "x") == 1
-    assert "claude --bg --resume" in capsys.readouterr().err
+    assert '用 SendMessage 回话,to 写 "p-1"' in capsys.readouterr().err
     assert not herdr.ran("herdr", "agent", "prompt")
 
 
@@ -214,16 +209,15 @@ def watched(board, herdr, monkeypatch):
     return board
 
 
-def test_closing_an_unfinished_worker_pane_wakes_the_director(watched):
+def test_closing_an_unfinished_worker_pane_leaves_the_director_an_unread_letter(watched):
     db.claim_task(watched, "P-1", owner="ac:w", session_id=WORKER)
     dispatch.watch(watched, "P-1", record_id(watched))
     with sqlite3.connect(watched) as con:
         [(body,)] = con.execute("SELECT body FROM task_events WHERE body LIKE 'pane closed%'")
         [(now,)] = con.execute("SELECT now FROM tasks WHERE id='P-1'")
     assert "w1:p9" in body and "claimed" in body and "w1:p9" in now
-    _, directing = report.roles(watched, DIRECTOR)
-    [(task_id, msg)] = report.take(watched, {t: ("turn", *peer) for t, peer in directing.items()})
-    assert task_id == "P-1" and "被关掉了" in msg
+    [letter] = db.list_letters(watched, unread_only=True, task_id="P-1")
+    assert letter["kind"] == "turn" and letter["session_id"] == WORKER and "被关掉了" in letter["msg"]
 
 
 @pytest.mark.parametrize("finish", ["done", "handed_off"])
@@ -330,17 +324,6 @@ def test_dismiss_does_not_count_the_previous_workers_handoff(watched, capsys):
     redispatch(watched)
     assert run(watched, "dismiss", "P-1") == 1
     assert "卡还没完成也没交接" in capsys.readouterr().err
-
-
-def test_a_pane_closed_in_the_dispatch_second_still_wakes_the_director(board, herdr, monkeypatch):
-    clock = [1_800_000_000]
-    monkeypatch.setattr(db, "_now", lambda: clock[0])
-    monkeypatch.setattr(dispatch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + 1))
-    monkeypatch.setattr(dispatch, "_wait_closed", lambda pane: None)
-    assert run(board, "dispatch", "P-1") == 0
-    dispatch.watch(board, "P-1", record_id(board))
-    _, directing = report.roles(board, DIRECTOR)
-    assert report.take(board, {t: ("turn", *peer) for t, peer in directing.items()})
 
 
 def test_a_relative_board_path_reaches_the_watcher_as_absolute(tmp_path, herdr, monkeypatch):

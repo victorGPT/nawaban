@@ -6,7 +6,7 @@ dismiss 凭它找回会话、窗格和工位。
 
 在 Herdr 里派出的 worker 各占一个 tab,另有一个脱离派单命令的进程守着它的窗格
 (`python3 -m nawaban.dispatch watch <db> <卡号>`):窗格在卡做完之前被关掉,
-就在卡上记一笔,并以 worker 的名义写一封 turn 信,主控停着等信时会被叫醒。
+就在卡上记一笔,并以 worker 的名义写一封未读的 turn 信,主控在 notifications 里看到。
 """
 
 from __future__ import annotations
@@ -197,8 +197,8 @@ def _submit(pane: str, prompt: str) -> bool:
 def prompt(path: Path, task_id: str, msg: str, *, author: str) -> str:
     """把话直接交到 Herdr worker 的窗格,和交任务说明一样确认开工、只补回车。返回窗格号。
 
-    给不是派它的会话用(主控窗口重开过):派它的会话回话走 notify --kind reply,
-    那条由 worker 的 Stop 钩子送进去;两条都走,worker 就收到两遍。
+    回话本该用 SendMessage 按 worker 名字发(任何会话都能发,自动记进 letters);
+    这条留给 SendMessage 用不了的场合。两条都走,worker 就收到两遍。
     """
     with closing(_connect(path)) as con:
         event = _dispatched(con, task_id)
@@ -208,7 +208,8 @@ def prompt(path: Path, task_id: str, msg: str, *, author: str) -> str:
     record = json.loads(event["body"][len(_RECORD):])
     if record.get("backend") != "herdr" or not record.get("pane"):
         raise db.NawabanError(
-            f"不回话 {task_id}:它是后台会话,不在 Herdr 窗格里;照 nawaban-director 技能用 claude --bg --resume 回话")
+            f"不回话 {task_id}:它是后台会话,不在 Herdr 窗格里;用 SendMessage 回话,to 写"
+            f" \"{record.get('name') or task_id.lower()}\"")
     if not _submit(record["pane"], msg):
         raise db.NawabanError(
             f"回话没交上 {task_id}:窗格 {record['pane']} 里的 worker 没开工"
@@ -224,7 +225,7 @@ def brief(path: Path, task_id: str, name: str) -> str:
 开工:先加载 nawaban:nawaban 技能,按它认领这张卡再 start。任务库是 {path},命令写成 {nawaban} <动词>。
 你所在的目录已经是这张卡的独立工位(分支 worktree-{name}),直接在这里改;不要再建工位,不要改主树。
 范围:只做这张卡的验收条目。不建新卡,不起别的 worker,不动别的卡,不合并 PR。卡的约束写了 PR 目标分支时,开 PR 前先把最新 main 和它的最新提交都合进本分支,PR 指向它。
-没有人坐在这个窗口前,不要在这里等人回话。你每一轮停下时,最后一段话会自动送回派你的主控;主控的回话会直接出现在这个会话里,收到后接着干。所以停下前把结论、要主控决定的问题和你的建议写在最后一段话里。
+没有人坐在这个窗口前,不要在这里等人回话。你每一轮停下时,钩子会让你用 SendMessage 把最后一段话原样发给派你的主控,照它说的发;主控的回话会直接出现在这个会话里,收到后接着干。所以停下前把结论、要主控决定的问题和你的建议写在最后一段话里。
 实现选型、命名、测试写法自己定。要等人回答才能往下做,必须先用 {nawaban} notify {task_id} --kind blocked --msg "问题和你的建议" 报阻塞(要用户拍板的用 ask)再停下;没报阻塞就停下,一律当你交付了,主控会来 review 你的产出。做完用 notify --kind done 汇报,附 PR 链接和测试结果。
 {_upstream(path, task_id)}
 {context_loader.build_context(path, task_id)}"""
@@ -297,9 +298,10 @@ def dispatch(path: Path, task_id: str, *, author: str) -> str:
     live = _session(name, tries=5) or {}
     session = live.get("sessionId") or "未查到"
     worktree = live.get("cwd") or str(root / ".claude" / "worktrees" / name)
-    # director = 派它的会话:worker 每轮停下的话凭它送回来(hooks/worker_report.py)。
+    # director = 派它的会话:worker 每轮停下的话发给它(hooks/worker_report.py);
+    # name = worker 会话的名字,主控用 SendMessage 回话时写它。
     record = {"backend": "herdr" if pane else "claude-bg", "session": live.get("sessionId"),
-              "pane": pane, "tab": tab, "worktree": worktree, "root": str(root),
+              "name": name, "pane": pane, "tab": tab, "worktree": worktree, "root": str(root),
               "director": os.environ.get("CLAUDE_CODE_SESSION_ID"), "asks": asks}
     where = f"tab {tab} 窗格 {pane}" if pane else "后台"
     try:
@@ -489,9 +491,6 @@ def watch(path: Path, task_id: str, event_id: int) -> None:
     with closing(_connect(path)) as con:
         if _current(con, task_id) != event_id or _settled(con, _row(con, task_id), record):
             return
-        # 主控只收派发之后那一秒起的信(hooks/worker_report.py),同一秒里关掉的窗格等到下一秒再写。
-        while db._now() <= event["created_at"]:
-            time.sleep(0.2)
         # 上面那次只是读;作数的复核和写入在同一把写锁里。dismiss、改派走 add_event 也要这把锁,
         # 插不进两步之间,旧窗格的告警就盖不掉新 worker 的当前进展。
         with db._txn(con):
@@ -505,7 +504,9 @@ def watch(path: Path, task_id: str, event_id: int) -> None:
             con.execute("UPDATE tasks SET now=? WHERE id=?",
                         (f"worker 窗格 {record['pane']} 被关,卡没做完", task_id))
             if record.get("session"):
-                # 以 worker 的名义写 turn 信:主控停着等的正是这种信。
+                # 以 worker 的名义写 turn 信,未读,主控在 notifications 里看到。
+                # ponytail: 不叫醒主控 —— 叫醒要一个 Claude 会话调 SendMessage,监听进程不是;
+                # 真要叫醒,在这里起一个 claude -p 发信。
                 con.execute("INSERT INTO letters (task_id, kind, msg, session_id, created_at)"
                             " VALUES (?,'turn',?,?,?)", (task_id, msg, record["session"], db._now()))
 

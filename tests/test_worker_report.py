@@ -1,4 +1,4 @@
-"""A dispatched worker's last words reach its director when it stops, and the reply comes back."""
+"""A dispatched worker's last words go to its director over SendMessage, and every message is recorded."""
 
 import importlib.util
 import json
@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from nawaban import cli, db  # noqa: E402
+from nawaban import db  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("worker_report", ROOT / "hooks" / "worker_report.py")
 report = importlib.util.module_from_spec(spec)
@@ -19,6 +19,9 @@ spec.loader.exec_module(report)
 WORKER = "aaaaaaaa-1111-2222-3333-444444444444"
 DIRECTOR = "bbbbbbbb-1111-2222-3333-444444444444"
 STRANGER = "cccccccc-1111-2222-3333-444444444444"
+UNREACHABLE = {"success": False, "message": "No agent named 'x' is reachable. Did you mean: y?\n"
+                                            "Use ListAgents to see everyone you can message."}
+SENT = {"success": True, "message": "sent", "msg_id": "m1"}
 
 
 @pytest.fixture
@@ -28,14 +31,22 @@ def board(tmp_path, monkeypatch):
     db.create_task(path, task_id="P-1", title="用户能看到 worker 的回报")
     monkeypatch.setenv("NAWABAN_DB", str(path))
     monkeypatch.setenv("NAWABAN_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.delenv("CLAUDE_PID", raising=False)
+    live(monkeypatch, {DIRECTOR: "nawaban-aa", WORKER: "p-1"})
     return path
 
 
-def dispatched(board, *, director=DIRECTOR, asks=0):
+def live(monkeypatch, sessions: dict):
+    """The sessions `claude agents --json` would list: session ID → name."""
+    monkeypatch.setattr(report.dispatch, "_agents", lambda: [
+        {"sessionId": sid, "name": name} for sid, name in sessions.items()])
+
+
+def dispatched(board, *, director=DIRECTOR, asks=0, name="p-1"):
     record = {"backend": "claude-bg", "session": WORKER, "pane": None, "director": director}
     if asks is not None:  # None = 记 ask 编号之前的旧派发记录
         record["asks"] = asks
+    if name:  # None = 记名字之前的旧派发记录
+        record["name"] = name
     clock = db._now
     db._now = lambda: clock() - 1  # 派发早于之后的信;同一秒内的信不算这次派发的
     try:
@@ -51,54 +62,71 @@ def letters(board) -> list[tuple]:
                            " ORDER BY id").fetchall()
 
 
-def stop(session, said="做完了", transcript=None) -> dict:
+def stop(session, said="做完了", transcript=None, again=False) -> dict:
     return {"session_id": session, "last_assistant_message": said, "hook_event_name": "Stop",
-            "transcript_path": transcript}
+            "transcript_path": transcript, "stop_hook_active": again}
 
 
-def no_waiting(monkeypatch, then=lambda: None):
-    """Fail the test instead of polling forever; `then` runs once in place of the first sleep."""
-    calls = []
-
-    def sleep(seconds):
-        if calls:
-            raise AssertionError("钩子在空等")
-        calls.append(seconds)
-        then()
-    monkeypatch.setattr(report.time, "sleep", sleep)
+def send(session, to, message, result) -> dict:
+    return {"session_id": session, "hook_event_name": "PostToolUse", "tool_name": "SendMessage",
+            "tool_input": {"to": to, "message": message}, "tool_response": result}
 
 
-def test_worker_stop_sends_its_last_message_then_wakes_on_the_reply(board, monkeypatch, capsys):
-    dispatched(board)
-    no_waiting(monkeypatch, then=lambda: cli.main(
-        ["--db", str(board), "notify", "P-1", "--kind", "reply", "--msg", "用方案 B,继续"]))
-    db.add_letter(board, "P-1", kind="blocked", msg="方案 A 还是 B", session_id=WORKER)
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", DIRECTOR)
-    assert report.run(stop(WORKER, "方案 A 还是 B?我建议 B")) == report.WAKE
-    assert letters(board) == [("blocked", "方案 A 还是 B", WORKER, 0),
-                              ("turn", "方案 A 还是 B?我建议 B", WORKER, 0),
-                              ("reply", "用方案 B,继续", DIRECTOR, 1)]
-    woke = capsys.readouterr().err
-    assert "用方案 B,继续" in woke and "主控回话 · P-1" in woke
+def hook(payload, capsys) -> dict | None:
+    """Run the hook; return the JSON it printed, or None when it printed nothing."""
+    assert report.run(payload) == 0
+    out = capsys.readouterr().out
+    return json.loads(out) if out else None
 
 
 def stop_worker(board, monkeypatch, said="PR 已开,测试全绿", transcript=None) -> str:
     """Let the worker stop once; return the turn letter it left for the director."""
-    no_waiting(monkeypatch, then=lambda: (report.paths.state_dir() / "report-wait"
-                                          / f"{WORKER}.pid").write_text("0"))
     report.run(stop(WORKER, said, transcript))
     return [msg for kind, msg, _, _ in letters(board) if kind == "turn"][-1]
 
 
-def test_stopping_without_saying_it_waits_is_sent_for_review(board, monkeypatch, capsys):
+def test_a_worker_stop_records_the_turn_and_has_the_worker_send_it(board, capsys):
     dispatched(board)
-    assert stop_worker(board, monkeypatch) == "[待 review] PR 已开,测试全绿"
-    no_waiting(monkeypatch)
-    assert report.run(stop(DIRECTOR, "已派出")) == report.WAKE
-    woke = capsys.readouterr().err
-    assert "[待 review] PR 已开" in woke and "不用等它报 done" in woke and "merge_sha" in woke
-    assert "主控不审也不合" in woke and "-REVIEW" in woke and "dispatch" in woke
-    assert "逐条 review" not in woke
+    out = hook(stop(WORKER, "PR 已开,测试全绿"), capsys)
+    assert letters(board) == [("turn", "[待 review] PR 已开,测试全绿", WORKER, 0)]
+    assert out["decision"] == "block"
+    reason = out["reason"]
+    assert 'SendMessage' in reason and 'to 写 "nawaban-aa"' in reason
+    body = reason.split("<<<\n")[1].split("\n>>>")[0]
+    assert body.startswith("[nawaban] worker 回报 · P-1")
+    assert "[待 review] PR 已开,测试全绿" in body
+    # 主控收到的话里写清它该怎么处理:派 review worker、怎么回话、哪三类不自己回。
+    assert "-REVIEW" in body and "主控不审也不合" in body and "merge_sha" in body
+    assert 'SendMessage 回给它(to 写 "p-1")' in body
+    assert "产品语义分叉、对外承诺、生产发布" in body and "ask 转给用户" in body
+    assert "不要重试" in reason and "不要" in reason and "别的会话" in reason
+
+
+def test_the_stop_after_sending_passes_and_writes_nothing(board, capsys):
+    dispatched(board)
+    hook(stop(WORKER), capsys)
+    assert hook(stop(WORKER, "已发给主控", again=True), capsys) is None
+    assert [k for k, *_ in letters(board)] == ["turn"]
+    # 下一轮又是正常的一轮
+    assert hook(stop(WORKER, "第二轮"), capsys)["decision"] == "block"
+    assert [m for _, m, _, _ in letters(board)][-1] == "[待 review] 第二轮"
+
+
+def test_a_stop_blocked_by_another_hook_still_reports(board, capsys):
+    dispatched(board)
+    out = hook(stop(WORKER, "编译修好了", again=True), capsys)
+    assert out["decision"] == "block"
+    assert letters(board) == [("turn", "[待 review] 编译修好了", WORKER, 0)]
+
+
+def test_a_director_that_is_not_running_is_named_and_nothing_is_sent(board, monkeypatch, capsys):
+    dispatched(board)
+    live(monkeypatch, {WORKER: "p-1"})
+    reason = hook(stop(WORKER, "等你定方案"), capsys)["reason"]
+    assert "bbbbbbbb 现在不在运行" in reason and "letters #1" in reason
+    assert "不要调 SendMessage" in reason and "<<<" not in reason
+    assert letters(board) == [("turn", "[待 review] 等你定方案", WORKER, 0)]  # 留着,没丢
+    assert hook(stop(WORKER, "好", again=True), capsys) is None
 
 
 @pytest.mark.parametrize("says_it_waits", ["blocked", "ask"])
@@ -107,8 +135,7 @@ def test_a_worker_that_said_it_waits_is_not_sent_for_review(board, monkeypatch, 
     if says_it_waits == "blocked":
         db.add_letter(board, "P-1", kind="blocked", msg="缺账号", session_id=WORKER)
     else:
-        db.raise_ask(board, kind="decide", question="用 A 还是 B", evidence="两种都可行",
-                     task_ids=["P-1"], raised_by="ac:x", options=["A", "B"])
+        ask(board)
     assert stop_worker(board, monkeypatch, "等你定") == "等你定"
 
 
@@ -200,95 +227,106 @@ def test_a_worker_waiting_on_its_own_background_work_is_not_sent_for_review(
     assert report.background(str(tmp_path / "missing.jsonl")) is False
 
 
-def test_director_wakes_with_the_worker_message_and_the_escalation_rule(board, monkeypatch, capsys):
+def test_a_delivered_report_is_marked_read(board, capsys):
     dispatched(board)
-    db.add_letter(board, "P-1", kind="turn", msg="方案 A 还是 B?", session_id=WORKER)
-    db.add_letter(board, "P-1", kind="done", msg="PR 已开", session_id=WORKER)
-    no_waiting(monkeypatch)
-    assert report.run(stop(DIRECTOR, "已派出")) == report.WAKE
-    woke = capsys.readouterr().err
-    assert "方案 A 还是 B?" in woke and "P-1" in woke and "--kind reply" in woke
-    assert "产品语义分叉、对外承诺、生产发布" in woke and "ask 转给用户" in woke
-    # 主控自己停下时说的话不外送;别的种类的信留给原有的收信流程。
-    assert letters(board) == [("turn", "方案 A 还是 B?", WORKER, 1), ("done", "PR 已开", WORKER, 0)]
+    hook(stop(WORKER), capsys)
+    assert hook(send(WORKER, "nawaban-aa", "[nawaban] worker 回报 · P-1 …", SENT), capsys) is None
+    assert letters(board) == [("turn", "[待 review] 做完了", WORKER, 1)]
 
 
-def test_a_letter_is_delivered_once(board):
+def test_an_undelivered_report_stays_unread_and_the_worker_is_told_not_to_retry(board, capsys):
     dispatched(board)
-    db.add_letter(board, "P-1", kind="turn", msg="第一轮", session_id=WORKER)
-    wanted = {"P-1": ("turn", WORKER, 0)}
-    assert report.take(board, wanted) == [("P-1", "第一轮")]
-    assert report.take(board, wanted) == []
+    hook(stop(WORKER), capsys)
+    out = hook(send(WORKER, "nawaban-aa", "…", UNREACHABLE), capsys)
+    context = out["hookSpecificOutput"]["additionalContext"]
+    assert "回报没送到主控 nawaban-aa" in context and "is reachable" in context
+    assert "letters #1" in context and "不要重试" in context and "别的会话" in context
+    assert letters(board) == [("turn", "[待 review] 做完了", WORKER, 0)]
 
 
-def test_letters_arriving_after_dismiss_are_left_alone(board):
+@pytest.mark.parametrize("to", ["p-1", "p-1 [35fa7a]"])
+def test_a_message_to_a_worker_is_recorded_as_a_reply(board, capsys, to):
+    dispatched(board)
+    assert hook(send(DIRECTOR, to, "用方案 B,继续", SENT), capsys) is None
+    assert letters(board) == [("reply", "用方案 B,继续", DIRECTOR, 1)]
+
+
+def test_any_window_s_message_to_a_worker_is_recorded(board, capsys):
+    dispatched(board)
+    hook(send(STRANGER, "p-1", "重开的主控窗口回的话", SENT), capsys)
+    assert letters(board) == [("reply", "重开的主控窗口回的话", STRANGER, 1)]
+
+
+def test_a_reply_to_a_stopped_worker_is_kept_and_the_sender_is_told(board, capsys):
+    dispatched(board)
+    out = hook(send(DIRECTOR, "p-1", "用方案 B", UNREACHABLE), capsys)
+    context = out["hookSpecificOutput"]["additionalContext"]
+    assert "话没送到 worker p-1(P-1)" in context and "is reachable" in context
+    assert "letters #1" in context and "没有送达" in context
+    assert "不要用 claude --bg --resume" in context
+    assert letters(board) == [("reply", "用方案 B", DIRECTOR, 0)]
+
+
+def test_old_dispatch_records_without_a_name_use_the_task_id(board, capsys):
+    dispatched(board, name=None)
+    hook(send(DIRECTOR, "p-1", "继续", SENT), capsys)
+    assert letters(board) == [("reply", "继续", DIRECTOR, 1)]
+
+
+@pytest.mark.parametrize("payload", [
+    send(DIRECTOR, "someone-else", "和派发无关的话", SENT),
+    send(WORKER, "p-1", "worker 发给自己", SENT),
+    {**send(DIRECTOR, "p-1", "x", SENT), "tool_name": "Bash"},
+], ids=["other session", "worker to itself", "other tool"])
+def test_messages_outside_a_dispatch_are_not_recorded(board, capsys, payload):
+    dispatched(board)
+    assert hook(payload, capsys) is None
+    assert letters(board) == []
+
+
+def test_messages_to_a_dismissed_worker_are_not_recorded(board, capsys):
     dispatched(board)
     db.add_event(board, "P-1", kind="coord", author="ac:x", body="dismiss · 已停")
-    db.add_letter(board, "P-1", kind="turn", msg="收工后的话", session_id=WORKER)
-    assert report.take(board, {"P-1": ("turn", WORKER, 0)}) == []
-    assert letters(board) == [("turn", "收工后的话", WORKER, 0)]
+    assert hook(send(DIRECTOR, "p-1", "收工后的话", SENT), capsys) is None
+    assert letters(board) == []
 
 
-def test_a_new_dispatch_does_not_inherit_the_old_pair_s_letters(board, monkeypatch):
+def test_a_director_stopping_writes_and_waits_for_nothing(board, capsys):
     dispatched(board)
-    db.add_letter(board, "P-1", kind="reply", msg="旧主控的决定", session_id="old-director")
-    db.add_letter(board, "P-1", kind="reply", msg="上一次派发时回的", session_id=DIRECTOR)
-    with sqlite3.connect(board) as con:
-        con.execute("UPDATE letters SET created_at=created_at-100 WHERE session_id!=?",
-                    (DIRECTOR,))
-        # 同一个主控、和派发记录落在同一秒的旧回话,也不算这次派发的
-        con.execute("UPDATE letters SET created_at=(SELECT MAX(created_at) FROM task_events)"
-                    " WHERE session_id=?", (DIRECTOR,))
-    no_waiting(monkeypatch, then=lambda: db.add_event(
-        board, "P-1", kind="coord", author="ac:x", body="dismiss · 已停"))
-    assert report.run(stop(WORKER)) == 0  # 没收到旧信;收工后也不再等
-    assert [row[3] for row in letters(board)] == [0, 0, 0]
+    db.add_letter(board, "P-1", kind="turn", msg="方案 A 还是 B?", session_id=WORKER)
+    assert hook(stop(DIRECTOR, "已派出"), capsys) is None
+    assert letters(board) == [("turn", "方案 A 还是 B?", WORKER, 0)]
 
 
-def test_a_waiting_director_stops_once_the_worker_is_dismissed(board, monkeypatch):
+def test_a_session_nobody_dispatched_sends_nothing(board, capsys):
     dispatched(board)
-
-    def dismiss_then_report():
-        db.add_event(board, "P-1", kind="coord", author="ac:x", body="dismiss · 已停")
-        db.add_letter(board, "P-1", kind="turn", msg="收工后的话", session_id=WORKER)
-    no_waiting(monkeypatch, then=dismiss_then_report)
-    assert report.run(stop(DIRECTOR)) == 0
-    assert letters(board) == [("turn", "收工后的话", WORKER, 0)]
-
-
-def test_a_session_nobody_dispatched_sends_nothing(board, monkeypatch, capsys):
-    dispatched(board)
-    no_waiting(monkeypatch, then=lambda: pytest.fail("普通会话不该等信"))
     before = list(sqlite3.connect(board).iterdump())
-    assert report.run(stop(STRANGER, "随便说点什么")) == 0
+    assert hook(stop(STRANGER, "随便说点什么"), capsys) is None
     assert list(sqlite3.connect(board).iterdump()) == before
-    assert capsys.readouterr().err == ""
     assert not (Path(report.paths.state_dir()) / "report-wait").exists()
 
 
 @pytest.mark.parametrize("dismissed", [True, False],
                          ids=["dismissed", "dispatched-before-directors-were-recorded"])
-def test_no_live_director_means_nothing_is_sent(board, monkeypatch, dismissed):
+def test_no_live_director_means_nothing_is_sent(board, capsys, dismissed):
     dispatched(board, director=DIRECTOR if dismissed else None)
     if dismissed:
         db.add_event(board, "P-1", kind="coord", author="ac:x", body="dismiss · 已停")
-    no_waiting(monkeypatch, then=lambda: pytest.fail("不该等信"))
-    assert report.run(stop(WORKER)) == 0
+    assert hook(stop(WORKER), capsys) is None
     assert letters(board) == []
 
 
-def test_without_a_board_the_hook_does_nothing(tmp_path, monkeypatch):
+def test_without_a_board_the_hook_does_nothing(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("NAWABAN_DB", str(tmp_path / "missing.db"))
-    assert report.run(stop(WORKER)) == 0
+    assert hook(stop(WORKER), capsys) is None
+    assert hook(send(DIRECTOR, "p-1", "x", SENT), capsys) is None
     assert not (tmp_path / "missing.db").exists()
 
 
-def test_long_messages_are_cut_and_say_so(board, monkeypatch):
+def test_long_messages_are_cut_and_say_so(board, capsys):
     dispatched(board)
     said = "头" * 1000 + "腰" * 4000 + "尾" * 500
-    no_waiting(monkeypatch, then=lambda: (report.paths.state_dir() / "report-wait"
-                                          / f"{WORKER}.pid").write_text("0"))
-    assert report.run(stop(WORKER, said)) == 0  # 被更新的等待者顶替后退出
+    hook(stop(WORKER, said), capsys)
     [(kind, msg, _, _)] = letters(board)
     assert kind == "turn" and len(msg) == report.LIMIT
     assert msg.startswith(report.REVIEW + "头" * 1000) and msg.endswith("尾" * 400)
