@@ -163,12 +163,44 @@ def background(transcript: str | None) -> bool:
     return bool(launched - ended - {None})
 
 
-def session_name(session: str) -> str | None:
+def _live() -> list[dict]:
+    return [entry for entry in dispatch._agents() or [] if isinstance(entry, dict)]
+
+
+def session_name(session: str, live: list[dict] | None = None) -> str | None:
     """活着的会话的名字(SendMessage 按名字寻址);会话没在跑、或查不了,返回 None。"""
-    for entry in dispatch._agents() or []:
-        if isinstance(entry, dict) and entry.get("sessionId") == session:
+    for entry in _live() if live is None else live:
+        if entry.get("sessionId") == session:
             return entry.get("name") or None
     return None
+
+
+def _shared(name: str, session: str, live: list[dict]) -> bool:
+    """名字还被别的活会话占着:发给这个名字的话不一定到了 session,不能算在它头上。"""
+    return any(e.get("name") == name and e.get("sessionId") != session for e in live)
+
+
+_SENDING = {"SendMessage", "ToolSearch", "ListAgents"}  # 送回报那一轮本来就会用的工具
+
+
+def worked_since(transcript: str | None, offset: int) -> bool:
+    """转录从 offset 起有没有送信以外的工具调用:有就是又干了活,这次停下要照常回报。读不了当没有。"""
+    try:
+        with open(transcript or "", encoding="utf-8") as lines:
+            lines.seek(offset)
+            for line in lines:
+                if '"tool_use"' not in line:
+                    continue
+                try:
+                    content = (json.loads(line).get("message") or {}).get("content")
+                except ValueError:
+                    continue
+                if any(isinstance(b, dict) and b.get("type") == "tool_use"
+                       and b.get("name") not in _SENDING for b in content or []):
+                    return True
+    except (OSError, ValueError):
+        return False
+    return False
 
 
 def report(path: Path, task_id: str, worker: str, msg: str) -> str:
@@ -188,7 +220,16 @@ def report(path: Path, task_id: str, worker: str, msg: str) -> str:
 
 
 def _pending(session: str) -> Path:
+    """钩子拦下停下时记的单子:转录写到哪了,每封回报信发给谁、正文是什么。"""
     return paths.state_dir() / "report-wait" / f"{session}.json"
+
+
+def _read_pending(session: str) -> dict | None:
+    try:
+        marker = json.loads(_pending(session).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return marker if isinstance(marker, dict) else None
 
 
 def _block(reason: str) -> None:
@@ -199,16 +240,18 @@ def on_stop(path: Path, payload: dict, session: str) -> int:
     working, _ = roles(path, session)
     if not working:
         return 0  # 不是派出的 worker:什么都不写、什么都不送
-    pending = _pending(session)
-    # ponytail: 标记文件判「这是送完回报之后的那次停下」。送信那轮被插进来的消息接成新一轮、
-    # 之后又被别的钩子拦下时,那一轮的回报会被当成已送跳过;真碰上就在标记里记下转录行号来比。
-    if payload.get("stop_hook_active") and pending.exists():
-        pending.unlink()  # 送完回报之后的那次停下:这一轮已经报过了
-        return 0
+    pending, transcript = _pending(session), payload.get("transcript_path")
+    marker = _read_pending(session) if payload.get("stop_hook_active") else None
+    if marker is not None:
+        pending.unlink(missing_ok=True)
+        # 拦下之后只送了信就停:这一轮已经报过了。其间又干了活(比如别的钩子同时拦下、改完再停),
+        # 这次停下说的是新结论,照常回报。
+        if not worked_since(transcript, int(marker.get("offset") or 0)):
+            return 0
     said = (payload.get("last_assistant_message") or "").strip()
     if not said:
         return 0
-    busy = background(payload.get("transcript_path"))
+    busy = background(transcript)
     asks, sent = [], {}
     for task_id, (director, since, mark) in working.items():
         msg = (clip(said) if busy or waiting(path, task_id, session, since, mark)
@@ -221,14 +264,19 @@ def on_stop(path: Path, payload: dict, session: str) -> int:
                 f"已存进任务库 letters #{letter},没有送出;主控回来后在 notifications 里能看到。"
                 "不要调 SendMessage,也不要改发给别的会话。")
             continue
-        sent.setdefault(name, []).append(letter)
+        text = report(path, task_id, session, msg)
+        sent[str(letter)] = {"to": name, "text": text}
         asks.append(
             f"用 SendMessage 把 {task_id} 这一轮的回报发给派你的主控:to 写 \"{name}\","
             "message 用下面 <<< 与 >>> 之间的全部文字,一字不改(不含这两个记号)。\n"
-            f"<<<\n{report(path, task_id, session, msg)}\n>>>\n"
+            f"<<<\n{text}\n>>>\n"
             "发送失败就不要重试,也不要改发给别的会话:回报已经存在任务库里。")
+    try:
+        offset = Path(transcript or "").stat().st_size
+    except OSError:
+        offset = 0
     pending.parent.mkdir(parents=True, exist_ok=True)
-    pending.write_text(json.dumps(sent), encoding="utf-8")
+    pending.write_text(json.dumps({"offset": offset, "letters": sent}), encoding="utf-8")
     _block("[nawaban] 你是派出的 worker,停下前把这一轮的话交给主控(由钩子安排,不是用户输入)。\n\n"
            + "\n\n".join(asks) + "\n\n做完直接停下,不用再说话。")
     return 0
@@ -247,12 +295,13 @@ def on_send(path: Path, payload: dict, session: str) -> int:
     ok = isinstance(result, dict) and result.get("success") is True
     why = (result.get("message") if isinstance(result, dict) else str(result or "")) or "没有说明"
 
-    pending = _pending(session)
-    try:
-        letters = json.loads(pending.read_text(encoding="utf-8")).get(to)
-    except (OSError, ValueError, AttributeError):
-        letters = None
-    if letters:  # worker 按钩子的安排把回报发给主控
+    if not to or not text:
+        return 0
+    marker = _read_pending(session) or {}
+    letters = [int(letter) for letter, sent in (marker.get("letters") or {}).items()
+               if isinstance(sent, dict) and sent.get("to") == to
+               and str(sent.get("text") or "").strip() == text]
+    if letters:  # worker 按钩子的安排把回报原样发给主控
         if ok:
             db.mark_letters_read(path, letters)
         else:
@@ -261,20 +310,48 @@ def on_send(path: Path, payload: dict, session: str) -> int:
                      " notifications 里能看到。不要重试,也不要改发给别的会话;直接停下。")
         return 0
 
-    targets = {worker_name(task_id, record): task_id for task_id, record, _ in _dispatches(path)
-               if record.get("session") and record["session"] != session}
-    task_id = targets.get(to)
-    if task_id is None or not text:
-        return 0  # 不是发给派出的 worker 的话:不记
-    letter = db.add_letter(path, task_id, kind="reply", msg=text, session_id=session)
-    if ok:
-        db.mark_letters_read(path, [letter])
+    found = _pair(path, session, to)
+    if found is None:
+        return 0  # 不是主控和派出的 worker 之间的话:不记
+    task_id, kind, whom = found
+    try:
+        letter = db.add_letter(path, task_id, kind=kind, msg=text, session_id=session)
+        if ok:
+            db.mark_letters_read(path, [letter])
+    except (sqlite3.Error, db.NawabanError) as exc:
+        _context(f"[nawaban] 发给{whom} {to}({task_id})的这条话{'已送达' if ok else '没送到'},"
+                 f"但没能记进任务库:{exc}。用 python3 {_CLI} --db {path} notify {task_id}"
+                 f" --kind {kind} --msg \"<原话>\" 补记。")
         return 0
-    _context(f"[nawaban] 话没送到 worker {to}({task_id}):{why.splitlines()[0]}\n"
-             f"这条话已存进任务库 letters #{letter},没有送达。worker 会话停了就收不到;"
-             "先用 claude agents --json 确认它还在不在,不在就按 nawaban-director 技能处理"
-             "(卡交回待办后重新 dispatch,或派人接手)。不要用 claude --bg --resume 去叫它。")
+    if not ok:
+        _context(f"[nawaban] 话没送到{whom} {to}({task_id}):{why.splitlines()[0]}\n"
+                 f"这条话已存进任务库 letters #{letter},没有送达。对方会话停了就收不到;"
+                 "先用 claude agents --json 确认它还在不在。worker 不在就按 nawaban-director 技能处理"
+                 "(卡交回待办后重新 dispatch,或派人接手),不要用 claude --bg --resume 去叫它;"
+                 "主控不在就不用重发,它回来后在 notifications 里能看到。")
     return 0
+
+
+def _pair(path: Path, session: str, to: str) -> tuple[str, str, str] | None:
+    """这条话是不是主控和派出的 worker 之间的:返回 (卡号, 记成的信的种类, 收信的一方)。
+
+    发给某张卡的 worker 名字的,记成那张卡的 reply;worker 发给派它的主控的,记成 stage。
+    名字还被别的活会话占着时分不清发给了谁,不记。
+    """
+    live = None
+    for task_id, record, _ in _dispatches(path):
+        worker = record.get("session")
+        if not worker:
+            continue
+        if worker != session and worker_name(task_id, record) == to:
+            live = _live() if live is None else live
+            return None if _shared(to, worker, live) else (task_id, "reply", " worker")
+        if worker == session and record.get("director"):
+            live = _live() if live is None else live
+            if session_name(record["director"], live) == to and not _shared(
+                    to, record["director"], live):
+                return task_id, "stage", "主控"
+    return None
 
 
 def run(payload: dict) -> int:

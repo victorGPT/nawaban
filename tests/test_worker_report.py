@@ -41,7 +41,7 @@ def live(monkeypatch, sessions: dict):
         {"sessionId": sid, "name": name} for sid, name in sessions.items()])
 
 
-def dispatched(board, *, director=DIRECTOR, asks=0, name="p-1"):
+def dispatched(board, *, director=DIRECTOR, asks=0, name="p-1", task="P-1"):
     record = {"backend": "claude-bg", "session": WORKER, "pane": None, "director": director}
     if asks is not None:  # None = 记 ask 编号之前的旧派发记录
         record["asks"] = asks
@@ -50,7 +50,7 @@ def dispatched(board, *, director=DIRECTOR, asks=0, name="p-1"):
     clock = db._now
     db._now = lambda: clock() - 1  # 派发早于之后的信;同一秒内的信不算这次派发的
     try:
-        db.add_event(board, "P-1", kind="coord", author="ac:x",
+        db.add_event(board, task, kind="coord", author="ac:x",
                      body="dispatch " + json.dumps(record))
     finally:
         db._now = clock
@@ -117,6 +117,27 @@ def test_a_stop_blocked_by_another_hook_still_reports(board, capsys):
     out = hook(stop(WORKER, "编译修好了", again=True), capsys)
     assert out["decision"] == "block"
     assert letters(board) == [("turn", "[待 review] 编译修好了", WORKER, 0)]
+
+
+def tool_use(name) -> dict:
+    return {"type": "assistant", "message": {"role": "assistant", "content": [
+        {"type": "tool_use", "id": "toolu_x", "name": name, "input": {}}]}}
+
+
+@pytest.mark.parametrize("tools,reported", [
+    (["Bash", "Edit"], True), (["ToolSearch", "SendMessage"], False), ([], False)],
+    ids=["worked after the block", "only sent the report", "nothing"])
+def test_a_stop_after_more_work_is_reported_again(board, capsys, tmp_path, tools, reported):
+    dispatched(board)
+    log = transcript(tmp_path, tool_use("Bash"))
+    hook(stop(WORKER, "修复前", log), capsys)
+    with open(log, "a", encoding="utf-8") as f:
+        for name in tools:
+            f.write(json.dumps(tool_use(name)) + "\n")
+    out = hook(stop(WORKER, "修复后测试通过", log, again=True), capsys)
+    assert (out is not None) == reported
+    turns = [m for k, m, _, _ in letters(board) if k == "turn"]
+    assert turns[-1].endswith("修复后测试通过" if reported else "修复前")
 
 
 def test_a_director_that_is_not_running_is_named_and_nothing_is_sent(board, monkeypatch, capsys):
@@ -229,19 +250,74 @@ def test_a_worker_waiting_on_its_own_background_work_is_not_sent_for_review(
 
 def test_a_delivered_report_is_marked_read(board, capsys):
     dispatched(board)
-    hook(stop(WORKER), capsys)
-    assert hook(send(WORKER, "nawaban-aa", "[nawaban] worker 回报 · P-1 …", SENT), capsys) is None
+    [body] = bodies(hook(stop(WORKER), capsys)["reason"])
+    assert hook(send(WORKER, "nawaban-aa", body, SENT), capsys) is None
     assert letters(board) == [("turn", "[待 review] 做完了", WORKER, 1)]
 
 
 def test_an_undelivered_report_stays_unread_and_the_worker_is_told_not_to_retry(board, capsys):
     dispatched(board)
-    hook(stop(WORKER), capsys)
-    out = hook(send(WORKER, "nawaban-aa", "…", UNREACHABLE), capsys)
+    [body] = bodies(hook(stop(WORKER), capsys)["reason"])
+    out = hook(send(WORKER, "nawaban-aa", body, UNREACHABLE), capsys)
     context = out["hookSpecificOutput"]["additionalContext"]
     assert "回报没送到主控 nawaban-aa" in context and "is reachable" in context
     assert "letters #1" in context and "不要重试" in context and "别的会话" in context
     assert letters(board) == [("turn", "[待 review] 做完了", WORKER, 0)]
+
+
+def bodies(reason) -> list[str]:
+    return [part.split("\n>>>")[0] for part in reason.split("<<<\n")[1:]]
+
+
+def test_a_report_is_confirmed_only_by_its_own_text(board, capsys):
+    db.create_task(board, task_id="P-2", title="第二张卡")
+    dispatched(board)
+    dispatched(board, task="P-2", name="p-2")
+    first, second = bodies(hook(stop(WORKER, "两张都做了"), capsys)["reason"])
+    hook(send(WORKER, "nawaban-aa", first, SENT), capsys)
+    hook(send(WORKER, "nawaban-aa", second, UNREACHABLE), capsys)
+    with sqlite3.connect(board) as con:
+        assert con.execute("SELECT task_id, read_at IS NOT NULL FROM letters WHERE kind='turn'"
+                           " ORDER BY id").fetchall() == [("P-1", 1), ("P-2", 0)]
+
+
+def test_other_words_to_the_director_do_not_confirm_the_report(board, capsys):
+    dispatched(board)
+    hook(stop(WORKER, "做完了"), capsys)
+    hook(send(WORKER, "nawaban-aa", "我自己改写的回报", SENT), capsys)
+    assert letters(board) == [("turn", "[待 review] 做完了", WORKER, 0),
+                              ("stage", "我自己改写的回报", WORKER, 1)]
+
+
+@pytest.mark.parametrize("result,read", [(SENT, 1), (UNREACHABLE, 0)], ids=["sent", "unreachable"])
+def test_a_worker_s_own_message_to_its_director_is_recorded(board, capsys, result, read):
+    dispatched(board)
+    out = hook(send(WORKER, "nawaban-aa", "进度:第一步做完", result), capsys)
+    assert letters(board) == [("stage", "进度:第一步做完", WORKER, read)]
+    if read:
+        assert out is None
+    else:
+        context = out["hookSpecificOutput"]["additionalContext"]
+        assert "话没送到主控 nawaban-aa(P-1)" in context and "letters #1" in context
+
+
+def test_a_name_another_live_session_also_has_is_not_recorded(board, monkeypatch, capsys):
+    dispatched(board)
+    live(monkeypatch, {DIRECTOR: "nawaban-aa", WORKER: "p-1", STRANGER: "p-1"})
+    assert hook(send(DIRECTOR, "p-1 [0a1b2c]", "给另一个同名会话", SENT), capsys) is None
+    assert letters(board) == []
+
+
+def test_a_message_the_board_cannot_record_says_so(board, monkeypatch, capsys):
+    dispatched(board)
+
+    def locked(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(report.db, "add_letter", locked)
+    context = hook(send(DIRECTOR, "p-1", "用方案 B", SENT), capsys)[
+        "hookSpecificOutput"]["additionalContext"]
+    assert "已送达" in context and "没能记进任务库:database is locked" in context
+    assert "notify P-1 --kind reply" in context
 
 
 @pytest.mark.parametrize("to", ["p-1", "p-1 [35fa7a]"])
