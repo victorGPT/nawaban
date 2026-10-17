@@ -101,3 +101,48 @@ On `/Users/victor/nawaban/.nawaban/nawaban.db`, read-only, after all three runs:
 - A Herdr-backend worker in this flow end to end (the rehearsal used `claude --bg`; SendMessage addresses both kinds of session by name, and the spike's interactive session was in a Herdr pane).
 - Two live sessions sharing the director's name. `[ref]` from ListAgents disambiguates, but `claude agents --json` does not expose it, so the hook would pass the bare name.
 - Plugin sessions that started before this change keep the old async Stop hook registration until they restart (whether a `hooks.json` change needs a new session is unverified, see [worker-backend-validation.md](worker-backend-validation.md)).
+
+## The turn that finishes a card (NAWABAN-SENDMSG-002)
+
+Run on 2026-10-18 with Claude Code 2.1.302. Times are local (UTC+9).
+
+At c4341e3 the worker's Stop hook dropped every card that was already done or handed off before it looked at the turn, so the turn that moved a card there was neither blocked nor sent. In the T9 A0b pilot the review worker registered the merge SHA, moved both cards to done, sent `notify --kind done` (letters #6) and stopped; the director was never told and sat idle for 21 minutes.
+
+Now that turn is sent once. Its turn letter carries `"settled": true` in `provenance`; a later stop of the same worker finds that mark on its latest turn letter and passes without writing or sending anything. Picking the card up again writes ordinary turn letters, so finishing it again sends once more. The finishing turn is marked `[待 review]` only when the card is not finished: a hand-off on an `in_progress` card is a hand-in for review, a `done` card has nothing left to review. `test_the_turn_that_finishes_the_card_is_sent_once_then_stops_pass` (done / staging-verified / handed_off) and the re-finish step in `test_a_worker_that_starts_again_after_handing_off_reports_again` fail on c4341e3's hook and pass now.
+
+### Rehearsal
+
+The throwaway repository and board from the runs above (`~/Developer/sendmsg-rehearsal/repo`, its own `.nawaban/nawaban.db`), with new cards. A new directory for this run could not be used: background sessions refuse an untrusted folder, and accepting the trust prompt was not allowed from this session. Scripts are in `~/Developer/sendmsg-rehearsal/r002/`. The director was a background `auto` session started with `--plugin-dir` set to this branch's worktree, and dispatched with `HERDR_ENV=0` and the `claude` wrapper so the workers loaded the same plugin.
+
+A review worker's session cannot run git in the main checkout (Claude Code refuses git outside a worktree-isolated session's own worktree; the run-1 review worker hit this, reported `blocked`, and did not get around it). There is no remote and no PR, so the merge is a local `git merge --no-ff` done outside the review worker: by the rehearsal operator in run 1, by the director in run 2.
+
+Run 1 (D-1, at b879af3, which did not yet mark an unfinished hand-off for review):
+
+| Time | Step | Evidence |
+|---|---|---|
+| 08:13:57 | Director `rehearsal-director-002` (`adeac6e4`) dispatches `D-1` and goes idle | Director transcript |
+| 08:16:57 → 08:17:17 | Worker `d-1` (`9bc4aa6e`) commits, runs `handoff` (handed_off), stops; turn letter #15 (`settled: true`) is sent and read | letters #15; `task_sessions` outcome `handed_off` |
+| 08:17:17 → 08:17:22 | Director wakes, dispatches `D-1-REVIEW` | Director transcript; event #20 |
+| 08:21:34 → 08:22:05 | Review worker `d-1-review` (`654fb9f1`) records review #1 (pass), cannot merge, sends `blocked` (#16); its turn #17 reaches the director | letters #16, #17 |
+| 08:22:38 → 08:22:59 | Operator merges (`a6b3373`), asks the director to relay the SHA; director replies to `d-1-review` | reply letter #18 |
+| 08:23:21 → 08:23:36 | Review worker registers `merge_sha` on both cards, moves both to done, sends `done` (#19), stops; turn letter #20 (`settled: true`) sent, read 08:23:36 | letters #19, #20; both cards `done` |
+| 08:23:36 → 08:23:42 | Idle director wakes with the done report and answers 「收到 done。」 | Director transcript |
+| 08:24:49 → 08:24:55 | Operator asks `d-1-review` to say "ok" and stop: one stop, no block, no SendMessage, no new letter (still #20) | Review worker transcript; letters |
+
+Run 2 (D-2, at 0e8d500, the final hook):
+
+| Time | Step | Evidence |
+|---|---|---|
+| 08:25:54 | Director `rehearsal-director-002b` (`e25329cb`) dispatches `D-2`, goes idle | Director transcript |
+| 08:29:17 → 08:29:27 | Worker `d-2` (`174c9e6c`) commits, hands off, stops; turn letter #21 sent and read | letters #21 |
+| 08:29:27 → 08:29:32 | Director wakes, dispatches `D-2-REVIEW` | Director transcript |
+| 08:32:20 → 08:32:45 | Review worker `d-2-review` (`c6d5d561`) passes the review, asks for the merge (`blocked` #22, turn #23); director wakes, merges (`4769414`), replies with the SHA | letters #22–#24 |
+| 08:33:01 → 08:33:12 | Review worker registers `merge_sha` on both cards, moves both to done, sends `done` (#25), stops; turn letter #26 (`settled: true`) sent, read 08:33:12 | letters #25, #26; both cards `done` |
+| 08:33:11 → 08:33:15 | Idle director wakes with the done report and answers 「收到 done。」 | Director transcript |
+| 08:34:20 → 08:34:24 | Operator asks `d-2-review` to say "ok" and stop: one stop, no block, no SendMessage, no new letter (still #26) | Review worker transcript; letters |
+
+Every report each worker sent was character for character the text its Stop hook gave it (`fidelity.py`: `d-1` 1/1, `d-1-review` 2/2, `d-2` 1/1, `d-2-review` 2/2). On the real board, read-only after both runs: no task `D-1`, `D-1-REVIEW`, `D-2` or `D-2-REVIEW`, and no letters or task sessions from any of the six rehearsal sessions (0 rows each).
+
+### Seen, not fixed here
+
+- The hand-off turn in run 2 (#21) was sent without `[待 review]`. The worker had a Bash command that hit its 120 s timeout and was moved to the background, then stopped it with TaskStop; a stopped task leaves no `<task-notification>` in the transcript, so `background()` still counts it as running and the turn is treated as busy. The report was still delivered and the director still dispatched the review.
