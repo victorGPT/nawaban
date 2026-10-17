@@ -95,17 +95,17 @@ def _asks_mark(provenance: str | None) -> int | None:
         return None
 
 
-def post_turn(path: Path, task_id: str, msg: str, session: str) -> int:
+def post_turn(path: Path, task_id: str, msg: str, session: str, settled: bool = False) -> int:
     """写一封 turn 信,并记下此刻最大的 ask 编号:下一轮凭它分清哪些 ask 是之后提的。返回信的编号。
 
-    worker 已经停下,记编号和写信之间它提不了新的 ask。
+    worker 已经停下,记编号和写信之间它提不了新的 ask。settled 记下这是卡做完后的收尾一轮。
     """
     with closing(sqlite3.connect(path, timeout=5)) as con:
         mark = con.execute("SELECT COALESCE(MAX(id), 0) FROM asks").fetchone()[0]
     letter = db.add_letter(path, task_id, kind="turn", msg=msg, session_id=session)
     with closing(sqlite3.connect(path, timeout=5)) as con, con:
         con.execute("UPDATE letters SET provenance=? WHERE id=?",
-                    (json.dumps({"asks": mark}), letter))
+                    (json.dumps({"asks": mark, "settled": settled}), letter))
     return letter
 
 
@@ -238,19 +238,34 @@ def _block(reason: str) -> None:
     print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
 
 
-def _settled(path: Path, task_id: str, session: str) -> bool:
-    """卡做完了,或这个 worker 已经交接:它再停下不是在交差,不拦也不送(与 dispatch 收工同口径)。"""
+def _settled(path: Path, task_id: str, session: str, since: int) -> bool | None:
+    """卡做完了,或这个 worker 已经交接(与 dispatch 收工同口径)。
+
+    做完的那一轮是主控正等着的话,照常送一次:返回 True。送过之后再停下不是在交差,不拦也不送:
+    返回 None(卡不在了也是 None)。「送过」看这个 worker 最近一封 turn 信有没有 settled 记号,
+    重新认领后写的普通信会盖掉它,再收尾时再送一次。还在干活返回 False。
+    """
     with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as con:
         con.row_factory = sqlite3.Row
         row = con.execute("SELECT id, status FROM tasks WHERE id=?", (task_id,)).fetchone()
-        return row is None or dispatch._settled(con, row, {"session": session})
+        if row is None:
+            return None
+        if not dispatch._settled(con, row, {"session": session}):
+            return False
+        last = con.execute(
+            "SELECT provenance FROM letters WHERE task_id=? AND kind='turn' AND session_id=?"
+            " AND created_at>=? ORDER BY id DESC LIMIT 1", (task_id, session, since)).fetchone()
+    try:
+        sent = bool(last and json.loads(last[0])["settled"])
+    except (TypeError, ValueError, KeyError):
+        sent = False
+    return None if sent else True
 
 
 def on_stop(path: Path, payload: dict, session: str) -> int:
     working, _ = roles(path, session)
-    working = {t: peer for t, peer in working.items() if not _settled(path, t, session)}
     if not working:
-        return 0  # 不是派出的 worker,或者已经交差:什么都不写、什么都不送、不拦
+        return 0  # 不是派出的 worker:什么都不写、什么都不送、不拦
     pending, transcript = _pending(session), payload.get("transcript_path")
     marker = _read_pending(session) if payload.get("stop_hook_active") else None
     if marker is not None:
@@ -259,15 +274,20 @@ def on_stop(path: Path, payload: dict, session: str) -> int:
         # 这次停下说的是新结论,照常回报。
         if not worked_since(transcript, int(marker.get("offset") or 0)):
             return 0
+    settled = {t: _settled(path, t, session, peer[1]) for t, peer in working.items()}
+    working = {t: peer for t, peer in working.items() if settled[t] is not None}
+    if not working:
+        return 0  # 已经交差、收尾那一轮也送过了:什么都不写、什么都不送、不拦
     said = (payload.get("last_assistant_message") or "").strip()
     if not said:
         return 0
     busy = background(transcript)
     asks, sent = [], {}
     for task_id, (director, since, mark) in working.items():
-        msg = (clip(said) if busy or waiting(path, task_id, session, since, mark)
+        # 收尾那一轮不标待 review:卡已经做完或交出去了,没有东西等主控派人审。
+        msg = (clip(said) if settled[task_id] or busy or waiting(path, task_id, session, since, mark)
                else REVIEW + clip(said, LIMIT - len(REVIEW)))
-        letter = post_turn(path, task_id, msg, session)
+        letter = post_turn(path, task_id, msg, session, settled=settled[task_id])
         name = session_name(director)
         if name is None:
             asks.append(

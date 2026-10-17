@@ -375,7 +375,7 @@ def test_a_director_stopping_writes_and_waits_for_nothing(board, capsys):
 
 
 @pytest.mark.parametrize("finish", ["done", "staging-verified", "handed_off"])
-def test_a_worker_that_has_finished_or_handed_off_is_not_blocked(board, capsys, finish):
+def test_the_turn_that_finishes_the_card_is_sent_once_then_stops_pass(board, capsys, finish):
     dispatched(board)
     db.claim_task(board, "P-1", owner="ac:w", session_id=WORKER)
     db.start_task(board, "P-1", owner="ac:w", session_id=WORKER, now="在做")
@@ -385,9 +385,16 @@ def test_a_worker_that_has_finished_or_handed_off_is_not_blocked(board, capsys, 
     else:
         db.handoff(board, "P-1", owner="ac:w", session_id=WORKER, outcome=finish,
                    summary="交接", now="等评审")
-    for _ in range(3):  # 每一轮都放行,不会一轮轮被拦
+    # 转 done / 交接的这一轮正是主控在等的那句话:照常拦下送一次,不标待 review(没有东西要审)。
+    out = hook(stop(WORKER, "已合并,两张卡转 done"), capsys)
+    assert out["decision"] == "block" and 'to 写 "nawaban-aa"' in out["reason"]
+    assert "-REVIEW" not in out["reason"]
+    assert letters(board) == [("turn", "已合并,两张卡转 done", WORKER, 0)]
+    assert hook(stop(WORKER, "已发给主控", again=True), capsys) is None
+    for _ in range(3):  # 之后每一轮都放行,不再送,不会一轮轮被拦
         assert hook(stop(WORKER, "随口一句"), capsys) is None
-    assert [k for k, *_ in letters(board)] == []
+    assert [k for k, *_ in letters(board)] == ["turn"]
+    assert not report._pending(WORKER).exists()
 
 
 def test_a_worker_that_starts_again_after_handing_off_reports_again(board, capsys):
@@ -399,6 +406,10 @@ def test_a_worker_that_starts_again_after_handing_off_reports_again(board, capsy
     db.claim_task(board, "P-1", owner="ac:w", session_id=WORKER)
     db.start_task(board, "P-1", owner="ac:w", session_id=WORKER, now="改 review 意见")
     assert hook(stop(WORKER, "改完了"), capsys)["decision"] == "block"
+    assert hook(stop(WORKER, "已发给主控", again=True), capsys) is None
+    with sqlite3.connect(board) as con:
+        con.execute("UPDATE tasks SET status='done' WHERE id='P-1'")
+    assert hook(stop(WORKER, "合并了"), capsys)["decision"] == "block"  # 再收尾,再送一次
 
 
 def test_a_session_nobody_dispatched_sends_nothing(board, capsys):
