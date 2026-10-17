@@ -1,7 +1,7 @@
-# 外部能力目录
+# External capability catalogue
 
-本项目只随附 `nawaban`、`nawaban-director`、`nawaban-setup`、`nawaban-wrapup` 四个技能。其他技能从当前 Agent 的启用目录或工具目录解析，使用实际启用名称和对应 SKILL.md；不要推断个人机器的全局路径存在。
+This project ships four skills: `nawaban`, `nawaban-director`, `nawaban-setup`, and `nawaban-wrapup`. Resolve every other skill from the current agent's enabled skills or tool catalogue, using the enabled name and its SKILL.md; never assume a global path on a personal machine exists.
 
-按任务查能力：需求分叉用访谈/拆解，结构变更用建模，无法静态判断的交互用原型，实现与回归用项目验证，交付前用独立评审。已授权、可用的原生工具可承担等价动作。项目要求的必需能力缺失时明确记录阻塞；可选技能缺失不阻塞普通 CLI、Web 或任务流程。
+Match capabilities to the task: interviewing or breakdown for requirement forks, modelling for structural changes, a prototype for interaction that cannot be judged statically, project verification for implementation and regressions, and independent review before delivery. An authorized, available native tool can do the equivalent. When a capability the project requires is missing, record it as a blocker; a missing optional skill does not block ordinary CLI, Web, or task work.
 
-`scripts/skill_shelf.py` 是可选的个人目录盘点工具；生成结果依赖调用者配置，不是项目固定依赖清单，也不作为可移植安装验收门槛。
+`scripts/skill_shelf.py` is an optional tool that inventories a personal skill directory. Its output depends on the caller's setup; it is not the project's fixed dependency list and not a portable installation check.

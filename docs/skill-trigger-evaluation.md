@@ -91,6 +91,46 @@ These differences are within the run-to-run noise of three runs per cell; they
 show no loss, not a gain. The six extra requests were written after the skill
 description and by the same person, and none of them dispatched a real worker.
 
+## Folding the wrap-up skill into the task skill (2026-10-15, not adopted)
+
+The proposal: delete `nawaban-wrapup` and move its body to
+`skills/nawaban/references/wrapup.md`, linked from the task skill's table of
+what to read when. The task skill's description was not changed. Claude Code
+2.1.299; `base` is commit `b4f611e`, both variants ran in one interleaved batch.
+
+Seven cases were added for this round, written before any run: five wrap-up or
+handoff requests that should load a skill (end of day, list this session's
+open claims, about to `/clear`, pause a card, an English handoff) and two that
+should not (advice on wrapping up a meeting, a handoff template). They are kept
+out of the held-out draw, so the 11 held-out cases are unchanged. The script
+now also records which nawaban skill loaded first.
+
+| Split | Variant | Runs | Should load: loaded first | Should load: task skill first | Should not load: stayed out | Gate rejections |
+|---|---|---:|---:|---:|---:|---:|
+| Train | base | 162 | 82/96 | 48/96 | 66/66 | 24 |
+| Train | fold | 162 | 76/96 | 76/96 | 66/66 | 13 |
+| Held out | base | 66 | 33/42 | 24/42 | 24/24 | 6 |
+| Held out | fold | 66 | 33/42 | 33/42 | 24/24 | 10 |
+
+The task skill is chosen more often only because the other choice is gone. On
+the seven wrap-up and handoff cases that should load a skill, Opus loaded one
+first in 21/21 runs in both variants. Sonnet fell from 19/21 to 11/21:
+
+- `session_end` ("is there anything I claimed and did not wrap up"): 3/3 → 0/3.
+  In base all three runs ran `wrapup` and `handoff`; in fold none ran either.
+- `wrap_up` ("I'm closing this window, wrap up my work"): 3/3 → 0/3 loaded
+  first; all three loaded the task skill only after acting.
+- `before_clear`: 1/3 → 0/3. `stop_for_today`: 3/3 → 2/3.
+
+On all other should-load cases Sonnet scored 32/48 in both variants and Opus
+went from 43/48 to 45/48. No should-not-load case loaded a skill in either
+variant.
+
+The fold was not kept: requests to end a session with no card named lost the
+skill that named the `wrapup` command, and Sonnet then stopped running it. A
+variant that also mentions wrapping up in the task skill's description was not
+tried in this round.
+
 ## Reading
 
 - Before the change, a request to edit a file went straight to `Edit`, was
@@ -134,3 +174,42 @@ python3 scripts/eval_skill_trigger.py --regrade <dir>/<run id>
 ```
 
 Transcripts and per-run results stay outside the repository.
+
+## Rewriting the skills in English (2026-10-15)
+
+All four skills, their references, `BOARD.md` and `TEMPLATE.md` were rewritten
+in English, descriptions included. Each description keeps the branches of the
+Chinese one it replaces and adds none, so language is the only change. The
+cases stay in Chinese, apart from the two English ones. Claude Code 2.1.299;
+`base` is commit `f130b7e`, `new` is `b5cf413`, both variants ran in one
+interleaved batch, three runs per case and model.
+
+| Split | Variant | Runs | Should load: loaded first | Should load: task skill first | Should not load: stayed out | Gate rejections |
+|---|---|---:|---:|---:|---:|---:|
+| Train | base | 162 | 85/96 | 51/96 | 66/66 | 21 |
+| Train | new | 162 | 83/96 | 48/96 | 66/66 | 31 |
+| Held out | base | 66 | 31/42 | 24/42 | 24/24 | 10 |
+| Held out | new | 66 | 33/42 | 26/42 | 24/24 | 8 |
+
+Pooled over both splits, should-load cases loaded a skill first in 116/138
+runs for both variants, and no should-not-load case loaded a skill in either.
+By model, base → new: Opus 66/69 → 67/69, Sonnet 50/69 → 49/69. Mean cost per
+run was unchanged ($0.14 Opus, $0.06 Sonnet).
+
+- The train drop is Sonnet only: `resume`, `vague_resume` and `scope_grows`
+  went from 1/3 to 0/3 and `before_clear` from 1/3 to 2/3. Held-out moved the
+  other way for both models. These are within the noise of three runs per cell.
+- Sonnet's gate rejections on train rose from 17 to 28. Eight of the eleven
+  extra come from those three cases in runs that never loaded a skill. Two come
+  from `session_end`, where Sonnet loaded `nawaban-wrapup` and then fixed the
+  README typo in the main checkout; the wrap-up skill says nothing about
+  worktrees in either language. One is an `unnamed_edit` run that loaded the
+  task skill and still called `Edit` on the main checkout.
+
+Limits:
+
+- No scripted case exercises `nawaban-director`; its English description was
+  not measured.
+- A first batch was stopped after 47 runs and discarded: the director
+  description contained `director: splitting`, and a colon followed by a space
+  inside an unquoted YAML value breaks the frontmatter.

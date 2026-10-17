@@ -1,22 +1,22 @@
-# 建卡与需求边界
+# Creating tasks and scoping
 
-已有卡就复用其目标、约束和决定。缺卡的已授权工作直接建卡；只在存在会影响范围、行为或风险的未决分叉时澄清。实现方法、文件数量或“有 UI”本身不要求完整访谈、ADR 或拆成多卡。
+When a task exists, reuse its goal, constraints, and decisions. Authorized work without a task gets one created directly; clarify only when an open fork would change scope, behaviour, or risk. The implementation method, the number of files, or the presence of a UI does not by itself call for a full interview, an ADR, or several tasks.
 
-需要独立交付、不同 owner 或显式阻塞关系时拆卡。难以静态判断的假设可先做有界验证；若它确实阻塞后续实施，作为前置卡。术语和架构决策沿用项目约定，避免为满足流程创建空文档。
+Split a task when parts need separate delivery, different owners, or an explicit blocking relation. An assumption that is hard to judge statically can get a bounded check first; when it truly blocks the rest, make it a prerequisite task. Follow the project's conventions for terms and architecture decisions, and create no empty document just to satisfy a process.
 
-## 材料落到哪里
+## Where material goes
 
-| 内容 | CLI 字段或动作 |
+| Content | CLI field or action |
 |---|---|
-| 用户目标与背景 | `create --context` 或 `--context-file`，原始记录 write-once；写成 Markdown 无序列表，每条一个要点，可用 `**标签**：` 开头（如 `- **用户 2026-09-17**：…`、`- **背景**：…`） |
-| 可观察的完成条件 | `--success` JSON array |
-| 范围、授权和约束 | `--constraints` JSON array；编辑路径分别用 `--touch` |
-| 当前进度、证据 | `--now`、event、ref、handoff |
-| 关联决策或模块归组 | 有必要时用 `--adr`、`--epic`；决定经 decide 追加 |
-| 同库中的项目归属 | 多项目共库时显式 `--project`；`--split-from` 未覆盖时继承父卡项目 |
+| User goal and background | `create --context` or `--context-file`; write-once. Write a Markdown bullet list, one point per bullet, optionally led by a `**label**:` (such as `- **User 2026-09-17**: …`, `- **Background**: …`) |
+| Observable completion conditions | `--success`, a JSON array |
+| Scope, authorization, and constraints | `--constraints`, a JSON array; each edit path as its own `--touch` |
+| Current progress and evidence | `--now`, `event`, `ref`, `handoff` |
+| Linked decision or module grouping | `--adr`, `--epic` when needed; append decisions with `decide` |
+| Project, when several share a database | Pass `--project` explicitly; without it, a task created with `--split-from` inherits the parent's project |
 
-字段细节查 `nawaban create --help`，不要发明 body/description 字段。success 需要修订时经 decide 留痕，保留原因及实际决策来源。
+Look up field details in `nawaban create --help`; there is no body or description field to invent. Revise `success` through `decide`, keeping the reason and the real source of the decision.
 
-阻塞边为 `nawaban --db <目标库> link <被挡卡> <前置卡> --kind depends_on`；claim 检查前置状态。家谱与阻塞是不同关系，拆自一张卡不自动表示依赖它完成。
+A blocking edge is `nawaban --db <target db> link <blocked task> <prerequisite task> --kind depends_on`; `claim` checks the prerequisite's status. Lineage and blocking are different relations: splitting from a task does not make it a prerequisite.
 
-epic 地图只在帮助跨卡协调时创建，记录目标、已定决策指针、未决事项与范围；具体事实仍放卡或项目决策文档。
+Create an epic map only when it helps coordinate across tasks. It records the goal, pointers to settled decisions, open questions, and scope; concrete facts stay on the tasks or in the project's decision documents.

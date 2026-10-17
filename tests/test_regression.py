@@ -224,6 +224,12 @@ def test_migration_rolls_back_when_a_row_uses_a_retired_kind(tmp_path):
         assert "'relates'" in con.execute("SELECT sql FROM sqlite_master WHERE name='task_edges'").fetchone()[0]
 
 
+def test_claim_stop_ignores_a_rerun_in_progress():
+    # 重跑中按红只在合并闸里;停线闸照旧跳过未完成的 run,读更早的结论。
+    rerun = {**_run("test", "", "2026-10-03T05:00:00Z", status="in_progress"), "attempt": 2}
+    assert main_ci.red_runs([rerun, _run("test", "success", "2026-10-03T04:00:00Z")]) == []
+
+
 def test_a_red_streak_older_than_the_listed_runs_has_an_unknown_start():
     runs = [_run("test", "failure", f"2026-10-03T0{h}:00:00Z") for h in (5, 4, 3)]
     assert main_ci.red_runs(runs)[0]["since"] == 0

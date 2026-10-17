@@ -136,9 +136,9 @@ You answer in the board's inbox or with `nawaban answer`. `nawaban --help` lists
 <!-- Anchor linked from skills/nawaban-setup and skills/nawaban/references/runtime.md. -->
 ## Install as a plugin
 
-The same checkout is a Claude Code plugin and a Codex plugin. The Claude Code commands are in step 1 above; update later with `claude plugin update nawaban@nawaban`.
+The same checkout is a Claude Code plugin and a Codex plugin. The Claude Code commands are in step 1 above. Installed from a local checkout, the hooks run straight from it, so pulling is the update; an install from GitHub updates only when the plugin version changes.
 
-[docs/install.md](docs/install.md) has the Codex configuration, the hook trust prompt, what each gate inspects in each tool, and how to run the CLI without installing a plugin.
+[docs/install.md](docs/install.md) has the GitHub install, the Codex configuration, the hook trust prompt, what each gate inspects in each tool, and how to run the CLI without installing a plugin.
 
 ## Documentation
 
@@ -149,7 +149,7 @@ The same checkout is a Claude Code plugin and a Codex plugin. The Claude Code co
 | Optional module and prerequisite hints on `create` | [docs/hints.md](docs/hints.md) |
 | Capturing ideas that are not tasks yet | [docs/capture.md](docs/capture.md) |
 | Inactivity markers on cards | [docs/task-staleness.md](docs/task-staleness.md) |
-| Product vocabulary, in English and Chinese | [CONTEXT.md](CONTEXT.md) |
+| Product vocabulary, in English and Chinese | [GLOSSARY.md](GLOSSARY.md) |
 | Repository layout and running the tests | [docs/development.md](docs/development.md) |
 | Release notes and legacy configuration | [CHANGELOG.md](CHANGELOG.md) |
 

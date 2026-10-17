@@ -133,9 +133,9 @@ $ nawaban inbox
 
 ## 作为插件安装
 
-同一份克隆既是 Claude Code 插件，也是 Codex 插件。Claude Code 的命令在上面第 1 步；以后更新用 `claude plugin update nawaban@nawaban`。
+同一份克隆既是 Claude Code 插件，也是 Codex 插件。Claude Code 的命令在上面第 1 步。从本地克隆安装时 hook 直接读这份克隆，拉取即更新；从 GitHub 安装的只在插件版本号变化时才更新。
 
-Codex 的配置、hook 信任提示、每道闸在两个工具里各检查什么、不装插件怎么直接运行 CLI，都在 [docs/install.md](docs/install.md)。
+从 GitHub 安装、Codex 的配置、hook 信任提示、每道闸在两个工具里各检查什么、不装插件怎么直接运行 CLI，都在 [docs/install.md](docs/install.md)。
 
 ## 文档
 
@@ -148,7 +148,7 @@ Codex 的配置、hook 信任提示、每道闸在两个工具里各检查什么
 | 建卡时可选的模块提示和前置任务提示 | [docs/hints.md](docs/hints.md) |
 | 捕捉还不是任务的想法 | [docs/capture.md](docs/capture.md) |
 | 任务卡上的不活跃标记 | [docs/task-staleness.md](docs/task-staleness.md) |
-| 产品术语表（中英对照） | [CONTEXT.md](CONTEXT.md) |
+| 产品术语表（中英对照） | [GLOSSARY.md](GLOSSARY.md) |
 | 仓库结构与运行测试 | [docs/development.md](docs/development.md) |
 | 发布说明与旧配置的兼容 | [CHANGELOG.md](CHANGELOG.md) |
 

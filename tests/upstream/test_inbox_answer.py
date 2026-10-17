@@ -151,6 +151,24 @@ def main() -> int:  # noqa: C901
         assert code == 0, out
         assert status(p, "T-F-A") == "done" and status(p, "T-F-B") == "done", out
 
+    def t_fanout_ok_skips_already_done():
+        """关联卡已被 worker 转 done:fanout --ok 照样成功并落「已生效」决策,不撞 done→done。"""
+        p = fresh(tmp, "fandone")
+        mkcard(p, "T-FD-A")
+        mkcard(p, "T-FD-B")
+        aid = db.raise_ask(p, kind="authorize", question="要合并吗?", evidence="真机实测",
+                           task_ids=["T-FD-A", "T-FD-B"],
+                           raised_by="agent", blast={"who": "x", "what": "y", "rollback": "z"})
+        settle(p, "T-FD-A", "T-FD-B", wait=True)
+        cli(p, "answer", str(aid), "--verdict", "授权合并")
+        db.add_ref(p, "T-FD-A", kind="merge_sha", value="a" * 40)
+        db.advance_task(p, "T-FD-A", to="done", owner="ac:test", session_id="s-seed")
+        before = n_decisions(p, "T-FD-A")
+        code, out = cli(p, "fanout", str(aid), "--ok")
+        assert code == 0, out
+        assert status(p, "T-FD-A") == "done" and status(p, "T-FD-B") == "done", out
+        assert n_decisions(p, "T-FD-A") == before + 1, "已 done 的卡也该记下动作已生效"
+
     def t_fanout_failed_closes_nothing():
         p = fresh(tmp, "fail")
         mkcard(p, "T-X-001")
@@ -251,6 +269,7 @@ def main() -> int:  # noqa: C901
         ("accept 打回 → 卡退回 in_progress", t_accept_reject_returns_card),
         ("authorize 回答后卡一张不动(授权≠已生效)", t_authorize_does_not_touch_cards),
         ("fanout --ok 关全部挂卡", t_fanout_ok_closes_all),
+        ("fanout --ok 遇已 done 的卡不报非法转移", t_fanout_ok_skips_already_done),
         ("fanout --failed 一张都不关", t_fanout_failed_closes_nothing),
         ("未 answer 就 fanout 被拒", t_fanout_before_answer_rejected),
         ("并发:重复回答拿明确报错", t_double_answer_loud),

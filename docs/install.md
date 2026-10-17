@@ -6,7 +6,8 @@ The [README](../README.md#install-as-a-plugin) has the short path. This page cov
 
 The same checkout is a Claude Code plugin and a Codex plugin; both read `hooks/hooks.json`.
 
-- **Claude Code:** `claude plugin marketplace add /path/to/nawaban`, then `claude plugin install nawaban@nawaban`. For a one-off session, `claude --plugin-dir /path/to/nawaban` also works. The installed copy updates with `claude plugin update nawaban@nawaban`.
+- **Claude Code:** `claude plugin marketplace add /path/to/nawaban`, then `claude plugin install nawaban@nawaban`. For a one-off session, `claude --plugin-dir /path/to/nawaban` also works. With this directory marketplace, Claude Code loads the hooks straight from the checkout, so after pulling, each hook runs the new code the next time it fires; `claude plugin update` is not needed. Not verified: whether adding or removing an entry in `hooks/hooks.json` needs a new session ([validation](worker-backend-validation.md)). If you also develop nawaban, point the marketplace at a separate clone that only follows `main`, so branch switches and uncommitted edits stay out of your sessions' hooks ([release and update](release.md)).
+- **From GitHub:** `claude plugin marketplace add victorGPT/nawaban`, then `claude plugin install nawaban@nawaban`. Claude Code updates the plugin only when `version` in `.claude-plugin/plugin.json` changes: run `claude plugin marketplace update nawaban && claude plugin update nawaban@nawaban`, then start a new session ([release and update](release.md)).
 - **Codex:** add the checkout as a local marketplace in `~/.codex/config.toml`, then install it. Codex copies the plugin into its cache, so run `codex plugin add` again after pulling.
 
   ```toml

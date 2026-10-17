@@ -1,27 +1,27 @@
-# 占用协调
+# Overlap coordination
 
-claim 的 touches 冲突是 WARN，不是互斥锁或编辑授权。同路径并行可能在合并时冲突；核对对方卡、工作区与实际进展，协调顺序。存活探测失败或窗口关闭不能证明对方工作已完成。
+A `touches` conflict at `claim` is a WARN, not a mutex and not edit authorization. Parallel work on the same path may conflict at merge time; check the other task, its worktree, and its real progress, and agree on an order. A failed liveness probe or a closed window does not prove the other work is finished.
 
-独立调用可选检查器时传目标项目共享主树：
-
-```bash
-python3 "$NAWABAN_HOME/nawaban/claim_check.py" <目标文件> --owner <本会话owner> --repo <共享主树>
-```
-
-该 helper 检查 `--repo/.nawaban/nawaban.db`（新库不存在时兼容旧板），不接受 CLI 的 `--db`；自定义库或跨项目情况下以实际目标板查询为准。它的“无占用”不能覆盖另一个数据库。
-
-## 修改范围
-
-已授权扩界在编辑前落板：
+To run the optional checker on its own, pass the target project's shared main checkout:
 
 ```bash
-nawaban --db <目标库> scope <ID> --add <路径> --reason "<已授权的范围扩展原因>"
+python3 "$NAWABAN_HOME/nawaban/claim_check.py" <target file> --owner <this session's owner> --repo <shared main checkout>
 ```
 
-收窄陈旧 touches 前，核对卡状态、实际交付版本和对方工位对应文件的差异，依项目协调规则操作；未知 WIP 保留。命令为：
+The helper reads `--repo/.nawaban/nawaban.db` (falling back to the old board when the new database is missing) and does not accept the CLI's `--db`. With a custom database or across projects, query the actual target board; the helper finding no overlap says nothing about another database.
+
+## Changing scope
+
+Record an authorized scope expansion on the board before editing:
 
 ```bash
-nawaban --db <目标库> release <ID> --drop <路径> --reason "<核实后的收窄理由>"
+nawaban --db <target db> scope <ID> --add <path> --reason "<why the expansion is authorized>"
 ```
 
-`release` 只收窄 touches，不释放 owner。转交 owner 使用 handoff 的 `--release`，语义见 [收尾](cards.md)。工具允许修改不等于已有修改他人范围的授权。
+Before narrowing stale `touches`, check the task's status, the version actually delivered, and the diff of those files in the other worktree, and follow the project's coordination rules; keep unknown work in progress. The command is:
+
+```bash
+nawaban --db <target db> release <ID> --drop <path> --reason "<verified reason to narrow>"
+```
+
+`release` only narrows `touches`; it does not release the owner. Pass ownership with `handoff --release`, described in [Delivery and wrap-up](cards.md). The tool allowing a change does not mean you are authorized to change someone else's scope.

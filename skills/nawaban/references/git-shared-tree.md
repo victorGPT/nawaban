@@ -1,14 +1,13 @@
-# Git 协作与冲突
+# Git collaboration and conflicts
 
-一 pane 一 worktree,branch 与 index 各归各的;只剩两处要小心。
+One pane, one worktree: branches and indexes stay separate. Two places still need care.
 
-## 向已有 PR 追加 commit
+## Adding commits to an existing PR
 
-先核对当前 worktree 分支与远程 PR head，保护未提交修改。PR head 已被其他执行者或项目 helper 更新时，按项目协作规则同步后再追加普通 commit；涉及历史重写先确认授权。push 前核对相对于 PR base 的完整 diff，确保只包含本任务交付。
+First check the current worktree branch against the remote PR head, and protect uncommitted changes. When another agent or a project helper has updated the PR head, sync by the project's collaboration rules before adding ordinary commits; get authorization before rewriting history. Before pushing, check the full diff against the PR base so it contains only this task's delivery.
 
-以旧 worktree 的完整树配合 `commit-tree -p <PR head>` 会覆盖 PR head 新增的内容；同步时保留双方已提交的实际改动。
+Building a commit from an old worktree's full tree with `commit-tree -p <PR head>` overwrites what the PR head added; when syncing, keep the committed changes from both sides.
 
-## 真撞了:意图还原
+## A real conflict: recover intent
 
-merge conflict 由第二个合的人解:先读两边 commit / PR / 卡还原双方意图 → 尽量双保留 → 不可兼得按本次 merge 目标取舍并在
-PR body 记 trade-off → 解完跑 typecheck 与相关测试再提交。两边都没有的新行为不发明。
+The second person to merge resolves the conflict: read both sides' commits, PRs, and tasks to recover each side's intent, keep both where possible, and when they cannot coexist choose by this merge's goal and record the trade-off in the PR body. Run the typecheck and the relevant tests before committing. Add no behaviour that neither side had.

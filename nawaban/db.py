@@ -115,6 +115,30 @@ CREATE INDEX IF NOT EXISTS idx_letters_unread ON letters(read_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_letters_task   ON letters(task_id, created_at);
 """
 
+# review 结论(NAWABAN-REVIEW-GATE-001):reviewer 只交问题,过不过由 judge_findings 按固定规则判。
+# commit 钉住审的是哪个提交 —— 合并闸要求 PR head 与它一致。
+REVIEWS_SQL = """
+CREATE TABLE IF NOT EXISTS reviews (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    TEXT NOT NULL REFERENCES tasks(id),
+    commit_sha TEXT NOT NULL,
+    passed     INTEGER NOT NULL CHECK (passed IN (0,1)),
+    findings   TEXT NOT NULL,
+    author     TEXT NOT NULL,
+    session_id TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reviews_task ON reviews(task_id, id);
+CREATE TRIGGER IF NOT EXISTS reviews_no_update BEFORE UPDATE ON reviews
+BEGIN SELECT RAISE(ABORT, 'reviews is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS reviews_no_delete BEFORE DELETE ON reviews
+BEGIN SELECT RAISE(ABORT, 'reviews is append-only'); END;
+"""
+SEVERITIES = ("critical", "major", "minor", "nit")
+# ponytail: 打回门槛是一个常量(主控 2026-10-16 定 major);仓库级配置留到借鉴清单第 8 条。
+REVIEW_BLOCK_AT = "major"
+REVIEW_STRIKES = 3  # 连续这么多次不过 → 自动给用户收件箱提一条 decide
+
 # turn = worker 每轮停下时自动送回主控的最后一段话;reply = 主控回给 worker 的话。
 LETTER_KINDS = ("done", "blocked", "stage", "claim", "turn", "reply")
 
@@ -241,6 +265,7 @@ def init_db(path: Path | str) -> None:
         con.executescript(SCHEMA_SQL)
         con.executescript(ASKS_SQL)
         con.executescript(LETTERS_SQL)
+        con.executescript(REVIEWS_SQL)
         from nawaban.captures import SCHEMA_SQL as CAPTURES_SQL
         con.executescript(CAPTURES_SQL)
     finally:
@@ -303,6 +328,10 @@ def migrate_db(path: Path | str) -> list[str]:
                            " AND name='letters'").fetchone():
             con.executescript(LETTERS_SQL)
             added.append("letters")
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                           " AND name='reviews'").fetchone():
+            con.executescript(REVIEWS_SQL)
+            added.append("reviews")
         if _rebuild_check(con, "tasks", "status", STATUSES, (
                 "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",
                 "CREATE INDEX IF NOT EXISTS idx_tasks_owner ON tasks(owner, status)")):
@@ -1139,6 +1168,16 @@ def handoff(path: Path | str, task_id: str, *, owner: str, session_id: str,
                 (_now(), outcome, summary, task_id, session_id),
             )
             if cur.rowcount != 1:
+                # 交接后又推了修正(NAWABAN-NOW-AFTER-HANDOFF-001):handoff 不收第二次,
+                # 刷当前态的入口是 event --now —— 报错里直接指路,别让人去试 start。
+                # 只在卡仍归这条履历的 owner 时指路;别人持有的卡报错照旧。
+                if con.execute("SELECT 1 FROM task_sessions s JOIN tasks t ON t.id=s.task_id"
+                               " WHERE s.task_id=? AND s.session_id=? AND t.owner=s.owner",
+                               (task_id, session_id)).fetchone():
+                    raise NawabanError(
+                        f"{task_id} 本 session 已交接过,handoff 不重复收尾。"
+                        f"交接后又有进展,刷当前态用:\n"
+                        f"  nawaban event {task_id} --body \"<新进展>\" --now \"<当前态>\"")
                 raise NawabanError(f"无未收尾的 session 履历({task_id} × {session_id}):先 claim/start")
             _event(con, task_id, "handoff", body or summary, owner, session_id)
             con.execute("UPDATE tasks SET now=? WHERE id=?", (now, task_id))
@@ -1347,6 +1386,125 @@ def add_ref(path: Path | str, task_id: str, *, kind: str, value: str,
         con.close()
 
 
+def judge_findings(findings: Any) -> tuple[bool, list[dict]]:
+    """固定规则判 review:返回 (是否通过, 补上 effective 严重度的问题列表)。
+
+    每条问题要 summary / severity / evidence / preexisting。没证据的 critical 按 major 算;
+    effective 到 REVIEW_BLOCK_AT 且不是原本就有的问题才打回;原有问题只记录。
+    """
+    if not isinstance(findings, list):
+        raise NawabanError("findings 必须是 JSON 数组(没问题就交 [])")
+    rank = SEVERITIES.index
+    judged, passed = [], True
+    for i, f in enumerate(findings, 1):
+        if not isinstance(f, dict):
+            raise NawabanError(f"第 {i} 条问题不是对象")
+        sev, pre = f.get("severity"), f.get("preexisting")
+        if sev not in SEVERITIES:
+            raise NawabanError(f"第 {i} 条 severity 只收 {SEVERITIES},收到 {sev!r}")
+        if not isinstance(pre, bool):
+            raise NawabanError(f"第 {i} 条 preexisting 必须写明 true/false(是否原本就有)")
+        if not _visible(f.get("summary")):
+            raise NawabanError(f"第 {i} 条缺 summary(问题是什么)")
+        evidence = f.get("evidence")
+        if evidence is not None and not isinstance(evidence, str):
+            raise NawabanError(f"第 {i} 条 evidence 必须是字符串")
+        effective = "major" if sev == "critical" and not _visible(evidence) else sev
+        blocking = not pre and rank(effective) <= rank(REVIEW_BLOCK_AT)
+        passed = passed and not blocking
+        judged.append({**f, "effective": effective, "blocking": blocking})
+    return passed, judged
+
+
+def add_review(path: Path | str, task_id: str, *, commit_sha: str, findings: Any,
+               author: str, session_id: Optional[str] = None) -> dict:
+    """记一次 review 结论,返回 {id, passed, findings, streak, ask_id}。
+
+    streak = 记完后这张卡末尾连续不过的次数(通过时为 0)。连败到 REVIEW_STRIKES 次时
+    同一事务里给用户收件箱提一条 decide(每段连败一次),ask_id 是它。同一事务里还写一条 verify
+    事件,让结论出现在卡的事件流里;完整问题列表在 reviews 表。
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", commit_sha or ""):
+        raise NawabanError("commit 要完整 40 位小写 SHA(git rev-parse HEAD)—— 合并闸拿它对 PR head")
+    passed, judged = judge_findings(findings)
+    blocking = [f for f in judged if f["blocking"]]
+    body = (f"review {'通过' if passed else '不过'} @ {commit_sha[:12]} · "
+            f"{len(judged)} 条问题,{len(blocking)} 条打回"
+            + "".join(f"\n- [{f['effective']}] {f['summary']}" for f in blocking))[:2048]
+    con = connect(path)
+    try:
+        with _txn(con):
+            _task_row(con, task_id)
+            cur = con.execute(
+                "INSERT INTO reviews (task_id, commit_sha, passed, findings, author,"
+                " session_id, created_at) VALUES (?,?,?,?,?,?,?)",
+                (task_id, commit_sha, int(passed), _jd(judged), author, session_id, _now()))
+            _event(con, task_id, "verify", body, author, session_id)
+            rid = int(cur.lastrowid or 0)
+            fails = []
+            for fid, ok in con.execute("SELECT id, passed FROM reviews WHERE task_id=?"
+                                       " ORDER BY id DESC", (task_id,)):
+                if ok:
+                    break
+                fails.append(fid)
+            # 一段连续失败只提一次 ask:按 review 编号认(evidence 以 "review #<id> " 开头)。
+            # 与 review 同一个 BEGIN IMMEDIATE 事务,并发记录也只会有一条。
+            asked = {int(m[1]) for (ev,) in con.execute(
+                "SELECT a.evidence FROM asks a JOIN ask_tasks k ON k.ask_id = a.id"
+                " WHERE k.task_id = ? AND a.kind = 'decide'", (task_id,))
+                if (m := re.match(r"review #(\d+) ", ev))}
+            ask_id = None
+            if len(fails) >= REVIEW_STRIKES and not asked & set(fails):
+                ask_id = _insert_ask(
+                    con, kind="decide", task_ids=[task_id], raised_by=author,
+                    question=f"{task_id} 连续 {len(fails)} 次 review 不过,怎么办?"[:120],
+                    evidence=f"review #{rid} @ {commit_sha} 不过:"
+                             + ";".join(f["summary"] for f in blocking),
+                    options=[{"option": o, "consequence": c} for o, c in (
+                        ("继续返工", "worker 按问题再改一轮,再 review"),
+                        ("改范围或验收", "拆卡或改 success,重新派单"),
+                        ("放弃", "cancel 这张卡"))])
+        return {"id": rid, "passed": passed, "findings": judged,
+                "streak": len(fails), "ask_id": ask_id}
+    finally:
+        con.close()
+
+
+PR_URL = re.compile(r"//(?:[^@/\s]+@)?([^/\s]+)/([^/\s]+)/([^/\s]+)/pull/(\d+)(?!\d)")
+
+
+def pr_key(value: str) -> Optional[tuple[str, str, str, int]]:
+    """完整 PR 链接 → (主机, owner, repo, 号);主机去掉 www.、大小写不计,号按数值比。"""
+    m = PR_URL.search(value)
+    if not m:
+        return None
+    host, owner, repo, num = m.groups()
+    return host.lower().removeprefix("www."), owner.lower(), repo.lower(), int(num)
+
+
+def latest_reviews_for_pr(con: sqlite3.Connection, pr_url: str) -> list[tuple]:
+    """用完整链接登记了这个 PR 的每张未结束的卡:[(task_id, commit_sha|None, passed|None)]。
+
+    只认 pr ref 里的 主机/owner/repo/pull/N(用户 2026-10-16 定,ask #194);裸号("2385")不算
+    登记 —— 新写的裸号由 ref 动词补成链接,老卡上的裸号不迁移。done/cancelled 的卡不算。
+    """
+    me = pr_key(pr_url)
+    found = sorted({t for t, value in con.execute(
+        "SELECT r.task_id, r.value FROM task_refs r JOIN tasks t ON t.id = r.task_id"
+        f" WHERE r.kind = 'pr' AND t.status NOT IN ({_q(TERMINAL)})")
+        if me and pr_key(value) == me})
+    has_reviews = con.execute("SELECT 1 FROM sqlite_master WHERE type='table'"
+                              " AND name='reviews'").fetchone()
+    out = []
+    for t in found:
+        # 只读连接迁移不了旧库:没有 reviews 表就当作一次 review 都没记
+        row = has_reviews and con.execute(
+            "SELECT commit_sha, passed FROM reviews WHERE task_id=? ORDER BY id DESC LIMIT 1",
+            (t,)).fetchone()
+        out.append((t, *(row or (None, None))))
+    return out
+
+
 # ── 人侧收件箱(NAWABAN-INBOX-SCHEMA-001)──────────────────────────────
 
 # 判「有没有真材料」:零宽字符在 str.strip() 和 SQLite trim() 里都不算空白,但人眼看不见。
@@ -1412,22 +1570,34 @@ def raise_ask(path: Path | str, *, kind: str, question: str, evidence: str,
         with _txn(con):
             for t in task_ids:
                 _task_row(con, t)  # 幻觉闸:卡不存在当场炸
-            cur = con.execute(
-                "INSERT INTO asks(kind,question,evidence,options,blast,hands_on,"
-                "raised_at,raised_by,confidence,confidence_reason)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (kind, question, evidence, _jd(options), _jd(blast),
-                 int(bool(hands_on)), int(raised_at or _now()), raised_by,
-                 confidence, (confidence_reason or "").strip() or None),
-            )
-            ask_id = int(cur.lastrowid or 0)
-            con.executemany(
-                "INSERT INTO ask_tasks(ask_id,task_id) VALUES(?,?)",
-                [(ask_id, t) for t in dict.fromkeys(task_ids)],
-            )
-        return ask_id
+            return _insert_ask(con, kind=kind, question=question, evidence=evidence,
+                               task_ids=task_ids, raised_by=raised_by, options=options,
+                               blast=blast, hands_on=hands_on, raised_at=raised_at,
+                               confidence=confidence, confidence_reason=confidence_reason)
     finally:
         con.close()
+
+
+def _insert_ask(con: sqlite3.Connection, *, kind: str, question: str, evidence: str,
+                task_ids: Sequence[str], raised_by: str, options: Any = None,
+                blast: Any = None, hands_on: bool = False, raised_at: Optional[int] = None,
+                confidence: Optional[float] = None,
+                confidence_reason: Optional[str] = None) -> int:
+    """在调用方的事务里写 ask 和挂卡;校验由调用方负责。"""
+    cur = con.execute(
+        "INSERT INTO asks(kind,question,evidence,options,blast,hands_on,"
+        "raised_at,raised_by,confidence,confidence_reason)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (kind, question, evidence, _jd(options), _jd(blast),
+         int(bool(hands_on)), int(raised_at or _now()), raised_by,
+         confidence, (confidence_reason or "").strip() or None),
+    )
+    ask_id = int(cur.lastrowid or 0)
+    con.executemany(
+        "INSERT INTO ask_tasks(ask_id,task_id) VALUES(?,?)",
+        [(ask_id, t) for t in dict.fromkeys(task_ids)],
+    )
+    return ask_id
 
 
 def close_ask(path: Path | str, ask_id: int, *, closed_as: str,

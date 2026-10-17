@@ -62,13 +62,26 @@ CASES = [
     ("handoff_word", False, "把「交接」翻译成英文和日文。", "a verb from the wrap-up description, asked as a translation"),
     ("proofread", False, "这句话有没有语病：「我们将在下周完成全部任务的交付」。", "contains task and delivery wording inside quoted text"),
 ]
+# Added on 2026-10-15 to measure folding the wrap-up skill into the task skill. Written after the held-out draw,
+# so they never enter it and their per-case rows are always printed.
+WRAPUP_CASES = [
+    ("stop_for_today", True, "今天先到这，收工前把看板上的状态更新好。", "end of day with a board word but no card number"),
+    ("session_end", True, "这个会话要结束了，看看我还有没有认领了但没收尾的卡。", "asks for the session's open claims, the wrap-up verb's job"),
+    ("before_clear", True, "我要 /clear 了，走之前把该记的都记下来。", "no card, no board word; only the intent to leave"),
+    ("pause_card", True, f"{CARD} 先放一放，明天再接着做，把进度记一下。", "a pause, not a handoff or a status word"),
+    ("handoff_english", True, f"I'm stopping here. Hand {CARD} off so someone else can pick it up.", "English handoff against Chinese descriptions"),
+    ("wrapup_advice", False, "会议结束前怎么做一个好的收尾总结？给三条建议。", "the wrap-up word as general advice"),
+    ("handoff_template", False, "写一段交接文档的模板，直接贴在回复里，不要建文件。", "a handoff document as writing help, nothing on the board"),
+]
+CASES += WRAPUP_CASES
 
 
 def test_ids():
     """A fixed third of each kind is held out; the tuning loop never reads these runs."""
     rng = random.Random(20261010)
-    fire = sorted(c[0] for c in CASES if c[1] is not False)
-    quiet = sorted(c[0] for c in CASES if c[1] is False)
+    drawn = [c for c in CASES if c not in WRAPUP_CASES]
+    fire = sorted(c[0] for c in drawn if c[1] is not False)
+    quiet = sorted(c[0] for c in drawn if c[1] is False)
     return set(rng.sample(fire, 7) + rng.sample(quiet, 4))
 
 
@@ -90,6 +103,22 @@ def fired(raw):
                 early = early or not acted
             acted = acted or part.get("name") in ACTS
     return early, late
+
+
+def first_skill(raw):
+    """The first nawaban skill loaded, without its plugin prefix; None when none was."""
+    for line in raw.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        message = event.get("message") if isinstance(event, dict) else None
+        for part in (message.get("content") if isinstance(message, dict) else None) or []:
+            if isinstance(part, dict) and part.get("type") == "tool_use" and part.get("name") == "Skill":
+                name = str((part.get("input") or {}).get("skill"))
+                if "nawaban" in name:
+                    return name.split(":")[-1]
+    return None
 
 
 def run_one(job):
@@ -129,7 +158,7 @@ def score(raw, case, expect, variant, model, i, split):
     denied = sum('"subtype": "permission_denied"' in line or '"subtype":"permission_denied"' in line for line in raw.splitlines())
     finished = bool(result) and not result.get("is_error")
     return {"case": case, "expect": expect, "split": split, "variant": variant, "model": model, "run": i,
-            "early": early, "late": late, "finished": finished, "denied": denied, "gates": gates,
+            "early": early, "late": late, "first": first_skill(raw), "finished": finished, "denied": denied, "gates": gates,
             # A skill that should load counts only when it loads before acting; one that should not must never load.
             # A session that never ran proves neither, so it cannot pass.
             "ok": finished and (early if expect else not late), "cost_usd": result.get("total_cost_usd")}
@@ -146,8 +175,8 @@ def parse_name(stem, expects):
 
 
 def summarise(results):
-    lines = ["| model | split | variant | cases | correct | 95% CI | should load: loaded first | should not load: stayed out | gate rejections per run | unfinished | permission denials | cost $ |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    lines = ["| model | split | variant | cases | correct | 95% CI | should load: loaded first | should load: task skill first | should not load: stayed out | gate rejections per run | unfinished | permission denials | cost $ |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for model, split, variant in sorted({(r["model"], r["split"], r["variant"]) for r in results}):
         g = [r for r in results if (r["model"], r["split"], r["variant"]) == (model, split, variant)]
         k = sum(r["ok"] for r in g)
@@ -155,17 +184,18 @@ def summarise(results):
         fire = [r for r in g if r["expect"]]
         quiet = [r for r in g if not r["expect"]]
         lines.append(f"| {model} | {split} | {variant} | {len({r['case'] for r in g})} | {k}/{len(g)} | {lo:.2f}-{hi:.2f} | "
-                     f"{sum(r['ok'] for r in fire)}/{len(fire)} | {sum(r['ok'] for r in quiet)}/{len(quiet)} | "
+                     f"{sum(r['ok'] for r in fire)}/{len(fire)} | {sum(r['ok'] and r.get('first') == 'nawaban' for r in fire)}/{len(fire)} | "
+                     f"{sum(r['ok'] for r in quiet)}/{len(quiet)} | "
                      f"{statistics.mean(r['gates'] for r in g):.2f} | {sum(not r['finished'] for r in g)} | {sum(r['denied'] for r in g)} | {statistics.mean(r['cost_usd'] or 0 for r in g):.3f} |")
     return "\n".join(lines)
 
 
 def by_case(results):
-    lines = ["| model | variant | case | should load | correct | loaded later |", "|---|---|---|---|---|---|"]
+    lines = ["| model | variant | case | should load | correct | loaded later | first skill |", "|---|---|---|---|---|---|---|"]
     for model, variant, case in sorted({(r["model"], r["variant"], r["case"]) for r in results}):
         g = [r for r in results if (r["model"], r["variant"], r["case"]) == (model, variant, case)]
         lines.append(f"| {model} | {variant} | {case} | {'yes' if g[0]['expect'] else 'no'} | {sum(r['ok'] for r in g)}/{len(g)} | "
-                     f"{sum(r['late'] and not r['early'] for r in g)} |")
+                     f"{sum(r['late'] and not r['early'] for r in g)} | {', '.join(sorted({r.get('first') or '-' for r in g}))} |")
     return "\n".join(lines)
 
 

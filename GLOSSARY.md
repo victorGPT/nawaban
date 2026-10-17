@@ -268,6 +268,12 @@ Stopping a dispatched worker's session and removing its worktree once the task i
 _Avoid_: closing a session as proof of completion.
 _Current identifiers_: `task_events` (coord); CLI `dismiss`.
 
+**Pane prompt**(窗格回话)
+Typing a reply straight into a Herdr worker's pane and confirming the worker started on it; a lost Enter is pressed again, the text is never retyped. Used when the window replying is not the one that dispatched the worker.
+窗格回话是把话直接交到 Herdr worker 的窗格并确认它开工；回车丢了只补回车，文字绝不重打。回话的窗口不是派它的那个时用。
+_Avoid_: bare `herdr agent prompt` for replies; sending the same reply through `notify --kind reply` too.
+_Current identifiers_: `task_events` (coord); CLI `prompt`.
+
 ### Relationships and evidence
 
 **Dependencies**(依赖)
@@ -317,6 +323,12 @@ An observed result and its retrievable record supporting an acceptance criterion
 验收证据是支持成功判据的实际观测结果及其可查记录。
 _Avoid_: planned test, deployment intent, fabricated run.
 _Current identifiers_: `task_refs.kind` = `acceptance_run`.
+
+**Review verdict**(评审结论)
+A reviewer's findings on one commit, each with severity, evidence, and whether it was already there, judged pass or fail by a fixed rule rather than by the director.
+评审结论是 reviewer 针对某个提交交回的问题列表，每条带严重度、证据和是否原本就有，过不过由固定规则判，不由主控判。
+_Avoid_: the director's own impression as the verdict, a verdict that does not name the reviewed commit.
+_Current identifiers_: `reviews`; CLI `review`; `gh pr merge --match-head-commit` in the merge gate.
 
 **Event**(事件)
 A recorded occurrence in a task's history, such as a progress note, verification, handoff, or state change.

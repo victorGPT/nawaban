@@ -21,6 +21,7 @@ class Backend:
     def __init__(self, root: Path, *, fail=(), stderr="boom", dirty="", unpushed=""):
         self.root, self.fail, self.stderr, self.registers = root, fail, stderr, True
         self.dirty, self.unpushed = dirty, unpushed
+        self.agents_out = None  # 设了就让 `claude agents --json` 原样输出它
         self.calls: list[list[str]] = []
         self.sessions: list[dict] = []
 
@@ -34,9 +35,10 @@ class Backend:
             self.registers and self.sessions.append({"name": name, "sessionId": SID,
                                   "cwd": str(self.root / ".claude/worktrees" / name)})
         elif cmd[:2] == ["claude", "agents"]:
-            out = json.dumps(self.sessions)
-        elif cmd[:3] == ["herdr", "pane", "split"]:
-            out = json.dumps({"result": {"pane": {"pane_id": "w1:p9"}}})
+            out = json.dumps(self.sessions) if self.agents_out is None else self.agents_out
+        elif cmd[:3] == ["herdr", "tab", "create"]:
+            out = json.dumps({"result": {"root_pane": {"pane_id": "w1:p9"},
+                                         "tab": {"tab_id": "w1:t9"}}})
         elif "--git-common-dir" in cmd:
             out = str(self.root / ".git")
         elif "status" in cmd:
@@ -66,6 +68,7 @@ def board(tmp_path):
 def backend(tmp_path, monkeypatch):
     fake = Backend(tmp_path)
     monkeypatch.setattr(dispatch, "RUN", fake)
+    monkeypatch.setattr(dispatch, "SPAWN", lambda cmd, **_: fake.calls.append(cmd))
     monkeypatch.delenv("HERDR_ENV", raising=False)
     return fake
 
@@ -106,13 +109,15 @@ def test_dispatch_records_who_dispatched_and_tells_the_worker_how_to_report(
     assert json.loads(body[len("dispatch "):])["director"] == "director-session"
     [launch] = backend.ran("claude", "--bg")
     assert "最后一段话会自动送回派你的主控" in launch[-1] and "不要在这里等人回话" in launch[-1]
+    assert "必须先用" in launch[-1] and "--kind blocked" in launch[-1]
+    assert "没报阻塞就停下,一律当你交付了" in launch[-1]
 
 
-def test_dispatch_inside_herdr_opens_a_new_pane(board, backend, monkeypatch):
+def test_dispatch_inside_herdr_opens_a_new_tab(board, backend, monkeypatch):
     monkeypatch.setenv("HERDR_ENV", "1")
     monkeypatch.setattr(dispatch, "_trusted", lambda root: True)
     assert run(board, "dispatch", "P-1") == 0
-    assert backend.ran("herdr", "pane", "split") and backend.ran("herdr", "agent", "prompt")
+    assert backend.ran("herdr", "tab", "create") and backend.ran("herdr", "agent", "prompt")
     [start] = backend.ran("herdr", "agent", "start")
     assert start[3:8] == ["p-1", "--kind", "claude", "--pane", "w1:p9"]
     assert not backend.ran("claude", "--bg")
@@ -124,7 +129,7 @@ def test_herdr_failure_falls_back_to_a_background_session(board, backend, monkey
     monkeypatch.setattr(dispatch, "_trusted", lambda root: True)
     backend.fail = (("herdr", "agent", "start"),)
     assert run(board, "dispatch", "P-1") == 0
-    assert backend.ran("herdr", "pane", "close", "w1:p9")
+    assert backend.ran("herdr", "tab", "close", "w1:t9")
     assert backend.ran("claude", "--bg")
     assert SID in task(board, "P-1")["now"]
 
@@ -132,7 +137,7 @@ def test_herdr_failure_falls_back_to_a_background_session(board, backend, monkey
 def test_half_started_herdr_session_blocks_the_fallback(board, backend, monkeypatch, capsys):
     monkeypatch.setenv("HERDR_ENV", "1")
     monkeypatch.setattr(dispatch, "_trusted", lambda root: True)
-    backend.fail = (("herdr", "agent", "prompt"), ("herdr", "pane", "close"))
+    backend.fail = (("herdr", "agent", "prompt"), ("herdr", "tab", "close"))
     assert run(board, "dispatch", "P-1") == 1
     assert "没能关掉" in capsys.readouterr().err
     assert not backend.ran("claude", "--bg")
@@ -184,6 +189,85 @@ def test_dry_run_lists_children_without_starting_or_changing_anything(family, ba
     assert dump(family) == before
 
 
+@pytest.fixture
+def six(board):
+    for n in range(2, 7):
+        db.create_task(board, task_id=f"P-{n}", title=f"第 {n} 张子卡", split_from="P")
+    return board
+
+
+def test_only_four_workers_run_at_once_and_the_rest_say_why(six, backend, capsys):
+    assert run(six, "dispatch", "--parent", "P") == 0
+    assert [c[3] for c in backend.ran("claude", "--bg")] == ["p-1", "p-2", "p-3", "p-4"]
+    out = capsys.readouterr().out
+    for n in (5, 6):
+        assert f"P-{n} [open] 排队 P-{n}:同时运行的 worker 已到上限 4 个(在跑:P-1、P-2、P-3、P-4)" in out
+        assert task(six, f"P-{n}")["now"].startswith("排队等派发:同时运行的 worker 已到上限 4 个")
+
+
+def test_dry_run_shows_which_cards_would_queue(six, backend, capsys):
+    before = dump(six)
+    assert run(six, "dispatch", "--parent", "P", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert out.count("会派出") == 4 and "P-5 [open] 会排队:" in out and "本批先派的 4 张" in out
+    assert dump(six) == before
+
+
+def test_the_limit_counts_only_live_undismissed_workers(six, backend, monkeypatch):
+    monkeypatch.setenv("NAWABAN_MAX_WORKERS", "2")
+    for card in ("P-2", "P-3"):  # 派过、没收工,但会话早没了:不占名额
+        db.add_event(six, card, kind="coord", author="t", body='dispatch {"session": null}')
+    assert run(six, "dispatch", "P-1") == 0
+    assert run(six, "dispatch", "P-4") == 0
+    assert run(six, "dispatch", "P-5") == 1  # P-1、P-4 活着,到上限 2
+    db.add_event(six, "P-1", kind="coord", author="t", body="dismiss · 已停")
+    assert run(six, "dispatch", "P-5") == 0  # 收工一张就腾出名额
+
+
+@pytest.mark.parametrize("broken", ["exit 1", "empty", "bad json", "not a list"])
+def test_when_live_workers_cannot_be_listed_the_limit_stays_full(six, backend, capsys, broken):
+    if broken == "exit 1":
+        backend.fail = (("claude", "agents"),)
+    else:
+        backend.agents_out = {"empty": "", "bad json": "[{", "not a list": '{"a": 1}'}[broken]
+    assert run(six, "dispatch", "P-1") == 1
+    assert "查不到哪些 worker 还活着" in capsys.readouterr().err
+    assert not backend.launched
+    assert task(six, "P-1")["now"].startswith("排队等派发:查不到哪些 worker 还活着")
+    assert run(six, "dispatch", "--parent", "P", "--dry-run") == 0
+    assert "会派出" not in capsys.readouterr().out
+
+
+def test_the_dispatch_record_notes_the_latest_ask(board, backend):
+    db.raise_ask(board, kind="decide", question="旧问题", evidence="材料", task_ids=["P-1"],
+                 raised_by="ac:x", options=["A", "B"])
+    assert run(board, "dispatch", "P-1") == 0
+    with sqlite3.connect(board) as con:
+        [(body,)] = con.execute("SELECT body FROM task_events WHERE body LIKE 'dispatch {%'")
+    assert json.loads(body[len("dispatch "):])["asks"] == 1
+
+
+def test_a_successor_brief_carries_its_prerequisite_s_output(board, backend):
+    db.create_task(board, task_id="UP", title="前置卡")
+    db.link_tasks(board, "P-1", "UP", kind="depends_on", created_by="test")
+    db.add_letter(board, "UP", kind="done", msg="第一版", session_id="w")
+    db.add_letter(board, "UP", kind="done", msg="PR #15 已修,测试 493 passed", session_id="w")
+    db.add_ref(board, "UP", kind="pr", value="https://github.com/o/r/pull/15")
+    db.add_ref(board, "UP", kind="merge_sha", value="e2349f13")
+    with sqlite3.connect(board) as con:
+        con.execute("UPDATE tasks SET status='done' WHERE id='UP'")
+    assert run(board, "dispatch", "P-1") == 0
+    brief = backend.ran("claude", "--bg")[0][-1]
+    assert "前置卡的产出" in brief and "[UP] 前置卡 «done»" in brief
+    assert "完成报告:PR #15 已修,测试 493 passed" in brief and "第一版" not in brief
+    assert "PR:https://github.com/o/r/pull/15 · 合并提交:e2349f13" in brief
+
+
+def test_a_card_without_prerequisites_gets_no_handoff_section(board, backend):
+    assert run(board, "dispatch", "P-1") == 0
+    assert "前置卡的产出" not in backend.ran("claude", "--bg")[0][-1]
+
+
 @pytest.mark.parametrize("case,reason", [
     ("claimed", "已被 ac:other 认领"),
     ("done", "不是待办状态"),
@@ -223,16 +307,16 @@ def test_dismiss_stops_the_session_and_removes_a_clean_worktree(finished, backen
                      ["branch", "-d", "worktree-p-1"]]
 
 
-def test_dismiss_closes_the_pane_of_a_herdr_worker(board, backend, monkeypatch):
+def test_dismiss_closes_the_tab_of_a_herdr_worker(board, backend, monkeypatch):
     monkeypatch.setenv("HERDR_ENV", "1")
     monkeypatch.setattr(dispatch, "_trusted", lambda root: True)
     assert run(board, "dispatch", "P-1") == 0
-    db.claim_task(board, "P-1", owner="ac:w", session_id="w")
-    db.start_task(board, "P-1", owner="ac:w", session_id="w", now="做完了")
-    db.handoff(board, "P-1", owner="ac:w", session_id="w", outcome="handed_off",
+    db.claim_task(board, "P-1", owner="ac:w", session_id=SID)
+    db.start_task(board, "P-1", owner="ac:w", session_id=SID, now="做完了")
+    db.handoff(board, "P-1", owner="ac:w", session_id=SID, outcome="handed_off",
                summary="交接", now="等评审")
     assert run(board, "dismiss", "P-1") == 0
-    assert backend.ran("herdr", "pane", "close", "w1:p9")
+    assert backend.ran("herdr", "tab", "close", "w1:t9")
     assert not backend.ran("claude", "stop")
 
 
@@ -270,4 +354,4 @@ def test_context_verb_prints_the_card_briefing(board, capsys):
 def test_worker_protocol_names_the_dispatch_command():
     text = (Path(__file__).resolve().parents[1]
             / "skills/nawaban/references/director-worker.md").read_text(encoding="utf-8")
-    assert "nawaban dispatch" in text and "nawaban dismiss" in text and "具名" in text
+    assert "nawaban dispatch" in text and "nawaban dismiss" in text and "named sub-agent" in text

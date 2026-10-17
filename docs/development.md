@@ -2,7 +2,7 @@
 
 ## Repository layout
 
-The runtime and skills use the nawaban name. CLI subcommands and database schemas retain their existing contracts; the bilingual [glossary](../CONTEXT.md) defines the product vocabulary. The checkout ships as a Claude Code and Codex plugin.
+The runtime and skills use the nawaban name. CLI subcommands and database schemas retain their existing contracts; the bilingual [glossary](../GLOSSARY.md) defines the product vocabulary. The checkout ships as a Claude Code and Codex plugin.
 
 | Path | Contents |
 | --- | --- |
