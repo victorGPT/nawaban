@@ -374,6 +374,33 @@ def test_a_director_stopping_writes_and_waits_for_nothing(board, capsys):
     assert letters(board) == [("turn", "方案 A 还是 B?", WORKER, 0)]
 
 
+@pytest.mark.parametrize("finish", ["done", "staging-verified", "handed_off"])
+def test_a_worker_that_has_finished_or_handed_off_is_not_blocked(board, capsys, finish):
+    dispatched(board)
+    db.claim_task(board, "P-1", owner="ac:w", session_id=WORKER)
+    db.start_task(board, "P-1", owner="ac:w", session_id=WORKER, now="在做")
+    if finish in ("done", "staging-verified"):
+        with sqlite3.connect(board) as con:
+            con.execute("UPDATE tasks SET status=? WHERE id='P-1'", (finish,))
+    else:
+        db.handoff(board, "P-1", owner="ac:w", session_id=WORKER, outcome=finish,
+                   summary="交接", now="等评审")
+    for _ in range(3):  # 每一轮都放行,不会一轮轮被拦
+        assert hook(stop(WORKER, "随口一句"), capsys) is None
+    assert [k for k, *_ in letters(board)] == []
+
+
+def test_a_worker_that_starts_again_after_handing_off_reports_again(board, capsys):
+    dispatched(board)
+    db.claim_task(board, "P-1", owner="ac:w", session_id=WORKER)
+    db.start_task(board, "P-1", owner="ac:w", session_id=WORKER, now="在做")
+    db.handoff(board, "P-1", owner="ac:w", session_id=WORKER, outcome="handed_off",
+               summary="交接", now="等评审", release=True)
+    db.claim_task(board, "P-1", owner="ac:w", session_id=WORKER)
+    db.start_task(board, "P-1", owner="ac:w", session_id=WORKER, now="改 review 意见")
+    assert hook(stop(WORKER, "改完了"), capsys)["decision"] == "block"
+
+
 def test_a_session_nobody_dispatched_sends_nothing(board, capsys):
     dispatched(board)
     before = list(sqlite3.connect(board).iterdump())

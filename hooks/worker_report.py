@@ -238,10 +238,19 @@ def _block(reason: str) -> None:
     print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
 
 
+def _settled(path: Path, task_id: str, session: str) -> bool:
+    """卡做完了,或这个 worker 已经交接:它再停下不是在交差,不拦也不送(与 dispatch 收工同口径)。"""
+    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as con:
+        con.row_factory = sqlite3.Row
+        row = con.execute("SELECT id, status FROM tasks WHERE id=?", (task_id,)).fetchone()
+        return row is None or dispatch._settled(con, row, {"session": session})
+
+
 def on_stop(path: Path, payload: dict, session: str) -> int:
     working, _ = roles(path, session)
+    working = {t: peer for t, peer in working.items() if not _settled(path, t, session)}
     if not working:
-        return 0  # 不是派出的 worker:什么都不写、什么都不送
+        return 0  # 不是派出的 worker,或者已经交差:什么都不写、什么都不送、不拦
     pending, transcript = _pending(session), payload.get("transcript_path")
     marker = _read_pending(session) if payload.get("stop_hook_active") else None
     if marker is not None:
