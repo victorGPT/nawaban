@@ -95,3 +95,13 @@ def test_imported_task_context_reaches_board(board):
     assert db.import_task(board, task_id="IMPORTED", title="Imported task", status="open",
                           created_at=1, context="Original import text")
     assert board_view.task_detail(board, "IMPORTED")["context"] == "Original import text"
+
+
+def test_imported_pr_ref_keeps_who_registered_it(board):
+    pr = "https://github.com/ac/repo/pull/7"
+    assert db.import_task(board, task_id="IMPORTED", title="Imported task", status="open",
+                          created_at=1, refs=[{"kind": "pr", "value": pr, "created_at": 1,
+                                               "author": "ac:opener", "session_id": "opener"}])
+    with pytest.raises(db.NawabanError, match="自审闸"):
+        db.add_review(board, "IMPORTED", commit_sha="a" * 40, findings=[],
+                      author="ac:opener", session_id="opener")

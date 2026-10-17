@@ -189,8 +189,9 @@ def _render(path: Path, got: list[tuple[str, str]], working: dict[str, tuple],
     if any(msg.startswith(REVIEW) for _, msg in reports):
         lines.append(
             f"{REVIEW.strip()}:worker 这一轮停下、没报阻塞、没提 ask、也没有后台任务在跑,按协议就是交付了,不用等它报 done。"
-            f"去 python3 {_CLI} --db {path} context <卡号> 看它的提交和 PR,照验收判据逐条 review:"
-            "过了按合并流程走,不过就回话打回。卡要 done 仍然要 merge_sha。")
+            f"主控不审也不合:建 <卡号>-REVIEW 卡并 python3 {_CLI} --db {path} dispatch 它,"
+            "派一个 review worker 去审(已有 review worker 就回话让它审新提交);"
+            "做法见 nawaban-director skill 的 Review and merging 一节。卡要 done 仍然要 merge_sha。")
     if reports:
         lines.append(
             "处理:你能定的事直接回给它,它收到会接着干 —— "
