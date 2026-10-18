@@ -108,7 +108,16 @@ Run on 2026-10-18 with Claude Code 2.1.302. Times are local (UTC+9).
 
 At c4341e3 the worker's Stop hook dropped every card that was already done or handed off before it looked at the turn, so the turn that moved a card there was neither blocked nor sent. In the T9 A0b pilot the review worker registered the merge SHA, moved both cards to done, sent `notify --kind done` (letters #6) and stopped; the director was never told and sat idle for 21 minutes.
 
-Now that turn is sent once. Its turn letter carries `"settled": true` in `provenance`; a later stop of the same worker finds that mark on its latest turn letter and passes without writing or sending anything. Picking the card up again writes ordinary turn letters, so finishing it again sends once more. The finishing turn is marked `[待 review]` only when the card is not finished: a hand-off on an `in_progress` card is a hand-in for review, a `done` card has nothing left to review. `test_the_turn_that_finishes_the_card_is_sent_once_then_stops_pass` (done / staging-verified / handed_off) and the re-finish step in `test_a_worker_that_starts_again_after_handing_off_reports_again` fail on c4341e3's hook and pass now.
+Now a finished or handed-off worker is reported like any other, except for a stop that did no work. Each turn letter records in `provenance.offset` how far the transcript had been written when it was posted. When the card is finished or handed off, a stop passes without writing or sending only if the transcript after that offset has no tool call other than sending the report (`SendMessage`, `ToolSearch`, `ListAgents`). So the turn that finishes the card is sent; a turn that fixes review findings after the hand-off is sent, whether or not the worker claimed the card again; a turn that only answers a message is not. An unreadable transcript, or a last letter without an offset, counts as work. The turn is marked `[待 review]` only when the card is not finished: a hand-off on an `in_progress` card is a hand-in for review, a `done` card has nothing left to review.
+
+An earlier version of this fix (b879af3–f063e67, runs 1 and 2 below) marked the finishing letter `"settled": true` and passed every later stop. Review #74 sent it back: re-claiming, fixing and handing off again in one turn, or fixing review findings without re-claiming, then stopped silently. That is the review send-back loop's main path.
+
+| Test | c4341e3 | f063e67 | now |
+|---|---|---|---|
+| `test_the_turn_that_finishes_the_card_is_sent_once_then_stops_pass` (done / staging-verified / handed_off) | fail ×3 | pass | pass |
+| `test_work_after_the_hand_off_report_is_reported` (reclaimed and handed off again / fixed without reclaiming) | fail ×2 | fail ×2 | pass |
+| `test_a_finished_worker_without_a_readable_transcript_is_still_reported` | fail | fail | pass |
+| `test_a_worker_that_starts_again_after_handing_off_reports_again` (re-finish step) | fail | pass | pass |
 
 ### Rehearsal
 
@@ -116,7 +125,7 @@ The throwaway repository and board from the runs above (`~/Developer/sendmsg-reh
 
 A review worker's session cannot run git in the main checkout (Claude Code refuses git outside a worktree-isolated session's own worktree; the run-1 review worker hit this, reported `blocked`, and did not get around it). There is no remote and no PR, so the merge is a local `git merge --no-ff` done outside the review worker: by the rehearsal operator in run 1, by the director in run 2.
 
-Run 1 (D-1, at b879af3, which did not yet mark an unfinished hand-off for review):
+Run 1 (D-1, at b879af3, the first version: settled mark, no `[待 review]` on any hand-off):
 
 | Time | Step | Evidence |
 |---|---|---|
@@ -129,7 +138,7 @@ Run 1 (D-1, at b879af3, which did not yet mark an unfinished hand-off for review
 | 08:23:36 → 08:23:42 | Idle director wakes with the done report and answers 「收到 done。」 | Director transcript |
 | 08:24:49 → 08:24:55 | Operator asks `d-1-review` to say "ok" and stop: one stop, no block, no SendMessage, no new letter (still #20) | Review worker transcript; letters |
 
-Run 2 (D-2, at 0e8d500, the final hook):
+Run 2 (D-2, at 0e8d500, settled mark; before review #74):
 
 | Time | Step | Evidence |
 |---|---|---|
@@ -141,7 +150,30 @@ Run 2 (D-2, at 0e8d500, the final hook):
 | 08:33:11 → 08:33:15 | Idle director wakes with the done report and answers 「收到 done。」 | Director transcript |
 | 08:34:20 → 08:34:24 | Operator asks `d-2-review` to say "ok" and stop: one stop, no block, no SendMessage, no new letter (still #26) | Review worker transcript; letters |
 
-Every report each worker sent was character for character the text its Stop hook gave it (`fidelity.py`: `d-1` 1/1, `d-1-review` 2/2, `d-2` 1/1, `d-2-review` 2/2). On the real board, read-only after both runs: no task `D-1`, `D-1-REVIEW`, `D-2` or `D-2-REVIEW`, and no letters or task sessions from any of the six rehearsal sessions (0 rows each).
+Run 3 (D-3, at 13d07d7, the hook after review #74): review sends the work back after the hand-off; the worker fixes it without claiming the card again. The director relays the review result, as it does for a review worker's findings.
+
+| Time | Step | Evidence |
+|---|---|---|
+| 08:53:59 | Director `rehearsal-director-002c` (`1653c370`) dispatches `D-3`, goes idle | Director transcript |
+| 08:54:33 → 08:54:55 | Worker `d-3` (`3d12ace5`) commits, hands off (handed_off), stops; `[待 review]` turn letter #28 (`offset` 887860) sent and read | letters #28; `task_sessions` outcome `handed_off` |
+| 08:54:55 → 08:54:59 | Director wakes, replies 「review 打回:… 第二行写 FIXED。不要重新认领…」 | reply letter #29 |
+| 08:54:59 → 08:55:31 | Worker wakes, edits and commits without claiming again (card still handed off), stops; `[待 review]` turn letter #31 (`offset` 1246034) sent, read 08:55:31 | letters #30, #31 |
+| 08:55:31 → 08:55:33 | Idle director wakes with the fix report and answers 「收到修复。」 | Director transcript |
+| 08:55:48 → 08:55:52 | Operator asks `d-3` to say "ok" and stop: one stop, no block, no SendMessage, no new letter (still #31) | Worker transcript; letters |
+
+Run 4 (D-4, at 13d07d7): run 2's flow again on the hook after review #74.
+
+| Time | Step | Evidence |
+|---|---|---|
+| 08:56:56 | Director `rehearsal-director-002d` (`449015a7`) dispatches `D-4`, goes idle | Director transcript |
+| 08:57:49 → 08:58:00 | Worker `d-4` (`1231b8e0`) commits, hands off, stops; `[待 review]` turn letter #32 sent and read | letters #32 |
+| 08:57:59 → 08:58:04 | Director wakes, dispatches `D-4-REVIEW` | Director transcript |
+| 08:58:55 → 08:59:30 | Review worker `d-4-review` (`ed7ef75c`) passes the review, asks for the merge (`blocked` #33, turn #34); director wakes, merges (`76873c6`), replies with the SHA | letters #33–#35 |
+| 08:59:58 → 09:00:13 | Review worker registers `merge_sha` on both cards, moves both to done, sends `done` (#36), stops; turn letter #37 sent, read 09:00:13 | letters #36, #37; both cards `done` |
+| 09:00:12 → 09:00:14 | Idle director wakes with the done report and answers 「收到 done。」 | Director transcript |
+| 09:00:32 → 09:00:36 | Operator asks `d-4-review` to say "ok" and stop: one stop, no block, no SendMessage, no new letter (still #37) | Review worker transcript; letters |
+
+Every report each worker sent was character for character the text its Stop hook gave it (`fidelity.py`: `d-1` 1/1, `d-1-review` 2/2, `d-2` 1/1, `d-2-review` 2/2, `d-3` 2/2, `d-4` 1/1, `d-4-review` 2/2). On the real board, read-only after the runs: no task `D-1` to `D-4` or their `-REVIEW` cards, and no letters or task sessions from any of the eleven rehearsal sessions (0 rows each).
 
 ### Seen, not fixed here
 
