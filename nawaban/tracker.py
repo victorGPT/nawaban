@@ -162,6 +162,26 @@ def _status(t: sqlite3.Row) -> str:
     return "in_progress" if t["status"] == "open" and t["session"] else t["status"]
 
 
+def _status_event(con, task_id: str, who: str, frm: str, to: str, note: str = "") -> None:
+    """Status bodies read `<from>→<to>`, the same shape migrated old events have."""
+    con.execute("INSERT INTO events (task, at, author, kind, body) VALUES (?,?,?,?,?)",
+                (task_id, int(time.time()), who, "status", f"{frm}→{to}" + (f" · {note}" if note else "")))
+
+
+def _add_blocker(con, task_id: str, blocker: str) -> None:
+    _task(con, task_id)
+    _task(con, blocker)
+    if task_id == blocker:
+        raise Refused(f"任务不能被自己阻塞:{task_id}")
+    # A cycle closes when walking up from the blocker through its own blockers reaches the task.
+    cycle = con.execute(
+        "WITH RECURSIVE up(id) AS (SELECT ? UNION SELECT b.blocker FROM blockers b JOIN up ON b.task=up.id)"
+        " SELECT 1 FROM up WHERE id=?", (blocker, task_id)).fetchone()
+    if cycle:
+        raise Refused(f"会成环:{blocker} 已经(间接)被 {task_id} 阻塞")
+    con.execute("INSERT OR IGNORE INTO blockers (task, blocker) VALUES (?,?)", (task_id, blocker))
+
+
 # ── verbs ─────────────────────────────────────────────────────────
 
 def create(con, path: Path, a) -> str:
@@ -178,9 +198,53 @@ def create(con, path: Path, a) -> str:
             con.execute("INSERT INTO tasks (id, project, parent, title, body, created_at)"
                         " VALUES (?,?,?,?,?,?)",
                         (a.id, project, a.parent, a.title, body, int(time.time())))
+            for blocker in a.blocked_by or ():
+                _add_blocker(con, a.id, blocker)
     except sqlite3.IntegrityError:
         raise Refused(f"任务已存在:{a.id}") from None
     return f"✓ create {a.id} · 项目 {project or '-'}"
+
+
+def block(con, a) -> str:
+    with con:
+        _add_blocker(con, a.id, a.blocker)
+    return f"✓ block {a.id} 被阻塞于 {a.blocker}"
+
+
+def claim(con, a) -> str:
+    t = _task(con, a.id)
+    who = identity()
+    holder = t["session"]
+    if holder and holder != who and not a.take:
+        raise Refused(f"{a.id} 在会话 {holder} 手上;确要接手加 --take")
+    if a.release:
+        if not holder:
+            return f"✓ {a.id} 本就没人认领"
+        with con:
+            con.execute("UPDATE tasks SET session=NULL WHERE id=?", (a.id,))
+            _status_event(con, a.id, who, _status(t), t["status"],
+                          "" if holder == who else f"释放 {holder} 的认领")
+        return f"✓ release {a.id}"
+    if holder == who:
+        return f"✓ {a.id} 已在本会话 {who} 手上"
+    with con:
+        con.execute("UPDATE tasks SET session=? WHERE id=?", (who, a.id))
+        to = "in_progress" if t["status"] == "open" else t["status"]
+        _status_event(con, a.id, who, _status(t), to, f"接手自 {holder}" if holder else "")
+    return f"✓ claim {a.id} · 会话 {who}"
+
+
+def close(con, a) -> str:
+    t = _task(con, a.id)
+    who = identity()
+    to = "done" if a.done else "cancelled" if a.cancelled else "open"
+    if t["status"] == to:
+        return f"✓ {a.id} 已是 {to}"
+    with con:
+        # Closing clears the session; reopening keeps none either, so the task returns to the frontier.
+        con.execute("UPDATE tasks SET status=?, session=NULL WHERE id=?", (to, a.id))
+        _status_event(con, a.id, who, _status(t), to)
+    return f"✓ close {a.id} → {to}"
 
 
 def event(con, a) -> str:
@@ -205,6 +269,11 @@ def show(con, a, limit: int = 20) -> str:
     note = next((e for e in events if e["kind"] == "note"), None)
     if note:
         lines.append(f"  当前进度:{note['body']}")
+    for label, sql in (("被阻塞于", "SELECT t.* FROM blockers b JOIN tasks t ON t.id=b.blocker WHERE b.task=?"),
+                       ("解锁", "SELECT t.* FROM blockers b JOIN tasks t ON t.id=b.task WHERE b.blocker=?")):
+        rows = con.execute(sql + " ORDER BY t.id", (a.id,)).fetchall()
+        if rows:
+            lines.append(f"  {label}:" + " · ".join(f"{r['id']} {_status(r)}" for r in rows))
     lines += ["", t["body"], ""]
     lines.append(f"最近事件(最新在前 · 共 {len(events)} 条):")
     lines += [f"  [{_when(e['at'])} · {e['kind']} · {e['author']}] {e['body']}" for e in events[:limit]]
@@ -220,6 +289,9 @@ def list_tasks(con, a) -> str:
         _task(con, a.parent)
         sql += " AND parent=?"
         args.append(a.parent)
+    if a.frontier:
+        sql += (" AND status='open' AND session IS NULL AND NOT EXISTS (SELECT 1 FROM blockers b"
+                " JOIN tasks x ON x.id=b.blocker WHERE b.task=tasks.id AND x.status='open')")
     rows = con.execute(sql + " ORDER BY created_at, id", args).fetchall()
     return "\n".join(f"{t['id']}  {_status(t)}  {t['project'] or '-'}  {t['title']}" for t in rows)
 
@@ -257,6 +329,20 @@ def _parser() -> argparse.ArgumentParser:
     g.add_argument("--body-file")
     p.add_argument("--parent")
     p.add_argument("--project")
+    p.add_argument("--blocked-by", action="append", metavar="ID", help="可重复")
+    p = sub.add_parser("block", help="加依赖:id 被 blocker 阻塞")
+    p.add_argument("id")
+    p.add_argument("blocker")
+    p = sub.add_parser("claim", help="认领;--release 交还")
+    p.add_argument("id")
+    p.add_argument("--take", action="store_true", help="接手别的会话手上的任务")
+    p.add_argument("--release", action="store_true")
+    p = sub.add_parser("close", help="关闭或重开")
+    p.add_argument("id")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--done", action="store_true")
+    g.add_argument("--cancelled", action="store_true")
+    g.add_argument("--reopen", action="store_true")
     p = sub.add_parser("event", help="记事件:note / decision / link")
     p.add_argument("id")
     p.add_argument("--kind", required=True, choices=("note", "decision", "link"))
@@ -267,6 +353,7 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("list", help="列任务")
     p.add_argument("--project")
     p.add_argument("--parent")
+    p.add_argument("--frontier", action="store_true", help="只列可开工:未关闭、没人认领、前置都已关闭")
     sub.add_parser("backup", help="备份到 <看板目录>/backups/ · 保留 14 天")
     return ap
 
@@ -284,6 +371,12 @@ def main(argv: list[str] | None = None) -> int:
                 out = f"✓ backup → {backup(path)}"
             elif a.verb == "create":
                 out = create(con, path, a)
+            elif a.verb == "block":
+                out = block(con, a)
+            elif a.verb == "claim":
+                out = claim(con, a)
+            elif a.verb == "close":
+                out = close(con, a)
             elif a.verb == "event":
                 out = event(con, a)
             elif a.verb == "show":
