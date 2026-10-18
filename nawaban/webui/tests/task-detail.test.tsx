@@ -90,6 +90,7 @@ test("the reading column shows progress, body, criteria, blockers, dependents an
   expect(decisions.heading.textContent).toBe(`${zh.decisions}1`);
   expect(decisions.body.getByText(/Which folder owns fetching/).textContent).toContain("否决:Keep one file");
   expect(decisions.body.getByText(/^user · /)).toBeTruthy();
+  expect(decisions.heading.parentElement!.querySelectorAll(".detail-entry br")).toHaveLength(2);
 });
 
 test("links split kind, value and note; activity folds long lists and clamps long prose", async () => {

@@ -55,6 +55,10 @@ export function linkParts(body: string): { kind: string | null; value: string; n
   };
 }
 
+/** Event bodies are written line by line (migrated decisions read `question / verdict / rejected`);
+ * Markdown would join single newlines, so each one becomes a hard break. */
+export const eventMarkdown = (body: string) => body.replace(/\n/g, "  \n");
+
 /** The latest note reads as current progress only while the task is not closed. */
 export const showsProgress = (status: string) => status === "open" || status === "in_progress";
 

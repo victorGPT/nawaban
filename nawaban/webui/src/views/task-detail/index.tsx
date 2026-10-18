@@ -15,7 +15,7 @@ import { H } from "@/components/task-detail/parts";
 import { Button } from "@/components/ui/button";
 import { SettingsCard } from "@/components/application/settings/settings-rows";
 import { fetchTask } from "@/lib/api";
-import { showsProgress, splitCriteria } from "@/lib/nawaban-model";
+import { eventMarkdown, showsProgress, splitCriteria } from "@/lib/nawaban-model";
 import type { TaskDetail } from "@/lib/types";
 
 export function TaskDetailSheet({
@@ -81,7 +81,7 @@ export function TaskDetailSheet({
                 {progress && (
                   <SettingsCard className="detail-now">
                     <span className="detail-subheading">{tr("currentProgress")}</span>
-                    <Md text={progress.body} onSelectTask={onSelectTask} />
+                    <Md text={eventMarkdown(progress.body)} onSelectTask={onSelectTask} />
                   </SettingsCard>
                 )}
               </div>

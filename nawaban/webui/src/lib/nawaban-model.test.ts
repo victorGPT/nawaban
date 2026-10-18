@@ -4,6 +4,7 @@ import {
   navigateTask,
   boardItems,
   linkParts,
+  eventMarkdown,
   showsProgress,
   splitCriteria,
   taskIdFromHref,
@@ -66,6 +67,11 @@ test("a link body splits into kind, value and note, and a bare URL has no kind",
     { kind: null, value: "https://example.test/a", note: null });
   assert.deepEqual(linkParts("docs/adr/0001.md"),
     { kind: null, value: "docs/adr/0001.md", note: null });
+});
+
+test("each line of an event body stays its own line", () => {
+  assert.equal(eventMarkdown("question: A\nverdict: B"), "question: A  \nverdict: B");
+  assert.equal(eventMarkdown("one line"), "one line");
 });
 
 test("only an unclosed task presents its latest note as current progress", () => {
