@@ -1,13 +1,11 @@
 import { t as tr, useLocale } from "@/i18n";
 import { Fold } from "@/components/disclosure/Fold";
 import { OverflowText } from "@/components/OverflowText";
-import { isUrl, rel } from "@/components/task-detail/format";
+import { FOLD, isUrl, rel } from "@/components/task-detail/format";
 import { H } from "@/components/task-detail/parts";
 import { Button } from "@/components/ui/button";
 import { linkParts } from "@/lib/nawaban-model";
 import type { TaskEvent } from "@/lib/types";
-
-const FOLD = 5; // Links shown before the list folds.
 
 export function Links({ links }: { links: TaskEvent[] }) {
   useLocale();

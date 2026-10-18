@@ -14,9 +14,9 @@ export function Decisions({ decisions }: { decisions: TaskEvent[] }) {
       <H n={decisions.length}>{tr("decisions")}</H>
       <div className="flex flex-col divide-y">
         {decisions.map((x, i) => (
-          <div className="py-2 detail-body" key={i}>
+          <div className="flex flex-col gap-1 py-2 detail-body" key={i}>
             <Md className="detail-entry" text={eventMarkdown(x.body)} />
-            <p className="mt-1 detail-meta">
+            <p className="detail-meta">
               {x.author} · {rel(x.at)}
             </p>
           </div>

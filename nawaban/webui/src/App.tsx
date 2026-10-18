@@ -1,13 +1,8 @@
 import { t as tr, useLocale, setLocale } from "@/i18n";
 import { useEffect, useReducer, useRef, useState } from "react";
-import {
-  RiLayoutColumnLine,
-  RiSideBarLine,
-  RiSearchLine,
-} from "@remixicon/react";
+import { RiSideBarLine, RiSearchLine } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NavItem } from "@/components/application/navigation/nav-item";
 import { ThemeToggle } from "@/components/application/theme/theme-toggle";
 import { BoardFilterBar } from "@/components/BoardFilterBar";
 import { BoardKanban } from "@/views/board";
@@ -181,16 +176,6 @@ export default function App() {
           />
           </div>
         )}
-        {navOpen && <p className="sidebar-label text-body-medium">{tr("workspace")}</p>}
-        <nav>
-          <NavItem
-            icon={RiLayoutColumnLine}
-            label={tr("board")}
-            onClick={() => {}}
-            collapsed={!navOpen}
-            isSelected
-          />
-        </nav>
         <div className="sidebar-bottom">
           <ThemeToggle collapsed={!navOpen} />
           <Button variant="soft" aria-label={tr("switchLanguage")}

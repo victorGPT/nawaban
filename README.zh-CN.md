@@ -94,9 +94,9 @@ agent 认领可开工的任务。另一个会话再认领同一个任务时，�
 
 ```console
 $ nawaban claim DEMO-01
-✓ claim DEMO-01 · 会话 3f1c…
+✓ claim DEMO-01 · 窗口 3f1c…
 $ nawaban claim DEMO-01
-✗ DEMO-01 在会话 3f1c… 手上;确要接手加 --take
+✗ DEMO-01 在窗口 3f1c… 手上;确要接手加 --take
 ```
 
 记下一个决定和 PR，然后关闭任务，`DEMO-02` 随之可以开工：

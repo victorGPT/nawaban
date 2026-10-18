@@ -1,7 +1,7 @@
 import { t as tr, useLocale } from "@/i18n";
 import { Clamp } from "@/components/disclosure/Clamp";
 import { Fold } from "@/components/disclosure/Fold";
-import { rel } from "@/components/task-detail/format";
+import { FOLD, rel } from "@/components/task-detail/format";
 import { H } from "@/components/task-detail/parts";
 import { eventMarkdown } from "@/lib/nawaban-model";
 import type { TaskEvent } from "@/lib/types";
@@ -15,7 +15,7 @@ export function Activity({ events }: { events: TaskEvent[] }) {
       <div className="flex flex-col gap-3">
         <Fold
           items={events}
-          n={5}
+          n={FOLD}
           render={(e, i) => (
             <div className="detail-meta" key={i}>
               <div className="min-w-0">

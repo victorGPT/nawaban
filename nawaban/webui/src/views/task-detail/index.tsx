@@ -100,7 +100,7 @@ export function TaskDetailSheet({
             </main>
 
             <aside className="detail-properties-rail">
-              {d.session && <ResumeBlock session={d.session} />}
+              {d.status === "in_progress" && d.session && <ResumeBlock session={d.session} />}
               <Properties d={d} onSelectTask={onSelectTask} />
             </aside>
           </div>

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import json
 import os
 import re
 import sqlite3
@@ -18,8 +17,10 @@ import time
 from contextlib import closing
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # run as a script, too
+from nawaban import old_board  # noqa: E402
+
 VERSION = 1  # PRAGMA user_version; old-schema boards read 0
-MIGRATOR = "migrate"  # author of events the migration writes itself
 SCHEMA = """
 CREATE TABLE tasks (
     id         TEXT PRIMARY KEY,
@@ -134,12 +135,25 @@ def init(path: Path) -> bool:
     return True
 
 
-def open_board(path: Path) -> sqlite3.Connection:
+def _check_board(path: Path) -> None:
     if not path.exists():
         raise Refused(f"看板不存在:{path}(建新板用 init)")
     if _version(path) != VERSION:
         raise Refused(f"不是新版看板:{path}")
+
+
+def open_board(path: Path) -> sqlite3.Connection:
+    _check_board(path)
     return _connect(path)
+
+
+def open_readonly(path: Path | str) -> sqlite3.Connection:
+    """The board opened read-only (the web page); refuses a missing or old-schema file."""
+    path = Path(path)
+    _check_board(path)
+    con = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True, timeout=10)
+    con.row_factory = sqlite3.Row
+    return con
 
 
 def _task(con: sqlite3.Connection, task_id: str) -> sqlite3.Row:
@@ -160,28 +174,42 @@ def _when(ts: int) -> str:
     return _dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
 
 
-def _status(t: sqlite3.Row) -> str:
+def derived_status(t: sqlite3.Row) -> str:
     """In progress is derived: a session holds an open task."""
     return "in_progress" if t["status"] == "open" and t["session"] else t["status"]
 
 
+def blocked_by(con, task_id: str) -> list[sqlite3.Row]:
+    return con.execute("SELECT t.* FROM blockers b JOIN tasks t ON t.id=b.blocker WHERE b.task=?"
+                       " ORDER BY t.id", (task_id,)).fetchall()
+
+
+def dependents(con, task_id: str) -> list[sqlite3.Row]:
+    return con.execute("SELECT t.* FROM blockers b JOIN tasks t ON t.id=b.task WHERE b.blocker=?"
+                       " ORDER BY t.id", (task_id,)).fetchall()
+
+
+def add_event(con, task_id: str, author: str, kind: str, body: str, at: int | None = None) -> None:
+    con.execute("INSERT INTO events (task, at, author, kind, body) VALUES (?,?,?,?,?)",
+                (task_id, int(time.time()) if at is None else at, author, kind, body))
+
+
 def _status_event(con, task_id: str, who: str, frm: str, to: str, note: str = "") -> None:
     """Status bodies read `<from>→<to>`, the same shape migrated old events have."""
-    con.execute("INSERT INTO events (task, at, author, kind, body) VALUES (?,?,?,?,?)",
-                (task_id, int(time.time()), who, "status", f"{frm}→{to}" + (f" · {note}" if note else "")))
+    add_event(con, task_id, who, "status", f"{frm}→{to}" + (f" · {note}" if note else ""))
 
 
 def _add_blocker(con, task_id: str, blocker: str) -> None:
     _task(con, task_id)
     _task(con, blocker)
     if task_id == blocker:
-        raise Refused(f"任务不能被自己阻塞:{task_id}")
+        raise Refused(f"任务不能被自己挡住:{task_id}")
     # A cycle closes when walking up from the blocker through its own blockers reaches the task.
     cycle = con.execute(
         "WITH RECURSIVE up(id) AS (SELECT ? UNION SELECT b.blocker FROM blockers b JOIN up ON b.task=up.id)"
         " SELECT 1 FROM up WHERE id=?", (blocker, task_id)).fetchone()
     if cycle:
-        raise Refused(f"会成环:{blocker} 已经(间接)被 {task_id} 阻塞")
+        raise Refused(f"会成环:{blocker} 已经(间接)被 {task_id} 挡住")
     con.execute("INSERT OR IGNORE INTO blockers (task, blocker) VALUES (?,?)", (task_id, blocker))
 
 
@@ -191,11 +219,10 @@ def create(con, path: Path, a) -> str:
     if not re.fullmatch(r"\S+", a.id):
         raise Refused(f"任务 id 不能为空或含空白:{a.id!r}")
     body = Path(a.body_file).read_text(encoding="utf-8") if a.body_file else a.body
-    project = a.project
-    if a.parent:
-        project = project or _task(con, a.parent)["project"]
-    else:
-        project = project or default_project(path)
+    parent = _task(con, a.parent) if a.parent else None
+    project = a.project or (parent["project"] if parent else default_project(path))
+    if con.execute("SELECT 1 FROM tasks WHERE id=?", (a.id,)).fetchone():
+        raise Refused(f"任务已存在:{a.id}")
     try:
         with con:
             con.execute("INSERT INTO tasks (id, project, parent, title, body, created_at)"
@@ -203,7 +230,7 @@ def create(con, path: Path, a) -> str:
                         (a.id, project, a.parent, a.title, body, int(time.time())))
             for blocker in a.blocked_by or ():
                 _add_blocker(con, a.id, blocker)
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError:  # another session created the same id in between
         raise Refused(f"任务已存在:{a.id}") from None
     return f"✓ create {a.id} · 项目 {project or '-'}"
 
@@ -211,7 +238,7 @@ def create(con, path: Path, a) -> str:
 def block(con, a) -> str:
     with con:
         _add_blocker(con, a.id, a.blocker)
-    return f"✓ block {a.id} 被阻塞于 {a.blocker}"
+    return f"✓ block {a.id} · 被挡:{a.blocker}"
 
 
 def claim(con, a) -> str:
@@ -219,22 +246,23 @@ def claim(con, a) -> str:
     who = identity()
     holder = t["session"]
     if holder and holder != who and not a.take:
-        raise Refused(f"{a.id} 在会话 {holder} 手上;确要接手加 --take")
+        raise Refused(f"{a.id} 在窗口 {holder} 手上;确要接手加 --take")
     if a.release:
         if not holder:
             return f"✓ {a.id} 本就没人认领"
         with con:
             con.execute("UPDATE tasks SET session=NULL WHERE id=?", (a.id,))
-            _status_event(con, a.id, who, _status(t), t["status"],
+            _status_event(con, a.id, who, derived_status(t), t["status"],
                           "" if holder == who else f"释放 {holder} 的认领")
         return f"✓ release {a.id}"
+    if t["status"] != "open":
+        raise Refused(f"{a.id} 已是 {t['status']},不能认领;要重做先 close --reopen")
     if holder == who:
-        return f"✓ {a.id} 已在本会话 {who} 手上"
+        return f"✓ {a.id} 已在本窗口 {who} 手上"
     with con:
         con.execute("UPDATE tasks SET session=? WHERE id=?", (who, a.id))
-        to = "in_progress" if t["status"] == "open" else t["status"]
-        _status_event(con, a.id, who, _status(t), to, f"接手自 {holder}" if holder else "")
-    return f"✓ claim {a.id} · 会话 {who}"
+        _status_event(con, a.id, who, derived_status(t), "in_progress", f"接手自 {holder}" if holder else "")
+    return f"✓ claim {a.id} · 窗口 {who}"
 
 
 def close(con, a) -> str:
@@ -246,7 +274,7 @@ def close(con, a) -> str:
     with con:
         # Closing clears the session; reopening keeps none either, so the task returns to the frontier.
         con.execute("UPDATE tasks SET status=?, session=NULL WHERE id=?", (to, a.id))
-        _status_event(con, a.id, who, _status(t), to)
+        _status_event(con, a.id, who, derived_status(t), to)
     return f"✓ close {a.id} → {to}"
 
 
@@ -254,29 +282,27 @@ def event(con, a) -> str:
     _task(con, a.id)
     author = "user" if a.by else identity()
     with con:
-        con.execute("INSERT INTO events (task, at, author, kind, body) VALUES (?,?,?,?,?)",
-                    (a.id, int(time.time()), author, a.kind, a.body))
+        add_event(con, a.id, author, a.kind, a.body)
     return f"✓ event {a.id} · {a.kind}"
 
 
 def show(con, a, limit: int = 20) -> str:
     t = _task(con, a.id)
     events = con.execute("SELECT * FROM events WHERE task=? ORDER BY id DESC", (a.id,)).fetchall()
-    head = [f"状态 {_status(t)}", f"项目 {t['project'] or '-'}"]
+    head = [f"状态 {derived_status(t)}", f"项目 {t['project'] or '-'}"]
     if t["parent"]:
         head.append(f"父任务 {t['parent']}")
     if t["session"]:
-        head.append(f"会话 {t['session']}")
+        head.append(f"窗口 {t['session']}")
     head.append(f"建于 {_when(t['created_at'])}")
     lines = [f"[{t['id']}] {t['title']}", "  " + " · ".join(head)]
-    note = next((e for e in events if e["kind"] == "note"), None)
+    # A closed task's latest note can be stale (migrated tasks keep their last progress line).
+    note = next((e for e in events if e["kind"] == "note"), None) if t["status"] == "open" else None
     if note:
-        lines.append(f"  当前进度:{note['body']}")
-    for label, sql in (("被阻塞于", "SELECT t.* FROM blockers b JOIN tasks t ON t.id=b.blocker WHERE b.task=?"),
-                       ("解锁", "SELECT t.* FROM blockers b JOIN tasks t ON t.id=b.task WHERE b.blocker=?")):
-        rows = con.execute(sql + " ORDER BY t.id", (a.id,)).fetchall()
+        lines.append(f"  当前进展:{note['body']}")
+    for label, rows in (("被挡", blocked_by(con, a.id)), ("下游任务", dependents(con, a.id))):
         if rows:
-            lines.append(f"  {label}:" + " · ".join(f"{r['id']} {_status(r)}" for r in rows))
+            lines.append(f"  {label}:" + " · ".join(f"{r['id']} {derived_status(r)}" for r in rows))
     lines += ["", t["body"], ""]
     lines.append(f"最近事件(最新在前 · 共 {len(events)} 条):")
     lines += [f"  [{_when(e['at'])} · {e['kind']} · {e['author']}] {e['body']}" for e in events[:limit]]
@@ -296,7 +322,7 @@ def list_tasks(con, a) -> str:
         sql += (" AND status='open' AND session IS NULL AND NOT EXISTS (SELECT 1 FROM blockers b"
                 " JOIN tasks x ON x.id=b.blocker WHERE b.task=tasks.id AND x.status='open')")
     rows = con.execute(sql + " ORDER BY created_at, id", args).fetchall()
-    return "\n".join(f"{t['id']}  {_status(t)}  {t['project'] or '-'}  {t['title']}" for t in rows)
+    return "\n".join(f"{t['id']}  {derived_status(t)}  {t['project'] or '-'}  {t['title']}" for t in rows)
 
 
 def backup(path: Path, keep_days: int = 14) -> Path:
@@ -319,106 +345,26 @@ def backup(path: Path, keep_days: int = 14) -> Path:
 
 # ── migrate from an old-schema board ──────────────────────────────
 
-def _items(raw: str | None) -> list[str]:
-    """Old success/constraints: a JSON array, or legacy plain text."""
-    if not raw or not raw.strip():
-        return []
-    try:
-        val = json.loads(raw)
-    except ValueError:
-        return [raw.strip()]
-    return [str(v) for v in val if str(v).strip()] if isinstance(val, list) else [str(val)]
-
-
-def _old_body(t: sqlite3.Row) -> str:
-    parts = [(t["context"] or "").strip()]
-    for heading, items in (("Acceptance criteria", _items(t["success"])),
-                           ("Constraints", _items(t["constraints_"]))):
-        if items:
-            parts.append(f"## {heading}\n\n" + "\n".join(f"- {i}" for i in items))
-    return "\n\n".join(p for p in parts if p)
-
-
-def _old_session(old, t: sqlite3.Row) -> str | None:
-    """Claimed and in-progress tasks keep their latest open session; reclaim leaves rows open on other tasks."""
-    if t["status"] not in ("claimed", "in_progress"):
-        return None
-    row = old.execute("SELECT session_id FROM task_sessions WHERE task_id=? AND ended_at IS NULL"
-                      " ORDER BY started_at DESC LIMIT 1", (t["id"],)).fetchone()
-    if row:
-        return row[0]
-    # ponytail: no open row → the owner `ac:<session id>` still names the holder.
-    return t["owner"].removeprefix("ac:") if t["owner"] else None
-
-
-def _decision_body(d: sqlite3.Row) -> str:
-    lines = [f"问题:{d['question']}", f"结论:{d['verdict']}"]
-    try:
-        rejected = json.loads(d["rejected"] or "[]")
-    except ValueError:
-        rejected = [d["rejected"]]
-    for r in rejected if isinstance(rejected, list) else [rejected]:
-        if isinstance(r, dict):
-            r = r.get("option", "") + (f"({r['reason']})" if r.get("reason") else "")
-        lines.append(f"否决:{r}")
-    if d["adr"]:
-        lines.append(f"ADR:{d['adr']}")
-    return "\n".join(lines)
-
-
-def _old_events(old, t: sqlite3.Row) -> list[tuple]:
-    """(at, author, kind, body) in time order; epic/ADR pointers first, staging note and `now` last."""
-    tid, at0 = t["id"], t["created_at"]
-    head = [(at0, MIGRATOR, "note", f"epic: {t['epic']}")] if t["epic"] else []
-    if t["adr"]:
-        head.append((at0, MIGRATOR, "link", f"adr:{t['adr']}"))
-    evs = []
-    for e in old.execute("SELECT * FROM task_events WHERE task_id=? ORDER BY id", (tid,)):
-        if e["kind"] == "status_change":
-            evs.append((e["created_at"], e["author"], "status", e["body"]))
-        else:
-            body = e["body"] if e["kind"] == "note" else f"{e['kind']}: {e['body']}"
-            evs.append((e["created_at"], e["author"], "note", body))
-    for d in old.execute("SELECT * FROM task_decisions WHERE task_id=? ORDER BY id", (tid,)):
-        evs.append((d["created_at"], d["decided_by"], "decision", _decision_body(d)))
-    for r in old.execute("SELECT * FROM task_refs WHERE task_id=? ORDER BY created_at", (tid,)):
-        body = f"{r['kind']}:{r['value']}" + (f" · {r['note']}" if r["note"] else "")
-        evs.append((r["created_at"], r["author"] or MIGRATOR, "link", body))
-    evs = head + sorted(evs, key=lambda e: e[0])
-    last = max([at0] + [e[0] for e in evs])
-    if t["status"] == "staging-verified":
-        evs.append((last, MIGRATOR, "note", "迁移前状态 staging-verified,新版并入 open"))
-    if (t["now"] or "").strip():
-        # The old board showed `now` as current progress; as the latest note it stays the progress line.
-        evs.append((last, MIGRATOR, "note", t["now"].strip()))
-    return evs
-
-
-OLD_TABLES = {"tasks", "task_edges", "task_events", "task_decisions", "task_sessions", "task_refs"}
-
-
-def _copy_old(old, con) -> tuple[int, int]:
-    """Copy every task, its events and its edges in one transaction; returns (tasks, events)."""
-    tasks = old.execute("SELECT * FROM tasks ORDER BY created_at, id").fetchall()
-    n_events = 0
+def _copy_old(old, con) -> tuple[int, int, int]:
+    """Copy every task, its events and its edges in one transaction; returns (tasks, events, skipped edges)."""
+    tasks = old_board.tasks(old)
+    n_events = skipped = 0
     with con:
-        for t in tasks:
-            status = t["status"] if t["status"] in ("done", "cancelled") else "open"
+        for row, evs in tasks:
             con.execute("INSERT INTO tasks (id, project, title, body, status, session, created_at)"
-                        " VALUES (?,?,?,?,?,?,?)",
-                        (t["id"], t["project"], t["title"], _old_body(t), status,
-                         _old_session(old, t), t["created_at"]))
-            evs = _old_events(old, t)
-            con.executemany("INSERT INTO events (task, at, author, kind, body) VALUES (?,?,?,?,?)",
-                            [(t["id"], *e) for e in evs])
+                        " VALUES (:id,:project,:title,:body,:status,:session,:created_at)", row)
+            for at, author, kind, body in evs:
+                add_event(con, row["id"], author, kind, body, at)
             n_events += len(evs)
-        # Old edges: src is the child (split_from) or the waiting task (depends_on); other kinds are dropped.
-        for e in old.execute("SELECT src, dst, kind FROM task_edges ORDER BY created_at"):
-            if e["kind"] == "split_from":
-                con.execute("UPDATE tasks SET parent=? WHERE id=?", (e["dst"], e["src"]))
-            elif e["kind"] == "depends_on":
-                con.execute("INSERT INTO blockers (task, blocker) VALUES (?,?)", (e["src"], e["dst"]))
-    return len(tasks), n_events
+        ids = {row["id"] for row, _ in tasks}
+        for kind, src, dst in old_board.edges(old):
+            if src not in ids or dst not in ids:
+                skipped += 1  # the old board never enforced its foreign keys
+            elif kind == "split_from":
+                con.execute("UPDATE tasks SET parent=? WHERE id=?", (dst, src))
+            else:
+                con.execute("INSERT INTO blockers (task, blocker) VALUES (?,?)", (src, dst))
+    return len(tasks), n_events, skipped
 
 
 def migrate(old_path: Path, new_path: Path) -> str:
@@ -431,14 +377,18 @@ def migrate(old_path: Path, new_path: Path) -> str:
             tables = {r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         except sqlite3.DatabaseError:
             tables = set()
-        if not OLD_TABLES <= tables:
+        if not old_board.TABLES <= tables:
             raise Refused(f"不是旧版看板:{old_path}")
         init(new_path)
         with closing(open_board(new_path)) as con:
             if con.execute("SELECT 1 FROM tasks LIMIT 1").fetchone():
                 raise Refused(f"目标看板已有任务,拒绝迁移:{new_path}")
-            n_tasks, n_events = _copy_old(old, con)
-    return f"✓ migrate {old_path} → {new_path} · 任务 {n_tasks} · 事件 {n_events}"
+            try:
+                n_tasks, n_events, skipped = _copy_old(old, con)
+            except (sqlite3.Error, IndexError) as e:  # IndexError: a column the old schema should have
+                raise Refused(f"迁移失败,新看板未写入:{type(e).__name__}: {e}") from None
+    out = f"✓ migrate {old_path} → {new_path} · 任务 {n_tasks} · 事件 {n_events}"
+    return out + (f" · 跳过悬空关系 {skipped}" if skipped else "")
 
 
 # ── entry ─────────────────────────────────────────────────────────
@@ -457,12 +407,12 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--parent")
     p.add_argument("--project")
     p.add_argument("--blocked-by", action="append", metavar="ID", help="可重复")
-    p = sub.add_parser("block", help="加依赖:id 被 blocker 阻塞")
+    p = sub.add_parser("block", help="记被挡:id 被 blocker 挡住,blocker 关闭前不可开工")
     p.add_argument("id")
     p.add_argument("blocker")
     p = sub.add_parser("claim", help="认领;--release 交还")
     p.add_argument("id")
-    p.add_argument("--take", action="store_true", help="接手别的会话手上的任务")
+    p.add_argument("--take", action="store_true", help="接手别的窗口手上的任务")
     p.add_argument("--release", action="store_true")
     p = sub.add_parser("close", help="关闭或重开")
     p.add_argument("id")

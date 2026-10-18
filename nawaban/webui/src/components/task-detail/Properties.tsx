@@ -14,11 +14,13 @@ export function Properties({ d, onSelectTask }: {
       <h3 className="attribute-heading">{tr("properties")}</h3>
       <Attr label={tr("status")} value={statusLabel(d.status)} />
       <Attr label={tr("project")} value={d.project} empty={tr("noProject")} />
-      <Attr label={tr("splitFrom")}
+      <Attr label={tr("parent")}
         value={d.parent ? <IdLink id={d.parent.id} onSelect={onSelectTask} /> : null} />
-      {d.children.length > 0 && <Attr label={tr("splitOut")}
+      {d.children.length > 0 && <Attr label={tr("children")}
         value={<Ids ids={d.children.map((c) => c.id)} onSelect={onSelectTask} />} />}
-      <Attr label={tr("session")} mono value={d.session} empty={tr("noOwner")} />
+      {/* Only an in-progress task has a working session; a closed task's leftover one is stale. */}
+      <Attr label={tr("session")} mono value={d.status === "in_progress" ? d.session : null}
+        empty={tr("noSession")} />
       <Attr label={tr("time")} value={tr("createdAt", { time: rel(d.created_at) })} />
     </SettingsCard>
   );

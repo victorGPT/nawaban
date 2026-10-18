@@ -108,12 +108,6 @@ input, textarea { caret-color: var(--color-accent-500); }
 .nawaban-brand > button { margin-left: auto; }
 .sidebar-project-picker { display: grid; gap: 6px; margin: 0 8px 22px; color: var(--muted); }
 .project-select { max-width: none; width: 100%; }
-.sidebar-label { color: var(--muted); padding-inline: 8px; margin-bottom: 8px; }
-.nawaban-sidebar nav { display: grid; gap: 0; }
-.nawaban-sidebar nav a { min-height: 32px; padding: 4px 8px; border: 0; border-radius: 6px; box-shadow: none; }
-.nawaban-sidebar nav a[aria-current] { background: var(--color-background-secondary-hover); }
-.nawaban-sidebar nav a svg { width: 16px; height: 16px; }
-.nawaban-sidebar nav a span { @apply text-body-regular; }
 .sidebar-bottom { margin-top: auto; padding-top: 24px; display: grid; gap: 8px; }
 .sidebar-bottom > p { @apply text-reference-caption; color: var(--muted); padding: 8px; }
 .nawaban-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }

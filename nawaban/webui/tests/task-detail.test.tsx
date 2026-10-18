@@ -81,8 +81,8 @@ test("the reading column shows progress, body, criteria, blockers, dependents an
   expect(blocked.heading.textContent).toBe(`${zh.blockedBy}1`);
   expect(texts(dialog.querySelectorAll(".divide-y")[0].children))
     .toEqual([`DEMO-BLOCK-001${statusLabel("in_progress")}Upstream blocker`]);
-  const unblocks = block(dialog, zh.unblocks);
-  expect(unblocks.heading.textContent).toBe(`${zh.unblocks}1`);
+  const dependents = block(dialog, zh.dependents);
+  expect(dependents.heading.textContent).toBe(`${zh.dependents}1`);
   expect(texts(dialog.querySelectorAll(".divide-y")[1].children))
     .toEqual([`DEMO-NEXT-001${statusLabel("done")}Downstream task`]);
 
@@ -130,7 +130,7 @@ test("the rail shows resume and the task's status, project, parent, children, se
 
   const properties = block(dialog, zh.properties).heading.parentElement!;
   expect(texts(properties.querySelectorAll("p"))).toEqual(
-    [zh.status, zh.project, zh.splitFrom, zh.splitOut, zh.session, zh.time]);
+    [zh.status, zh.project, zh.parent, zh.children, zh.session, zh.time]);
   const values = texts(properties.querySelectorAll(".detail-value"));
   expect(values.slice(0, 5)).toEqual([statusLabel("in_progress"), "demo", "DEMO-SPEC", "DEMO-CHILD-001", "session-1"]);
   expect(values[5]).toMatch(new RegExp(`^${zh.createdAt.replace("{time}", ".+")}$`));
@@ -162,6 +162,14 @@ test("a closed task does not present its latest note as current progress", async
   expect(block(dialog, zh.activity).body.getAllByText("Characterization in place")).toHaveLength(1);
 });
 
+test("a closed task that still names a session offers no resume and shows no session", async () => {
+  vi.mocked(fetchTask).mockResolvedValue({ ...task, status: "done", session: "session-1" });
+  const { dialog } = await open();
+  expect(dialog.querySelector(".detail-resume")).toBeNull();
+  const properties = block(dialog, zh.properties).heading.parentElement!;
+  expect(texts(properties.querySelectorAll(".detail-value"))[4]).toBe(zh.noSession);
+});
+
 test("a task without optional data keeps only activity and the empty property values", async () => {
   vi.mocked(fetchTask).mockResolvedValue(bare);
   render(sheet(bare.id));
@@ -173,7 +181,7 @@ test("a task without optional data keeps only activity and the empty property va
   expect(dialog.querySelector(".detail-resume")).toBeNull();
   expect(dialog.querySelector(".detail-now")).toBeNull();
   expect(texts(dialog.querySelectorAll(".detail-value"))).toEqual([
-    statusLabel("open"), zh.noProject, t("noValue", { label: zh.splitFrom }), zh.noOwner,
+    statusLabel("open"), zh.noProject, t("noValue", { label: zh.parent }), zh.noSession,
     expect.stringMatching(new RegExp(`^${zh.createdAt.replace("{time}", "[^·]+")}$`)),
   ]);
 });

@@ -181,9 +181,8 @@ Exact display templates below are part of the English vocabulary. Braced names a
 | Collapse | 收起 | Runtime enum values as display labels or a different action sharing this label. |
 | Status | 状态 | Runtime enum values as display labels or a different action sharing this label. |
 | Time | 时间 | Runtime enum values as display labels or a different action sharing this label. |
-| Split from | 拆自 | Runtime enum values as display labels or a different action sharing this label. |
-| Split out | 拆出 | Runtime enum values as display labels or a different action sharing this label. |
-| Unblocks | 放开 | Runtime enum values as display labels or a different action sharing this label. |
+| Child tasks | 子任务 | Detail label for the tasks whose parent is this task; not "split out". |
+| Dependents | 下游任务 | Detail label for the reverse of blocked by; not "unblocks". |
 | Properties | 属性 | Runtime enum values as display labels or a different action sharing this label. |
 | {count} minutes ago | {count} 分钟前 | Dropped interpolation values or raw template placeholders in rendered text. |
 | {count} hours ago | {count} 小时前 | Dropped interpolation values or raw template placeholders in rendered text. |
@@ -193,7 +192,7 @@ Exact display templates below are part of the English vocabulary. Braced names a
 | No {label} | 无 {label} | Dropped interpolation values or raw template placeholders in rendered text. |
 | Created {time} | 创建 {time} | Dropped interpolation values or raw template placeholders in rendered text. |
 | Close | 关闭 | Runtime enum values as display labels or a different action sharing this label. |
-| No owner | 未认领 | Unassigned as the owner field label; this is not a lifecycle state. |
+| No session | 无窗口 | Empty session value; not "no owner", and not the Unassigned status. |
 | EN | 中文 | Display text only; preserve stored values and user-authored content. |
 | Main navigation | 主导航 | Display text only; preserve stored values and user-authored content. |
 | Toggle sidebar | 切换侧栏 | Display text only; preserve stored values and user-authored content. |
@@ -202,7 +201,7 @@ Exact display templates below are part of the English vocabulary. Braced names a
 | Switch project | 切换项目 | Display text only; preserve stored values and user-authored content. |
 | Agents advance tasks | 任务由 Agent 推进 | Display text only; preserve stored values and user-authored content. |
 | Search tasks | 搜索任务 | Display text only; preserve stored values and user-authored content. |
-| Search ID, title, owner… | 搜索编号、标题、负责人… | Display text only; preserve stored values and user-authored content. |
+| Search ID, title, session… | 搜索编号、标题、窗口… | Display text only; preserve stored values and user-authored content. |
 | List | 列表 | Display text only; preserve stored values and user-authored content. |
 | {count} tasks | {count} 张任务 | Display text only; preserve stored values and user-authored content. |
 | Task list | 任务列表 | Display text only; preserve stored values and user-authored content. |

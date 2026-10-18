@@ -1,6 +1,6 @@
 ---
 name: nawaban
-description: The nawaban board is the issue tracker. Use when a skill says to publish a spec or tickets, fetch a ticket, or find the frontier; before working on a task; and when recording a note, a decision between options, or a link such as a pull request.
+description: The nawaban board is the issue tracker. Use when a skill says to publish a spec, "publish the tickets" or "fetch the ticket" (each ticket is a task), or to find the frontier; before working on a task; and when recording a note, a decision between options, or a link such as a pull request.
 ---
 
 # nawaban issue tracker
@@ -29,7 +29,7 @@ Identity comes from `CLAUDE_CODE_SESSION_ID`, then `NAWABAN_OWNER`. A session wi
 
 - **id**: any string without whitespace, e.g. `LEAN` or `LEAN-03`.
 - **title**: what a person can see once it is done.
-- **body**: markdown. A ticket's body has two sections, `## What to build` and `## Acceptance criteria`; a spec task's body is the whole spec. Write the body to a file and pass `--body-file`.
+- **body**: markdown. A task's body has two sections, `## What to build` and `## Acceptance criteria`; a spec task's body is the whole spec. Write the body to a file and pass `--body-file`.
 - **project**: defaults to the parent's project, then to the repository holding the board. Pass `--project` only to override.
 - **status**: `open`, `done` or `cancelled`. "In progress" is derived: an open task held by a session.
 
@@ -39,21 +39,21 @@ Identity comes from `CLAUDE_CODE_SESSION_ID`, then `NAWABAN_OWNER`. A session wi
 nawaban create <SPEC-ID> --title "<title>" --body-file <spec.md>
 ```
 
-## Publish tickets
+## When a skill says "publish the tickets"
 
-One task per ticket, blockers first:
+Create one task per ticket, blockers first:
 
 ```
-nawaban create <SPEC-ID>-<NN> --title "<title>" --parent <SPEC-ID> --body-file <ticket.md> --blocked-by <ID> --blocked-by <ID>
+nawaban create <SPEC-ID>-<NN> --title "<title>" --parent <SPEC-ID> --body-file <task.md> --blocked-by <ID> --blocked-by <ID>
 nawaban block <ID> <blocker ID>
 ```
 
 `block` adds an edge afterwards. Both refuse unknown ids, a task blocking itself, and cycles. Leave the spec task unchanged.
 
-## Fetch a ticket or a spec
+## When a skill says "fetch the ticket": fetch a task or a spec
 
-- `nawaban show <ID>`: title, status, project, parent, holding session, current progress (the latest note), blockers and what it unblocks with their status, the body, and the latest 20 events.
-- `nawaban list --parent <SPEC-ID>`: every ticket of a spec, one line each: `<id>  <status>  <project>  <title>`. `nawaban list --project <name>` filters by project.
+- `nawaban show <ID>`: title, status, project, parent, holding session, current progress (the latest note, shown for open tasks only), the tasks it is blocked by and its dependents with their status, the body, and the latest 20 events.
+- `nawaban list --parent <SPEC-ID>`: every task of a spec, one line each: `<id>  <status>  <project>  <title>`. `nawaban list --project <name>` filters by project.
 
 ## Frontier
 
@@ -65,7 +65,7 @@ The frontier is every open task that no session holds and whose blockers are all
 
 ## Claim, release, close
 
-- `nawaban claim <ID>`: the task becomes yours. A task held by another session is refused with the holder's session id; take it over only on purpose, with `--take`, which is logged.
+- `nawaban claim <ID>`: the task becomes yours. A task held by another session is refused with the holder's session id; take it over only on purpose, with `--take`, which is logged. A done or cancelled task is refused; reopen it with `close --reopen` first.
 - `nawaban claim <ID> --release`: hand back a task you will not finish; it returns to the frontier. Record a note on where you stopped first.
 - `nawaban close <ID> --done` once its work is merged into the integration branch, after a link event for the pull request or commit. `--cancelled` for work dropped; `--reopen` for a task closed by mistake. Closing clears the session.
 

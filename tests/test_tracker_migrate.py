@@ -129,10 +129,32 @@ def test_split_from_becomes_parent_and_depends_on_becomes_blocked_by(run, old):
     old.edge("C", "A", "supersedes")
     assert migrate(run, old)[0] == 0
     c = run("show", "C")[1]
-    assert "父任务 SPEC" in c and "被阻塞于:B open" in c
-    assert "解锁:B open\n" in run("show", "A")[1]
+    assert "父任务 SPEC" in c and "被挡:B open" in c
+    assert "下游任务:B open\n" in run("show", "A")[1]
     assert len(run("list", "--parent", "SPEC")[1].splitlines()) == 3
     assert {line.split()[0] for line in run("list", "--frontier")[1].splitlines()} == {"SPEC", "B"}
+
+
+def test_edges_to_missing_tasks_are_skipped_and_counted(run, old):
+    old.task("A")
+    old.task("B")
+    old.edge("A", "GONE", "split_from")
+    old.edge("GHOST", "A", "split_from")
+    old.edge("B", "GONE", "depends_on")
+    old.edge("B", "A", "depends_on")
+    code, out, err = migrate(run, old)
+    assert code == 0 and "Traceback" not in err, err
+    assert "任务 2" in out and "跳过悬空关系 3" in out
+    shown = run("show", "B")[1]
+    assert "被挡:A open" in shown and "GONE" not in shown
+    assert "父任务" not in run("show", "A")[1]
+
+
+def test_an_unreadable_old_board_is_refused_without_a_traceback(run, old):
+    old.task("T")
+    old.con.execute("ALTER TABLE tasks DROP COLUMN context")
+    code, _, err = migrate(run, old)
+    assert code == 1 and err.startswith("✗") and "Traceback" not in err
 
 
 def _statuses(run):
@@ -155,9 +177,9 @@ def test_statuses_collapse_and_held_tasks_keep_their_latest_open_session(run, ol
     assert migrate(run, old)[0] == 0
     assert _statuses(run) == {"CLAIMED": "in_progress", "WORKING": "in_progress", "RECLAIMED": "open",
                               "STAGED": "open", "DONE": "done", "GONE": "cancelled"}
-    assert "会话 s2" in run("show", "CLAIMED")[1]
-    assert "会话 w1" in run("show", "WORKING")[1]
-    assert "会话" not in run("show", "RECLAIMED")[1] and "会话" not in run("show", "DONE")[1]
+    assert "窗口 s2" in run("show", "CLAIMED")[1]
+    assert "窗口 w1" in run("show", "WORKING")[1]
+    assert "窗口" not in run("show", "RECLAIMED")[1] and "窗口" not in run("show", "DONE")[1]
     assert "staging-verified" in run("show", "STAGED")[1]
     assert {line.split()[0] for line in run("list", "--frontier")[1].splitlines()} == {"RECLAIMED", "STAGED"}
 
@@ -166,7 +188,7 @@ def test_held_task_without_an_open_session_row_falls_back_to_its_owner(run, old)
     old.task("ORPHAN", status="in_progress", owner="ac:abc-123")
     old.session("ORPHAN", "abc-123", T0 + 1, ended_at=T0 + 2)
     assert migrate(run, old)[0] == 0
-    assert "会话 abc-123" in run("show", "ORPHAN")[1]
+    assert "窗口 abc-123" in run("show", "ORPHAN")[1]
 
 
 def test_old_events_decisions_refs_and_pointers_arrive_as_events_of_their_kind(run, old):
@@ -186,7 +208,7 @@ def test_old_events_decisions_refs_and_pointers_arrive_as_events_of_their_kind(r
     assert "decision · agent:ac:s1] 问题:要不要缓存" in out
     assert "link · migrate] pr:https://example.com/pull/9 · 主 PR" in out
     assert "note · migrate] epic: EPIC-X" in out and "link · migrate] adr:ADR-0007" in out
-    assert "当前进度:正在写迁移" in out
+    assert "当前进展:正在写迁移" in out
     events = out[out.index("最近事件"):]
     assert "共 9 条" in events
     order = ["正在写迁移", "最后一条旧笔记", "pr:", "要不要缓存", "A 还是 B", "测试全绿", "open→claimed", "adr:"]

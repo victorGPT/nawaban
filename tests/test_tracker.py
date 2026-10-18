@@ -101,6 +101,12 @@ def test_create_with_unknown_parent_fails(run):
     assert run("list")[1] == ""
 
 
+def test_create_with_unknown_parent_and_explicit_project_says_the_parent_does_not_exist(run):
+    code, _, err = run("create", "C", "--title", "c", "--body", "b", "--parent", "NOPE", "--project", "q")
+    assert code == 1 and "任务不存在:NOPE" in err and "已存在" not in err
+    assert run("list")[1] == ""
+
+
 def test_create_duplicate_id_fails(run):
     run("create", "T", "--title", "t", "--body", "b")
     code, _, err = run("create", "T", "--title", "again", "--body", "b")
@@ -126,8 +132,24 @@ def test_events_show_newest_first_and_latest_note_is_progress(run):
     run("event", "T", "--kind", "link", "--body", "pr:https://example.com/pull/1")
     run("event", "T", "--kind", "note", "--body", "第二步")
     out = run("show", "T")[1]
-    assert "当前进度:第二步" in out
+    assert "当前进展:第二步" in out
     assert out.index("第二步", out.index("最近事件")) < out.index("第一步")
+
+
+@pytest.mark.parametrize("outcome", ["--done", "--cancelled"])
+def test_a_closed_task_shows_no_current_progress(run, outcome):
+    run("create", "T", "--title", "t", "--body", "b")
+    run("event", "T", "--kind", "note", "--body", "旧进展")
+    run("close", "T", outcome)
+    out = run("show", "T")[1]
+    assert "当前进展" not in out and "旧进展" in out
+
+
+def test_an_in_progress_task_shows_its_current_progress(run):
+    run("create", "T", "--title", "t", "--body", "b")
+    run("claim", "T")
+    run("event", "T", "--kind", "note", "--body", "正在做")
+    assert "当前进展:正在做" in run("show", "T")[1]
 
 
 def test_decision_by_user(run):
@@ -204,8 +226,8 @@ def _ids(out):
 def test_block_shows_blocker_and_dependent(run):
     _tasks(run, "A", "B")
     assert run("block", "B", "A")[0] == 0
-    assert "被阻塞于:A open" in run("show", "B")[1]
-    assert "解锁:B open" in run("show", "A")[1]
+    assert "被挡:A open" in run("show", "B")[1]
+    assert "下游任务:B open" in run("show", "A")[1]
 
 
 def test_block_twice_is_a_no_op(run):
@@ -235,7 +257,7 @@ def test_block_refuses_cycles(run):
     for blocker in ("B", "C"):
         code, _, err = run("block", "A", blocker)
         assert code == 1 and "成环" in err
-    assert "被阻塞于" not in run("show", "A")[1]
+    assert "被挡" not in run("show", "A")[1]
 
 
 def test_create_with_blocked_by(run):
@@ -248,9 +270,9 @@ def test_create_with_blocked_by(run):
 def test_create_with_unknown_blocker_creates_nothing(run):
     _tasks(run, "A")
     code, _, err = run("create", "C", "--title", "c", "--body", "b", "--blocked-by", "A", "--blocked-by", "NOPE")
-    assert code == 1 and "NOPE" in err
+    assert code == 1 and "任务不存在:NOPE" in err
     assert "C" not in _ids(run("list")[1])
-    assert "解锁" not in run("show", "A")[1]
+    assert "下游任务" not in run("show", "A")[1]
 
 
 def test_create_refuses_blocking_itself(run):
@@ -270,7 +292,7 @@ def test_claim_makes_task_in_progress_in_show_and_list(run):
     code, out, _ = run("claim", "T")
     assert code == 0 and "selftest-session" in out
     shown = run("show", "T")[1]
-    assert "状态 in_progress" in shown and "会话 selftest-session" in shown
+    assert "状态 in_progress" in shown and "窗口 selftest-session" in shown
     assert "status · selftest-session] open→in_progress" in shown
     assert _status_of(run, "T") == "in_progress"
 
@@ -288,7 +310,7 @@ def test_claim_held_by_another_session_fails_and_names_holder(run, monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "other-session")
     code, _, err = run("claim", "T")
     assert code == 1 and "selftest-session" in err and "--take" in err
-    assert "会话 selftest-session" in run("show", "T")[1]
+    assert "窗口 selftest-session" in run("show", "T")[1]
 
 
 def test_take_moves_the_claim_and_records_an_event(run, monkeypatch):
@@ -297,7 +319,7 @@ def test_take_moves_the_claim_and_records_an_event(run, monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "other-session")
     assert run("claim", "T", "--take")[0] == 0
     out = run("show", "T")[1]
-    assert "会话 other-session" in out
+    assert "窗口 other-session" in out
     assert "status · other-session] in_progress→in_progress · 接手自 selftest-session" in out
 
 
@@ -307,7 +329,7 @@ def test_release_returns_task_to_frontier(run):
     assert "T" not in _ids(run("list", "--frontier")[1])
     assert run("claim", "T", "--release")[0] == 0
     out = run("show", "T")[1]
-    assert "状态 open" in out and "会话" not in out and "in_progress→open" in out
+    assert "状态 open" in out and "窗口" not in out and "in_progress→open" in out
     assert _status_of(run, "T") == "open"
     assert "T" in _ids(run("list", "--frontier")[1])
 
@@ -325,7 +347,7 @@ def test_release_by_another_session_needs_take(run, monkeypatch):
     code, _, err = run("claim", "T", "--release")
     assert code == 1 and "selftest-session" in err
     assert run("claim", "T", "--release", "--take")[0] == 0
-    assert "会话" not in run("show", "T")[1]
+    assert "窗口" not in run("show", "T")[1]
 
 
 @pytest.mark.parametrize("args", [("claim", "T"), ("close", "T", "--done")])
@@ -350,7 +372,7 @@ def test_close_done_clears_session_and_records_status(run):
     run("claim", "T")
     assert run("close", "T", "--done")[0] == 0
     out = run("show", "T")[1]
-    assert "状态 done" in out and "会话" not in out and "in_progress→done" in out
+    assert "状态 done" in out and "窗口" not in out and "in_progress→done" in out
     assert _status_of(run, "T") == "done"
 
 
@@ -368,6 +390,17 @@ def test_reopen_a_closed_task(run):
     out = run("show", "T")[1]
     assert "状态 open" in out and "done→open" in out
     assert "T" in _ids(run("list", "--frontier")[1])
+
+
+@pytest.mark.parametrize("outcome", ["--done", "--cancelled"])
+def test_claim_of_a_closed_task_is_refused_and_points_to_reopen(run, outcome):
+    _tasks(run, "T")
+    run("close", "T", outcome)
+    code, _, err = run("claim", "T")
+    assert code == 1 and "close --reopen" in err
+    assert "窗口" not in run("show", "T")[1]
+    code, _, err = run("claim", "T", "--take")
+    assert code == 1 and "close --reopen" in err
 
 
 def test_close_to_current_status_is_a_no_op(run):

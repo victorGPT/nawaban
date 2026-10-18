@@ -39,7 +39,7 @@ test("the sidebar language control updates the mounted board", async () => {
   const user = userEvent.setup();
   render(<Notices><App /></Notices>);
   await screen.findByRole("heading", { name: new RegExp(zh.unassigned) });
-  expect(screen.getByRole("link", { name: zh.board }).getAttribute("aria-current")).toBe("page");
+  expect(screen.getByRole("heading", { name: zh.board, level: 1 })).toBeTruthy();
 
   await user.click(screen.getByRole("button", { name: zh.switchLanguage }));
   expect(screen.getByRole("heading", { name: en.board, level: 1 })).toBeTruthy();
@@ -99,8 +99,8 @@ test("sidebar toggles restore focus to the visible control in both directions", 
   await screen.findByText(task.title);
   await user.click(screen.getByRole("button", { name: zh.toggleSidebar }));
   expect(document.activeElement).toBe(screen.getByRole("button", { name: zh.toggleSidebar }));
-  expect(screen.queryByRole("navigation")).toBeNull();
+  expect(screen.queryByRole("complementary", { name: zh.mainNavigation })).toBeNull();
   await user.keyboard("[[");
   expect(document.activeElement).toBe(screen.getByRole("button", { name: zh.toggleSidebar }));
-  expect(screen.getByRole("link", { name: zh.board })).toBeTruthy();
+  expect(screen.getByRole("complementary", { name: zh.mainNavigation })).toBeTruthy();
 });
