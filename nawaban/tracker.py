@@ -8,15 +8,18 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import json
 import os
 import re
 import sqlite3
 import subprocess
 import sys
 import time
+from contextlib import closing
 from pathlib import Path
 
 VERSION = 1  # PRAGMA user_version; old-schema boards read 0
+MIGRATOR = "migrate"  # author of events the migration writes itself
 SCHEMA = """
 CREATE TABLE tasks (
     id         TEXT PRIMARY KEY,
@@ -314,6 +317,130 @@ def backup(path: Path, keep_days: int = 14) -> Path:
     return dest_path
 
 
+# ── migrate from an old-schema board ──────────────────────────────
+
+def _items(raw: str | None) -> list[str]:
+    """Old success/constraints: a JSON array, or legacy plain text."""
+    if not raw or not raw.strip():
+        return []
+    try:
+        val = json.loads(raw)
+    except ValueError:
+        return [raw.strip()]
+    return [str(v) for v in val if str(v).strip()] if isinstance(val, list) else [str(val)]
+
+
+def _old_body(t: sqlite3.Row) -> str:
+    parts = [(t["context"] or "").strip()]
+    for heading, items in (("Acceptance criteria", _items(t["success"])),
+                           ("Constraints", _items(t["constraints_"]))):
+        if items:
+            parts.append(f"## {heading}\n\n" + "\n".join(f"- {i}" for i in items))
+    return "\n\n".join(p for p in parts if p)
+
+
+def _old_session(old, t: sqlite3.Row) -> str | None:
+    """Claimed and in-progress tasks keep their latest open session; reclaim leaves rows open on other tasks."""
+    if t["status"] not in ("claimed", "in_progress"):
+        return None
+    row = old.execute("SELECT session_id FROM task_sessions WHERE task_id=? AND ended_at IS NULL"
+                      " ORDER BY started_at DESC LIMIT 1", (t["id"],)).fetchone()
+    if row:
+        return row[0]
+    # ponytail: no open row → the owner `ac:<session id>` still names the holder.
+    return t["owner"].removeprefix("ac:") if t["owner"] else None
+
+
+def _decision_body(d: sqlite3.Row) -> str:
+    lines = [f"问题:{d['question']}", f"结论:{d['verdict']}"]
+    try:
+        rejected = json.loads(d["rejected"] or "[]")
+    except ValueError:
+        rejected = [d["rejected"]]
+    for r in rejected if isinstance(rejected, list) else [rejected]:
+        if isinstance(r, dict):
+            r = r.get("option", "") + (f"({r['reason']})" if r.get("reason") else "")
+        lines.append(f"否决:{r}")
+    if d["adr"]:
+        lines.append(f"ADR:{d['adr']}")
+    return "\n".join(lines)
+
+
+def _old_events(old, t: sqlite3.Row) -> list[tuple]:
+    """(at, author, kind, body) in time order; epic/ADR pointers first, staging note and `now` last."""
+    tid, at0 = t["id"], t["created_at"]
+    head = [(at0, MIGRATOR, "note", f"epic: {t['epic']}")] if t["epic"] else []
+    if t["adr"]:
+        head.append((at0, MIGRATOR, "link", f"adr:{t['adr']}"))
+    evs = []
+    for e in old.execute("SELECT * FROM task_events WHERE task_id=? ORDER BY id", (tid,)):
+        if e["kind"] == "status_change":
+            evs.append((e["created_at"], e["author"], "status", e["body"]))
+        else:
+            body = e["body"] if e["kind"] == "note" else f"{e['kind']}: {e['body']}"
+            evs.append((e["created_at"], e["author"], "note", body))
+    for d in old.execute("SELECT * FROM task_decisions WHERE task_id=? ORDER BY id", (tid,)):
+        evs.append((d["created_at"], d["decided_by"], "decision", _decision_body(d)))
+    for r in old.execute("SELECT * FROM task_refs WHERE task_id=? ORDER BY created_at", (tid,)):
+        body = f"{r['kind']}:{r['value']}" + (f" · {r['note']}" if r["note"] else "")
+        evs.append((r["created_at"], r["author"] or MIGRATOR, "link", body))
+    evs = head + sorted(evs, key=lambda e: e[0])
+    last = max([at0] + [e[0] for e in evs])
+    if t["status"] == "staging-verified":
+        evs.append((last, MIGRATOR, "note", "迁移前状态 staging-verified,新版并入 open"))
+    if (t["now"] or "").strip():
+        # The old board showed `now` as current progress; as the latest note it stays the progress line.
+        evs.append((last, MIGRATOR, "note", t["now"].strip()))
+    return evs
+
+
+OLD_TABLES = {"tasks", "task_edges", "task_events", "task_decisions", "task_sessions", "task_refs"}
+
+
+def _copy_old(old, con) -> tuple[int, int]:
+    """Copy every task, its events and its edges in one transaction; returns (tasks, events)."""
+    tasks = old.execute("SELECT * FROM tasks ORDER BY created_at, id").fetchall()
+    n_events = 0
+    with con:
+        for t in tasks:
+            status = t["status"] if t["status"] in ("done", "cancelled") else "open"
+            con.execute("INSERT INTO tasks (id, project, title, body, status, session, created_at)"
+                        " VALUES (?,?,?,?,?,?,?)",
+                        (t["id"], t["project"], t["title"], _old_body(t), status,
+                         _old_session(old, t), t["created_at"]))
+            evs = _old_events(old, t)
+            con.executemany("INSERT INTO events (task, at, author, kind, body) VALUES (?,?,?,?,?)",
+                            [(t["id"], *e) for e in evs])
+            n_events += len(evs)
+        # Old edges: src is the child (split_from) or the waiting task (depends_on); other kinds are dropped.
+        for e in old.execute("SELECT src, dst, kind FROM task_edges ORDER BY created_at"):
+            if e["kind"] == "split_from":
+                con.execute("UPDATE tasks SET parent=? WHERE id=?", (e["dst"], e["src"]))
+            elif e["kind"] == "depends_on":
+                con.execute("INSERT INTO blockers (task, blocker) VALUES (?,?)", (e["src"], e["dst"]))
+    return len(tasks), n_events
+
+
+def migrate(old_path: Path, new_path: Path) -> str:
+    """Read an old-schema board (read-only) into an empty new board."""
+    if not old_path.exists():
+        raise Refused(f"旧看板不存在:{old_path}")
+    with closing(sqlite3.connect(old_path.absolute().as_uri() + "?mode=ro", uri=True)) as old:
+        old.row_factory = sqlite3.Row
+        try:
+            tables = {r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        except sqlite3.DatabaseError:
+            tables = set()
+        if not OLD_TABLES <= tables:
+            raise Refused(f"不是旧版看板:{old_path}")
+        init(new_path)
+        with closing(open_board(new_path)) as con:
+            if con.execute("SELECT 1 FROM tasks LIMIT 1").fetchone():
+                raise Refused(f"目标看板已有任务,拒绝迁移:{new_path}")
+            n_tasks, n_events = _copy_old(old, con)
+    return f"✓ migrate {old_path} → {new_path} · 任务 {n_tasks} · 事件 {n_events}"
+
+
 # ── entry ─────────────────────────────────────────────────────────
 
 def _parser() -> argparse.ArgumentParser:
@@ -355,6 +482,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--parent")
     p.add_argument("--frontier", action="store_true", help="只列可开工:未关闭、没人认领、前置都已关闭")
     sub.add_parser("backup", help="备份到 <看板目录>/backups/ · 保留 14 天")
+    p = sub.add_parser("migrate", help="把旧结构看板迁成新看板(只读旧文件 · 目标已有任务就拒绝)")
+    p.add_argument("old")
+    p.add_argument("new")
     return ap
 
 
@@ -364,6 +494,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if a.verb == "init":
             print(f"✓ init → {path}" if init(path) else f"✓ 看板已存在:{path}")
+            return 0
+        if a.verb == "migrate":
+            print(migrate(Path(a.old).expanduser(), Path(a.new).expanduser()))
             return 0
         con = open_board(path)
         try:
