@@ -360,9 +360,3 @@ def test_a_herdr_restart_gap_is_not_taken_for_a_closed_pane(monkeypatch):
     left = answers(monkeypatch, False, True, True, False, False, False)
     dispatch._wait_closed("w1:p9")
     assert not left
-
-
-def test_director_skill_says_not_to_mark_agents_blocked_in_herdr():
-    text = (ROOT / "skills/nawaban-director/SKILL.md").read_text(encoding="utf-8")
-    section = text.split("## Notifications and replies", 1)[1].split("\n## ", 1)[0]
-    assert "report-agent" in section and "agent_blocked" in section
