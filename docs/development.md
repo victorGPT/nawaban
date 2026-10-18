@@ -6,13 +6,11 @@ The runtime and skills use the nawaban name. CLI subcommands and database schema
 
 | Path | Contents |
 | --- | --- |
-| `nawaban/` | Python CLI, SQLite runtime, board server, `board-up.sh`, and WebUI source |
-| `skills/` | Task coordination (`nawaban`), project setup (`nawaban-setup`), and session handoff (`nawaban-wrapup`) skills |
-| `hooks/` | `foreman_branch_gate.sh`, `foreman_maintree_watch.sh`, and `foreman_session_start.py` |
-| `nawaban/guard.py`, `nawaban/compile_gate_headless.sh` | The other two live hooks, preserved at their runtime paths |
+| `nawaban/` | Python CLI (`tracker.py`), board server, `board-up.sh`, and WebUI source |
+| `skills/nawaban/` | The one skill: the issue-tracker guide for agents |
 | `tests/test_glossary.py` | CLI terminology coverage check |
 
-Runtime data, logs, caches, installed dependencies, compiled WebUI output, the excluded graph experiment, and the three retired hooks are omitted. No npm or pip distribution is introduced.
+The plugin registers no hooks. Runtime data, logs, caches, installed dependencies and compiled WebUI output are omitted. No npm or pip distribution is introduced.
 
 ## Glossary check
 

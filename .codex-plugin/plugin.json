@@ -1,7 +1,7 @@
 {
   "name": "nawaban",
   "version": "0.1.4",
-  "description": "Task board, worktree gates and human inbox shared by agents and people.",
+  "description": "Task tracker and read-only board shared by agents and people.",
   "author": {
     "name": "victor-wu"
   },

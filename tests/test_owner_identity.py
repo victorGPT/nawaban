@@ -1,6 +1,5 @@
 """Session collisions and legacy ownership use only temporary state."""
 
-import io
 import json
 import os
 import sqlite3
@@ -11,7 +10,6 @@ from uuid import UUID
 
 import pytest
 
-from hooks import foreman_session_start as session_start
 from nawaban import claim_check, cli, db, foreman_liveness, guard, reclaim_stale, stale_recon
 
 SID_A = "01a0b483-321f-7000-8000-000000000001"
@@ -24,8 +22,6 @@ LEGACY = "ac:01a0b483"
 def identities(monkeypatch, tmp_path):
     for name in ("NAWABAN_OWNER", "CLAUDE_CODE_SESSION_ID", "TMUX", "TMUX_PANE"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(session_start, "_REGISTRY", tmp_path / "registry.json")
-    monkeypatch.setattr(session_start, "_LEGACY_REGISTRY", tmp_path / "absent.json")
     assert str(UUID(SID_A)) == SID_A and str(UUID(SID_B)) == SID_B
 
 
@@ -44,14 +40,11 @@ def test_colliding_sessions_get_distinct_board_owners(identities, monkeypatch, t
     assert owners == [OWNER_A, OWNER_B]
 
 
-def test_banner_guard_cli_and_registry_agree(identities, monkeypatch, tmp_path):
+def test_guard_and_cli_agree(identities, monkeypatch, tmp_path):
     for sid, expected in ((SID_A, OWNER_A), (SID_B, OWNER_B)):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", sid)
         assert cli._identity(need_session=True) == (expected, sid)
         assert guard.resolve_owner(sid) == expected
-        assert session_start._register_session(sid, str(tmp_path)) == (expected, sid)
-    saved = json.loads(session_start._REGISTRY.read_text())
-    assert {row["session"] for row in saved.values()} == {SID_A, SID_B}
 
 
 def test_explicit_legacy_owner_still_wins(identities, monkeypatch, tmp_path):
@@ -59,7 +52,6 @@ def test_explicit_legacy_owner_still_wins(identities, monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SID_A)
     assert cli._identity(need_session=True) == (LEGACY, SID_A)
     assert guard.resolve_owner(SID_B) == LEGACY
-    assert session_start._register_session(SID_A, str(tmp_path)) == (LEGACY, SID_A)
 
 
 def _cards(tmp_path, owners):
@@ -147,26 +139,6 @@ def test_claim_check_recognizes_only_own_legacy_card(identities, monkeypatch, tm
     output = capsys.readouterr().out
     assert "OTHER(touches:" in output
     assert "MINE(touches:" not in output
-
-
-def test_banner_recognizes_only_own_legacy_card(identities, monkeypatch, tmp_path, capsys):
-    from datetime import datetime
-
-    path = _cards(tmp_path, [("MINE", LEGACY, SID_A), ("OTHER", LEGACY, SID_B)])
-    monkeypatch.setenv("NAWABAN_DB", str(path))
-    monkeypatch.setenv("NAWABAN_CONTEXT_BANNER", "0")
-    monkeypatch.setattr(sys, "argv", ["foreman_session_start.py"])
-    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({
-        "session_id": SID_A, "cwd": str(tmp_path)})))
-    monkeypatch.setattr(session_start, "_STATE", tmp_path)
-    (tmp_path / "foreman-stale.last").write_text(datetime.now().strftime("%Y-%m-%d"))
-    monkeypatch.setattr(session_start, "_inbox_banner", lambda *a: True)
-    monkeypatch.setattr(session_start, "_warn_dirty_main_tree", lambda *a: None)
-    monkeypatch.setattr(session_start, "_reclaim_stale_owners", lambda *a: None)
-    assert session_start.main() == 0
-    output = capsys.readouterr().out
-    assert "MINE · touches:" in output
-    assert "OTHER · touches:" not in output
 
 
 @pytest.mark.parametrize("explicit", [None, LEGACY])

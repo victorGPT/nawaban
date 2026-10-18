@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "nawaban",
-      "description": "Task board, worktree gates and human inbox shared by agents and people.",
+      "description": "Task tracker and read-only board shared by agents and people.",
       "source": "./"
     }
   ]

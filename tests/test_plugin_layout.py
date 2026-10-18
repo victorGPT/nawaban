@@ -1,45 +1,38 @@
-"""The repository loads as a plugin: manifests parse and every hook command points at a shipped script."""
+"""The repository loads as a plugin: manifests parse, no hooks are registered, and one skill describes the tracker."""
 
 import json
-import os
 import re
-import subprocess
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-HOOKS = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-COMMANDS = [h["command"] for groups in HOOKS.values() for g in groups for h in g["hooks"]]
+MANIFESTS = [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"]
 
 
-@pytest.mark.parametrize("manifest", [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"])
+@pytest.mark.parametrize("manifest", MANIFESTS)
 def test_manifest_has_identity(manifest):
     data = json.loads((ROOT / manifest).read_text(encoding="utf-8"))
     assert data["name"] == "nawaban"
     assert data["version"] and data["description"] and data["author"]["name"]
 
 
-@pytest.mark.parametrize("command", COMMANDS)
-def test_hook_command_points_at_shipped_script(command):
-    m = re.search(r'"\$\{CLAUDE_PLUGIN_ROOT\}/([^"]+)"', command)
-    assert m, f"hook must use the plugin root: {command}"
-    script = ROOT / m[1]
-    assert script.is_file(), script
-    if not command.startswith("python3 "):
-        assert os.access(script, os.X_OK), f"{script} must be executable"
+@pytest.mark.parametrize("manifest", MANIFESTS)
+def test_manifest_registers_no_hooks(manifest):
+    assert "hooks" not in json.loads((ROOT / manifest).read_text(encoding="utf-8"))
 
 
-def test_retired_hooks_are_not_registered():
-    joined = " ".join(COMMANDS)
-    for retired in ("autosync", "inbox_hook", "done_gate"):
-        assert retired not in joined
+def test_no_hook_scripts_ship():
+    # Both Claude Code and Codex discover hooks/hooks.json by convention.
+    assert not (ROOT / "hooks").exists()
 
 
-def test_branch_gate_blocks_switch_in_a_main_checkout(tmp_path):
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    payload = json.dumps({"cwd": str(tmp_path), "tool_name": "Bash",
-                          "tool_input": {"command": "git checkout -b feature"}})
-    r = subprocess.run([str(ROOT / "hooks" / "foreman_branch_gate.sh")], input=payload,
-                       capture_output=True, text=True, cwd=tmp_path)
-    assert r.returncode == 2 and "branch gate" in r.stderr
+def test_plugin_ships_exactly_the_nawaban_skill():
+    assert sorted(p.name for p in (ROOT / "skills").iterdir()) == ["nawaban"]
+
+
+def test_skill_names_every_tracker_verb():
+    verbs = set(re.findall(r"\.add_parser\(\s*['\"]([^'\"]+)['\"]",
+                           (ROOT / "nawaban" / "tracker.py").read_text(encoding="utf-8")))
+    skill = (ROOT / "skills" / "nawaban" / "SKILL.md").read_text(encoding="utf-8")
+    assert verbs and not {v for v in verbs if not re.search(rf"\bnawaban {v}\b", skill)}
