@@ -1,6 +1,6 @@
 ---
 name: nawaban
-description: The nawaban board is the issue tracker. Use when a skill says to "publish the spec", "publish the tickets" or "fetch the ticket" (each ticket is a task), or to find the frontier; before working on a task; and when recording a note, a decision between options, or a link such as a pull request.
+description: The nawaban board is the issue tracker. Use when a skill says to publish a spec, "publish the tickets" or "fetch the ticket" (each ticket is a task), or to find the frontier; before working on a task; and when recording a note, a decision between options, or a link such as a pull request.
 ---
 
 # nawaban issue tracker
