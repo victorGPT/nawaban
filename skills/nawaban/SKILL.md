@@ -15,10 +15,10 @@ A nawaban board records **tasks** and an append-only **event** log per task. It 
 
 ## The command
 
-The CLI is `nawaban/tracker.py` in the plugin root, two directories above this skill's base directory. Below, `nawaban` stands for:
+The CLI is `nawaban/cli.py` in the plugin root, two directories above this skill's base directory. Below, `nawaban` stands for:
 
 ```
-python3 <plugin root>/nawaban/tracker.py --db <absolute board path>
+python3 <plugin root>/nawaban/cli.py --db <absolute board path>
 ```
 
 Use the board the project names (its `CLAUDE.md` or `docs/agents/issue-tracker.md`); otherwise the CLI finds `.nawaban/nawaban.db` in the repository's main checkout. Always pass the absolute `--db`, also from worktrees, so every worktree writes one board. `nawaban <verb> --help` lists a verb's flags. Output is in Chinese: `✓` is success; `✗` with exit 1 is a refusal or an unknown id.

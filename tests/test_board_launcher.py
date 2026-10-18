@@ -29,7 +29,7 @@ def test_symlink_launcher_serves_selected_board(tmp_path, file_link):
         port = sock.getsockname()[1]
     env.update(NAWABAN_DB=str(board), NAWABAN_BOARD_HOST="127.0.0.1",
                NAWABAN_BOARD_PORT=str(port), HOME=str(tmp_path))
-    subprocess.run([sys.executable, str(ROOT / "nawaban/tracker.py"), "init"],
+    subprocess.run([sys.executable, str(ROOT / "nawaban/cli.py"), "init"],
                    cwd=tmp_path, env=env, check=True, capture_output=True)
     try:
         started = subprocess.run(["bash", str(launcher)], cwd=tmp_path, env=env,

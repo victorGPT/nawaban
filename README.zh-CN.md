@@ -13,7 +13,7 @@ nawaban 只记两样东西：**任务**（标题、含验收标准的 markdown �
 | 部分 | 位置 | 做什么 |
 | --- | --- | --- |
 | Skill | `skills/nawaban/` | 一份给 agent 读的操作说明：怎么发布 spec 和拆出的任务、找可开工的任务、认领、记笔记/决定/链接、关闭。另带三条规则：只拿产品行为、对外说法、上不上生产这三类问题问用户；每次在选项之间做选择都记成决定；动手前先认领。 |
-| CLI | `nawaban/tracker.py` | Python 命令行。对看板的每次写入都经过它。 |
+| CLI | `nawaban/cli.py` | Python 命令行。对看板的每次写入都经过它。 |
 | 看板文件 | `.nawaban/nawaban.db` | 一个 SQLite 文件，存任务和事件。 |
 | 看板 | `nawaban/board_view.py`、`nawaban/webui/` | Python 写的本地服务，加一个 React 网页，显示看板和每个任务的详情。只读。 |
 
@@ -51,7 +51,7 @@ nawaban 只记两样东西：**任务**（标题、含验收标准的 markdown �
 
    ```sh
    export NAWABAN_HOME=~/nawaban
-   nawaban() { python3 "$NAWABAN_HOME/nawaban/tracker.py" "$@"; }
+   nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
    ```
 
 3. 在你的项目里建一块看板。

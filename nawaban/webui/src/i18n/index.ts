@@ -45,13 +45,8 @@ export function t(key: TranslationKey, values: Record<string, string | number> =
 }
 
 const statuses: Record<string, TranslationKey> = {
-  open: "unassigned", claimed: "assigned", in_progress: "inProgress",
-  "staging-verified": "ready", done: "done", cancelled: "cancelled",
-};
-const waiting: Record<string, TranslationKey> = {
-  decision: "waitDecision", prod: "waitDeploy", observe: "waitObserve", external: "waitExternal",
+  open: "unassigned", in_progress: "inProgress", done: "done", cancelled: "cancelled",
 };
 
 // Unknown values received from a newer server remain visible as their raw identifiers.
 export const statusLabel = (status: string) => statuses[status] ? t(statuses[status]) : status;
-export const waitingLabel = (value: string) => waiting[value] ? t(waiting[value]) : value;

@@ -13,7 +13,7 @@ All of them live in this repository and run on your machine.
 | Part | Where | What it does |
 | --- | --- | --- |
 | Skill | `skills/nawaban/` | One instruction file the agent reads: how to publish a spec and its tickets, find the frontier, claim a task, record notes, decisions and links, and close it. It also carries three rules: ask the user only about product behaviour, outside statements and production releases; record every choice as a decision; claim before working. |
-| CLI | `nawaban/tracker.py` | Python command line. Every write to the board goes through it. |
+| CLI | `nawaban/cli.py` | Python command line. Every write to the board goes through it. |
 | Board file | `.nawaban/nawaban.db` | One SQLite file holding tasks and events. |
 | Board | `nawaban/board_view.py`, `nawaban/webui/` | A local Python server and a React page that show the board and each task's detail. It only reads. |
 
@@ -51,7 +51,7 @@ About five minutes. One clone serves as both the plugin and the CLI.
 
    ```sh
    export NAWABAN_HOME=~/nawaban
-   nawaban() { python3 "$NAWABAN_HOME/nawaban/tracker.py" "$@"; }
+   nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
    ```
 
 3. Create a board in your project.

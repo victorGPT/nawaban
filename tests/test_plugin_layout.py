@@ -33,6 +33,6 @@ def test_plugin_ships_exactly_the_nawaban_skill():
 
 def test_skill_names_every_tracker_verb():
     verbs = set(re.findall(r"\.add_parser\(\s*['\"]([^'\"]+)['\"]",
-                           (ROOT / "nawaban" / "tracker.py").read_text(encoding="utf-8")))
+                           (ROOT / "nawaban" / "cli.py").read_text(encoding="utf-8")))
     skill = (ROOT / "skills" / "nawaban" / "SKILL.md").read_text(encoding="utf-8")
     assert verbs and not {v for v in verbs if not re.search(rf"\bnawaban {v}\b", skill)}

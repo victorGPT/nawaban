@@ -31,7 +31,7 @@ Set `NAWABAN_HOME` to this checkout and define the CLI in your shell (no package
 
 ```sh
 export NAWABAN_HOME="$(pwd)"
-nawaban() { python3 "$NAWABAN_HOME/nawaban/tracker.py" "$@"; }
+nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
 ```
 
 Run `nawaban init` in the project to create `.nawaban/nawaban.db`, then `nawaban list`. The CLI picks the board from an explicit `--db`, then `NAWABAN_DB`, then `.nawaban/nawaban.db` in the repository's main checkout (so linked worktrees share it), then the nearest `.nawaban/` above the current directory. Several projects can share one board: pass the same absolute `--db` everywhere; a new task's project defaults to its parent's, then to the repository holding the board. `nawaban backup` copies the board into `backups/` beside it.
