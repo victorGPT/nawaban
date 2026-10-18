@@ -13,7 +13,7 @@ npm run build
 bash ../board-up.sh
 ```
 
-`board_view.py` serves `webui/dist` directly. `/`, `/?view=board`, `/?view=modules`, `/?view=inbox` and `/?task=TASK-ID` load the same application. Module deep links retain `epic`; the project selector retains `project` in the URL and local preference. Cards without a project remain accessible under all projects.
+`board_view.py` serves `webui/dist` directly and answers only reads (`/api/projects`, `/api/board`, `/api/task`). `/` and `/?task=TASK-ID` load the same application: the board, with a task's detail opened over it. The project selector retains `project` in the URL and local preference. Cards without a project remain accessible under all projects.
 
 A frontend rebuild takes effect on the next page request. Backend changes require restarting the listener; `board-up.sh` does not replace a running process. Install the frontend and backend together.
 
