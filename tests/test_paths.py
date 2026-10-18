@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # Match the existing tests: liveness packaging is outside these path checks.
-from nawaban import board_view, cli, db, guard  # noqa: E402
+from nawaban import board_view, cli, context_loader, db, guard, tracker  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -82,8 +82,7 @@ def test_init_upgrades_reused_legacy_schema_and_preserves_context(tmp_path):
         con.execute("ALTER TABLE tasks DROP COLUMN project")
     assert cli.main(["init"]) == 0
     assert not (tmp_path / ".nawaban/nawaban.db").exists()
-    detail = board_view.task_detail(legacy, "LEGACY")
-    assert detail["context"] == "Saved context"
+    assert context_loader._task_detail(legacy, "LEGACY")["context"] == "Saved context"
     with db.connect(legacy) as con:
         assert con.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
         columns = {row[1] for row in con.execute("PRAGMA table_info(tasks)")}
@@ -119,7 +118,7 @@ def test_main_checkout_write_gate_with_new_or_legacy_board(tmp_path, relative):
 
 def test_listener_environment(monkeypatch, tmp_path):
     path = tmp_path / "board.db"
-    db.init_db(path)
+    tracker.init(path)
     monkeypatch.setenv("NAWABAN_DB", str(path))
     monkeypatch.setenv("NAWABAN_BOARD_PORT", "18814")
     monkeypatch.setenv("NAWABAN_BOARD_HOST", "127.0.0.2")

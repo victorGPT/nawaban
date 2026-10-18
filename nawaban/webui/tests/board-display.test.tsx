@@ -8,37 +8,37 @@ import { BOARD_DISPLAY_STORAGE } from "@/lib/board-display";
 import { BOARD_COLUMNS } from "@/lib/nawaban-model";
 import zh from "@/i18n/zh-CN.json";
 import { setLocale } from "@/i18n";
-import type { BoardResponse } from "@/lib/types";
+import type { BoardResponse, BoardTask, TaskStatus } from "@/lib/types";
 
 vi.mock("@/lib/api", async (original) => ({
   ...await original<typeof import("@/lib/api")>(), fetchBoard: vi.fn(),
 }));
+const task = (name: string, status: TaskStatus, i: number): BoardTask => ({
+  id: `TASK-${name}`, title: `Title ${name}`, status, project: "workos", parent: null,
+  session: status === "in_progress" ? `session-${name}` : null, created_at: i, active_at: i, open_blockers: 0,
+});
 const board: BoardResponse = {
-  columns: ["open", "claimed", "in_progress", "staging-verified", "done"].map((status, i) => ({
-    key: status, title: status, color: "gray", tasks: [{
-      id: `TASK-${status}`, title: `Title ${status}`, status, waiting_on: null,
-      owner: null, epic: "Example", now: null, created_at: i, started_at: null,
-      completed_at: null, active_at: i, fold: "TASK",
-    }],
-  })),
-  liveness: { available: false, complete: true, busy_window_s: 120, idle_window_s: 300 },
+  columns: [
+    { key: "open", tasks: [task("open", "open", 0)] },
+    { key: "in_progress", tasks: [task("held-a", "in_progress", 1), task("held-b", "in_progress", 2)] },
+    { key: "done", tasks: [task("done", "done", 3)] },
+  ],
 };
 beforeEach(() => vi.mocked(fetchBoard).mockResolvedValue(board));
-const props = { project: null, range: null, query: "", onSelectTask: vi.fn(),
-  onDecision: vi.fn(), decisionTasks: new Set<string>() };
+const props = { project: null, range: null, query: "", onSelectTask: vi.fn() };
 
 test("an invalid column URL cannot persist an empty board on a later clean visit", async () => {
   history.replaceState(null, "", "/?boardColumns=unknown");
   const first = render(<BoardKanban {...props} />);
   await screen.findByText("Title open");
-  expect(first.container.querySelectorAll(".board-column")).toHaveLength(4);
+  expect(first.container.querySelectorAll(".board-column")).toHaveLength(3);
   expect(new URLSearchParams(localStorage.getItem(BOARD_DISPLAY_STORAGE)!).get("boardColumns"))
-    .toBe("open,in_progress,staging-verified,done");
+    .toBe("open,in_progress,done");
   first.unmount();
   history.replaceState(null, "", "/");
   const revisit = render(<BoardKanban {...props} />);
   await screen.findByText("Title open");
-  expect(revisit.container.querySelectorAll(".board-column")).toHaveLength(4);
+  expect(revisit.container.querySelectorAll(".board-column")).toHaveLength(3);
 });
 
 test("an invalid field URL keeps both optional fields visible on a later clean visit", async () => {
@@ -47,14 +47,14 @@ test("an invalid field URL keeps both optional fields visible on a later clean v
   await screen.findByText("Title open");
   const card = first.container.querySelector('[data-card-id="TASK-open"]')!;
   expect(card.textContent).not.toContain("TASK-open");
-  expect(card.querySelector(".task-module")?.textContent).toBe("Example");
-  expect(new URLSearchParams(localStorage.getItem(BOARD_DISPLAY_STORAGE)!).get("boardFields")).toBe("id,module");
+  expect(card.querySelector(".task-module")?.textContent).toBe("workos");
+  expect(new URLSearchParams(localStorage.getItem(BOARD_DISPLAY_STORAGE)!).get("boardFields")).toBe("id,project");
   first.unmount();
   history.replaceState(null, "", "/");
   const revisit = render(<BoardKanban {...props} />);
   await screen.findByText("Title open");
   const restored = revisit.container.querySelector('[data-card-id="TASK-open"]')!;
-  expect(restored.querySelector(".task-module")?.textContent).toBe("Example");
+  expect(restored.querySelector(".task-module")?.textContent).toBe("workos");
 });
 
 test("restore-all is disabled when nothing is hidden and the English count works for one or more lanes", async () => {
@@ -79,29 +79,29 @@ test("hiding a lane persists locally and in the URL without filtering tasks or r
   const user = userEvent.setup();
   history.replaceState(null, "", "/?project=workos&task=TASK-open");
   const view = render(<BoardKanban {...props} />);
-  await screen.findByText("Title claimed");
+  await screen.findByText("Title held-a");
   await user.click(screen.getByRole("button", { name: zh.boardDisplay }));
   await user.click(screen.getByRole("checkbox", { name: zh.inProgress }));
-  expect(view.container.querySelectorAll(".board-column")).toHaveLength(3);
-  expect((view.container.querySelector(".kanban") as HTMLElement).style.getPropertyValue("--board-column-count")).toBe("3");
-  expect(screen.queryByText("Title claimed")).toBeNull();
-  expect(screen.getByRole("status").textContent).toContain("5 张任务");
+  expect(view.container.querySelectorAll(".board-column")).toHaveLength(2);
+  expect((view.container.querySelector(".kanban") as HTMLElement).style.getPropertyValue("--board-column-count")).toBe("2");
+  expect(screen.queryByText("Title held-a")).toBeNull();
+  expect(screen.getByRole("status").textContent).toContain("4 张任务");
   expect(fetchBoard).toHaveBeenCalledTimes(1);
-  expect(board.columns.flatMap((column) => column.tasks)).toHaveLength(5);
+  expect(board.columns.flatMap((column) => column.tasks)).toHaveLength(4);
   const params = new URLSearchParams(location.search);
-  expect(params.get("boardColumns")).toBe("open,staging-verified,done");
+  expect(params.get("boardColumns")).toBe("open,done");
   expect(params.get("project")).toBe("workos");
   expect(params.get("task")).toBe("TASK-open");
   await user.keyboard("{Escape}");
   await user.click(screen.getByRole("button", { name: zh.list, exact: true }));
-  expect(screen.getByText("Title claimed")).toBeTruthy();
-  expect(screen.getByText("Title in_progress")).toBeTruthy();
+  expect(screen.getByText("Title held-a")).toBeTruthy();
+  expect(screen.getByText("Title held-b")).toBeTruthy();
   view.unmount();
   history.replaceState(null, "", "/");
   const restored = render(<BoardKanban {...props} />);
   await screen.findByText("Title open");
-  expect(restored.container.querySelectorAll(".board-column")).toHaveLength(3);
-  expect(screen.queryByText("Title claimed")).toBeNull();
+  expect(restored.container.querySelectorAll(".board-column")).toHaveLength(2);
+  expect(screen.queryByText("Title held-a")).toBeNull();
 });
 
 test("URL overrides local preferences; an explicit empty list can be recovered", async () => {
@@ -112,34 +112,31 @@ test("URL overrides local preferences; an explicit empty list can be recovered",
   await screen.findByText(zh.boardNoColumns);
   expect(container.querySelector(".board-compact")).toBeNull();
   await user.click(screen.getByRole("button", { name: zh.boardShowAllColumns }));
-  expect(container.querySelectorAll(".board-column")).toHaveLength(4);
-  expect(screen.getByText("Title claimed")).toBeTruthy();
-  expect(screen.getByText(zh.assigned)).toBeTruthy();
+  expect(container.querySelectorAll(".board-column")).toHaveLength(3);
+  expect(screen.getByText("Title held-a")).toBeTruthy();
   expect(container.querySelector(".task-module")).toBeNull();
-  expect(container.querySelectorAll(".signal-button")).toHaveLength(0);
 });
 
 test("display controls sort within lanes and hide fields in board and list", async () => {
   const user = userEvent.setup();
   const { container } = render(<BoardKanban {...props} />);
-  await screen.findByText("Title claimed");
+  await screen.findByText("Title held-a");
   const display = screen.getByRole("button", { name: zh.boardDisplay });
   await user.click(display);
   await user.click(screen.getByRole("combobox", { name: zh.boardSort }));
   await user.click(await screen.findByRole("option", { name: zh.boardSort_created }));
   const lane = container.querySelector('[data-stage="in_progress"]')!;
   expect([...lane.querySelectorAll("[data-card-id]")].map((el) => el.getAttribute("data-card-id")))
-    .toEqual(["TASK-in_progress", "TASK-claimed"]);
+    .toEqual(["TASK-held-b", "TASK-held-a"]);
   await user.click(screen.getByRole("checkbox", { name: zh.taskId }));
-  await user.click(screen.getByRole("checkbox", { name: zh.epicName }));
+  await user.click(screen.getByRole("checkbox", { name: zh.project }));
   await user.click(screen.getByRole("checkbox", { name: zh.boardCompact }));
   expect(container.querySelector(".task-module")).toBeNull();
   expect(container.querySelector(".board-compact")).toBeTruthy();
   await user.keyboard("{Escape}");
   await waitFor(() => expect(document.activeElement).toBe(display));
   await user.click(screen.getByRole("button", { name: zh.list, exact: true }));
-  expect(screen.getAllByRole("columnheader")).toHaveLength(2);
-  expect(screen.getByText(zh.assigned)).toBeTruthy();
+  expect(screen.getAllByRole("columnheader")).toHaveLength(1);
   expect(new URLSearchParams(location.search).get("boardFields")).toBe("");
 });
 
@@ -162,17 +159,13 @@ test("display panel supports keyboard toggling, Escape and outside dismissal", a
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 });
 
-test("filter panel retains nested date and module controls after selection", async () => {
+test("filter panel retains nested date controls after selection", async () => {
   const user = userEvent.setup();
   const change = vi.fn();
   render(<BoardKanban {...props} filters={<BoardFilterBar range={null} onChange={change} />} />);
   await user.click(screen.getByRole("button", { name: zh.boardFilter }));
   await user.click(screen.getByRole("button", { name: zh.today }));
   expect(change).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole("dialog", { name: zh.boardFilter })).toBeTruthy();
-  await user.click(screen.getByRole("combobox", { name: zh.filterEpic }));
-  await screen.findByRole("listbox");
-  await user.keyboard("{Escape}");
   expect(screen.getByRole("dialog", { name: zh.boardFilter })).toBeTruthy();
   const dates = screen.getByRole("button", { name: zh.customUpdatedRange });
   await user.click(dates);
@@ -190,5 +183,5 @@ test("denied local storage does not prevent display updates or URL persistence",
   await screen.findByText("Title open");
   await user.click(screen.getByRole("button", { name: zh.boardDisplay }));
   await user.click(screen.getByRole("checkbox", { name: BOARD_COLUMNS[2].label }));
-  expect(new URLSearchParams(location.search).get("boardColumns")).toBe("open,in_progress,done");
+  expect(new URLSearchParams(location.search).get("boardColumns")).toBe("open,in_progress");
 });

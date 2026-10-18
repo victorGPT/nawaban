@@ -1,19 +1,15 @@
-"""Shared inbox behavior through the domain interface, CLI, and served Web API."""
+"""Shared inbox behavior through the domain interface and CLI."""
 
 from __future__ import annotations
 
 import json
 import os
-import re
 import sqlite3
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
-import urllib.request
 from contextlib import closing
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -128,39 +124,6 @@ class InboxProjectionTests(unittest.TestCase):
         self.assertIn("1 件事等你", result.stdout)
         result = self._cli("--help")
         self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_python_served_build_uses_the_same_projection_and_selected_database(self):
-        from nawaban import board_view
-
-        self._ask("QUESTION", age=2)
-        decoy = Path(self.tmp.name) / "decoy.sqlite"
-        db.init_db(decoy)
-        self.assertTrue((board_view.WEBUI_DIST / "index.html").is_file(), "Build web before this test")
-        with patch.object(board_view._Handler, "db_path", self.path), \
-                patch.dict(os.environ, NAWABAN_DB=str(decoy)):
-            server = ThreadingHTTPServer(("127.0.0.1", 0), board_view._Handler)
-            thread = threading.Thread(target=server.serve_forever)
-            thread.start()
-            base = f"http://127.0.0.1:{server.server_port}"
-            try:
-                with urllib.request.urlopen(base + "/?view=inbox", timeout=5) as response:
-                    html = response.read().decode()
-                self.assertEqual(html, (board_view.WEBUI_DIST / "index.html").read_text())
-                assets = re.findall(r'(?:src|href)="(/assets/[^\"]+)"', html)
-                self.assertGreaterEqual(len(assets), 2)
-                for asset in assets:
-                    with urllib.request.urlopen(base + asset, timeout=5) as response:
-                        self.assertTrue(response.read())
-                with urllib.request.urlopen(base + "/api/inbox", timeout=5) as response:
-                    data = json.load(response)
-                self.assertEqual(data, inbox.read(self.path))
-                self.assertEqual(data["total"], 1)
-                self.assertEqual(inbox.read(decoy)["total"], 0)
-                self.assertEqual(board_view.inbox_data(self.path), data)
-            finally:
-                server.shutdown()
-                server.server_close()
-                thread.join()
 
 
 if __name__ == "__main__":

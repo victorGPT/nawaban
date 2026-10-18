@@ -1,37 +1,24 @@
-"""Isolated real board HTTP handler with a recording CLI stub; never opens a DB."""
+"""The real board HTTP handler on a temporary tracker board holding one task."""
+import contextlib
 import json
+import os
 import sys
+import tempfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
-from nawaban import board_view
+from nawaban import board_view, tracker
 
-requests = []
-calls = []
-
-
-def run(command, **kwargs):
-    calls.append(command)
-    return SimpleNamespace(returncode=0, stdout=json.dumps({"id": "fixture"}) if "capture" in command else "review fixture", stderr="")
-
-
-board_view.subprocess.run = run
+board = Path(tempfile.mkdtemp(prefix="nawaban-proxy-")) / "board.db"
+os.environ["CLAUDE_CODE_SESSION_ID"] = "proxy-fixture"
+with contextlib.redirect_stdout(sys.stderr):  # stdout carries only the ready line
+    for args in (["init"], ["create", "PROXY-001", "--title", "Proxy fixture task", "--body", ""]):
+        assert tracker.main(["--db", str(board), *args]) == 0
 
 
 class Handler(board_view._Handler):
-    db_path = Path("unused-proxy-fixture.db")
-
-    def do_POST(self):
-        requests.append(dict(self.headers))
-        super().do_POST()
-
-    def do_GET(self):
-        if self.path == "/api/review-requests":
-            self._json(200, {"requests": requests, "calls": len(calls)})
-        else:
-            super().do_GET()
+    db_path = board
 
 
 server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

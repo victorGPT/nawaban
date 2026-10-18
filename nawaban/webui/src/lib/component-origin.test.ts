@@ -90,7 +90,7 @@ test("only components/ui speaks Base UI, and the old hand-built kit is gone", ()
  * components/ is presentational, top-level files and feature folders alike:
  * the view that assembles them does the fetching. Types live in lib/types.
  */
-test("components neither import lib/api or lib/captures-api nor reach into views", () => {
+test("components neither import lib/api nor reach into views", () => {
   const root = new URL("../", import.meta.url);
   const violations: string[] = [];
   for (const path of sources(root)) {
@@ -104,7 +104,7 @@ test("components neither import lib/api or lib/captures-api nor reach into views
       // Resolve `@/…` and relative specifiers to one src-relative spelling.
       const target = specifier.startsWith("@/") ? specifier.slice(2)
         : specifier.startsWith(".") ? new URL(specifier, path).pathname.split("/src/")[1] ?? "" : "";
-      if (/^lib\/(captures-)?api(\.ts)?$|^views(\/|$)/.test(target)) violations.push(`${file}: imports ${specifier}`);
+      if (/^lib\/api(\.ts)?$|^views(\/|$)/.test(target)) violations.push(`${file}: imports ${specifier}`);
     }
   }
   assert.deepEqual(violations, []);

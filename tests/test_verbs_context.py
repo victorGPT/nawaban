@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from nawaban import board_view, cli, context_loader, db  # noqa: E402
+from nawaban import cli, context_loader, db  # noqa: E402
 
 
 @pytest.fixture
@@ -81,20 +81,14 @@ def test_help_only_lists_canonical_verbs(capsys):
         assert name in text
 
 
-def test_board_and_loader_read_context(board):
-    detail = board_view.task_detail(board, "T")
-    assert detail["context"] == "背景\n原文"
-    assert "origin" not in detail
-    graph = board_view.graph_data(board)
-    assert graph["nodes"][0]["context"] == detail["context"]
-    assert "origin" not in graph["nodes"][0]
-    assert detail["context"] in context_loader.build_context(board, "T", lens_k=0)
+def test_loader_reads_context(board):
+    assert "背景\n原文" in context_loader.build_context(board, "T", lens_k=0)
 
 
-def test_imported_task_context_reaches_board(board):
+def test_imported_task_context_reaches_loader(board):
     assert db.import_task(board, task_id="IMPORTED", title="Imported task", status="open",
                           created_at=1, context="Original import text")
-    assert board_view.task_detail(board, "IMPORTED")["context"] == "Original import text"
+    assert "Original import text" in context_loader.build_context(board, "IMPORTED", lens_k=0)
 
 
 def test_imported_pr_ref_keeps_who_registered_it(board):

@@ -1,4 +1,4 @@
-import { t as tr, useLocale, statusLabel } from "@/i18n";
+import { t as tr, useLocale } from "@/i18n";
 import { Fragment } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -11,39 +11,34 @@ import {
 } from "@/components/ui/table";
 import { ActionRow } from "@/components/application/table/action-row";
 import { OverflowText } from "@/components/OverflowText";
-import { TaskTag, WindowStatus } from "@/components/TaskCard";
+import { TaskTag } from "@/components/TaskCard";
 import { BOARD_COLUMNS } from "@/lib/nawaban-model";
 import type { BoardTask } from "@/lib/types";
 
 export function TaskList({
   tasks,
   fields,
-  decisionTasks,
   onSelectTask,
-  onDecision,
 }: {
   tasks: (BoardTask & { column: string })[];
   fields: readonly string[];
-  decisionTasks: Set<string>;
   onSelectTask: (id: string) => void;
-  onDecision: (id: string) => void;
 }) {
   useLocale();
   const showId = fields.includes("id");
-  const showModule = fields.includes("module");
-  const tableColumns = 2 + Number(showId) + Number(showModule);
+  const showProject = fields.includes("project");
+  const tableColumns = 1 + Number(showId) + Number(showProject);
   return (
     <Table
       aria-label={tr("taskList")}
       className="bui-table bui-table-sm task-table"
     >
-      <colgroup><col className="task-col-title" />{showId && <col className="task-col-id" />}{showModule && <col className="task-col-module" />}<col className="task-col-status" /></colgroup>
+      <colgroup><col className="task-col-title" />{showId && <col className="task-col-id" />}{showProject && <col className="task-col-module" />}</colgroup>
       <TableHeader className="sr-only">
         <TableRow>
           <TableHead>{tr("taskTitle")}</TableHead>
           {showId && <TableHead>{tr("taskId")}</TableHead>}
-          {showModule && <TableHead>{tr("epicName")}</TableHead>}
-          <TableHead>{tr("status")}</TableHead>
+          {showProject && <TableHead>{tr("project")}</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -58,12 +53,9 @@ export function TaskList({
             {group.length === 0 && <TableRow><TableCell colSpan={tableColumns}>{tr("noMatchingTasks")}</TableCell></TableRow>}
             {group.map((task) => (
               <ActionRow key={task.id} aria-label={`${task.id} ${task.title}`} onAction={() => onSelectTask(task.id)}>
-                <TableCell><OverflowText className="task-list-title" text={task.title} />
-                  {task.status === "claimed" && <TaskTag label={statusLabel(task.status)} />}
-                </TableCell>
+                <TableCell><OverflowText className="task-list-title" text={task.title} /></TableCell>
                 {showId && <TableCell><OverflowText as="code" className="task-id" text={task.id} /></TableCell>}
-                {showModule && <TableCell>{task.epic && <TaskTag label={task.epic} />}</TableCell>}
-                <TableCell><WindowStatus task={task} hasAsk={decisionTasks.has(task.id)} onDecision={() => onDecision(task.id)} /></TableCell>
+                {showProject && <TableCell>{task.project && <TaskTag label={task.project} />}</TableCell>}
               </ActionRow>
             ))}
           </Fragment>;

@@ -21,7 +21,6 @@ from pathlib import Path
 FOREMAN = (Path(__file__).resolve().parents[2])  # 本文件所在树,worktree 里也测自己
 sys.path.insert(0, str(FOREMAN))
 
-from nawaban import board_view  # noqa: E402
 from nawaban import context_loader as cl  # noqa: E402
 from nawaban import db  # noqa: E402
 
@@ -288,8 +287,6 @@ def main() -> int:  # noqa: C901, PLR0915
         p3 = _many_events_db()
         rows, total = cl._fetch_events(p3, "T-EV-001", 999)
         assert total == 21, f"真实总数该是 21,得到 {total}"
-        assert len(board_view.task_detail(p3, "T-EV-001")["events"]) <= 20, \
-            "前提:上游确实截断在 20(此断言失效说明上游改了,本测试要重估)"
 
     def t_G1_不饿死验收判据() -> None:
         """G1 抬事件不许把 B 视图唯一胜过 md 的维度(验收复述 15:14)压垮。"""

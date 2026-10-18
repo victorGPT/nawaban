@@ -35,7 +35,10 @@ from typing import Optional
 FOREMAN = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(FOREMAN))
 
-from nawaban import board_view, db  # noqa: E402
+import json  # noqa: E402
+import sqlite3  # noqa: E402
+
+from nawaban import db  # noqa: E402
 
 BUDGET = 8192          # Context output budget.
 EVENTS = 24            # 取回的事件条数上限(实际展示由字节预算决定)
@@ -46,6 +49,72 @@ LENS_K = 5             # 检索区 top-k
 EVENT_SHARE = 0.50     # 事件区最低预算占比
 EVENT_FLOOR = 900      # 小预算下的绝对底额(B)
 RULE = "─" * 60
+
+
+# ── 旧库只读投影(看板改读新版看板后搬到这里 · 随旧 CLI 在 NAWABAN-LEAN-06 删除)──
+
+def _ro(path: Path | str) -> sqlite3.Connection:
+    con = sqlite3.connect(f"file:{Path(path)}?mode=ro", uri=True, timeout=10)
+    con.row_factory = sqlite3.Row
+    # 未迁移的旧库没有 project 列时,用临时视图遮住 tasks 补一列 NULL
+    if "project" not in {r[1] for r in con.execute("PRAGMA main.table_info(tasks)")}:
+        con.execute("CREATE TEMP VIEW tasks AS SELECT *, NULL AS project FROM main.tasks")
+    return con
+
+
+def _j(s):
+    if not s:
+        return None
+    try:
+        return json.loads(s)
+    except ValueError:
+        return s  # Historical task contracts and decisions may contain plain text.
+
+
+def _task_detail(path: Path | str, task_id: str) -> dict:
+    """卡详情:卡字段 + 双向边(JOIN 对端实时 status)+ 决策 + 引用 + 会话。"""
+    con = _ro(path)
+    try:
+        row = con.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+        if row is None:
+            raise db.NawabanError(f"卡不存在:{task_id}")
+        d = {k: row[k] for k in ("id", "title", "status", "waiting_on", "owner", "epic", "now",
+                                 "created_at", "project", "started_at", "completed_at",
+                                 "context", "adr")}
+        d.update(success=_j(row["success"]), constraints=_j(row["constraints_"]),
+                 touches=_j(row["touches"]))
+        for key, near, far in (("edges_out", "src", "dst"), ("edges_in", "dst", "src")):
+            d[key] = [
+                {"kind": e["kind"], "other": e[far], "dir": key[6:], "note": e["note"],
+                 "other_title": e["title"], "other_status": e["status"],
+                 "other_waiting_on": e["waiting_on"]}
+                for e in con.execute(
+                    f"SELECT e.kind, e.{far}, e.note, t.title, t.status, t.waiting_on"
+                    f" FROM task_edges e JOIN tasks t ON t.id=e.{far} WHERE e.{near}=?"
+                    f" ORDER BY e.kind, e.{far}", (task_id,))
+            ]
+        d["decisions"] = [
+            {"id": r["id"], "question": r["question"], "verdict": r["verdict"],
+             "rejected": _j(r["rejected"]), "decided_by": r["decided_by"],
+             "adr": r["adr"], "supersedes": r["supersedes"], "created_at": r["created_at"]}
+            for r in con.execute(
+                "SELECT * FROM task_decisions WHERE task_id=? ORDER BY created_at DESC, id DESC",
+                (task_id,))
+        ]
+        d["refs"] = [
+            {"kind": r["kind"], "value": r["value"], "note": r["note"], "created_at": r["created_at"]}
+            for r in con.execute(
+                "SELECT * FROM task_refs WHERE task_id=? ORDER BY created_at DESC", (task_id,))
+        ]
+        d["sessions"] = [
+            {k: r[k] for k in ("owner", "session_id", "started_at", "ended_at", "outcome",
+                               "summary", "note")}
+            for r in con.execute(
+                "SELECT * FROM task_sessions WHERE task_id=? ORDER BY started_at DESC", (task_id,))
+        ]
+        return d
+    finally:
+        con.close()
 
 
 # ── 呈现原语 ──────────────────────────────────────────────────────
@@ -295,7 +364,7 @@ def _tokens(s: str) -> list[str]:
 
 
 def _corpus(path: Path | str) -> dict[str, list[str]]:
-    con = board_view._ro(path)
+    con = _ro(path)
     try:
         docs: dict[str, list[str]] = {}
         for r in con.execute("SELECT id, title, COALESCE(context,'') FROM tasks"):
@@ -340,7 +409,7 @@ def related(path: Path | str, task_id: str, *, k: int = 5,
         if s > 0:
             scored.append((s, tid))
     scored.sort(reverse=True)
-    con = board_view._ro(path)
+    con = _ro(path)
     try:
         out = []
         for s, tid in scored[:k]:
@@ -374,7 +443,7 @@ def _fetch_events(path: Path | str, task_id: str, want: int) -> tuple[list[dict]
     复用它 → PI 卡库里 33 条只拿到 20,而我的表头写「共 20 条」、G4 祈使句叫人 `--events 20`
     —— **两处都在撒谎,且不报错**。凡是要对外承诺数量的地方,数字必须自己数。
     """
-    con = board_view._ro(path)
+    con = _ro(path)
     try:
         total = con.execute("SELECT count(*) FROM task_events WHERE task_id=?",
                             (task_id,)).fetchone()[0]
@@ -395,7 +464,7 @@ def _mark_provenance(path: Path | str, d: dict) -> None:
     ids = [r["id"] for r in d.get("decisions") or []]
     if not ids:
         return
-    con = board_view._ro(path)
+    con = _ro(path)
     try:
         has = {r[0] for r in con.execute(
             "SELECT id FROM task_decisions WHERE provenance IS NOT NULL AND id IN"
@@ -409,7 +478,7 @@ def _mark_provenance(path: Path | str, d: dict) -> None:
 def build_context(path: Path | str, task_id: str, *, budget: int = BUDGET,
                   events: int = EVENTS, lens_k: int = LENS_K,
                   now_ts: Optional[int] = None) -> str:
-    d = board_view.task_detail(path, task_id)
+    d = _task_detail(path, task_id)
     _mark_provenance(path, d)
     now_ts = now_ts if now_ts is not None else int(time.time())
     ev, ev_total = _fetch_events(path, task_id, max(events, EVENTS) * 4)

@@ -1,26 +1,19 @@
 import { t as tr, useLocale } from "@/i18n";
-import { Bullets, H } from "@/components/task-detail/parts";
-import { textItems } from "@/lib/nawaban-model";
-import type { TaskDetail } from "@/lib/types";
+import { Md } from "@/components/Md";
+import { H } from "@/components/task-detail/parts";
 
-export function Criteria({ d }: { d: TaskDetail }) {
+export function Criteria({ criteria, onSelectTask }: {
+  criteria: string | null;
+  onSelectTask: (id: string) => void;
+}) {
   useLocale();
-  const success = textItems(d.success);
-  const constraints = textItems(d.constraints);
-  return success.length || constraints.length ? (
+  if (!criteria) return null;
+  return (
     <section className="detail-criteria">
-      {success.length > 0 && (
-        <div>
-          <H n={success.length}>{tr("criteria")}</H>
-          <Bullets items={success} />
-        </div>
-      )}
-      {constraints.length > 0 && (
-        <div>
-          <H n={constraints.length}>{tr("constraints")}</H>
-          <Bullets items={constraints} />
-        </div>
-      )}
+      <div>
+        <H>{tr("criteria")}</H>
+        <Md className="detail-list" text={criteria} onSelectTask={onSelectTask} />
+      </div>
     </section>
-  ) : null;
+  );
 }

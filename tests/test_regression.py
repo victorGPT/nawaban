@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from nawaban import board_view as bv, cli, db, main_ci, paths
+from nawaban import cli, db, main_ci, paths
 
 
 @pytest.fixture
@@ -46,21 +46,14 @@ def test_fix_task_must_be_unfinished(board):
         _link(board)
 
 
-def test_regressed_mark_is_derived_everywhere_and_clears_when_fixed(board):
+def test_regressed_mark_is_derived_and_clears_when_fixed(board):
     _link(board)
     assert db.kin(board, "SHIPPED")["regressed_by"] == ["FIX"]
-    done = next(c for c in bv.board_data(board)["columns"] if c["key"] == "done")
-    assert next(t for t in done["tasks"] if t["id"] == "SHIPPED")["regressed_by"] == ["FIX"]
-    assert {t["i"]: t.get("rb") for t in bv.modules_data(board)["tasks"]}["SHIPPED"] == ["FIX"]
-    node = next(n for n in bv.graph_data(board)["nodes"] if n["id"] == "SHIPPED")
-    assert node["flags"]["regressed"] and node["role"] == "regressed"
     with sqlite3.connect(board) as con:
         assert con.execute("SELECT status FROM tasks WHERE id='SHIPPED'").fetchone() == ("done",)
 
     _finish(board, "FIX")
     assert db.kin(board, "SHIPPED")["regressed_by"] == []
-    assert "rb" not in {t["i"]: t for t in bv.modules_data(board)["tasks"]}["SHIPPED"]
-    assert not next(n for n in bv.graph_data(board)["nodes"] if n["id"] == "SHIPPED")["flags"]["regressed"]
 
 
 RED = {"since": 1_000, "url": "https://ci.example/run/1"}

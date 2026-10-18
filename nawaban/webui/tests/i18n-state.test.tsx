@@ -24,7 +24,7 @@ test.each([
 ] as const)("browser %s supplies the default %s locale without a saved preference", async (language, locale) => {
   browserLanguage(language);
   const i18n = await import("@/i18n");
-  expect(i18n.t("inbox")).toBe(messages[locale].inbox);
+  expect(i18n.t("activity")).toBe(messages[locale].activity);
   expect(document.documentElement.lang).toBe(locale);
 });
 
@@ -40,7 +40,7 @@ test.each(["en", "zh-CN"] as const)("switching to %s persists across a fresh mod
   browserLanguage(next === "en" ? "zh-CN" : "en-US");
   const original = await import("@/i18n");
   original.setLocale(next);
-  expect(original.t("inbox")).toBe(messages[next].inbox);
+  expect(original.t("activity")).toBe(messages[next].activity);
   expect(localStorage.getItem("nawaban.locale")).toBe(next);
   expect(document.documentElement.lang).toBe(next);
 
@@ -48,7 +48,7 @@ test.each(["en", "zh-CN"] as const)("switching to %s persists across a fresh mod
   document.documentElement.lang = "und";
   const reloaded = await import("@/i18n");
   expect(reloaded).not.toBe(original);
-  expect(reloaded.t("inbox")).toBe(messages[next].inbox);
+  expect(reloaded.t("activity")).toBe(messages[next].activity);
   expect(document.documentElement.lang).toBe(next);
 });
 
