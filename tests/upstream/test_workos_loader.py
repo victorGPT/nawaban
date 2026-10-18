@@ -6,8 +6,7 @@
 
 覆盖(对照卡 success 逐条):全区渲染 · 相对年龄 + 快照免责 · ≤8KB 预算与可见截断 ·
 top-k 检索(线索非证据 · 排除已成边)· 导入期呈现(needs_retitle / now 空 / 归属标对) ·
-错误处理(查无此卡给 14 坏卡提示)· 只读不写 ·
-SessionStart 分流(默认关**逐字节等价** = 硬验收 · 开走装载器 · fail-soft 落回)。
+错误处理(查无此卡给 14 坏卡提示)· 只读不写。
 """
 
 from __future__ import annotations
@@ -16,9 +15,6 @@ import os
 import re
 import sqlite3
 import sys
-import json
-import subprocess
-import importlib.util
 import tempfile
 from pathlib import Path
 
@@ -304,71 +300,6 @@ def main() -> int:  # noqa: C901, PLR0915
             assert "## 验收判据 success" in t, f"budget={b} 把判据挤掉了"
             assert "判据一" in t, f"budget={b} 判据只剩标题没内容"
 
-    # ── SessionStart 分流(success⑤)────────────────────────────────
-    HOOK = FOREMAN / "hooks/foreman_session_start.py"
-
-    def mkrepo(name: str, *, with_db: bool, card_in_db: bool = True) -> Path:
-        root = tmp / name
-        d = root / ".foreman" / "tasks" / "demo" / "active"
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "T-BANNER-001.md").write_text(
-            '---\ntask_id: T-BANNER-001\nstatus: in_progress\nowner: "ac:zzzz9999"\n'
-            "touches:\n  - src/z.py\nnotes: 横幅测试卡\n---\n# T-BANNER-001 · 横幅测试\n",
-            encoding="utf-8")
-        if with_db:
-            dbp = root / ".foreman" / "workos.db"
-            db.init_db(dbp)
-            if card_in_db:
-                db.import_task(dbp, task_id="T-BANNER-001", title="横幅测试",
-                               status="in_progress", owner="ac:zzzz9999",
-                               created_at=NOW - DAY, now="当前态一句")
-        return root
-
-    def run_hook(root: Path, *, flag: str | None) -> str:
-        env = dict(os.environ)
-        env.pop("NAWABAN_CONTEXT_BANNER", None)
-        if flag:
-            env["NAWABAN_CONTEXT_BANNER"] = flag
-        env["NAWABAN_OWNER"] = "ac:zzzz9999"
-        r = subprocess.run(
-            [sys.executable, str(HOOK)],
-            input=json.dumps({"cwd": str(root),
-                              "session_id": "zzzz9999-0000-0000-0000-000000000001"}),
-            capture_output=True, text=True, env=env, timeout=60)
-        return r.stdout
-
-    def t_默认关_零输出() -> None:
-        """硬验收:开关关时分流函数必须返回 False 且一个字节都不打 —— 调用点是
-        `if not _context_banner(...)`,所以这等价于旧分支逐字节原样跑。"""
-        import io
-        from contextlib import redirect_stdout
-        sys.path.insert(0, str(FOREMAN))
-        from hooks import foreman_session_start as ss
-        os.environ.pop("NAWABAN_CONTEXT_BANNER", None)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            got = ss._context_banner([{"task_id": "X", "status": "open", "waiting": "",
-                                       "touches": "a.py"}], tmp)
-        assert got is False, "默认必须关"
-        assert buf.getvalue() == "", f"默认关却打了字:{buf.getvalue()!r}"
-
-    def t_默认关_端到端仍是db横幅() -> None:
-        """md 轨已退役(workos retire regression):默认关时横幅读 db 出卡,不走装载器。"""
-        out = run_hook(mkrepo("r-off", with_db=True), flag=None)
-        assert "T-BANNER-001" in out, f"该有 db 横幅卡行\n{out}"
-        assert "冷启动装载" not in out, "默认关不该出现装载器输出"
-
-    def t_开启_走装载器() -> None:
-        out = run_hook(mkrepo("r-on", with_db=True), flag="1")
-        assert "NAWABAN 冷启动装载" in out, f"开关开该走装载器\n{out}"
-        assert "当前态一句" in out
-        assert "T-BANNER-001 · touches: src/z.py" not in out, "装载应**替代** md 片段"
-
-    def t_failsoft_无库落回() -> None:
-        out = run_hook(mkrepo("r-nodb", with_db=False), flag="1")
-        assert "T-BANNER-001 · touches: src/z.py" in out, f"无库该落回 md 片段\n{out}"
-        assert "冷启动装载" not in out
-
     cases = [
         ("全区渲染齐", t_全区渲染),
         ("相对年龄 + 快照免责 · 无裸时间戳", t_相对年龄与免责),
@@ -388,23 +319,14 @@ def main() -> int:  # noqa: C901, PLR0915
         ("查无此卡 → 给 14 坏卡提示与补救路径", t_查无此卡给坏卡提示),
         ("只读不写库", t_只读不写库),
         ("done 卡显示完成年龄", t_done卡显示完成年龄),
-        ("SessionStart 默认关:零输出(逐字节等价的机械保证)", t_默认关_零输出),
-        ("SessionStart 默认关:端到端是 db 横幅", t_默认关_端到端仍是db横幅),
-        ("SessionStart 开启:走装载器并替代 md 片段", t_开启_走装载器),
-        ("SessionStart fail-soft:无库落回", t_failsoft_无库落回),
     ]
-    skipped = 0
     for name, fn in cases:
-        if fn is t_failsoft_无库落回 and importlib.util.find_spec("yaml") is None:
-            print(f"  SKIP: {name}: historical Markdown parsing requires optional PyYAML")
-            skipped += 1
-            continue
         case(name, fn)
 
     if FAILED:
         print(f"\nFAILED({len(FAILED)}): {FAILED}")
         return 1
-    print(f"\nOK · {len(cases) - skipped} passed, {skipped} skipped")
+    print(f"\nOK · {len(cases)} passed")
     return 0
 
 

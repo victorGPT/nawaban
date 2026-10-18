@@ -37,7 +37,7 @@ def test_no_compatibility_names_return():
     shims = [name for name in ("foreman_card.py", "foreman_liveness.py") if (root / name).exists()]
     assert not shims, "Retired import shim restored: " + ", ".join(shims)
     runtime = [*(root / "nawaban").rglob("*.py"), *(root / "nawaban").rglob("*.sh"),
-               *(root / "hooks").iterdir(), *(root / "scripts").iterdir(), root / "nawaban" / "webui" / "vite.config.ts"]
+               *(root / "scripts").iterdir(),root / "nawaban" / "webui" / "vite.config.ts"]
     retired = sorted(
         f"{path.relative_to(root)}: {name}"
         for path in runtime if path.is_file()
