@@ -7,7 +7,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { RadioCard } from "@/components/application/radio/radio-card";
 import { Switch } from "@/components/ui/switch";
 
 function Fields() {
@@ -110,16 +109,16 @@ function Radios() {
   return <RadioGroup aria-label="Decision" value={value} onValueChange={(next) => setValue(String(next))}>
     <label className="group/field-label"><RadioGroupItem value="a" />First</label>
     <label className="group/field-label"><RadioGroupItem value="b" disabled />Unavailable</label>
-    <RadioCard value="c" title="Third" description="Use this option" />
+    <label className="group/field-label"><RadioGroupItem value="c" />Third</label>
   </RadioGroup>;
 }
-test("radio group arrows skip disabled items and card labels select with one tab stop", async () => {
+test("radio group arrows skip disabled items and labels select with one tab stop", async () => {
   const user = userEvent.setup();
   render(<Radios />);
   await user.tab();
   expect(document.activeElement).toBe(screen.getByRole("radio", { name: "First" }));
   await user.keyboard("{ArrowDown}");
-  const third = screen.getByRole("radio", { name: /Third.*Use this option/ });
+  const third = screen.getByRole("radio", { name: "Third" });
   expect(document.activeElement).toBe(third);
   expect(third.getAttribute("aria-checked")).toBe("true");
   await user.click(screen.getByText("First"));

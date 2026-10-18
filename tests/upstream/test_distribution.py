@@ -38,7 +38,7 @@ class DistributionTest(unittest.TestCase):
             self.assertEqual(run('claim', 'SMOKE-001').returncode, 0)
             shown = run('show', 'SMOKE-001').stdout
             self.assertIn('in_progress', shown)
-            self.assertIn('会话 distribution-test', shown)
+            self.assertIn('窗口 distribution-test', shown)
 
     def test_distribution_contains_web(self):
         from nawaban.board_view import WEBUI_DIST

@@ -8,4 +8,6 @@ export function rel(ts: number) {
   return tr("daysAgo", { count: Math.floor(s / 86400) });
 }
 
-export const isUrl = (v: string) => /^https?:\/\/\S+$/.test(v.trim());
+export const FOLD = 5; // Entries a detail list shows before it folds the rest.
+
+export const isUrl =(v: string) => /^https?:\/\/\S+$/.test(v.trim());

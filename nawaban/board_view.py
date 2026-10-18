@@ -31,33 +31,14 @@ COLUMNS = ("open", "in_progress", "done")
 DONE_LIMIT = 12  # Without a date range the done column shows only the latest few.
 
 
-class BoardError(Exception):
-    """The board file is missing or is not a tracker board."""
-
-
 class NotFound(Exception):
     pass
 
 
 # ── read-only projections ─────────────────────────────────────────
 
-def _ro(path: Path | str) -> sqlite3.Connection:
-    path = Path(path)
-    if not path.exists():
-        raise BoardError(f"看板不存在:{path}")
-    if cli._version(path) != cli.VERSION:
-        raise BoardError(f"不是新版看板:{path}")
-    con = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True, timeout=10)
-    con.row_factory = sqlite3.Row
-    return con
-
-
-def _status(r: sqlite3.Row) -> str:
-    return "in_progress" if r["status"] == "open" and r["session"] else r["status"]
-
-
 def _ref(r: sqlite3.Row) -> dict:
-    return {"id": r["id"], "title": r["title"], "status": _status(r)}
+    return {"id": r["id"], "title": r["title"], "status": cli.derived_status(r)}
 
 
 def _event(r: sqlite3.Row) -> dict:
@@ -74,7 +55,7 @@ def range_bounds(since: str, until: str) -> tuple[int, int]:
 
 
 def projects_data(path: Path | str) -> dict:
-    con = _ro(path)
+    con = cli.open_readonly(path)
     try:
         rows = con.execute(
             "SELECT NULLIF(project,'') AS name, SUM(status='open') AS open, count(*) AS total"
@@ -99,15 +80,16 @@ def board_data(path: Path | str, project: str | None = None,
         sql += (" AND (t.created_at >= :lo AND t.created_at < :hi OR EXISTS (SELECT 1 FROM"
                 " events x WHERE x.task=t.id AND x.at >= :lo AND x.at < :hi))")
         args["lo"], args["hi"] = touched
-    con = _ro(path)
+    con = cli.open_readonly(path)
     try:
         rows = con.execute(sql + " GROUP BY t.id ORDER BY active_at DESC, t.id", args).fetchall()
     finally:
         con.close()
     columns = {key: [] for key in COLUMNS}
     for r in rows:
-        columns[_status(r)].append({
-            "id": r["id"], "title": r["title"], "status": _status(r), "project": r["project"],
+        status = cli.derived_status(r)
+        columns[status].append({
+            "id": r["id"], "title": r["title"], "status": status, "project": r["project"],
             "parent": r["parent"], "session": r["session"], "created_at": r["created_at"],
             "active_at": r["active_at"], "open_blockers": r["open_blockers"]})
     if not touched:
@@ -116,25 +98,22 @@ def board_data(path: Path | str, project: str | None = None,
 
 
 def task_detail(path: Path | str, task_id: str) -> dict:
-    con = _ro(path)
+    con = cli.open_readonly(path)
     try:
         t = con.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
         if t is None:
             raise NotFound(f"任务不存在:{task_id}")
-
-        def tasks(sql: str) -> list[dict]:
-            return [_ref(r) for r in con.execute(sql + " ORDER BY t.id", (task_id,))]
-
         events = [_event(r) for r in con.execute(
             "SELECT * FROM events WHERE task=? ORDER BY id DESC", (task_id,))]
         parent = con.execute("SELECT * FROM tasks WHERE id=?", (t["parent"],)).fetchone()
+        children = con.execute("SELECT * FROM tasks WHERE parent=? ORDER BY id", (task_id,))
         return {
-            "id": t["id"], "title": t["title"], "body": t["body"], "status": _status(t),
+            "id": t["id"], "title": t["title"], "body": t["body"], "status": cli.derived_status(t),
             "project": t["project"], "session": t["session"], "created_at": t["created_at"],
             "parent": _ref(parent) if parent else None,
-            "children": tasks("SELECT t.* FROM tasks t WHERE t.parent=?"),
-            "blocked_by": tasks("SELECT t.* FROM blockers b JOIN tasks t ON t.id=b.blocker WHERE b.task=?"),
-            "dependents": tasks("SELECT t.* FROM blockers b JOIN tasks t ON t.id=b.task WHERE b.blocker=?"),
+            "children": [_ref(r) for r in children],
+            "blocked_by": [_ref(r) for r in cli.blocked_by(con, task_id)],
+            "dependents": [_ref(r) for r in cli.dependents(con, task_id)],
             "latest_note": next((e for e in events if e["kind"] == "note"), None),
             "decisions": [e for e in events if e["kind"] == "decision"],
             "links": [e for e in events if e["kind"] == "link"],
@@ -194,7 +173,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(404, {"error": "no such path"})
         except NotFound as e:
             self._json(404, {"error": str(e)})
-        except BoardError as e:
+        except cli.Refused as e:  # the board file is missing or not a tracker board
             self._json(503, {"error": str(e)})
 
     def _refuse_write(self) -> None:
@@ -242,14 +221,13 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="board_view", description="NAWABAN 本地只读板")
     ap.add_argument("--db", help="看板文件(默认 NAWABAN_DB,再找最近的 .nawaban/nawaban.db)")
     ap.add_argument("--port", type=int, default=int(os.environ.get("NAWABAN_BOARD_PORT") or "8813"))
-    ap.add_argument("--host", default=(os.environ.get("NAWABAN_BOARD_HOST")
-                                     or os.environ.get("DAGVIEW_HOST", "127.0.0.1")),
+    ap.add_argument("--host", default=os.environ.get("NAWABAN_BOARD_HOST") or "127.0.0.1",
                     help="监听地址,逗号分隔可给多个(如 127.0.0.1,100.x.x.x)")
     a = ap.parse_args(argv)
     path = cli.resolve_db(a.db)
     try:
-        _ro(path).close()
-    except BoardError as e:
+        cli.open_readonly(path).close()
+    except cli.Refused as e:
         print(f"✗ {e}", file=sys.stderr)
         return 1
     serve(path, a.port, host=a.host)

@@ -6,13 +6,13 @@ The frontend's styled component layer is shadcn/ui on the Base UI registry, gene
 
 | Surface | Sources |
 | --- | --- |
-| Navigation and filters | `application/navigation/nav-item`, `application/theme/theme-toggle`, `application/select/module-select`, `application/date-picker/*`, ui `input`, `select`, `popover`, `button` |
-| Cards, module nodes and tags | `application/settings/settings-rows`, ui `button`, `badge` (counter and status chip), local `StatusDot` |
+| Navigation and filters | `application/theme/theme-toggle`, `application/select/module-select`, `application/date-picker/*`, ui `input`, `select`, `popover`, `button` |
+| Cards and tags | `application/settings/settings-rows`, ui `button`, `badge` (counter and status chip), local `StatusDot` |
 | List and detail properties | ui `table` + `application/table/action-row`, `application/settings/settings-rows` |
-| Detail and answers | ui `dialog` (adapted to a side sheet by `NawabanDialog`), `application/radio/radio-card`, ui `textarea`, `radio-group`, `checkbox`, `switch` |
+| Detail and answers | ui `dialog` (adapted to a side sheet by `NawabanDialog`), ui `textarea`, `radio-group`, `checkbox`, `switch` |
 | Notices and long text | ui `toast` + `application/notification/notice-card`, ui `tooltip` |
 
-Business sections, Markdown, layout grids, module statistics and SVG dependency wires compose these sources. The isolated `interaction-fixture.html` exercises the production `NawabanDialog` and base controls without backend calls and is excluded from the production entry.
+Business sections, Markdown and layout grids compose these sources. The isolated `interaction-fixture.html` exercises the production `NawabanDialog` and base controls without backend calls and is excluded from the production entry.
 
 ## Hand edits to generated files
 

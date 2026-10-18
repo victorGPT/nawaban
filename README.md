@@ -4,7 +4,7 @@
 
 **A local task tracker that Claude Code and Codex sessions share with you: every task of every project on one board, with the notes, decisions and links that show how it got done.**
 
-nawaban records two things: a **task** (title, markdown body with its acceptance criteria, parent, blockers, status and the session working on it) and an **event** log per task (notes, status changes, decisions and links). The workflow itself (spec, tickets, implementation, review) comes from the engineering skills your agents already use; nawaban is their issue tracker. Nothing hooks into your sessions and no command blocks a tool call.
+nawaban records two things: a **task** (title, markdown body with its acceptance criteria, parent, blockers, status and the session working on it) and an **event** log per task (notes, status changes, decisions and links). The workflow itself (spec, tasks, implementation, review) comes from the engineering skills your agents already use; nawaban is their issue tracker. Nothing hooks into your sessions and no command blocks a tool call.
 
 ## Parts
 
@@ -12,7 +12,7 @@ All of them live in this repository and run on your machine.
 
 | Part | Where | What it does |
 | --- | --- | --- |
-| Skill | `skills/nawaban/` | One instruction file the agent reads: how to publish a spec and its tickets, find the frontier, claim a task, record notes, decisions and links, and close it. It also carries three rules: ask the user only about product behaviour, outside statements and production releases; record every choice as a decision; claim before working. |
+| Skill | `skills/nawaban/` | One instruction file the agent reads: how to publish a spec and its tasks, find the frontier, claim a task, record notes, decisions and links, and close it. It also carries three rules: ask the user only about product behaviour, outside statements and production releases; record every choice as a decision; claim before working. |
 | CLI | `nawaban/cli.py` | Python command line. Every write to the board goes through it. |
 | Board file | `.nawaban/nawaban.db` | One SQLite file holding tasks and events. |
 | Board | `nawaban/board_view.py`, `nawaban/webui/` | A local Python server and a React page that show the board and each task's detail. It only reads. |
@@ -22,7 +22,7 @@ All of them live in this repository and run on your machine.
 It fits when:
 
 - You run several Claude Code or Codex sessions, across one or more repositories, and want to see who is doing what.
-- Your agents follow a spec → tickets → implementation workflow and need a place to record it.
+- Your agents follow a spec → tasks → implementation workflow and need a place to record it.
 
 It does not fit when:
 
@@ -71,13 +71,13 @@ About five minutes. One clone serves as both the plugin and the CLI.
 
    The script prints the address, `http://127.0.0.1:8813/` by default.
 
-5. Start Claude Code in the project and give it a task. The `nawaban` skill loads when a skill publishes or fetches tickets, or before the agent works on a task.
+5. Start Claude Code in the project and give it a task. The `nawaban` skill loads when a skill publishes or fetches tasks, or before the agent works on a task.
 
 ## What a session looks like
 
 The agent runs these commands itself. They are shown here so you can read the board's history.
 
-A spec is published with its tickets; the second ticket waits for the first:
+A spec is published with its tasks; the second task waits for the first:
 
 ```console
 $ nawaban create DEMO --title "登录页支持邮箱验证码" --body-file spec.md
@@ -90,16 +90,16 @@ $ nawaban list --parent DEMO --frontier
 DEMO-01  open  your-project  收到验证码邮件
 ```
 
-An agent claims the ready ticket. Another session trying the same ticket is told who holds it:
+An agent claims the ready task. Another session trying the same task is told who holds it:
 
 ```console
 $ nawaban claim DEMO-01
-✓ claim DEMO-01 · 会话 3f1c…
+✓ claim DEMO-01 · 窗口 3f1c…
 $ nawaban claim DEMO-01
-✗ DEMO-01 在会话 3f1c… 手上;确要接手加 --take
+✗ DEMO-01 在窗口 3f1c… 手上;确要接手加 --take
 ```
 
-It records a decision and the pull request, then closes the ticket, which puts `DEMO-02` on the frontier:
+It records a decision and the pull request, then closes the task, which puts `DEMO-02` on the frontier:
 
 ```console
 $ nawaban event DEMO-01 --kind decision --body "Question: 验证码有效期多长? Verdict: 10 分钟"
