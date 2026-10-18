@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# board-up.sh — 收件箱/看板一键启动 · 幂等 (NAWABAN-INBOX)
+# board-up.sh — 只读看板一键启动 · 幂等
 #   启动: board-up.sh          → http://127.0.0.1:8813/
 #   停止: board-up.sh stop
 #   状态: board-up.sh status
@@ -27,7 +27,7 @@ URL="http://${HOST%%,*}:$PORT/"          # 自检拉第一个(本机那条)
 URL_TS="";  case "$HOST" in *,*) URL_TS="http://${HOST##*,}:$PORT/";; esac
 
 # Resolve from the caller's cwd or explicit environment, using the CLI's path policy.
-DB="$(PYTHONPATH="$DIR/..${PYTHONPATH:+:$PYTHONPATH}" python3 -c 'from nawaban import db; print(db.resolve_db())')"
+DB="$(PYTHONPATH="$DIR/..${PYTHONPATH:+:$PYTHONPATH}" python3 -c 'from nawaban import tracker; print(tracker.resolve_db(None))')"
 if [ ! -f "$DB" ]; then
   echo "找不到 nawaban.db —— 在仓库里跑,或设 NAWABAN_DB=<路径>" >&2
   exit 1

@@ -10,17 +10,13 @@ export function KanbanColumns({
   columns,
   tasks,
   fields,
-  decisionTasks,
   onSelectTask,
-  onDecision,
   onShowAllColumns,
 }: {
   columns: readonly (typeof BOARD_COLUMNS)[number][];
   tasks: (BoardTask & { column: string })[];
   fields: readonly string[];
-  decisionTasks: Set<string>;
   onSelectTask: (id: string) => void;
-  onDecision: (id: string) => void;
   onShowAllColumns: () => void;
 }) {
   useLocale();
@@ -33,25 +29,25 @@ export function KanbanColumns({
     );
   return (
     <div className="kanban" style={{ "--board-column-count": columns.length } as CSSProperties}>
-      {columns.map((s) => (
-        <section className="board-column" key={s.id} data-stage={s.id}>
-          <h2 className="text-body-medium">
-            <span className="column-status" aria-hidden="true" />
-            {s.label}
-            <Badge variant="count" size="count">{tasks.filter((t) => s.states.some((state) => state === t.column)).length}</Badge>
-          </h2>
-          <div className="task-stack">
-            {!tasks.some((t) => s.states.some((state) => state === t.column)) &&
-              <p className="column-empty text-caption-1-regular">{tr("noMatchingTasks")}</p>}
-            {tasks
-              .filter((t) => s.states.some((state) => state === t.column))
-              .map((t) => (
-                <TaskCard key={t.id} task={t} fields={fields} hasAsk={decisionTasks.has(t.id)}
-                  onSelect={() => onSelectTask(t.id)} onDecision={() => onDecision(t.id)} />
+      {columns.map((s) => {
+        const group = tasks.filter((t) => s.states.some((state) => state === t.column));
+        return (
+          <section className="board-column" key={s.id} data-stage={s.id}>
+            <h2 className="text-body-medium">
+              <span className="column-status" aria-hidden="true" />
+              {s.label}
+              <Badge variant="count" size="count">{group.length}</Badge>
+            </h2>
+            <div className="task-stack">
+              {group.length === 0 &&
+                <p className="column-empty text-caption-1-regular">{tr("noMatchingTasks")}</p>}
+              {group.map((t) => (
+                <TaskCard key={t.id} task={t} fields={fields} onSelect={() => onSelectTask(t.id)} />
               ))}
-          </div>
-        </section>
-      ))}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

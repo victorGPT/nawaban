@@ -3,7 +3,7 @@ import type { BoardTask } from "./types.ts";
 
 export const BOARD_DISPLAY_STORAGE = "nawaban.boardDisplay";
 export const SORT_OPTIONS = ["default", "updated", "created", "title"] as const;
-export const DISPLAY_FIELDS = ["id", "module"] as const;
+export const DISPLAY_FIELDS = ["id", "project"] as const;
 export type BoardDisplay = {
   columns: string[];
   sort: typeof SORT_OPTIONS[number];

@@ -12,7 +12,7 @@ from uuid import UUID
 import pytest
 
 from hooks import foreman_session_start as session_start
-from nawaban import board_view, claim_check, cli, db, foreman_liveness, guard, reclaim_stale, stale_recon
+from nawaban import claim_check, cli, db, foreman_liveness, guard, reclaim_stale, stale_recon
 
 SID_A = "01a0b483-321f-7000-8000-000000000001"
 SID_B = "01a0b483-4dab-7000-8000-000000000002"
@@ -87,7 +87,6 @@ def test_claim_check_does_not_hide_colliding_window(identities, monkeypatch, tmp
 def _transcripts(tmp_path, monkeypatch, provider):
     now = time.time()
     claude = tmp_path / ".claude/projects"
-    monkeypatch.setattr(board_view, "TRANSCRIPTS", claude)
     for sid, age in ((SID_A, 0), (SID_B, 100 * 3600)):
         if provider == "claude":
             path = claude / "project" / f"{sid}.jsonl"
@@ -109,16 +108,6 @@ def test_transcript_reclaim_is_exact_and_keeps_legacy(identities, monkeypatch, t
     with sqlite3.connect(path) as con:
         assert con.execute("SELECT id, status, owner FROM tasks ORDER BY id").fetchall() == [
             ("A", "claimed", OWNER_A), ("B", "open", None), ("OLD", "claimed", LEGACY)]
-
-
-@pytest.mark.parametrize("provider", ["claude", "codex"])
-def test_board_liveness_separates_collision_and_keeps_legacy(identities, monkeypatch, tmp_path, provider):
-    _transcripts(tmp_path, monkeypatch, provider)
-    index, complete = board_view._transcript_index()
-    assert complete
-    assert board_view._live_of(OWNER_A, index)["tier"] == "working"
-    assert board_view._live_of(OWNER_B, index)["tier"] == "cold"
-    assert board_view._live_of(LEGACY, index)["tier"] == "working"
 
 
 def test_herdr_only_protects_exact_new_owner_and_legacy(identities, monkeypatch, tmp_path):

@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from nawaban import board_view, cli, db
+from nawaban import cli, db
 
 
 @pytest.fixture
@@ -109,9 +109,6 @@ def test_printed_command_runs_unchanged_on_the_same_board(board, monkeypatch, ca
     with sqlite3.connect(board) as con:
         assert con.execute("SELECT src,dst,kind FROM task_edges").fetchall() == [
             ("NEW", "PRE", "depends_on")]
-    graph = board_view.graph_data(board)
-    assert any(edge["source"] == "PRE" and edge["target"] == "NEW"
-               and edge["kind"] == "depends_on" for edge in graph["links"])
 
 
 @pytest.mark.parametrize("prerequisite,task_id", [

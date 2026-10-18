@@ -1,18 +1,15 @@
 import { t as tr, useLocale } from "@/i18n";
-import { UNGROUPED_EPIC } from "@/lib/modules-model";
 import { TASK_REFRESH_MS } from "@/lib/poll-read-only";
 import type { Project } from "@/lib/types";
 
 export function BoardSourceLine({
   project,
-  module,
   count,
   error,
   refreshing,
   updatedAt,
 }: {
   project: Project;
-  module: string;
   /** Visible task count; null until the first board arrives. */
   count: number | null;
   error: string;
@@ -23,7 +20,7 @@ export function BoardSourceLine({
   return (
     <div className="board-source-line text-caption-1-regular">
       <span className="board-source-scope" role="status">
-        {project === null ? tr("allProjects") : project || tr("noProject")} / {module === "all" ? tr("allEpics") : module === UNGROUPED_EPIC ? tr("ungrouped") : module}
+        {project === null ? tr("allProjects") : project || tr("noProject")}
         {" · "}{count !== null ? tr("taskCount", { count }) : error && !refreshing ? tr("boardSyncFailed") : tr("loadingTasks")}
       </span>
       <span className="board-sync-time">

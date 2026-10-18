@@ -4,7 +4,7 @@ import { readBoardDisplay, writeBoardDisplay, sortBoardTasks } from "./board-dis
 import type { BoardTask } from "./types.ts";
 
 test("URL preferences win per key, including an intentional empty selection", () => {
-  const display = readBoardDisplay("?boardColumns=&boardFields=id&boardSort=title", "boardColumns=done&boardFields=module&boardDensity=compact");
+  const display = readBoardDisplay("?boardColumns=&boardFields=id&boardSort=title", "boardColumns=done&boardFields=project&boardDensity=compact");
   assert.deepEqual(display, { columns: [], fields: ["id"], sort: "title", compact: true });
   const params = new URLSearchParams("project=demo&task=TASK-1&layout=list");
   writeBoardDisplay(params, display);
@@ -17,11 +17,11 @@ test("URL preferences win per key, including an intentional empty selection", ()
 test("unknown and duplicate values cannot introduce columns or fields", () => {
   assert.deepEqual(readBoardDisplay("?boardColumns=done,unknown,done&boardFields=id,other,id&boardSort=bad&boardDensity=bad", null),
     { columns: ["done"], fields: ["id"], sort: "default", compact: false });
-  assert.deepEqual(readBoardDisplay("", "invalid-old-value").columns, ["open", "in_progress", "staging-verified", "done"]);
+  assert.deepEqual(readBoardDisplay("", "invalid-old-value").columns, ["open", "in_progress", "done"]);
 });
 
 test("nonempty unknown column preferences fall back to all columns without poisoning persistence", () => {
-  const allColumns = ["open", "in_progress", "staging-verified", "done"];
+  const allColumns = ["open", "in_progress", "done"];
   for (const [search, saved] of [
     ["?boardColumns=unknown", null],
     ["?boardColumns=unknown", "boardColumns=done"],
@@ -46,13 +46,13 @@ test("nonempty unknown field preferences restore all fields and remain valid aft
     ["?boardFields=,", null],
   ] as const) {
     const display = readBoardDisplay(search, saved);
-    assert.deepEqual(display.fields, ["id", "module"]);
+    assert.deepEqual(display.fields, ["id", "project"]);
     const persisted = writeBoardDisplay(new URLSearchParams(), display).toString();
-    assert.deepEqual(readBoardDisplay("", persisted).fields, ["id", "module"]);
+    assert.deepEqual(readBoardDisplay("", persisted).fields, ["id", "project"]);
   }
   assert.deepEqual(readBoardDisplay("?boardFields=", "boardFields=id").fields, []);
   assert.deepEqual(readBoardDisplay("", "boardFields=").fields, []);
-  assert.deepEqual(readBoardDisplay("?boardFields=zzz,module", null).fields, ["module"]);
+  assert.deepEqual(readBoardDisplay("?boardFields=zzz,project", null).fields, ["project"]);
 });
 
 test("sorts preserve task identity and do not mutate the backend order", () => {

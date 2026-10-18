@@ -1,4 +1,4 @@
-"""Capture lifecycle, additive migration, CLI gates, and read-only projections."""
+"""Capture lifecycle, additive migration, and CLI gates."""
 import json
 import sqlite3
 import uuid
@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from nawaban import board_view, captures, cli, db
+from nawaban import captures, cli, db
 
 
 @pytest.fixture
@@ -31,22 +31,12 @@ def test_additive_migration_preserves_existing_schema_and_data(board):
         con.execute("DROP TABLE captures")
     before = snapshot(board)
     assert captures.read(board) == []
-    assert board_view.task_detail(board, "FORMAL")["captures"] == []
     assert snapshot(board) == before
     assert db.migrate_db(board) == ["captures"]
     after = snapshot(board)
     assert all(line in after for line in before)
     assert db.migrate_db(board) == []
     assert snapshot(board) == after
-
-
-def test_capture_never_enters_task_projections(board):
-    projections = [board_view.board_data, board_view.modules_data, board_view.projects_data]
-    before = [f(board) for f in projections]
-    idea(board)
-    assert [f(board) for f in projections] == before
-    with sqlite3.connect(board) as con:
-        assert con.execute("SELECT count(*) FROM tasks").fetchone()[0] == 1
 
 
 def test_retry_is_idempotent_even_after_resolution(board):
@@ -68,7 +58,6 @@ def test_conversion_requires_existing_task_and_is_terminal(board):
     result = captures.resolve(board, item["id"], owner="agent", task_id="FORMAL")
     assert result["status"] == "converted"
     assert captures.read(board) == []
-    assert board_view.task_detail(board, "FORMAL")["captures"] == [result]
     assert captures.resolve(board, item["id"], owner="other", task_id="FORMAL") == result
     with pytest.raises(db.NawabanError, match="已处理"):
         captures.resolve(board, item["id"], owner="agent", reason="Changed mind")
