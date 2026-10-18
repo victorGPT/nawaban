@@ -102,7 +102,7 @@ def _connect(path: Path) -> sqlite3.Connection:
 def _version(path: Path) -> int | None:
     """user_version of a board file, None when it has old tables or is not SQLite."""
     try:
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        con = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True)
         try:
             v = con.execute("PRAGMA user_version").fetchone()[0]
             tables = con.execute("SELECT count(*) FROM sqlite_master").fetchone()[0]
