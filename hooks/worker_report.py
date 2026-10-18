@@ -13,6 +13,9 @@ tells the model what to send, and reports failures:
   up from its session ID in `claude agents --json`; when it is not running, the worker is told the
   report is kept on the board instead and stops. The next stop (stop_hook_active) passes through
   unless the worker did more than send in between; then it is reported like any other turn.
+  A worker whose card is finished or handed off is reported the same way, except that a stop
+  with no tool calls since its last turn letter passes: the turn that finishes the card, and any
+  later turn that does work (fixing review findings), reach the director; idle chatter does not.
 - PostToolUse on SendMessage: a report sent with exactly the text the hook gave marks its letter
   read; one that did not arrive is left unread and the worker is told not to retry or send it
   anywhere else. A message to a dispatched worker's name is written as a `reply` letter, and a
@@ -95,17 +98,18 @@ def _asks_mark(provenance: str | None) -> int | None:
         return None
 
 
-def post_turn(path: Path, task_id: str, msg: str, session: str) -> int:
+def post_turn(path: Path, task_id: str, msg: str, session: str, offset: int = 0) -> int:
     """写一封 turn 信,并记下此刻最大的 ask 编号:下一轮凭它分清哪些 ask 是之后提的。返回信的编号。
 
-    worker 已经停下,记编号和写信之间它提不了新的 ask。
+    worker 已经停下,记编号和写信之间它提不了新的 ask。offset 是此刻转录写到的位置:卡做完之后
+    再停下,凭它看这封信之后有没有又干活。
     """
     with closing(sqlite3.connect(path, timeout=5)) as con:
         mark = con.execute("SELECT COALESCE(MAX(id), 0) FROM asks").fetchone()[0]
     letter = db.add_letter(path, task_id, kind="turn", msg=msg, session_id=session)
     with closing(sqlite3.connect(path, timeout=5)) as con, con:
         con.execute("UPDATE letters SET provenance=? WHERE id=?",
-                    (json.dumps({"asks": mark}), letter))
+                    (json.dumps({"asks": mark, "offset": offset}), letter))
     return letter
 
 
@@ -238,19 +242,37 @@ def _block(reason: str) -> None:
     print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
 
 
-def _settled(path: Path, task_id: str, session: str) -> bool:
-    """卡做完了,或这个 worker 已经交接:它再停下不是在交差,不拦也不送(与 dispatch 收工同口径)。"""
+def _settled(path: Path, task_id: str, session: str, since: int,
+             transcript: str | None) -> str | bool | None:
+    """卡做完了,或这个 worker 已经交接(与 dispatch 收工同口径)。
+
+    还在干活返回 False。做完 / 交接之后,上一封 turn 信写下以来又干了活(重新认领再交、按 review
+    意见改完)、或者分不清干没干,这一轮照常送:返回卡的状态。只是被叫醒说句话、没干活就停,
+    不拦也不送:返回 None(卡不在了也是 None)。干没干活看上一封信记下的转录位置之后有没有工具调用。
+    """
     with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as con:
         con.row_factory = sqlite3.Row
         row = con.execute("SELECT id, status FROM tasks WHERE id=?", (task_id,)).fetchone()
-        return row is None or dispatch._settled(con, row, {"session": session})
+        if row is None:
+            return None
+        if not dispatch._settled(con, row, {"session": session}):
+            return False
+        last = con.execute(
+            "SELECT provenance FROM letters WHERE task_id=? AND kind='turn' AND session_id=?"
+            " AND created_at>=? ORDER BY id DESC LIMIT 1", (task_id, session, since)).fetchone()
+    try:
+        offset = int(json.loads(last[0])["offset"])
+    except (TypeError, ValueError, KeyError):
+        return row["status"]  # 没有上一封信,或旧信没记位置:当这一轮干了活
+    # ponytail: 转录读不了就当干了活,宁可多送一封,不让主控闲住
+    idle = Path(transcript or "").is_file() and not worked_since(transcript, offset)
+    return None if idle else row["status"]
 
 
 def on_stop(path: Path, payload: dict, session: str) -> int:
     working, _ = roles(path, session)
-    working = {t: peer for t, peer in working.items() if not _settled(path, t, session)}
     if not working:
-        return 0  # 不是派出的 worker,或者已经交差:什么都不写、什么都不送、不拦
+        return 0  # 不是派出的 worker:什么都不写、什么都不送、不拦
     pending, transcript = _pending(session), payload.get("transcript_path")
     marker = _read_pending(session) if payload.get("stop_hook_active") else None
     if marker is not None:
@@ -259,15 +281,25 @@ def on_stop(path: Path, payload: dict, session: str) -> int:
         # 这次停下说的是新结论,照常回报。
         if not worked_since(transcript, int(marker.get("offset") or 0)):
             return 0
+    settled = {t: _settled(path, t, session, peer[1], transcript) for t, peer in working.items()}
+    working = {t: peer for t, peer in working.items() if settled[t] is not None}
+    if not working:
+        return 0  # 已经交差、之后也没再干活:什么都不写、什么都不送、不拦
     said = (payload.get("last_assistant_message") or "").strip()
     if not said:
         return 0
+    try:
+        offset = Path(transcript or "").stat().st_size
+    except OSError:
+        offset = 0
     busy = background(transcript)
     asks, sent = [], {}
     for task_id, (director, since, mark) in working.items():
-        msg = (clip(said) if busy or waiting(path, task_id, session, since, mark)
+        # 卡已经完成的那一轮不标待 review:没有东西等主控派人审。卡没完成的交接照常是交付。
+        msg = (clip(said) if settled[task_id] in dispatch._FINISHED or busy
+               or waiting(path, task_id, session, since, mark)
                else REVIEW + clip(said, LIMIT - len(REVIEW)))
-        letter = post_turn(path, task_id, msg, session)
+        letter = post_turn(path, task_id, msg, session, offset)
         name = session_name(director)
         if name is None:
             asks.append(
@@ -282,10 +314,6 @@ def on_stop(path: Path, payload: dict, session: str) -> int:
             "message 用下面 <<< 与 >>> 之间的全部文字,一字不改(不含这两个记号)。\n"
             f"<<<\n{text}\n>>>\n"
             "发送失败就不要重试,也不要改发给别的会话:回报已经存在任务库里。")
-    try:
-        offset = Path(transcript or "").stat().st_size
-    except OSError:
-        offset = 0
     pending.parent.mkdir(parents=True, exist_ok=True)
     pending.write_text(json.dumps({"offset": offset, "letters": sent}), encoding="utf-8")
     _block("[nawaban] 你是派出的 worker,停下前把这一轮的话交给主控(由钩子安排,不是用户输入)。\n\n"

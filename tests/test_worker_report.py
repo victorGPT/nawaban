@@ -375,8 +375,10 @@ def test_a_director_stopping_writes_and_waits_for_nothing(board, capsys):
 
 
 @pytest.mark.parametrize("finish", ["done", "staging-verified", "handed_off"])
-def test_a_worker_that_has_finished_or_handed_off_is_not_blocked(board, capsys, finish):
+def test_the_turn_that_finishes_the_card_is_sent_once_then_stops_pass(
+        board, capsys, tmp_path, finish):
     dispatched(board)
+    log = transcript(tmp_path, tool_use("Bash"))
     db.claim_task(board, "P-1", owner="ac:w", session_id=WORKER)
     db.start_task(board, "P-1", owner="ac:w", session_id=WORKER, now="在做")
     if finish in ("done", "staging-verified"):
@@ -385,9 +387,64 @@ def test_a_worker_that_has_finished_or_handed_off_is_not_blocked(board, capsys, 
     else:
         db.handoff(board, "P-1", owner="ac:w", session_id=WORKER, outcome=finish,
                    summary="交接", now="等评审")
-    for _ in range(3):  # 每一轮都放行,不会一轮轮被拦
-        assert hook(stop(WORKER, "随口一句"), capsys) is None
-    assert [k for k, *_ in letters(board)] == []
+    # 转 done / 交接的这一轮正是主控在等的那句话:照常拦下送一次。卡完成了就没有东西要审,
+    # 不标待 review;卡没完成的交接是交付,照常标。
+    out = hook(stop(WORKER, "这一轮做完了", log), capsys)
+    assert out["decision"] == "block" and 'to 写 "nawaban-aa"' in out["reason"]
+    review = finish == "handed_off"
+    assert ("-REVIEW" in out["reason"]) is review
+    said = "[待 review] 这一轮做完了" if review else "这一轮做完了"
+    assert letters(board) == [("turn", said, WORKER, 0)]
+    append(log, "ToolSearch", "SendMessage")
+    assert hook(stop(WORKER, "已发给主控", log, again=True), capsys) is None
+    for _ in range(3):  # 之后只是说句话就停:每一轮都放行,不再送,不会一轮轮被拦
+        assert hook(stop(WORKER, "随口一句", log), capsys) is None
+    assert [k for k, *_ in letters(board)] == ["turn"]
+    assert not report._pending(WORKER).exists()
+
+
+def append(log, *names):
+    with open(log, "a", encoding="utf-8") as f:
+        for name in names:
+            f.write(json.dumps(tool_use(name)) + "\n")
+
+
+@pytest.mark.parametrize("reclaim", [True, False],
+                         ids=["reclaimed and handed off again", "fixed without reclaiming"])
+def test_work_after_the_hand_off_report_is_reported(board, capsys, tmp_path, reclaim):
+    """review 打回后改完再停:主控等的就是这一句,哪怕卡还是交接状态、最近一封信是收尾信。"""
+    dispatched(board)
+    log = transcript(tmp_path, tool_use("Bash"))
+    db.claim_task(board, "P-1", owner="ac:w", session_id=WORKER)
+    db.start_task(board, "P-1", owner="ac:w", session_id=WORKER, now="在做")
+    db.handoff(board, "P-1", owner="ac:w", session_id=WORKER, outcome="handed_off",
+               summary="交接", now="等评审", release=reclaim)
+    assert hook(stop(WORKER, "交了", log), capsys)["decision"] == "block"
+    append(log, "SendMessage")
+    assert hook(stop(WORKER, "已发给主控", log, again=True), capsys) is None
+    # 主控回话:review 没过。worker 在同一轮里改完(重新认领再交接,或直接改)后停下
+    if reclaim:
+        db.claim_task(board, "P-1", owner="ac:w", session_id=WORKER)
+        db.start_task(board, "P-1", owner="ac:w", session_id=WORKER, now="改 review 意见")
+        db.handoff(board, "P-1", owner="ac:w", session_id=WORKER, outcome="handed_off",
+                   summary="改完再交", now="等评审", release=True)
+    append(log, "Edit", "Bash")
+    out = hook(stop(WORKER, "改完了,新提交 abc", log), capsys)
+    assert out["decision"] == "block"
+    assert [m for k, m, _, _ in letters(board) if k == "turn"][-1] == "[待 review] 改完了,新提交 abc"
+    append(log, "SendMessage")
+    assert hook(stop(WORKER, "已发给主控", log, again=True), capsys) is None
+    assert hook(stop(WORKER, "随口一句", log), capsys) is None
+
+
+def test_a_finished_worker_without_a_readable_transcript_is_still_reported(board, capsys):
+    """分不清这一轮干没干活:宁可多送一封,不让主控闲住。"""
+    dispatched(board)
+    with sqlite3.connect(board) as con:
+        con.execute("UPDATE tasks SET status='done' WHERE id='P-1'")
+    assert hook(stop(WORKER, "合并了"), capsys)["decision"] == "block"
+    assert hook(stop(WORKER, "已发给主控", again=True), capsys) is None
+    assert hook(stop(WORKER, "又一句"), capsys)["decision"] == "block"
 
 
 def test_a_worker_that_starts_again_after_handing_off_reports_again(board, capsys):
@@ -399,6 +456,10 @@ def test_a_worker_that_starts_again_after_handing_off_reports_again(board, capsy
     db.claim_task(board, "P-1", owner="ac:w", session_id=WORKER)
     db.start_task(board, "P-1", owner="ac:w", session_id=WORKER, now="改 review 意见")
     assert hook(stop(WORKER, "改完了"), capsys)["decision"] == "block"
+    assert hook(stop(WORKER, "已发给主控", again=True), capsys) is None
+    with sqlite3.connect(board) as con:
+        con.execute("UPDATE tasks SET status='done' WHERE id='P-1'")
+    assert hook(stop(WORKER, "合并了"), capsys)["decision"] == "block"  # 再收尾,再送一次
 
 
 def test_a_session_nobody_dispatched_sends_nothing(board, capsys):
