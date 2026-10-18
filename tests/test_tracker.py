@@ -2,7 +2,7 @@
 
 import pytest
 
-from nawaban import tracker
+from nawaban import cli
 
 
 @pytest.fixture
@@ -10,7 +10,7 @@ def run(tmp_path, capsys):
     board = tmp_path / "proj" / ".nawaban" / "board.db"
 
     def run(*args, db=board):
-        code = tracker.main(["--db", str(db), *args])
+        code = cli.main(["--db", str(db), *args])
         out = capsys.readouterr()
         return code, out.out, out.err
 

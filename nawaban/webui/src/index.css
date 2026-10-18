@@ -130,7 +130,7 @@ input, textarea { caret-color: var(--color-accent-500); }
 .workspace-topbar h1 { color: var(--ink); }
 .workspace-topbar > :last-child { margin-left: auto; }
 .workspace-crumb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.page-heading, .board-toolbar {
+.board-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -152,7 +152,7 @@ input, textarea { caret-color: var(--color-accent-500); }
 .view-toggle button[aria-pressed="true"] { background: var(--panel); box-shadow: var(--shadow-xs); }
 .view-toggle button[aria-pressed="false"] { background: transparent; box-shadow: none; }
 .view-toggle button svg { display: none; }
-.sidebar-bottom > button, .nawaban-brand > button, .signal-button { background: transparent; box-shadow: none; }
+.sidebar-bottom > button, .nawaban-brand > button { background: transparent; box-shadow: none; }
 .board-toolbar > [role="combobox"] { max-width: 180px; }
 .board-source-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 20px; min-height: 30px; border-bottom: 1px solid var(--line); color: var(--muted); }
 .board-source-scope { color: var(--color-text-secondary); }
@@ -163,7 +163,7 @@ input, textarea { caret-color: var(--color-accent-500); }
 .board-compact .task-card-footer { min-height: 35px; padding-block: 5px; }
 .board-compact .task-table td { padding-block: 6px; }
 .board-scroll { flex: 1; min-height: 0; overflow: auto; }
-.board-scroll, .module-graph-scroll, .module-rail, .detail-reading, .detail-properties-rail, .inbox-detail {
+.board-scroll, .detail-reading, .detail-properties-rail {
   scrollbar-width: thin;
   scrollbar-color: var(--color-scrollbar) transparent;
   overscroll-behavior: contain;
@@ -265,8 +265,6 @@ input, textarea { caret-color: var(--color-accent-500); }
   border-top: 1px solid var(--line);
   overflow: hidden;
 }
-.module-graph-scroll .task-card-footer { flex-wrap: wrap; min-height: 0; overflow: visible; }
-.module-graph-scroll .task-card-footer:empty { display: none; }
 .task-module {
   @apply text-reference-caption;
   display: inline-flex;
@@ -281,74 +279,10 @@ input, textarea { caret-color: var(--color-accent-500); }
 .task-date { @apply text-reference-caption; margin-left: auto; flex: none; color: var(--muted); white-space: nowrap; }
 .task-date[data-stale-level="warning"] { color: var(--color-status-yellow-text); }
 .task-date[data-stale-level="critical"] { color: var(--color-status-rose-text); }
-/* Window signal sits in the top-right corner; the title makes room only when a dot exists. */
-.task-card-corner { position: absolute; top: 10px; right: 8px; display: flex; }
-.task-card:has(.task-card-corner .signal-button) .task-title { padding-right: 20px; }
 .task-card-footer .task-tag-label { @apply text-reference-caption; }
 .task-card-footer .task-tag { flex: 0 1 auto; }
-/* Shrink order: module first, then a long waiting reason (ellipsis + tooltip); decision and date never. */
-.task-attention { flex: 0 1 auto; min-width: 0; }
-.task-decision { flex: none; }
-.task-attention,
-.task-decision {
-  height: 24px;
-  padding: 0 8px !important;
-  border: 1px solid var(--color-border-button-default);
-  border-radius: 999px !important;
-  background: transparent !important;
-  color: var(--muted);
-}
-.task-decision { color: var(--color-status-yellow-text); }
-.task-decision { @apply text-reference-caption; box-shadow: none; cursor: pointer; }
-.task-decision:hover { border-color: var(--color-border-button-hover); }
 .task-card:hover { box-shadow: var(--shadow-sm); }
 
-.signal-button {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border-radius: 8px;
-}
-.signal-working {
-  animation: status-breathe 2.6s ease-in-out infinite;
-}
-/* Window liveness keeps its own hues: working green, idle blue, unresponsive red. */
-.signal-idle {
-  background: var(--color-blue-100) !important;
-}
-.signal-idle > span {
-  background: var(--color-blue-500) !important;
-}
-.signal-unresponsive {
-  background: var(--color-red-100) !important;
-}
-.signal-unresponsive > span {
-  background: var(--color-red-500) !important;
-}
-.dark .signal-idle {
-  background: color-mix(in srgb, var(--color-blue-800) 40%, transparent) !important;
-}
-.dark .signal-unresponsive {
-  background: color-mix(in srgb, var(--color-red-800) 40%, transparent) !important;
-}
-.status-legend {
-  @apply text-reference-caption;
-  padding: 12px 20px;
-  border-top: 1px solid var(--line);
-  flex-shrink: 0;
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  color: var(--muted);
-}
-.status-legend > span {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
 .task-table {
   width: 100%;
   min-width: 640px;
@@ -358,7 +292,6 @@ input, textarea { caret-color: var(--color-accent-500); }
 .task-table .task-col-title { width: auto; }
 .task-table .task-col-id { width: 25%; }
 .task-table .task-col-module { width: 18%; }
-.task-table .task-col-status { width: 7%; }
 .task-table .task-list-group h2 { display: flex; align-items: center; gap: 8px; height: 43px; }
 .task-table .task-list-group th { padding: 0 8px; background: var(--panel); }
 .task-list-group h2 > :last-child { color: var(--muted); background: transparent; box-shadow: none; }
@@ -525,99 +458,7 @@ input, textarea { caret-color: var(--color-accent-500); }
   min-width: 0;
   flex: 1;
 }
-.modules-layout {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  height: 100%;
-  min-height: 400px;
-  background: var(--panel);
-  border: 0;
-  border-radius: 0;
-  overflow: hidden;
-}
-.module-rail {
-  overflow: auto;
-  border-right: 1px solid var(--line);
-  background: var(--sidebar);
-}
-.module-graph-scroll {
-  height: 100%;
-  overflow: auto;
-}
-.module-rail .content-button,
-.inbox-index .content-button {
-  background: transparent;
-}
-.module-rail .content-button[aria-current="true"],
-.inbox-index .content-button[aria-current="true"] {
-  background: var(--color-background-secondary-hover);
-}
-.module-rail .content-button:hover,
-.inbox-index .content-button:hover {
-  background: var(--color-background-secondary-hover);
-}
-.module-rail .content-button > span {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.module-graph-scroll .content-button {
-  background: var(--panel);
-  border-radius: 12px;
-}
 
-.inbox-layout {
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  height: 100%;
-  background: var(--panel);
-  border: 0;
-  border-radius: 0;
-  overflow: hidden;
-}
-.inbox-index {
-  overflow: auto;
-  border-right: 1px solid var(--line);
-}
-.inbox-detail {
-  overflow: auto;
-}
-.ask-card {
-  gap: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-.ask-card header {
-  display: grid;
-  gap: 16px;
-}
-.ask-card footer {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
-.decision-options {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.decision-options label > span:first-child > span {
-  white-space: normal;
-  overflow: visible;
-}
-.answer-form {
-  padding: 24px;
-  overflow-y: auto;
-  display: grid;
-  gap: 16px;
-}
-.answer-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
 button,
 a {
   touch-action: manipulation;
@@ -627,25 +468,12 @@ a:focus-visible {
   outline: 2px solid var(--color-border-focus-ring);
   outline-offset: 2px;
 }
-@keyframes status-breathe {
-  0%,
-  100% {
-    opacity: 0.55;
-    transform: scale(0.85);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.15);
-  }
-}
 @media (min-width: 1500px) {
   .kanban { --board-column-width: 245px; }
   .board-column { padding-inline: 17px; }
 }
 @media (max-width: 999px) {
   .board-toolbar { flex-wrap: wrap; }
-  .modules-layout { grid-template-columns: 170px minmax(0, 1fr); }
-  .inbox-layout { grid-template-columns: 240px minmax(0, 1fr); }
 }
 @media (max-width: 800px) {
   .detail-scroll { overflow-y: auto; }
@@ -658,16 +486,11 @@ a:focus-visible {
   .nawaban-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 40; box-shadow: var(--shadow-xl); }
   .workspace-topbar { height: 56px; padding-inline: 12px; gap: 8px; }
   .workspace-crumb { display: none; }
-  .page-heading, .board-toolbar { padding: 12px; gap: 8px; flex-wrap: wrap; }
+  .board-toolbar { padding: 12px; gap: 8px; flex-wrap: wrap; }
   .page-controls { width: 100%; order: 2; }
   .page-controls > div { flex: 1; width: auto; }
   .board-toolbar > [role="combobox"] { margin-left: auto; max-width: 150px; }
   .kanban { --board-column-width: 285px; --board-column-max: 285px; }
-  .status-legend { padding: 9px 13px; gap: 8px; }
-  .modules-layout, .inbox-layout { display: flex; flex-direction: column; min-height: 0; }
-  .module-rail, .inbox-index { max-height: 180px; border-right: 0; border-bottom: 1px solid var(--line); flex-shrink: 0; }
-  .module-graph-scroll, .inbox-detail { flex: 1; min-height: 0; }
-  .inbox-reading { padding: 16px; }
   .dialog-heading { padding: 12px; }
   .detail-breadcrumb { flex-wrap: wrap; }
 }
@@ -680,7 +503,6 @@ a:focus-visible {
   }
 }
 
-
 .task-card {
   position: relative;
   gap: 0;
@@ -692,24 +514,6 @@ a:focus-visible {
   border-radius: 14px 14px 0 0;
 }
 
-
-.detail-file-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-.detail-file-list > code {
-  display: block;
-  overflow-wrap: anywhere;
-}
-
-.task-context {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 16px;
-}
 .context-markdown {
   width: 100%;
 }
@@ -723,12 +527,6 @@ a:focus-visible {
 }
 .context-callout > p:first-child {
   color: var(--ink);
-}
-.context-original {
-  width: 100%;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
 }
 .markdown-link {
   display: inline;
@@ -744,37 +542,6 @@ a:focus-visible {
 .detail-resume {
   padding-bottom: 16px;
   border-bottom: 1px solid var(--line);
-}
-
-.inbox-index .inbox-item > span {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 8px;
-}
-.inbox-summary,
-.inbox-history-row,
-.inbox-option {
-  padding: 16px 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  gap: 8px;
-}
-.inbox-history-row + .inbox-history-row,
-.inbox-option + .inbox-option {
-  border-top: 1px solid var(--line);
-}
-.inbox-summary-toggle > span {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-}
-.ask-card footer,
-.answer-actions {
-  flex-wrap: wrap;
 }
 
 .detail-reference-list {

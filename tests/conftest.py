@@ -21,7 +21,6 @@ def _isolate(patch, home):
     patch.setenv("HOME", str(home))
     patch.setenv("XDG_CONFIG_HOME", str(home / "config"))
     patch.setenv("XDG_CACHE_HOME", str(home / "cache"))
-    patch.setenv("NAWABAN_STATE_DIR", str(home / "state"))
     patch.setenv("PYTHONPATH", str(ROOT))
     patch.setenv("NAWABAN_OWNER", "ac:selftest")
     patch.setenv("CLAUDE_CODE_SESSION_ID", "selftest-session")

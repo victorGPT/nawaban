@@ -9,7 +9,8 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from nawaban import board_view, tracker
+from nawaban import board_view
+from nawaban import cli as nawaban_cli
 
 
 @pytest.fixture
@@ -18,7 +19,7 @@ def board(tmp_path, monkeypatch, capsys):
 
     def cli(*args, who="s-1"):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", who)
-        assert tracker.main(["--db", str(path), *args]) == 0, capsys.readouterr().err
+        assert nawaban_cli.main(["--db", str(path), *args]) == 0, capsys.readouterr().err
         capsys.readouterr()
 
     cli("init")

@@ -5,7 +5,7 @@ import sqlite3
 
 import pytest
 
-from nawaban import tracker
+from nawaban import cli
 
 # The old schema as the real board holds it (db.py SCHEMA_SQL after migrate_db), trimmed of indexes.
 OLD_SCHEMA = """
@@ -94,7 +94,7 @@ def run(tmp_path, capsys):
     new = tmp_path / "proj" / ".nawaban" / "nawaban.db"
 
     def run(*args, db=new):
-        code = tracker.main(["--db", str(db), *args])
+        code = cli.main(["--db", str(db), *args])
         out = capsys.readouterr()
         return code, out.out, out.err
 

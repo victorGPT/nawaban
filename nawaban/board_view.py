@@ -23,7 +23,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from nawaban import tracker  # noqa: E402
+from nawaban import cli  # noqa: E402
 from nawaban.paths import web_dist  # noqa: E402
 
 WEBUI_DIST = web_dist()
@@ -45,7 +45,7 @@ def _ro(path: Path | str) -> sqlite3.Connection:
     path = Path(path)
     if not path.exists():
         raise BoardError(f"看板不存在:{path}")
-    if tracker._version(path) != tracker.VERSION:
+    if cli._version(path) != cli.VERSION:
         raise BoardError(f"不是新版看板:{path}")
     con = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True, timeout=10)
     con.row_factory = sqlite3.Row
@@ -246,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
                                      or os.environ.get("DAGVIEW_HOST", "127.0.0.1")),
                     help="监听地址,逗号分隔可给多个(如 127.0.0.1,100.x.x.x)")
     a = ap.parse_args(argv)
-    path = tracker.resolve_db(a.db)
+    path = cli.resolve_db(a.db)
     try:
         _ro(path).close()
     except BoardError as e:
