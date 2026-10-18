@@ -6,7 +6,7 @@ Specs and tickets for this repo live on the nawaban board, project `nawaban`. Us
 python3 /Users/victor/.nawaban/plugin/nawaban/cli.py --db /Users/victor/.nawaban/nawaban.db <verb> ...
 ```
 
-Below, `nawaban` stands for that whole prefix. Always pass the absolute `--db` path above, also from worktrees. `nawaban <verb> --help` lists a verb's flags. Only the verbs below are part of this workflow.
+Below, `nawaban` stands for that whole prefix. Always pass the absolute `--db` path above, also from worktrees. Write the whole command out in every call. Do not keep it in a shell variable (`N="python3 ..."; $N list`): a subagent's Bash refuses a command whose name is computed at runtime, and zsh does not split the variable. `nawaban <verb> --help` lists a verb's flags. Only the verbs below are part of this workflow.
 
 ## Conventions
 

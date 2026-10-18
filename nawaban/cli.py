@@ -59,18 +59,21 @@ class Refused(Exception):
 
 # ── board location ────────────────────────────────────────────────
 
-def _roots(cwd: Path | None = None) -> list[Path]:
-    """The shared git checkout first (so every worktree maps to it), then cwd and its ancestors."""
-    cur = (cwd or Path.cwd()).resolve()
-    roots = []
+def _repo_root(cur: Path) -> Path | None:
+    """The main checkout of the git repository cur is in (a worktree maps to it)."""
     try:
         r = subprocess.run(["git", "-C", str(cur), "rev-parse", "--git-common-dir"],
                            capture_output=True, text=True, timeout=5)
-        if r.returncode == 0:
-            roots.append((cur / r.stdout.strip()).resolve().parent)
     except (OSError, subprocess.SubprocessError):
-        pass
-    return [*roots, cur, *cur.parents]
+        return None
+    return (cur / r.stdout.strip()).resolve().parent if r.returncode == 0 else None
+
+
+def _roots(cwd: Path | None = None) -> list[Path]:
+    """The shared git checkout first (so every worktree maps to it), then cwd and its ancestors."""
+    cur = (cwd or Path.cwd()).resolve()
+    repo = _repo_root(cur)
+    return [*([repo] if repo else []), cur, *cur.parents]
 
 
 def _board_root() -> Path | None:
@@ -86,8 +89,11 @@ def resolve_db(arg: str | None) -> Path:
 
 
 def default_project(db: Path) -> str | None:
-    """The repository of the board directory the command runs in, else the one holding --db."""
-    root = _board_root()
+    """The repository the command runs in, else the one holding the board.
+
+    A .nawaban directory above cwd says nothing: one in $HOME would name every task after the user.
+    """
+    root = _repo_root(Path.cwd().resolve())
     if root:
         return root.name
     d = db.absolute().parent

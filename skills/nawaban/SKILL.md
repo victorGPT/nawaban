@@ -21,7 +21,7 @@ The CLI is `nawaban/cli.py` in the plugin root, two directories above this skill
 python3 <plugin root>/nawaban/cli.py --db <absolute board path>
 ```
 
-Use the board the project names (its `CLAUDE.md` or `docs/agents/issue-tracker.md`); otherwise the CLI finds `.nawaban/nawaban.db` in the repository's main checkout. Always pass the absolute `--db`, also from worktrees, so every worktree writes one board. `nawaban <verb> --help` lists a verb's flags. Output is in Chinese: `✓` is success; `✗` with exit 1 is a refusal or an unknown id.
+Use the board the project names (its `CLAUDE.md` or `docs/agents/issue-tracker.md`); otherwise the CLI finds `.nawaban/nawaban.db` in the repository's main checkout. Always pass the absolute `--db`, also from worktrees, so every worktree writes one board. Write the whole command out in every call. Do not keep it in a shell variable (`N="python3 ..."; $N list`): a subagent's Bash refuses a command whose name is computed at runtime, and zsh does not split the variable. `nawaban <verb> --help` lists a verb's flags. Output is in Chinese: `✓` is success; `✗` with exit 1 is a refusal or an unknown id.
 
 Identity comes from `CLAUDE_CODE_SESSION_ID`, then `NAWABAN_OWNER`. A session without either (Codex) sets `NAWABAN_OWNER` to a stable name before claiming or writing events.
 
@@ -30,7 +30,7 @@ Identity comes from `CLAUDE_CODE_SESSION_ID`, then `NAWABAN_OWNER`. A session wi
 - **id**: any string without whitespace, e.g. `LEAN` or `LEAN-03`.
 - **title**: what a person can see once it is done.
 - **body**: markdown. A task's body has two sections, `## What to build` and `## Acceptance criteria`; a spec task's body is the whole spec. Write the body to a file and pass `--body-file`.
-- **project**: defaults to the parent's project, then to the repository holding the board. Pass `--project` only to override.
+- **project**: defaults to the parent's project, then to the git repository the command runs in (its main checkout, also from a worktree), then to the repository holding the board. Pass `--project` only to override.
 - **status**: `open`, `done` or `cancelled`. "In progress" is derived: an open task held by a session.
 
 ## Publish a spec

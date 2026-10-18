@@ -71,15 +71,25 @@ def test_project_defaults_to_board_directory(run):
     assert "项目 proj" in run("show", "T")[1]
 
 
-def test_project_defaults_to_the_board_directory_the_command_runs_in(run, tmp_path, monkeypatch):
+def test_project_defaults_to_the_repository_the_command_runs_in(run, tmp_path, monkeypatch):
+    import subprocess
     shared = tmp_path / "shared" / "board.db"
     assert run("init", db=shared)[0] == 0
     repo = tmp_path / "myrepo"
-    (repo / ".nawaban").mkdir(parents=True)
-    (repo / "sub").mkdir()
+    (repo / "sub").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
     monkeypatch.chdir(repo / "sub")
     run("create", "T", "--title", "t", "--body", "b", db=shared)
     assert "项目 myrepo" in run("show", "T", db=shared)[1]
+
+
+def test_outside_a_repository_project_comes_from_the_board_not_a_nawaban_dir_above(run, tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".nawaban").mkdir(parents=True)
+    (home / "docs").mkdir()
+    monkeypatch.chdir(home / "docs")
+    run("create", "T", "--title", "t", "--body", "b")
+    assert "项目 proj" in run("show", "T")[1]
 
 
 def test_child_inherits_parent_project(run):
