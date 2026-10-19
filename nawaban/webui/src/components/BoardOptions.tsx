@@ -1,13 +1,11 @@
 import { type ReactNode } from "react";
 import { RiFilter3Line, RiEqualizerLine } from "@remixicon/react";
-import { t as tr, waitingLabel } from "@/i18n";
+import { t as tr } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ModuleSelect } from "@/components/application/select/module-select";
 import { BOARD_COLUMNS } from "@/lib/nawaban-model";
-import { UNGROUPED_EPIC } from "@/lib/modules-model";
 import { SORT_OPTIONS, DISPLAY_FIELDS, type BoardDisplay } from "@/lib/board-display";
 import { cx } from "@/utils/cx";
 
@@ -49,13 +47,7 @@ function CheckboxField({ checked, onCheckedChange, children }: {
   </label>;
 }
 
-export function BoardOptions({ modules, module, onModuleChange, waiting, onWaitingChange,
-  dateFilters, dateActive, display, onDisplayChange }: {
-  modules: string[];
-  module: string;
-  onModuleChange: (value: string) => void;
-  waiting: string;
-  onWaitingChange: (value: string) => void;
+export function BoardOptions({ dateFilters, dateActive, display, onDisplayChange }: {
   dateFilters?: ReactNode;
   dateActive: boolean;
   display: BoardDisplay;
@@ -63,27 +55,8 @@ export function BoardOptions({ modules, module, onModuleChange, waiting, onWaiti
 }) {
   const toggle = (key: "columns" | "fields", id: string, checked: boolean) =>
     onDisplayChange({ ...display, [key]: checked ? [...display[key], id] : display[key].filter((value) => value !== id) });
-  const waitingValues = ["", "decision", "prod", "observe", "external"];
   return <>
-    <OptionsPanel label={tr("boardFilter")} icon={RiFilter3Line}
-      active={module !== "all" || !!waiting || dateActive}>
-      <Field label={tr("epicName")}>
-        <ModuleSelect modules={modules} value={module} onValueChange={onModuleChange}
-          getLabel={(value) => value === UNGROUPED_EPIC ? tr("ungrouped") : value} />
-      </Field>
-      <Field label={tr("filterWaiting")}>
-        <Select
-          items={waitingValues.map((value) => ({ value, label: value ? waitingLabel(value) : tr("allWaiting") }))}
-          value={waiting}
-          onValueChange={(value) => onWaitingChange(String(value))}
-        >
-          <SelectTrigger size="sm" aria-label={tr("filterWaiting")} className="w-full"><SelectValue /></SelectTrigger>
-          <SelectContent align="start" alignItemWithTrigger={false}>
-            {waitingValues.map((value) =>
-              <SelectItem key={value} value={value}>{value ? waitingLabel(value) : tr("allWaiting")}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </Field>
+    <OptionsPanel label={tr("boardFilter")} icon={RiFilter3Line} active={dateActive}>
       {dateFilters}
     </OptionsPanel>
     <OptionsPanel label={tr("boardDisplay")} icon={RiEqualizerLine}>
@@ -104,7 +77,7 @@ export function BoardOptions({ modules, module, onModuleChange, waiting, onWaiti
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-body-2-medium text-text-secondary">{tr("boardFields")}</legend>
         {DISPLAY_FIELDS.map((field) => <CheckboxField key={field} checked={display.fields.includes(field)}
-          onCheckedChange={(checked) => toggle("fields", field, checked)}>{tr(field === "id" ? "taskId" : "epicName")}</CheckboxField>)}
+          onCheckedChange={(checked) => toggle("fields", field, checked)}>{tr(field === "id" ? "taskId" : "project")}</CheckboxField>)}
       </fieldset>
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-body-2-medium text-text-secondary">{tr("boardColumns")}</legend>

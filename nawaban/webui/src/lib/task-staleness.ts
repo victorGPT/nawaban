@@ -5,7 +5,7 @@ export const TASK_STALE_THRESHOLDS = {
 } as const;
 
 export function taskStaleness(activeAt: number | undefined, now: number) {
-  // Older module API responses do not include an activity timestamp.
+  // A task without an activity timestamp shows no inactivity.
   if (activeAt === undefined) return null;
   const age = now - activeAt;
   if (age < TASK_STALE_THRESHOLDS.warning) return null;

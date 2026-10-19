@@ -6,13 +6,13 @@ The frontend's styled component layer is shadcn/ui on the Base UI registry, gene
 
 | Surface | Sources |
 | --- | --- |
-| Navigation and filters | `application/navigation/nav-item`, `application/theme/theme-toggle`, `application/select/module-select`, `application/date-picker/*`, ui `input`, `select`, `popover`, `button` |
-| Cards, module nodes and tags | `application/settings/settings-rows`, ui `button`, `badge` (counter and status chip), local `StatusDot` |
+| Navigation and filters | `application/theme/theme-toggle`, `application/select/module-select`, `application/date-picker/*`, ui `input`, `select`, `popover`, `button` |
+| Cards and tags | `application/settings/settings-rows`, ui `button`, `badge` (counter and status chip), local `StatusDot` |
 | List and detail properties | ui `table` + `application/table/action-row`, `application/settings/settings-rows` |
-| Detail and answers | ui `dialog` (adapted to a side sheet by `NawabanDialog`), `application/radio/radio-card`, ui `textarea`, `radio-group`, `checkbox`, `switch` |
+| Detail and answers | ui `dialog` (adapted to a side sheet by `NawabanDialog`), ui `textarea`, `radio-group`, `checkbox`, `switch` |
 | Notices and long text | ui `toast` + `application/notification/notice-card`, ui `tooltip` |
 
-Business sections, Markdown, layout grids, module statistics and SVG dependency wires compose these sources. The isolated `interaction-fixture.html` exercises the production `NawabanDialog` and base controls without backend calls and is excluded from the production entry.
+Business sections, Markdown and layout grids compose these sources. The isolated `interaction-fixture.html` exercises the production `NawabanDialog` and base controls without backend calls and is excluded from the production entry.
 
 ## Hand edits to generated files
 
@@ -39,11 +39,10 @@ Generated files are edited in place, the normal shadcn way, when the design need
 
 ## Data and interaction contracts
 
-- Project selection scopes board, modules and inbox requests and is retained in the URL and local preference. All projects includes unassigned cards. Switching projects removes the previous inbox controls and drafts immediately; late reads and answer-triggered refreshes cannot repopulate an obsolete project. Overlapping inbox refreshes apply only the latest request.
-- Board cards and module nodes share `TaskCard`: a title zone over a footer zone. The footer shows the module as plain text and reserves chips for state. A state label appears only when it tells a card apart from its column neighbours: the acceptance column omits its implied release wait. The last-activity date is pinned to the footer's right edge and changes colour once started work has been idle for three and seven days; backlog and finished cards keep a neutral date. Cards without a module show a muted placeholder. Task IDs stay in the detail drawer and list view. Window activity controls a status dot in the card's top-right corner; a pending decision is a labelled button; a missing signal renders nothing.
-- The module graph preserves dependency layers, independent nodes, cross-module edges, search dimming and focus traversal. Module selection updates the URL and survives reload.
+- Project selection scopes board requests and is retained in the URL and local preference. All projects includes tasks without a project.
+- Board cards use `TaskCard`: a title zone over a footer zone. The footer shows the project, or a muted placeholder without one. An in-progress card is marked once its task has had no event for three days, and more strongly after seven. Task IDs stay in the detail drawer and list view.
 - Read polling waits until the preceding request settles and discards responses after a view/filter change. Detail navigation keeps one drawer with Back history and ignores obsolete detail responses.
-- The only mutation is `POST /api/answer` with `{ask_id, verdict, reject}`. Unknown outcomes lock resubmission pending refresh; no automatic write retries occur. Authorization records a decision and does not execute it.
+- The page makes no writes; the backend rejects every write request.
 
 ## Context and reading surfaces
 
@@ -53,4 +52,4 @@ Task context supports Markdown headings, lists, links and blockquotes. Local tas
 
 ## Verification boundary
 
-Run the commands in [README.md](README.md). Node tests cover data mapping, graph relationships, navigation, source provenance, date behavior, polling and answer outcomes. Component tests cover control interaction, dialog dismissal, focus and selection. These fixtures do not establish live inbox approval or full mobile/keyboard acceptance; those require separate integration checks against a database copy.
+Run the commands in [README.md](README.md). Node tests cover data mapping, graph relationships, navigation, source provenance, date behavior and polling. Component tests cover control interaction, dialog dismissal, focus and selection. These fixtures do not establish full mobile/keyboard acceptance; those require separate integration checks against a database copy.

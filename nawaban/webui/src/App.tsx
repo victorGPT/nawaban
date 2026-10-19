@@ -1,27 +1,14 @@
 import { t as tr, useLocale, setLocale } from "@/i18n";
 import { useEffect, useReducer, useRef, useState } from "react";
-import {
-  RiInbox2Line,
-  RiLayoutColumnLine,
-  RiGitBranchLine,
-  RiSideBarLine,
-  RiSearchLine,
-  RiLightbulbLine,
-} from "@remixicon/react";
+import { RiSideBarLine, RiSearchLine } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { NavItem } from "@/components/application/navigation/nav-item";
 import { ThemeToggle } from "@/components/application/theme/theme-toggle";
 import { BoardFilterBar } from "@/components/BoardFilterBar";
 import { BoardKanban } from "@/views/board";
-import { ModulesView } from "@/views/modules";
-import { CaptureView } from "@/views/capture";
-import { InboxView } from "@/views/inbox";
 import { TaskDetailSheet } from "@/views/task-detail";
 import { ModuleSelect } from "@/components/application/select/module-select";
 import {
-  fetchInbox,
   fetchProjects,
   type DateRange,
   type Project,
@@ -29,20 +16,9 @@ import {
 import { navigateTask } from "@/lib/nawaban-model";
 import { cx } from "@/utils/cx";
 
-type View = "board" | "modules" | "inbox" | "capture";
+// The page has one view, the board; a task opens as a detail drawer over it (?task=).
 export default function App() {
   const locale = useLocale();
-const NAV = [
-  { id: "board", label: tr("board"), icon: RiLayoutColumnLine },
-  { id: "modules", label: tr("epic"), icon: RiGitBranchLine },
-  { id: "capture", label: tr("capture"), icon: RiLightbulbLine },
-  { id: "inbox", label: tr("inbox"), icon: RiInbox2Line },
-] as const;
-
-  const [view, setView] = useState<View>(() => {
-    const v = new URLSearchParams(location.search).get("view");
-    return v === "modules" || v === "inbox" || v === "capture" ? v : "board";
-  });
   const [query, setQuery] = useState("");
   const [project, setProject] = useState<Project>(() => {
     const params = new URLSearchParams(location.search);
@@ -58,8 +34,6 @@ const NAV = [
   });
   const [projects, setProjects] = useState<string[]>([]);
   const [range, setRange] = useState<DateRange | null>(null);
-  const [inboxTotal, setInboxTotal] = useState<number | null>(null);
-  const [decisionTasks, setDecisionTasks] = useState(new Set<string>());
   const [path, dispatch] = useReducer(navigateTask, [], () => {
     const id = new URLSearchParams(location.search).get("task");
     return id ? [id] : [];
@@ -121,48 +95,12 @@ const NAV = [
     // Runs once: only the project remembered at load needs checking.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const navigate = (next: View) => {
-    setView(next);
-    if (window.innerWidth <= 650) setNavOpen(false);
-    setQuery("");
-    const url = new URL(location.href);
-    url.searchParams.set("view", next);
-    history.replaceState(null, "", url);
-  };
-  const openDecision = (id: string) => {
-    navigate("inbox");
-    setQuery(id);
-  };
   useEffect(() => {
     const url = new URL(location.href);
     if (selectedTask) url.searchParams.set("task", selectedTask);
     else url.searchParams.delete("task");
     history.replaceState(null, "", url);
   }, [selectedTask]);
-  useEffect(() => {
-    let active = true;
-    const load = () =>
-      fetchInbox(project)
-        .then((d) => {
-          if (active) {
-            setInboxTotal(d.unavailable ? null : d.total);
-            setDecisionTasks(
-              new Set(
-                d.groups.flatMap((g) => g.items.flatMap((a) => a.task_ids)),
-              ),
-            );
-          }
-        })
-        .catch(() => {
-          if (active) setInboxTotal(null);
-        });
-    load();
-    const timer = setInterval(load, 30000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [project]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
@@ -185,7 +123,6 @@ const NAV = [
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, []);
-  const title = NAV.find((n) => n.id === view)!.label;
   const controls = (
           <div className="page-controls">
             <div className="search-control">
@@ -196,15 +133,9 @@ const NAV = [
             <Input
               ref={searchRef}
               className="rounded-2lg pl-8 text-body-medium bg-background-primary-default shadow-xs"
-              aria-label={tr(view === "capture" ? "searchCaptures" : "searchTasks")}
+              aria-label={tr("searchTasks")}
               aria-keyshortcuts="/ Control+k Meta+k"
-              placeholder={
-                view === "modules"
-                  ? tr("searchModules")
-                  : view === "inbox"
-                    ? tr("searchInbox")
-                    : view === "capture" ? tr("searchCaptures") : tr("searchBoard")
-              }
+              placeholder={tr("searchBoard")}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -245,25 +176,6 @@ const NAV = [
           />
           </div>
         )}
-        {navOpen && <p className="sidebar-label text-body-medium">{tr("workspace")}</p>}
-        <nav>
-          {NAV.map((n) => (
-            <NavItem
-              key={n.id}
-              icon={n.icon}
-              label={n.label}
-              href={`?view=${n.id}`}
-              onClick={() => navigate(n.id)}
-              collapsed={!navOpen}
-              isSelected={view === n.id}
-              badge={
-                n.id === "inbox" && inboxTotal != null ? (
-                  <Badge variant="count" size="count">{inboxTotal}</Badge>
-                ) : undefined
-              }
-            />
-          ))}
-        </nav>
         <div className="sidebar-bottom">
           <ThemeToggle collapsed={!navOpen} />
           <Button variant="soft" aria-label={tr("switchLanguage")}
@@ -271,7 +183,7 @@ const NAV = [
             {tr("languageShort")}
           </Button>
           {navOpen && (
-            <p className="text-body-regular">{tr("agentsAdvanceTasks")}<br />{tr("decisionsInInbox")}</p>
+            <p className="text-body-regular">{tr("agentsAdvanceTasks")}</p>
           )}
         </div>
       </aside>
@@ -284,40 +196,19 @@ const NAV = [
           <span className="workspace-crumb text-body-regular">
             {project === "" ? tr("noProject") : project ?? tr("allProjects")} ／
           </span>
-          <h1 className="text-body-medium">{title}</h1>
-          <Button
-            variant="link-muted"
-            size="link"
-            onClick={() => navigate("inbox")}
-          >
-            <RiInbox2Line aria-hidden="true" />
-            <span>{tr("needsAttention")}{inboxTotal != null && <Badge variant="count" size="count" className="ml-2">{inboxTotal}</Badge>}</span>
-          </Button>
+          <h1 className="text-body-medium">{tr("board")}</h1>
         </header>
-        {view !== "board" && <div className="page-heading">{controls}</div>}
         <main className="view-content">
-          {view === "board" && (
-            // Remounting per project drops its module filter and in-flight results.
-            <BoardKanban
-              key={project}
-              controls={controls}
-              filters={<BoardFilterBar range={range} onChange={setRange} />}
-              query={query}
-              range={range}
-              project={project}
-              onSelectTask={selectTask}
-              onDecision={openDecision}
-              decisionTasks={decisionTasks}
-            />
-          )}{" "}
-          {view === "modules" && (
-            <ModulesView query={query} project={project} onSelectTask={selectTask}
-              onDecision={openDecision} decisionTasks={decisionTasks} />
-          )}{" "}
-          {view === "capture" && <CaptureView key={project} project={project} query={query} onSelectTask={selectTask} />}
-          {view === "inbox" && (
-            <InboxView key={project} query={query} project={project} onSelectTask={selectTask} />
-          )}
+          {/* Remounting per project drops in-flight results. */}
+          <BoardKanban
+            key={project}
+            controls={controls}
+            filters={<BoardFilterBar range={range} onChange={setRange} />}
+            query={query}
+            range={range}
+            project={project}
+            onSelectTask={selectTask}
+          />
         </main>
       </div>
       <TaskDetailSheet

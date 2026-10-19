@@ -22,7 +22,8 @@ def test_every_cli_subcommand_is_registered_in_glossary():
         for line in body.splitlines():
             if line.startswith("_Current identifiers_:"):
                 registered.update(re.findall(r"`([^`\n]+)`", line))
-    assert {"deps", "transition", "notify", "notifications", "notify-read"} <= commands
+    assert commands == {"init", "create", "block", "claim", "close", "event", "show", "list",
+                        "backup", "migrate"}
     missing = sorted(commands - registered)
     assert not missing, "CLI subcommands missing from GLOSSARY.md: " + ", ".join(missing)
 
@@ -37,7 +38,7 @@ def test_no_compatibility_names_return():
     shims = [name for name in ("foreman_card.py", "foreman_liveness.py") if (root / name).exists()]
     assert not shims, "Retired import shim restored: " + ", ".join(shims)
     runtime = [*(root / "nawaban").rglob("*.py"), *(root / "nawaban").rglob("*.sh"),
-               *(root / "hooks").iterdir(), *(root / "scripts").iterdir(), root / "nawaban" / "webui" / "vite.config.ts"]
+               *(root / "scripts").iterdir(),root / "nawaban" / "webui" / "vite.config.ts"]
     retired = sorted(
         f"{path.relative_to(root)}: {name}"
         for path in runtime if path.is_file()

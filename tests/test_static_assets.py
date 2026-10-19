@@ -58,10 +58,11 @@ def test_static_files_cannot_escape_through_a_sibling_prefix(board, tmp_path, mo
         assert error.value.code in (400, 404)
 
 
-def test_legacy_board_has_no_single_card_graph_entry():
-    assert "view=dag" not in board_view.PAGE
-    assert '<kbd>g</kbd>' not in board_view.PAGE
-    assert 'if(e.key==="g"' not in board_view.PAGE
+def test_page_without_a_build_says_how_to_build_it(board, tmp_path, monkeypatch):
+    monkeypatch.setattr(board_view, "WEBUI_DIST", tmp_path / "no-dist")
+    with pytest.raises(urllib.error.HTTPError) as error:
+        _get(board + "/")
+    assert error.value.code == 503 and "run build" in error.value.read().decode()
 
 
 def test_retired_vendor_route_is_unavailable(board):

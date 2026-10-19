@@ -25,7 +25,7 @@ A user who needs code merged without a version bump can run `claude plugin unins
 
 ## Maintainer machine: run from a separate checkout
 
-A `directory` marketplace runs the hooks straight from that directory. If it points at the development checkout, a branch switch, an uncommitted edit or a half-finished pull there changes the hooks of every open session. Point the marketplace at a clone that only follows `main` instead:
+A `directory` marketplace loads the skill straight from that directory, and the skill points sessions at the CLI there. If it points at the development checkout, a branch switch, an uncommitted edit or a half-finished pull there changes what every open session runs. Point the marketplace at a clone that only follows `main` instead:
 
 ```sh
 git clone https://github.com/victorGPT/nawaban.git ~/.nawaban/plugin
@@ -41,11 +41,11 @@ claude plugin marketplace add ~/.nawaban/plugin   # re-points the existing "nawa
 | Go to a specific commit | `git -C ~/.nawaban/plugin reset --hard <sha>` |
 | See what is live | `git -C ~/.nawaban/plugin log -1 --oneline` |
 
-Hook scripts are read on every call, so a publish or rollback reaches open sessions at their next hook call. Running `ORIG_HEAD` twice undoes the rollback; the next `pull --ff-only` moves forward to `main` again. Publish and rollback were rehearsed on a copy of the clone: `reset --hard HEAD~2` → `pull --ff-only` reached `8a32a62` → `reset --hard ORIG_HEAD` returned to `6aff36e`.
+The CLI is read on every call, so a publish or rollback reaches open sessions at their next command. Running `ORIG_HEAD` twice undoes the rollback; the next `pull --ff-only` moves forward to `main` again. Publish and rollback were rehearsed on a copy of the clone: `reset --hard HEAD~2` → `pull --ff-only` reached `8a32a62` → `reset --hard ORIG_HEAD` returned to `6aff36e`.
 
-The skills load from the same directory. The session banner's `board-up.sh` hint now names the clone; the clone has no built `nawaban/webui/dist`, so either keep the board running from where it was built or build it there once with `npm --prefix ~/.nawaban/plugin/nawaban/webui ci && npm --prefix ~/.nawaban/plugin/nawaban/webui run build`. The `nawaban` CLI used in shells and dispatch briefs is whatever path you call; calling the development checkout's `cli.py` runs development code against the same database.
+The skill loads from the same directory. The clone has no built `nawaban/webui/dist`, so either keep the board running from where it was built or build it there once with `npm --prefix ~/.nawaban/plugin/nawaban/webui ci && npm --prefix ~/.nawaban/plugin/nawaban/webui run build`. The `nawaban` CLI used in shells is whatever path you call; calling the development checkout's `cli.py` runs development code against the same database.
 
-### Checked after switching (2026-10-16)
+### Checked after switching (2026-10-16, when the plugin still had hooks)
 
 The marketplace was switched to `/Users/victor/.nawaban/plugin` (at `8a32a62`). Then a new `claude -p` session was started from a development worktree on a non-`main` branch. That worktree had an uncommitted edit making `hooks/foreman_session_start.py` print `DEV-MARKER`; running that file directly printed it. While the session ran, `ps -axEww` was sampled every 0.1 s:
 

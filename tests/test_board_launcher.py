@@ -38,8 +38,8 @@ def test_symlink_launcher_serves_selected_board(tmp_path, file_link):
         assert "HTTP 200" in started.stdout
         with urlopen(f"http://127.0.0.1:{port}/api/board", timeout=5) as response:
             assert json.load(response)["columns"] is not None
-        with urlopen(f"http://127.0.0.1:{port}/api/modules", timeout=5) as response:
-            assert json.load(response)["tasks"] == []
+        with urlopen(f"http://127.0.0.1:{port}/api/projects", timeout=5) as response:
+            assert json.load(response)["projects"] == []
     finally:
         subprocess.run(["bash", str(launcher), "stop"], cwd=tmp_path, env=env,
                        capture_output=True, timeout=10)

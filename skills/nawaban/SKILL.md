@@ -1,59 +1,93 @@
 ---
 name: nawaban
-description: Use before changing files, committing, or creating a branch in a repository with a nawaban board, even for a one-character edit. Says which worktree to edit in and how to claim, advance, resume, and hand off a task. Not needed for only reading files or answering questions.
+description: The nawaban board is the issue tracker. Use when a skill says to publish a spec, "publish the tickets" or "fetch the ticket" (each ticket is a task), or to find the frontier; before working on a task; and when recording a note, a decision between options, or a link such as a pull request.
 ---
 
-# nawaban task work
+# nawaban issue tracker
 
-Keep the task, its worktree, and the delivery evidence in agreement while you finish what the user authorized. nawaban owns tasks, worktrees, and status; the target project owns implementation method and delivery scope.
+A nawaban board records **tasks** and an append-only **event** log per task. It holds no workflow: the engineering skills (`/to-spec`, `/to-tickets`, `/implement-spec`, `tdd`, `code-review`) decide what to do; the board records what was decided and done.
 
-## Start or resume
+## Rules
 
-Read the target task's `success`, `constraints`, `touches`, owner, status, `now`, and refs; read a linked ADR when the work needs it. The current user request and the project's tracker win; earlier decisions and authorization for the same scope stay valid.
+1. **Three questions for the user.** Bring the user only questions about how the product should behave, what is said to the outside, and whether something goes to production. Settle every other choice yourself.
+2. **Every choice becomes a decision event.** Whenever you choose between options, record it (see "Record events"), including the user's answers to the three questions above.
+3. **Claim before work.** Claim a task before working on it, and close or release it when you stop.
 
-- **Query or review**: read the state and evidence you need. "Who is working on what" is answered without claiming, creating a task, or editing.
-- **Implement**: confirm a checkable completion condition, then claim and move into the task's worktree. Ask only about a missing decision that changes scope, behaviour, or risk; settle every other choice yourself.
-- **Resume**: check the owner, the latest handoff, and the existing worktree first, and reuse that worktree; skip steps already done. A task returned to `open` needs claim → start again; another owner's task needs coordination first.
+## The command
 
-On first use, or across projects, read [Runtime and identity](references/runtime.md) to confirm the CLI, the target database, and the session identity. Resolve relative links from this skill's real path (an installed entry may be a symlink).
+The CLI is `nawaban/cli.py` in the plugin root, two directories above this skill's base directory. Below, `nawaban` stands for:
 
-## Claim and worktree
-
-Every write carries the `NAWABAN_OWNER` and `CLAUDE_CODE_SESSION_ID` the session provides. Use one target database throughout, and replace each placeholder below with a verified value.
-
-```bash
-nawaban --db <absolute path of target db> claim <ID>
-nawaban --db <absolute path of target db> start <ID> --now "<the work in progress now>"
-git worktree add <worktree path> -b task/<ID>
+```
+python3 <plugin root>/nawaban/cli.py --db <absolute board path>
 ```
 
-Create a worktree only when the task has none. The shared main checkout stays on `main`; edit project files in the task's worktree. When a shell command writes a file (redirect, `tee`, `sed -i`), give it an absolute path inside the worktree: the write gate does not follow a `cd` in the command. Authorized files outside the repository are handled by their real paths in `touches`. When scope grows, confirm the authorization and record it with `scope` before editing. The overlap WARN from `claim` is a coordination hint, not a scope contract.
+Use the board the project names (its `CLAUDE.md` or `docs/agents/issue-tracker.md`); otherwise the CLI finds `.nawaban/nawaban.db` in the repository's main checkout. Always pass the absolute `--db`, also from worktrees, so every worktree writes one board. Write the whole command out in every call. Do not keep it in a shell variable (`N="python3 ..."; $N list`): a subagent's Bash refuses a command whose name is computed at runtime, and zsh does not split the variable. `nawaban <verb> --help` lists a verb's flags. Output is in Chinese: `✓` is success; `✗` with exit 1 is a refusal or an unknown id.
 
-## Advance and finish
+Identity comes from `CLAUDE_CODE_SESSION_ID`, then `NAWABAN_OWNER`. A session without either (Codex) sets `NAWABAN_OWNER` to a stable name before claiming or writing events.
 
-When a test fails in your worktree and your change did not cause it, do not skip it as "already broken": run `nawaban blame <failing file>` to find the done task that broke it, create a fix task, `link --kind regresses`, then return to your task.
+## Task shape
 
-Keep doing the authorized implementation, its checks, and their fixes until `success` is met or a specific blocker needs outside input. Pick verification from the behaviour affected; after checks pass, re-verify only for a new change, a failure, or an open risk. When the work has a runtime effect, check the target runtime environment; record local tests, deploy results, and human acceptance separately.
+- **id**: any string without whitespace, e.g. `LEAN` or `LEAN-03`.
+- **title**: what a person can see once it is done.
+- **body**: markdown. A task's body has two sections, `## What to build` and `## Acceptance criteria`; a spec task's body is the whole spec. Write the body to a file and pass `--body-file`.
+- **project**: defaults to the parent's project, then to the git repository the command runs in (its main checkout, also from a worktree), then to the repository holding the board. Pass `--project` only to override.
+- **status**: `open`, `done` or `cancelled`. "In progress" is derived: an open task held by a session.
 
-The user and the project set the delivery boundary: local files, commit, PR, merge, and deploy each need authorization of matching scope. This skill does not by itself require a PR, a deploy, or another task. For unmerged work, record the commit or artifact and the real handoff state; never invent a `merge_sha` to reach done.
+## Publish a spec
 
-Before stopping, sync status, `now`, refs, and handoff as in [Delivery and wrap-up](references/cards.md); with work left, leave the evidence, the remaining work, and one clear next step. To review only this session's claims, use [nawaban-wrapup](../nawaban-wrapup/SKILL.md).
+```
+nawaban create <SPEC-ID> --title "<title>" --body-file <spec.md>
+```
 
-## Read when
+## When a skill says "publish the tickets"
 
-| Situation | Reference |
-|---|---|
-| No task yet, a goal to split, or a decision to record | [Creating tasks and scoping](references/grill-protocol.md) |
-| Overlap warning from `claim`, or a dependency, edit, or archive rejected | [Overlap coordination](references/locks.md), [Status and hook gates](references/gates.md); read only the relevant rows |
-| This session is a worker dispatched by a director, or explicitly follows the worker protocol | [Worker protocol](references/director-worker.md) |
-| A PR is in scope or the project requires independent review | [PR and review](references/review-pr.md); for adding commits to a PR or resolving a conflict, also [Git collaboration](references/git-shared-tree.md) |
-| An extra capability is needed, or an old Markdown task is being read | [Capability catalogue](references/skill-shelf.md) or [Historical tasks](references/md-cards.md), whichever applies |
+Create one task per ticket, blockers first:
 
-## External capabilities
+```
+nawaban create <SPEC-ID>-<NN> --title "<title>" --parent <SPEC-ID> --body-file <task.md> --blocked-by <ID> --blocked-by <ID>
+nawaban block <ID> <blocker ID>
+```
 
-Load these only when the condition holds and the capability is enabled; a missing optional capability does not block ordinary work. The optional skill_shelf inventory tool also reads this table.
+`block` adds an edge afterwards. Both refuse unknown ids, a task blocking itself, and cycles. Leave the spec task unchanged.
 
-| Condition | Optional capability |
-|---|---|
-| An important requirement fork is unresolved | `grilling` or the current requirement-clarifying capability |
-| The project requires a specific implementation or review method | `tdd`, `code-review`, or an enabled equivalent, as the project chooses |
+## When a skill says "fetch the ticket": fetch a task or a spec
+
+- `nawaban show <ID>`: title, status, project, parent, holding session, current progress (the latest note, shown for open tasks only), the tasks it is blocked by and its dependents with their status, the body, and the latest 20 events.
+- `nawaban list --parent <SPEC-ID>`: every task of a spec, one line each: `<id>  <status>  <project>  <title>`. `nawaban list --project <name>` filters by project.
+
+## Frontier
+
+```
+nawaban list --parent <SPEC-ID> --frontier
+```
+
+The frontier is every open task that no session holds and whose blockers are all done or cancelled. Without `--parent`, the list includes spec tasks too. Nothing stops a claim on a task outside the frontier; check it yourself.
+
+## Claim, release, close
+
+- `nawaban claim <ID>`: the task becomes yours. A task held by another session is refused with the holder's session id; take it over only on purpose, with `--take`, which is logged. A done or cancelled task is refused; reopen it with `close --reopen` first.
+- `nawaban claim <ID> --release`: hand back a task you will not finish; it returns to the frontier. Record a note on where you stopped first.
+- `nawaban close <ID> --done` once its work is merged into the integration branch, after a link event for the pull request or commit. `--cancelled` for work dropped; `--reopen` for a task closed by mistake. Closing clears the session.
+
+Every claim, takeover, release and close writes a status event by itself.
+
+## Record events
+
+```
+nawaban event <ID> --kind note --body "<progress or handoff>"
+nawaban event <ID> --kind decision --body "Question: <question>
+Verdict: <what was chosen and why>
+Rejected: <option> - <why not>"
+nawaban event <ID> --kind link --body "pr:<url>"
+```
+
+- A note is the progress line others see; record one at each stopping point.
+- A decision the user made gets `--by user`; without it the author is your identity.
+- Link prefixes: `pr:`, `commit:`, `artifact:`, `adr:`.
+- Triage labels are notes: `--kind note --body "triage: <label>"`.
+
+## Back up and migrate
+
+- `nawaban backup`: copy the board into `backups/` beside it with a timestamp; copies older than 14 days are pruned. Run it before risky changes.
+- `nawaban migrate <old board> <new board>`: build a new board from an old-schema board. It never writes the old file and refuses when the new board already holds tasks.
+- `nawaban init`: create an empty board, only when connecting a new project.

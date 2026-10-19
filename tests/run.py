@@ -1,5 +1,4 @@
 """Run inherited script assertions and pytest suites in isolated environments."""
-import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -10,14 +9,9 @@ root = Path(__file__).resolve().parents[1]
 scripts = sorted((root / "tests/upstream").glob("test_*.py"))
 commands = [(p.name, [sys.executable, str(p)]) for p in scripts]
 commands.append(("pytest", [sys.executable, "-m", "pytest", "-q", "tests",
-                            "--ignore=tests/upstream", "--ignore=tests/test_upstream_scripts.py"]))
+                            "--ignore=tests/upstream"]))
 failed = []
-skipped = []
 for name, command in commands:
-    if name == "test_workos_import.py" and importlib.util.find_spec("yaml") is None:
-        skipped.append(name)
-        print(f"SKIP {name}: historical Markdown import requires optional PyYAML", flush=True)
-        continue
     with tempfile.TemporaryDirectory(prefix="nawaban-test-") as home:
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(("NAWABAN_", "TYPESAFE_"))
@@ -25,8 +19,7 @@ for name, command in commands:
                and k not in {"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN",
                              "GITHUB_ENTERPRISE_TOKEN", "TMUX", "TMUX_PANE",
                              "NAWABAN_OWNER"}}
-        env.update(HOME=home, NAWABAN_STATE_DIR=str(Path(home) / "state"),
-                   XDG_CONFIG_HOME=str(Path(home) / "config"),
+        env.update(HOME=home, XDG_CONFIG_HOME=str(Path(home) / "config"),
                    XDG_CACHE_HOME=str(Path(home) / "cache"),
                    NAWABAN_OWNER="ac:selftest", CLAUDE_CODE_SESSION_ID="selftest-session",
                    PYTHONPATH=str(root), GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
@@ -41,5 +34,5 @@ for name, command in commands:
             print(result.stdout, flush=True)
         elif name == "pytest" or "SKIP:" in result.stdout:
             print(result.stdout, flush=True)
-print(f"{len(commands) - len(failed) - len(skipped)} passed, {len(failed)} failed, {len(skipped)} skipped")
+print(f"{len(commands) - len(failed)} passed, {len(failed)} failed")
 raise SystemExit(bool(failed))
