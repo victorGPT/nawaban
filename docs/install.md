@@ -18,7 +18,7 @@ Run these steps in order. Each one is safe to run again. Stop and tell the user 
    - Claude Code: `claude plugin marketplace add ~/nawaban`, then `claude plugin install nawaban@nawaban`.
    - Codex: add the marketplace and plugin entries shown under [Plugin install](#plugin-install) to `~/.codex/config.toml` with `source = "<absolute path of ~/nawaban>"`, then run `codex plugin add nawaban@nawaban`. Also set `NAWABAN_OWNER` to a stable name in the environment Codex runs commands in ([Session identity](#session-identity)).
 4. In the user's project, create the board: `python3 ~/nawaban/nawaban/cli.py init`. It prints the board path, or says the board already exists.
-5. Start the board: `bash ~/nawaban/nawaban/board-up.sh`, run from the project. It prints the address, `http://127.0.0.1:8813/` by default.
+5. Start the board: `bash ~/nawaban/nawaban/board-up.sh`, run from the project. It prints the address, `http://127.0.0.1:8813/` by default. If it says the port is taken by another board or program, run it again with `NAWABAN_BOARD_PORT` set to a free port, such as `NAWABAN_BOARD_PORT=8814`.
 6. Tell the user three things: the board address, the board path from step 4, and that the `nawaban` skill loads in a new session, so they should start one.
 
 Optional, for a person who wants to type commands: add `nawaban() { python3 ~/nawaban/nawaban/cli.py "$@"; }` to their shell profile, only if they ask.

@@ -53,6 +53,14 @@ case "${1:-start}" in
 esac
 
 if alive; then
+  # 端口上的板可能是别的项目的:核对它的 --db,不一致就别报成功
+  PID="$(lsof -nP -t -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | head -1)"
+  RUNNING_DB="$(ps -o args= -p "$PID" 2>/dev/null | sed -n 's/.*--db \(.*\) --port .*/\1/p')"
+  if [ "$RUNNING_DB" != "$DB" ]; then
+    echo "✗ 端口 $PORT 已被占用(${RUNNING_DB:-不是 nawaban 看板}),不是这块板 $DB" >&2
+    echo "  换个端口:NAWABAN_BOARD_PORT=<端口> $0" >&2
+    exit 1
+  fi
   echo "already running → $URL"
   exit 0
 fi
