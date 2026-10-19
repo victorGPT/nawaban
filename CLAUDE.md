@@ -6,7 +6,7 @@ Specs and tickets live on the nawaban board (project `nawaban`), used through it
 
 ### Triage labels
 
-The five default labels, recorded as `triage: <label>` note events on a card. See `docs/agents/triage-labels.md`.
+The five default labels, recorded as `triage: <label>` note events on a task. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
