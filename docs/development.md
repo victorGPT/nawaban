@@ -10,7 +10,7 @@ The runtime and skill use the nawaban name; the bilingual [glossary](../GLOSSARY
 | `skills/nawaban/` | The one skill: the issue-tracker guide for agents |
 | `tests/test_glossary.py` | CLI terminology coverage check |
 
-The plugin registers no hooks. Runtime data, logs, caches, installed dependencies and compiled WebUI output are omitted. No npm or pip distribution is introduced.
+The plugin registers no hooks. Runtime data, logs, caches, and installed dependencies are omitted. The compiled WebUI in `nawaban/webui/dist` is committed so installs need no Node. No npm or pip distribution is introduced.
 
 ## Glossary check
 

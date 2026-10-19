@@ -17,7 +17,7 @@ bash ../board-up.sh
 
 A frontend rebuild takes effect on the next page request. Backend changes require restarting the listener; `board-up.sh` does not replace a running process. Install the frontend and backend together.
 
-Without a build, the board serves its embedded fallback page.
+`dist/` is committed so that installing nawaban needs no Node. After changing the frontend, run `npm run build` and commit `dist/` with the change; CI rebuilds it and fails when the committed copy differs.
 
 ## Language
 

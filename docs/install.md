@@ -1,6 +1,27 @@
 # Installation
 
-The [README](../README.md#install-as-a-plugin) has the short path. This page covers the GitHub install, Codex, running without a plugin, and session identity.
+The short path: paste this into Claude Code or Codex, in the project that should get a board.
+
+```text
+Install nawaban by following https://github.com/victorGPT/nawaban/blob/main/docs/install.md and create a board in this project.
+```
+
+The agent follows the next section. The sections after it are the same install by hand, and the details behind it.
+
+## For the agent doing the install
+
+Run these steps in order. Each one is safe to run again. Stop and tell the user if a step fails.
+
+1. Check that `git` and `python3` exist and that `python3 --version` is 3.9 or newer. Node is not needed: the board UI is already built.
+2. Put nawaban at `~/nawaban`. If that directory exists and is a nawaban checkout, run `git -C ~/nawaban pull --ff-only`; otherwise run `git clone https://github.com/victorGPT/nawaban ~/nawaban`.
+3. Install the plugin.
+   - Claude Code: `claude plugin marketplace add ~/nawaban`, then `claude plugin install nawaban@nawaban`.
+   - Codex: add the marketplace and plugin entries shown under [Plugin install](#plugin-install) to `~/.codex/config.toml` with `source = "<absolute path of ~/nawaban>"`, then run `codex plugin add nawaban@nawaban`. Also set `NAWABAN_OWNER` to a stable name in the environment Codex runs commands in ([Session identity](#session-identity)).
+4. In the user's project, create the board: `python3 ~/nawaban/nawaban/cli.py init`. It prints the board path, or says the board already exists.
+5. Start the board: `bash ~/nawaban/nawaban/board-up.sh`, run from the project. It prints the address, `http://127.0.0.1:8813/` by default. If it says the port is taken by another board or program, run it again with `NAWABAN_BOARD_PORT` set to a free port, such as `NAWABAN_BOARD_PORT=8814`.
+6. Tell the user three things: the board address, the board path from step 4, and that the `nawaban` skill loads in a new session, so they should start one.
+
+Optional, for a person who wants to type commands: add `nawaban() { python3 ~/nawaban/nawaban/cli.py "$@"; }` to their shell profile, only if they ask.
 
 ## Plugin install
 
@@ -36,7 +57,7 @@ nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
 
 Run `nawaban init` in the project to create `.nawaban/nawaban.db`, then `nawaban list`. The CLI picks the board from an explicit `--db`, then `NAWABAN_DB`, then `.nawaban/nawaban.db` in the repository's main checkout (so linked worktrees share it), then the nearest `.nawaban/` above the current directory. Several projects can share one board: pass the same absolute `--db` everywhere; a new task's project defaults to its parent's, then to the repository holding the board. `nawaban backup` copies the board into `backups/` beside it.
 
-Build the board UI once per checkout with `npm ci && npm run build` in `nawaban/webui` (the build output is not committed; without it the board serves the built-in fallback page).
+The board UI is committed already built, in `nawaban/webui/dist`. Rebuild it only after changing the frontend ([webui README](../nawaban/webui/README.md)).
 
 Launch the board with `bash "$NAWABAN_HOME/nawaban/board-up.sh"`. `NAWABAN_BOARD_PORT` and `NAWABAN_BOARD_HOST` select the listener; `NAWABAN_DB` selects its board.
 

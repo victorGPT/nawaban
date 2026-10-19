@@ -43,3 +43,32 @@ def test_symlink_launcher_serves_selected_board(tmp_path, file_link):
     finally:
         subprocess.run(["bash", str(launcher), "stop"], cwd=tmp_path, env=env,
                        capture_output=True, timeout=10)
+
+
+def test_launcher_refuses_a_port_held_by_another_board(tmp_path):
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("NAWABAN_", "TYPESAFE_")) and k != "PYTHONPATH"}
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    env.update(NAWABAN_BOARD_HOST="127.0.0.1", NAWABAN_BOARD_PORT=str(port), HOME=str(tmp_path))
+    boards = {}
+    for name in ("a", "b"):
+        boards[name] = dict(env, NAWABAN_DB=str(tmp_path / f"{name}.db"))
+        subprocess.run([sys.executable, str(ROOT / "nawaban/cli.py"), "init"],
+                       cwd=tmp_path, env=boards[name], check=True, capture_output=True)
+    launcher = ["bash", str(ROOT / "nawaban/board-up.sh")]
+
+    def run(name):
+        return subprocess.run(launcher, cwd=tmp_path, env=boards[name],
+                              capture_output=True, text=True, timeout=20)
+    try:
+        assert run("a").returncode == 0
+        again = run("a")
+        assert again.returncode == 0 and "already running" in again.stdout
+        other = run("b")
+        assert other.returncode == 1
+        assert str(tmp_path / "a.db") in other.stderr
+    finally:
+        subprocess.run(launcher + ["stop"], cwd=tmp_path, env=env,
+                       capture_output=True, timeout=10)

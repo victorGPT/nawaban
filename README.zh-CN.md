@@ -47,51 +47,24 @@ nawaban 由四部分组成，全部在这一个仓库里，运行在你自己的
 
 ## 前置条件
 
-- Git、Bash、Python 3.9 或更高版本。CLI 直接从仓库目录运行，不用安装包。
+- Git、Bash、Python 3.9 或更高版本。
 - Claude Code 或 Codex。
-- Node.js 和 npm，只在构建看板界面时用一次。
 
 ## 快速上手
 
-大约五分钟。同一份克隆既是插件，也是 CLI。
+在要建看板的项目里，把下面这句话贴给 Claude Code 或 Codex：
 
-1. 克隆仓库，在 Claude Code 里安装插件。Codex 的装法见 [docs/install.md](docs/install.md)。
+```text
+按 https://github.com/victorGPT/nawaban/blob/main/docs/install.md 安装 nawaban，并在当前项目建一块看板。
+```
 
-   ```sh
-   git clone https://github.com/victorGPT/nawaban ~/nawaban
-   claude plugin marketplace add ~/nawaban
-   claude plugin install nawaban@nawaban
-   ```
+agent 会把 nawaban 克隆到 `~/nawaban`，装好插件，建好看板并启动，然后告诉你看板地址，默认是 `http://127.0.0.1:8813/`。装完开一个新窗口，`nawaban` skill 才会加载。
 
-2. 在 shell 配置文件里定义 CLI。
-
-   ```sh
-   export NAWABAN_HOME=~/nawaban
-   nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
-   ```
-
-3. 在你的项目里建一块看板。
-
-   ```console
-   $ cd /path/to/your-project
-   $ nawaban init
-   ✓ init → /path/to/your-project/.nawaban/nawaban.db
-   ```
-
-4. 构建一次看板界面，然后打开看板。
-
-   ```sh
-   (cd "$NAWABAN_HOME/nawaban/webui" && npm ci && npm run build)
-   bash "$NAWABAN_HOME/nawaban/board-up.sh"
-   ```
-
-   脚本会打印访问地址，默认是 `http://127.0.0.1:8813/`。
-
-5. 在项目里启动 Claude Code，给它派一个任务。某个 skill 发布或读取任务时，或 agent 动手做一个任务之前，会加载 `nawaban` skill。
+想自己动手装，[docs/install.md](docs/install.md) 里是同样的步骤。
 
 ## 一次会话长什么样
 
-下面这些命令由 agent 自己执行。放在这里是为了让你看得懂看板上的记录。
+下面这些命令由 agent 自己执行。放在这里是为了让你看得懂看板上的记录。`nawaban` 代表 `python3 ~/nawaban/nawaban/cli.py`。
 
 发布一份 spec 和拆出的任务；第二个任务的前置任务是第一个，所以只有第一个可以开工：
 
@@ -137,7 +110,7 @@ DEMO-02  open  your-project  用验证码登录
 
 ## 作为插件安装
 
-同一份克隆既是 Claude Code 插件，也是 Codex 插件；它只带一份 skill，不带 hook。Claude Code 的命令在上面第 1 步。从 GitHub 安装、Codex 的配置、会话身份、不装插件怎么直接运行 CLI，都在 [docs/install.md](docs/install.md)。
+同一份克隆既是 Claude Code 插件，也是 Codex 插件；它只带一份 skill，不带 hook。快速上手会替你装好。手动安装的步骤、从 GitHub 安装、Codex 的配置、会话身份、不装插件怎么直接运行 CLI，都在 [docs/install.md](docs/install.md)。
 
 ## 文档
 
