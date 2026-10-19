@@ -12,7 +12,7 @@
 
 ## 架构
 
-[![架构图：Claude Code 或 Codex 会话读取 nawaban skill 并调用 CLI；CLI 读写看板文件；看板服务只读这个文件，把页面给你看](docs/images/architecture.zh-CN.svg)](https://victorgpt.github.io/nawaban/diagrams/architecture.zh-CN.html)
+[![架构图：Claude Code 或 Codex 窗口读取 nawaban skill 并调用 CLI；CLI 读写看板文件；看板服务只读这个文件，把页面给你看](docs/images/architecture.zh-CN.svg)](https://victorgpt.github.io/nawaban/diagrams/architecture.zh-CN.html)
 
 *点开图可以看交互版。*
 
@@ -27,7 +27,7 @@ nawaban 由四部分组成，全部在这一个仓库里，运行在你自己的
 
 ## 任务怎么流转
 
-[![流程图：spec 拆成任务；前置任务都已关闭的任务组成可开工队列；会话认领一个，记下笔记、决定和链接，然后关闭，下一个任务随之可以开工；只有你能回答的问题会在对话里问你，并记成决定](docs/images/flow.zh-CN.svg)](https://victorgpt.github.io/nawaban/diagrams/flow.zh-CN.html)
+[![流程图：spec 拆成任务；前置任务都已关闭的任务组成可开工队列；窗口认领一个，记下笔记、决定和链接，然后关闭，下一个任务随之可以开工；只有你能回答的问题会在对话里问你，并记成决定](docs/images/flow.zh-CN.svg)](https://victorgpt.github.io/nawaban/diagrams/flow.zh-CN.html)
 
 蓝色是每个任务都会走的路径。橙色是唯一需要你的路径：agent 在对话里问你产品该怎么表现、对外怎么说、要不要上生产，再把你的回答记成一条决定。
 
@@ -106,7 +106,7 @@ $ nawaban list --parent DEMO --frontier
 DEMO-01  open  your-project  收到验证码邮件
 ```
 
-一个会话认领可开工的任务。另一个会话再认领同一个任务时，会被告知谁拿着它：
+一个窗口认领可开工的任务。另一个窗口再认领同一个任务时，会被告知谁拿着它：
 
 ```console
 $ nawaban claim DEMO-01
