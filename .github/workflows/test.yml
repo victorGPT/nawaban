@@ -14,6 +14,8 @@ jobs:
           node-version: '22'
       - run: npm --prefix nawaban/webui ci
       - run: npm --prefix nawaban/webui run build
+      - name: committed board UI matches the source
+        run: git diff --exit-code --stat -- nawaban/webui/dist && test -z "$(git status --porcelain -- nawaban/webui/dist)"
       - run: npm --prefix nawaban/webui run lint
       - run: npm --prefix nawaban/webui test
       - run: npm --prefix nawaban/webui run test:components
