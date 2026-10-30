@@ -71,6 +71,16 @@ The frontier is every open task that no session holds and whose blockers are all
 
 Every claim, takeover, release and close writes a status event by itself.
 
+## Dispatch tasks to herdr workers
+
+When the user asks you to dispatch tasks and `HERDR_ENV=1`, you are the dispatcher: hold no task yourself and keep task detail on the board, not in your context. For each task `<ID>`, with `<name>` its id in lowercase (herdr agent names are `[a-z][a-z0-9_-]`):
+
+    herdr worktree create --cwd <repo> --branch feat/<name> --label <ID> --no-focus
+    herdr agent start <name> --kind claude --pane <root pane id from the create output>
+    herdr agent prompt <name> "Work nawaban task <ID>: claim it, build it, record events, close it. When done or blocked, SendMessage <dispatcher> one line: '<ID> done' or '<ID> blocked: <question>'."
+
+`<dispatcher>` is the name `ListAgents` says other sessions use for you. Progress is `nawaban show <ID>`; live status is the herdr sidebar. Once the task is closed, `herdr worktree remove --workspace <workspace id>`; the branch stays.
+
 ## Record events
 
 ```
