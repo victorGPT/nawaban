@@ -79,7 +79,7 @@ When the user asks you to dispatch tasks and `HERDR_ENV=1`, you are the dispatch
     herdr agent start <name> --kind claude --pane <root pane id from the create output>
     herdr agent prompt <name> "Work nawaban task <ID>: claim it, build it, record events, close it. When done or blocked, SendMessage <dispatcher> one line: '<ID> done' or '<ID> blocked: <question>'."
 
-`<dispatcher>` is the name `ListAgents` says other sessions use for you. Progress is `nawaban show <ID>`; live status is the herdr sidebar. Once the task is closed, `herdr worktree remove --workspace <workspace id>`; the branch stays.
+`<dispatcher>` is the name `ListAgents` says other sessions use for you. Progress is `nawaban show <ID>`; live status is the herdr sidebar. herdr's `agent_status` can read `done` while a worker is still working, so take the worker's message and the board as the signal that a task is finished. Once the task is closed, `herdr worktree remove --workspace <workspace id>`; the branch stays.
 
 ## Record events
 
