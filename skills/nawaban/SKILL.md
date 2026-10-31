@@ -71,15 +71,28 @@ The frontier is every open task that no session holds and whose blockers are all
 
 Every claim, takeover, release and close writes a status event by itself.
 
-## Dispatch tasks to herdr workers
+## Dispatch tasks to Herdr workers
 
-When the user asks you to dispatch tasks and `HERDR_ENV=1`, you are the dispatcher: hold no task yourself and keep task detail on the board, not in your context. For each task `<ID>`, with `<name>` its id in lowercase (herdr agent names are `[a-z][a-z0-9_-]`):
+When the user asks you to dispatch tasks, you are the dispatcher: hold no task yourself and keep task detail on the board, not in your context. Each worker reports back with one line, `'<ID> done'` or `'<ID> blocked: <question>'`, sent with SendMessage to `<dispatcher>`, the name `ListAgents` says other sessions use for you. Progress is `nawaban show <ID>`.
+
+### In the Herdr app or herdr-core (`HC_TERMINAL_ID` is set)
+
+For each task `<ID>`, with `<name>` its id in lowercase (1 to 32 of `a-z 0-9 - _`, unique among live terminals):
+
+    git -C <repo> worktree add <repo>/.claude/worktrees/<name> -b feat/<name>
+    hc run --bg --outlive-parent --name <name> --cwd <repo>/.claude/worktrees/<name> claude "Work nawaban task <ID>: claim it, build it, record events, close it. When done or blocked, SendMessage <dispatcher> one line: '<ID> done' or '<ID> blocked: <question>'."
+
+Keep the worktree under `<repo>/.claude/worktrees/`: a folder Claude Code has not trusted stops the worker at a trust prompt. `--outlive-parent` keeps workers running when your session ends. Claude Code reports no status to herdr-core, so the sidebar shows none for workers: take the worker's message and the board as the signal that a task is finished. Once the task is closed, `hc kill <name>` and `git -C <repo> worktree remove <repo>/.claude/worktrees/<name>`; the branch stays.
+
+### In Herdr TUI (`HERDR_ENV=1`)
+
+For each task `<ID>`, with `<name>` its id in lowercase (herdr agent names are `[a-z][a-z0-9_-]`):
 
     herdr worktree create --cwd <repo> --branch feat/<name> --label <ID> --no-focus
     herdr agent start <name> --kind claude --pane <root pane id from the create output>
     herdr agent prompt <name> "Work nawaban task <ID>: claim it, build it, record events, close it. When done or blocked, SendMessage <dispatcher> one line: '<ID> done' or '<ID> blocked: <question>'."
 
-`<dispatcher>` is the name `ListAgents` says other sessions use for you. Progress is `nawaban show <ID>`; live status is the herdr sidebar. herdr's `agent_status` can read `done` while a worker is still working, so take the worker's message and the board as the signal that a task is finished. Once the task is closed, `herdr worktree remove --workspace <workspace id>`; the branch stays.
+Live status is the herdr sidebar. herdr's `agent_status` can read `done` while a worker is still working, so take the worker's message and the board as the signal that a task is finished. Once the task is closed, `herdr worktree remove --workspace <workspace id>`; the branch stays.
 
 ## Record events
 
