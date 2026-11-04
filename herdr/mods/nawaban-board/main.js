@@ -4,11 +4,12 @@
 // --db, so it finds the same board an agent working there does.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, InputState, Input, TextView, v_virtual_list, VirtualListScrollHandle, Scrollbar } from "gpui-base";
-import { spaces, focused, exec, theme, home, props, nextCommand } from "herdr";
+import { spaces, focused, exec, theme, home, props, nextCommand, watchFolder } from "herdr";
 import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly,
-  listRows, moveSelection, keyCommand, escapeStep, WORDS } from "./logic.js";
+  listRows, moveSelection, keyCommand, escapeStep, boardChanged, WORDS } from "./logic.js";
 
-const POLL_MS = 5000;
+const POLL_MS = 5000;      // re-read the board this often when it cannot be watched
+const FALLBACK_MS = 60000; // and this often when it is, in case a change was missed
 const SHOWN = { open: 8, done: 5 }; // rows a group shows before "show N more"
 const ID_W = 132; // the ID column
 const ID_CHARS = 18; // longer IDs are cut in the middle to fit ID_W, keeping their distinguishing tail
@@ -43,6 +44,8 @@ export default class NawabanBoard extends View {
     this.error = null;
     this.scope = null;          // null: the space's project; "*": all projects; else a project picked
     this.projects = new Map();  // folder -> its project (null: none), resolved once per folder
+    this.dbs = new Map();       // folder -> the board file its CLI reads (null: unknown)
+    this.watched = new Set();   // board files being watched
     this.projectList = [];      // the board's projects, for the picker
     this.chip = "all";
     this.shut = new Set();      // folded groups
@@ -69,7 +72,13 @@ export default class NawabanBoard extends View {
     cx.spawn(async (cx) => { for (;;) { this.act(await nextCommand(), cx); cx.notify(); } });
     const task = props()?.task;
     if (task) this.open(String(task), cx);
-    cx.timer.every(POLL_MS, (cx) => { this.refresh(cx); this.loadDetail(cx); });
+    // A ticking clock costs nothing; a read starts a python process, so it waits for FALLBACK_MS
+    // while the board is watched. Timers keep running while the panel is hidden.
+    cx.timer.every(POLL_MS, (cx) => {
+      if (this.watched.has(this.db) && Date.now() - this.readAt < FALLBACK_MS) return;
+      this.refresh(cx);
+      this.loadDetail(cx);
+    });
   }
 
   // A task's detail. Its blockers, dependents, subtasks and parent open on top of it; "back" goes
@@ -169,20 +178,25 @@ export default class NawabanBoard extends View {
   }
 
   refresh(cx) {
-    if (this.loading) return;
+    if (this.loading) { this.again = true; return; } // read once more when this one ends
     const cwd = folder();
     if (cwd !== this.cwd) { this.cwd = cwd; this.scope = null; } // a new space: follow its project again
     const key = this.key(), scope = this.scope;
     this.loading = true;
+    this.readAt = Date.now();
     this.context = key;
     cx.spawn(async (cx) => {
       try {
         if (!this.projects.has(cwd)) {
           const git = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd });
           const { out } = await nawaban(["json", "projects"], cwd);
+          // null with a CLI older than `json db`: the panel then polls every POLL_MS.
+          this.dbs.set(cwd, await nawaban(["json", "db"], cwd).then((r) => r.out.db, () => null));
           this.projects.set(cwd, projectFor(git.code === 0 ? git.stdout : "", out));
           this.projectList = out.projects;
         }
+        this.db = this.dbs.get(cwd);
+        if (this.db) this.watch(this.db, cx);
         const own = this.projects.get(cwd);
         const project = scope === "*" ? null : scope ?? own;
         const { out, raw } = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], cwd);
@@ -198,6 +212,22 @@ export default class NawabanBoard extends View {
       } finally {
         this.loading = false;
         cx.notify();
+        if (this.again) { this.again = false; this.refresh(cx); }
+      }
+    });
+  }
+
+  // Reads the board again when it changes, not on a clock: watches the board file's folder for as
+  // long as the panel lives (one watch per board, whichever space shows it). A watch that fails
+  // (Linux's directory limit) leaves the board to the POLL_MS timer.
+  watch(db, cx) {
+    if (this.watched.has(db)) return;
+    this.watched.add(db);
+    cx.spawn(async (cx) => {
+      for (;;) {
+        let paths;
+        try { paths = await watchFolder(db.slice(0, db.lastIndexOf("/"))); } catch { this.watched.delete(db); return; }
+        if (db === this.db && boardChanged(paths, db)) { this.refresh(cx); this.loadDetail(cx); }
       }
     });
   }

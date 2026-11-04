@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly,
-  listRows, moveSelection, keyCommand, escapeStep } from "./logic.js";
+  listRows, moveSelection, keyCommand, escapeStep, boardChanged } from "./logic.js";
 
 const task = (id, open_blockers = 0) => ({ id, title: id, open_blockers });
 
@@ -163,4 +163,14 @@ test("Esc steps back one layer: the task shown, then the filter box, then the fi
   assert.equal(escapeStep({ trail: [], inFilter: true, query: "x" }), "leave-filter");
   assert.equal(escapeStep({ trail: [], inFilter: false, query: " x " }), "clear-filter");
   assert.equal(escapeStep({ trail: [], inFilter: false, query: "  " }), null);
+});
+
+test("a change under the board's folder counts when it is the board or its write-ahead log", () => {
+  const db = "/u/.nawaban/nawaban.db";
+  assert.equal(boardChanged(["/u/.nawaban/nawaban.db-wal"], db), true);
+  assert.equal(boardChanged(["/u/.nawaban/nawaban.db"], db), true);
+  assert.equal(boardChanged(["/u/.nawaban"], db), true); // the watched folder itself: anything may have changed
+  assert.equal(boardChanged(["/u/.nawaban/nawaban.db-shm"], db), false); // readers, the panel too, touch this
+  assert.equal(boardChanged(["/u/.nawaban/backups/nawaban-1.db", "/u/.nawaban/nawaban.old.db"], db), false);
+  assert.equal(boardChanged([], db), false);
 });

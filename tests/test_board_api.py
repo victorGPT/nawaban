@@ -248,6 +248,15 @@ def test_json_unknown_task_is_a_json_error(cli_json):
     assert code == 1 and "NOPE" in data["error"]
 
 
+def test_json_db_names_the_board_file_through_links(board, cli_json, tmp_path):
+    # The Herdr panel watches this file's folder; a linked board (~/nawaban/.nawaban -> ~/.nawaban)
+    # changes where the link points, so the answer is the real file.
+    path, _ = board
+    link = tmp_path / "linked.db"
+    link.symlink_to(path)
+    assert cli_json("db", db=link) == (0, {"db": str(path.resolve())})
+
+
 def test_json_missing_board_is_a_json_error(cli_json, tmp_path):
     code, data = cli_json("board", db=tmp_path / "nope.db")
     assert code == 1 and "看板不存在" in data["error"]

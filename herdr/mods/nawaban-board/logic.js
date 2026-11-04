@@ -109,6 +109,12 @@ export const isBlocked = (d) =>
 // The events a task's detail lists: notes, decisions and links, in the CLI's newest-first order.
 export const detailEvents = (events) => (events ?? []).filter((e) => ["note", "decision", "link"].includes(e.kind));
 
+// Whether paths `watchFolder` reported on the board's folder mean the board changed: the board file,
+// its write-ahead log, or the folder itself (the watcher gave up listing). Not `-shm`: every reader,
+// this panel's own refresh included, writes it, so counting it would refresh in a loop.
+export const boardChanged = (paths, db) =>
+  paths.some((p) => p === db || p === `${db}-wal` || p === db.slice(0, db.lastIndexOf("/")));
+
 export const WORDS = {
   zh: { title: "任务", in_progress: "进行中", open: "待认领", done: "最近完成", blocked: "被挡", all: "全部项目",
     statuses: "全部", filter: "按 ID 或标题过滤", more: (n) => `再显示 ${n} 条`, less: "收起",
