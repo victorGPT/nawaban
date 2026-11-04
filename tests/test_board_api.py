@@ -97,6 +97,28 @@ def test_board_filters_by_project_and_unassigned(board, get):
     assert column(get("/api/board?unassigned=1")[1], "open") == []
 
 
+def test_board_open_tasks_carry_their_latest_note_and_open_blockers(board, get):
+    _, cli = board
+    for t in ("HELD", "WAIT", "B1", "B2", "DONE"):
+        cli("create", t, "--title", t.lower(), "--body", "")
+    cli("block", "WAIT", "B1")
+    cli("block", "WAIT", "B2")
+    cli("close", "B2", "--done")
+    cli("claim", "HELD")
+    cli("event", "HELD", "--kind", "note", "--body", "first")
+    cli("event", "HELD", "--kind", "decision", "--body", "Question: q\nVerdict: v")
+    cli("event", "HELD", "--kind", "note", "--body", "tests pass")
+    cli("event", "DONE", "--kind", "note", "--body", "shipped")
+    cli("close", "DONE", "--done")
+    tasks = {t["id"]: t for c in get("/api/board")[1]["columns"] for t in c["tasks"]}
+    assert tasks["HELD"]["progress"]["body"] == "tests pass"
+    assert isinstance(tasks["HELD"]["progress"]["at"], int)
+    assert tasks["WAIT"]["progress"] is None
+    assert tasks["WAIT"]["blocked_by"] == ["B1"]  # B2 is done: no longer in the way
+    assert tasks["HELD"]["blocked_by"] == []
+    assert "progress" not in tasks["DONE"] and "blocked_by" not in tasks["DONE"]
+
+
 def test_board_rejects_a_malformed_date_range(get):
     assert get("/api/board?since=yesterday")[0] == 400
 

@@ -83,15 +83,28 @@ def board_data(path: Path | str, project: str | None = None,
     con = cli.open_readonly(path)
     try:
         rows = con.execute(sql + " GROUP BY t.id ORDER BY active_at DESC, t.id", args).fetchall()
+        # Open tasks only: the latest note (current progress) and the open tasks in their way.
+        notes = {r["task"]: {"body": r["body"], "at": r["at"]} for r in con.execute(
+            "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
+            " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
+            " WHERE task=e.task AND kind='note')")}
+        blockers: dict[str, list[str]] = {}
+        for r in con.execute("SELECT b.task, b.blocker FROM blockers b JOIN tasks x ON x.id=b.blocker"
+                             " WHERE x.status='open' ORDER BY b.blocker"):
+            blockers.setdefault(r["task"], []).append(r["blocker"])
     finally:
         con.close()
     columns = {key: [] for key in COLUMNS}
     for r in rows:
         status = cli.derived_status(r)
-        columns[status].append({
+        task = {
             "id": r["id"], "title": r["title"], "status": status, "project": r["project"],
             "parent": r["parent"], "session": r["session"], "created_at": r["created_at"],
-            "active_at": r["active_at"], "open_blockers": r["open_blockers"]})
+            "active_at": r["active_at"], "open_blockers": r["open_blockers"]}
+        if r["status"] == "open":
+            task["progress"] = notes.get(r["id"])
+            task["blocked_by"] = blockers.get(r["id"], [])
+        columns[status].append(task)
     if not touched:
         columns["done"] = columns["done"][:DONE_LIMIT]
     return {"columns": [{"key": k, "tasks": v} for k, v in columns.items()]}
