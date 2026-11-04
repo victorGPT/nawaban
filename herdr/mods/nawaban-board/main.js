@@ -16,6 +16,7 @@ const ID_CHARS = 18; // longer IDs are cut in the middle to fit ID_W, keeping th
 const NARROW_W = 400; // a narrower panel moves a task's ID under its title, giving the title the row
 const ROW_H = { head: 30, task: 32, working: 48, more: 28 }; // list rows; a heading after the first adds HEAD_GAP above
 const HEAD_GAP = 6;
+const CLEAR = "#00000000"; // a border that takes its space and shows nothing
 const EVENTS_SHOWN = 8; // events a detail lists before "show N more"
 const BODY_FOLD_CHARS = 600, BODY_FOLDED_H = 240; // a longer body shows its top until "show all"
 const ICON = (name) => `mods/nawaban-board/${name}.svg`;
@@ -360,10 +361,11 @@ export default class NawabanBoard extends View {
   }
 
   // One list row (listRows), drawn `h` tall; clicks come through the list's on_item_click. The
-  // selected row is tinted, and outlined while the panel has the keyboard.
+  // selected row is tinted, and outlined while the panel has the keyboard. Every row carries the
+  // 1 px border (clear when unmarked), so the outline never shifts its content.
   rowEl(r, h, keyboard, t, w) {
     const on = r.key === this.sel;
-    const mark = (el) => el.when(on, (el) => el.bg(t.selected)).when(on && keyboard, (el) => el.border_1().border_color(t.accent));
+    const mark = (el) => el.border_1().border_color(on && keyboard ? t.accent : CLEAR).when(on, (el) => el.bg(t.selected));
     if (r.kind === "task") return mark(this.row(r.task, t, w));
     const box = v_flex().h(h).flex_none().justify_end();
     if (r.kind === "more") {
