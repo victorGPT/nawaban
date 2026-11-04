@@ -130,7 +130,7 @@ _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`; 
 A read-only view of the board docked in a Herdr window beside the terminals, listing the tasks of the project the current space is in. Claiming, closing and dispatching stay with agents and the CLI.
 Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，列出当前 space 所在项目的任务。认领、关闭、派活仍由 agent 通过 CLI 完成。
 _Avoid_: sidebar, shepherdr, board tab.
-_Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `ctrl-shift-j`.
+_Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `cmd-shift-j`.
 
 **Backup**(备份)
 A timestamped copy of the board file under the board directory's `backups/`, kept for 14 days.

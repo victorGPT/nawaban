@@ -100,11 +100,11 @@ The [Herdr](https://herdr.dev) app can show the board as a read-only panel besid
 
    ```json
    "layout:<layout>": {
-     "ctrl-shift-j": "layout.toggle:nawaban"
+     "cmd-shift-j": "layout.toggle:nawaban"
    }
    ```
 
-   Herdr does not use `ctrl-shift-j` by default. Avoid plain ctrl+letters such as `ctrl-k`: terminal programs need them. Without a key, `herdr-app do layout.toggle --id nawaban` opens and closes the panel.
+   Herdr does not use `cmd-shift-j` by default. On macOS a `ctrl-shift-j` binding did not toggle the panel while a terminal had focus (tested 2026-11-04 with Claude Code running in it); `cmd-shift-j` does. Avoid plain ctrl+letters such as `ctrl-k`: terminal programs need them. Without a key, `herdr-app do layout.toggle --id nawaban` opens and closes the panel.
 
 Herdr applies both files within a second. A broken file is ignored, the last good version stays, and Herdr writes `~/.config/herdr-app/layout.error` or `keys.error`; `herdr-app status` lists the same problems under `errors`, which should be `[]`.
 
