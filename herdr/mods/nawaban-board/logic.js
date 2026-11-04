@@ -48,13 +48,52 @@ export function ago(at, now, lang) {
   return lang === "zh" ? `${Math.floor(n)} ${zh}前` : `${Math.floor(n)}${en} ago`;
 }
 
+// An ID cut to `max` characters in the middle, so the suffix that tells a spec's tickets apart
+// (-01, -02, ...) stays visible: the head, "…", and a tail as long as the head or one longer.
+export function shortId(id, max) {
+  if (id.length <= max) return id;
+  const tail = Math.ceil((max - 1) / 2);
+  return `${id.slice(0, max - 1 - tail)}…${id.slice(-tail)}`;
+}
+
+// A link event body, `[kind:] value [· note]`, read as the web board reads it (nawaban/webui/src/
+// lib/nawaban-model.ts linkParts); `url` is the value when a browser can open it.
+export function linkParts(body) {
+  const m = /^([a-z][\w-]*):(?!\/\/)\s*([\s\S]*)$/i.exec(body.trim());
+  const rest = m ? m[2] : body.trim();
+  const at = rest.indexOf(" · ");
+  const value = at < 0 ? rest : rest.slice(0, at);
+  return { kind: m ? m[1] : null, value, note: at < 0 ? null : rest.slice(at + 3),
+    url: /^https?:\/\/\S+$/.test(value) ? value : null };
+}
+
+// Event bodies are written line by line (a decision's Question / Verdict / Rejected); markdown
+// would join single newlines, so each one becomes a hard break, and those labels go bold.
+export const eventMarkdown = (body) =>
+  body.replace(/^(question|verdict|rejected):/gim, "**$1:**").replace(/\n/g, "  \n");
+
+// An open task waits while any task blocking it is neither done nor cancelled.
+export const isBlocked = (d) =>
+  d.status === "open" && (d.blocked_by ?? []).some((b) => b.status !== "done" && b.status !== "cancelled");
+
+// The events a task's detail lists: notes, decisions and links, in the CLI's newest-first order.
+export const detailEvents = (events) => (events ?? []).filter((e) => ["note", "decision", "link"].includes(e.kind));
+
 export const WORDS = {
   zh: { title: "任务", in_progress: "进行中", open: "待认领", done: "最近完成", blocked: "被挡", all: "全部项目",
     statuses: "全部", filter: "按 ID 或标题过滤", more: (n) => `再显示 ${n} 条`, less: "收起",
     blockedBy: (ids) => `被 ${ids.join("、")} 挡住`, language: "语言",
-    empty: "没有任务", none: "没有匹配的任务", loading: "读取中…", error: "读不到看板" },
+    empty: "没有任务", none: "没有匹配的任务", loading: "读取中…", error: "读不到看板",
+    back: "返回", wholeBody: "显示全文", progress: "当前进度", body: "正文", parent: "上级", user: "用户", events: "事件",
+    state: { in_progress: "进行中", open: "待认领", blocked: "被挡", done: "已完成", cancelled: "已取消" },
+    relations: { blocked_by: "被这些任务挡住", dependents: "挡住的任务", children: "子任务" },
+    kinds: { note: "记录", decision: "决定", link: "链接" } },
   en: { title: "Tasks", in_progress: "In progress", open: "Open", done: "Recently done", blocked: "Blocked", all: "All projects",
     statuses: "All", filter: "Filter by ID or title", more: (n) => `Show ${n} more`, less: "Show less",
     blockedBy: (ids) => `Blocked by ${ids.join(", ")}`, language: "Language",
-    empty: "No tasks", none: "No tasks match", loading: "Loading…", error: "Can't read the board" },
+    empty: "No tasks", none: "No tasks match", loading: "Loading…", error: "Can't read the board",
+    back: "Back", wholeBody: "Show all", progress: "Current progress", body: "Description", parent: "Parent", user: "user", events: "Activity",
+    state: { in_progress: "In progress", open: "Open", blocked: "Blocked", done: "Done", cancelled: "Cancelled" },
+    relations: { blocked_by: "Blocked by", dependents: "Blocking", children: "Subtasks" },
+    kinds: { note: "Note", decision: "Decision", link: "Link" } },
 };
