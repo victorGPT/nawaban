@@ -13,6 +13,7 @@ const FALLBACK_MS = 60000; // and this often when it is, in case a change was mi
 const SHOWN = { open: 8, done: 5 }; // rows a group shows before "show N more"
 const ID_W = 132; // the ID column
 const ID_CHARS = 18; // longer IDs are cut in the middle to fit ID_W, keeping their distinguishing tail
+const NARROW_W = 400; // a narrower panel moves a task's ID under its title, giving the title the row
 const ROW_H = { head: 30, task: 32, working: 48, more: 28 }; // list rows; a heading after the first adds HEAD_GAP above
 const HEAD_GAP = 6;
 const EVENTS_SHOWN = 8; // events a detail lists before "show N more"
@@ -258,7 +259,7 @@ export default class NawabanBoard extends View {
     const shown = filterGroups(all, query, this.chip);
     const rows = this.rows();
     const sizes = rows.map((r, i) => (r.kind === "head" && i > 0 ? HEAD_GAP : 0)
-      + ROW_H[r.kind === "task" && r.task.status === "in_progress" ? "working" : r.kind]);
+      + ROW_H[r.kind === "task" && (this.narrow || r.task.status === "in_progress") ? "working" : r.kind]);
     const keyboard = this.h.is_focused();
 
     const note = this.error ? `${w.error}: ${this.error}` : !this.groups ? w.loading
@@ -267,6 +268,10 @@ export default class NawabanBoard extends View {
     const detail = this.trail.length > 0;
     return v_flex().id("nawaban-board").size_full().min_h(0).rounded(10).overflow_hidden()
       .bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
+      .on_size_change((size, cx) => {
+        const narrow = size.width < NARROW_W;
+        if (narrow !== this.narrow) { this.narrow = narrow; cx.notify(); }
+      })
       .track_focus(this.h).on_key_down((e, cx) => {
         const cmd = keyCommand(e);
         // In the filter box only Esc and the arrows are the panel's; the rest is typing.
@@ -375,12 +380,15 @@ export default class NawabanBoard extends View {
       .child(div().flex_none().text_color(t.dim).child(groupCount(g, this.lang)))));
   }
 
-  // One task: its status icon, the dim ID in a fixed column, the title; an in-progress task adds
-  // its latest note and how long ago on a second line. With all projects, the project at the right.
+  // One task: its status icon, the ID in a fixed column, the title; an in-progress task adds its
+  // latest note and how long ago on a second line. A narrow panel puts the ID on that second line,
+  // ahead of the note. With all projects, the project at the right.
   row(task, t, w) {
+    const narrow = this.narrow;
     const where = !this.project && task.project ? task.project : null;
+    const id = div().flex_none().truncate().text_size(11).text_color(t.dim).child(shortId(task.id, ID_CHARS));
     const first = h_flex().h(18).min_w(0).gap(8).items_center()
-      .child(div().w(ID_W).flex_none().truncate().text_size(11).text_color(t.dim).child(shortId(task.id, ID_CHARS)))
+      .when(!narrow, (el) => el.child(id.w(ID_W)))
       .child(div().flex_1().min_w(0).truncate().text_color(task.status === "done" ? t.muted : t.foreground).child(task.title))
       .when(Boolean(where), (el) => el.child(div().flex_none().max_w(110).truncate().text_size(12).text_color(t.dim).child(where)));
     const tip = task.blocked ? (task.blocked_by?.length ? w.blockedBy(task.blocked_by) : w.blocked) : null;
@@ -388,10 +396,12 @@ export default class NawabanBoard extends View {
       .hover((s) => s.bg(t.hover))
       .when(Boolean(tip), (el) => el.tooltip(tip));
     const glyph = this.glyph(task.status, task.blocked, t);
-    if (task.status !== "in_progress") return row.h(ROW_H.task).items_center().child(glyph).child(first.flex_1());
-    const said = task.progress?.body?.replace(/\s+/g, " ").trim();
-    const at = task.progress?.at ?? task.active_at;
-    const second = h_flex().h(16).gap(8).items_center().pl(ID_W + 8)
+    const working = task.status === "in_progress";
+    if (!working && !narrow) return row.h(ROW_H.task).items_center().child(glyph).child(first.flex_1());
+    const said = working ? task.progress?.body?.replace(/\s+/g, " ").trim() : null;
+    const at = working ? task.progress?.at ?? task.active_at : null;
+    const second = h_flex().h(16).gap(8).items_center().when(!narrow, (el) => el.pl(ID_W + 8))
+      .when(narrow, (el) => el.child(id))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(said ?? ""))
       .when(Boolean(at), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(ago(at, Math.floor(Date.now() / 1000), this.lang))));
     return row.h(ROW_H.working).py(6).items_start().child(glyph).child(v_flex().flex_1().min_w(0).gap(2).child(first).child(second));
