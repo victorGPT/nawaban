@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly,
-  listRows, moveSelection, keyCommand, escapeStep, boardChanged } from "./logic.js";
+  listRows, moveSelection, keyCommand, escapeStep, boardChanged, groupCount, authorLabel } from "./logic.js";
 
 const task = (id, open_blockers = 0) => ({ id, title: id, open_blockers });
 
@@ -173,4 +173,20 @@ test("a change under the board's folder counts when it is the board or its write
   assert.equal(boardChanged(["/u/.nawaban/nawaban.db-shm"], db), false); // readers, the panel too, touch this
   assert.equal(boardChanged(["/u/.nawaban/backups/nawaban-1.db", "/u/.nawaban/nawaban.old.db"], db), false);
   assert.equal(boardChanged([], db), false);
+});
+
+test("the open group counts as its chips do: tasks that can start, then the blocked ones", () => {
+  const [working, open, done] = board3(); // open: A, B, C and blocked X
+  assert.equal(groupCount(open, "zh"), "3 · 被挡 1"); // the chips read 待认领 3 and 被挡 1
+  assert.equal(groupCount(open, "en"), "3 · 1 blocked");
+  assert.equal(groupCount({ key: "open", tasks: [task("A")] }, "zh"), "1");
+  assert.equal(groupCount(working, "zh"), "1");
+  assert.equal(groupCount(done, "en"), "1");
+});
+
+test("an event's author reads as you for the user's own decisions, else agent", () => {
+  assert.equal(authorLabel("user", "zh"), "你");
+  assert.equal(authorLabel("user", "en"), "You");
+  assert.equal(authorLabel("76ecefa7-ecd3-4558-9567-badac0af274c", "zh"), "agent");
+  assert.equal(authorLabel(null, "en"), "agent");
 });

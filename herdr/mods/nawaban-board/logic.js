@@ -115,12 +115,25 @@ export const detailEvents = (events) => (events ?? []).filter((e) => ["note", "d
 export const boardChanged = (paths, db) =>
   paths.some((p) => p === db || p === `${db}-wal` || p === db.slice(0, db.lastIndexOf("/")));
 
+// A group heading's count. The open group holds tasks that can start and blocked ones; it counts
+// them apart, as the 待认领 and 被挡 chips do ("19 · 被挡 5"), so neither number looks wrong.
+export function groupCount(g, lang) {
+  const blocked = g.tasks.filter((t) => t.blocked).length;
+  if (!blocked) return String(g.tasks.length);
+  const free = g.tasks.length - blocked;
+  return lang === "zh" ? `${free} · ${WORDS.zh.blocked} ${blocked}` : `${free} · ${blocked} blocked`;
+}
+
+// Who wrote an event: the user's own decisions read as "you", the rest came from an agent session
+// (its id says nothing to a person).
+export const authorLabel = (author, lang) => (author === "user" ? WORDS[lang].you : "agent");
+
 export const WORDS = {
   zh: { title: "任务", in_progress: "进行中", open: "待认领", done: "最近完成", blocked: "被挡", all: "全部项目",
     statuses: "全部", filter: "按 ID 或标题过滤", more: (n) => `再显示 ${n} 条`, less: "收起",
     blockedBy: (ids) => `被 ${ids.join("、")} 挡住`, language: "语言",
     empty: "没有任务", none: "没有匹配的任务", loading: "读取中…", error: "读不到看板",
-    back: "返回", wholeBody: "显示全文", progress: "当前进度", body: "正文", parent: "上级", user: "用户", events: "事件",
+    back: "返回", wholeBody: "显示全文", progress: "当前进度", body: "正文", parent: "上级", you: "你", events: "事件",
     state: { in_progress: "进行中", open: "待认领", blocked: "被挡", done: "已完成", cancelled: "已取消" },
     relations: { blocked_by: "被这些任务挡住", dependents: "挡住的任务", children: "子任务" },
     kinds: { note: "记录", decision: "决定", link: "链接" } },
@@ -128,7 +141,7 @@ export const WORDS = {
     statuses: "All", filter: "Filter by ID or title", more: (n) => `Show ${n} more`, less: "Show less",
     blockedBy: (ids) => `Blocked by ${ids.join(", ")}`, language: "Language",
     empty: "No tasks", none: "No tasks match", loading: "Loading…", error: "Can't read the board",
-    back: "Back", wholeBody: "Show all", progress: "Current progress", body: "Description", parent: "Parent", user: "user", events: "Activity",
+    back: "Back", wholeBody: "Show all", progress: "Current progress", body: "Description", parent: "Parent", you: "You", events: "Activity",
     state: { in_progress: "In progress", open: "Open", blocked: "Blocked", done: "Done", cancelled: "Cancelled" },
     relations: { blocked_by: "Blocked by", dependents: "Blocking", children: "Subtasks" },
     kinds: { note: "Note", decision: "Decision", link: "Link" } },

@@ -6,7 +6,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, InputState, Input, TextView, v_virtual_list, VirtualListScrollHandle, Scrollbar } from "gpui-base";
 import { spaces, focused, exec, theme, home, props, nextCommand, watchFolder } from "herdr";
 import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly,
-  listRows, moveSelection, keyCommand, escapeStep, boardChanged, WORDS } from "./logic.js";
+  listRows, moveSelection, keyCommand, escapeStep, boardChanged, groupCount, authorLabel, WORDS } from "./logic.js";
 
 const POLL_MS = 5000;      // re-read the board this often when it cannot be watched
 const FALLBACK_MS = 60000; // and this often when it is, in case a change was missed
@@ -372,7 +372,7 @@ export default class NawabanBoard extends View {
       .child(h_flex().w(16).h(16).flex_none().items_center().justify_center()
         .child(svg(CHROME(`chevron-${shut ? "right" : "down"}`)).size(12).flex_none().text_color(t.dim)))
       .child(div().flex_1().min_w(0).truncate().font_medium().text_color(t.dim).child(w[g.key]))
-      .child(div().flex_none().text_color(t.dim).child(String(g.tasks.length)))));
+      .child(div().flex_none().text_color(t.dim).child(groupCount(g, this.lang)))));
   }
 
   // One task: its status icon, the dim ID in a fixed column, the title; an in-progress task adds
@@ -493,7 +493,7 @@ export default class NawabanBoard extends View {
   // One note, decision or link: its kind, who and when, then the text; a link with a web address
   // opens in the browser.
   eventEl(taskId, e, i, now, t, w) {
-    const who = e.author === "user" ? w.user : String(e.author ?? "").slice(0, 8);
+    const who = authorLabel(e.author, this.lang);
     const top = h_flex().h(18).gap(6).items_center().text_size(12).text_color(t.dim)
       .child(svg(KIND_ICON[e.kind]).size(14).flex_none().text_color(e.kind === "decision" ? t.accent : t.muted))
       .child(div().flex_none().font_medium().text_color(t.muted).child(w.kinds[e.kind]))
