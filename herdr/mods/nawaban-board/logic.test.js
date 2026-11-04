@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly } from "./logic.js";
+import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly,
+  listRows, moveSelection, keyCommand, escapeStep, boardChanged, groupCount, authorLabel, shownSelection } from "./logic.js";
 
 const task = (id, open_blockers = 0) => ({ id, title: id, open_blockers });
 
@@ -109,4 +110,96 @@ test("only the latest request's answer counts, whatever order the answers arrive
   const first = ticket(), second = ticket();
   assert.equal(first(), false);
   assert.equal(second(), true);
+});
+
+const keys = (rows) => rows.map((r) => r.key);
+const board3 = () => groupTasks({ columns: [
+  { key: "in_progress", tasks: [task("P")] },
+  { key: "open", tasks: [task("A"), task("B"), task("C"), task("X", 1)] },
+  { key: "done", tasks: [task("D")] },
+] });
+
+test("the list is one run of rows: each group's heading, its rows, then its show-more row", () => {
+  const plain = { narrowed: false, shut: new Set(), expanded: new Set(), shown: { open: 2 } };
+  assert.deepEqual(keys(listRows(board3(), plain)),
+    ["head:in_progress", "task:P", "head:open", "task:A", "task:B", "more:open", "task:X", "head:done", "task:D"]);
+  assert.equal(listRows(board3(), plain).find((r) => r.key === "more:open").cut, 1);
+  // a folded group keeps only its heading; an expanded one lists every row and offers to show less
+  assert.deepEqual(keys(listRows(board3(), { ...plain, shut: new Set(["open"]) })),
+    ["head:in_progress", "task:P", "head:open", "head:done", "task:D"]);
+  assert.deepEqual(keys(listRows(board3(), { ...plain, expanded: new Set(["open"]) })).slice(2, 8),
+    ["head:open", "task:A", "task:B", "task:C", "more:open", "task:X"]);
+  // filtered: nothing folds or cuts, and groups without a match drop out
+  const narrowed = filterGroups(board3(), "x", "all");
+  assert.deepEqual(keys(listRows(narrowed, { ...plain, narrowed: true, shut: new Set(["open"]) })), ["head:open", "task:X"]);
+});
+
+test("a group with no tasks takes no heading", () => {
+  const groups = groupTasks({ columns: [{ key: "open", tasks: [task("A")] }, { key: "done", tasks: [task("D")] }] });
+  assert.deepEqual(keys(listRows(groups, { narrowed: false, shut: new Set(), expanded: new Set(), shown: {} })),
+    ["head:open", "task:A", "head:done", "task:D"]); // no "in progress 0"
+});
+
+test("the arrow keys move the selection along the rows and stop at either end", () => {
+  const rows = listRows(board3(), { narrowed: false, shut: new Set(), expanded: new Set(), shown: {} });
+  assert.equal(moveSelection(rows, null, 1), "head:in_progress"); // nothing picked yet: down starts at the top
+  assert.equal(moveSelection(rows, null, -1), "task:D"); // and up at the bottom
+  assert.equal(moveSelection(rows, "task:P", 1), "head:open");
+  assert.equal(moveSelection(rows, "task:P", -1), "head:in_progress");
+  assert.equal(moveSelection(rows, "task:D", 1), "task:D");
+  assert.equal(moveSelection(rows, "head:in_progress", -1), "head:in_progress");
+  assert.equal(moveSelection(rows, "task:GONE", 1), "head:in_progress"); // a row that left the list
+  assert.equal(moveSelection([], null, 1), null);
+});
+
+test("keys become the panel's commands: arrows move, Enter opens, Esc goes back, / filters", () => {
+  const press = (keystroke, key_char) => keyCommand({ keystroke, key: keystroke, key_char });
+  assert.equal(press("down"), "down");
+  assert.equal(press("up"), "up");
+  assert.equal(press("enter"), "open");
+  assert.equal(press("escape"), "back");
+  assert.equal(press("/", "/"), "filter");
+  assert.equal(press("shift-7", "/"), "filter"); // a layout where / needs shift
+  assert.equal(press("cmd-down"), null); // chords stay Herdr's
+  assert.equal(press("a", "a"), null);
+});
+
+test("Esc steps back one layer: the task shown, then the filter box, then the filter's text", () => {
+  assert.equal(escapeStep({ trail: ["A"], inFilter: false, query: "x" }), "pop");
+  assert.equal(escapeStep({ trail: [], inFilter: true, query: "x" }), "leave-filter");
+  assert.equal(escapeStep({ trail: [], inFilter: false, query: " x " }), "clear-filter");
+  assert.equal(escapeStep({ trail: [], inFilter: false, query: "  " }), null);
+});
+
+test("a change under the board's folder counts when it is the board or its write-ahead log", () => {
+  const db = "/u/.nawaban/nawaban.db";
+  assert.equal(boardChanged(["/u/.nawaban/nawaban.db-wal"], db), true);
+  assert.equal(boardChanged(["/u/.nawaban/nawaban.db"], db), true);
+  assert.equal(boardChanged(["/u/.nawaban"], db), true); // the watched folder itself: anything may have changed
+  assert.equal(boardChanged(["/u/.nawaban/nawaban.db-shm"], db), false); // readers, the panel too, touch this
+  assert.equal(boardChanged(["/u/.nawaban/backups/nawaban-1.db", "/u/.nawaban/nawaban.old.db"], db), false);
+  assert.equal(boardChanged([], db), false);
+});
+
+test("the open group counts as its chips do: tasks that can start, then the blocked ones", () => {
+  const [working, open, done] = board3(); // open: A, B, C and blocked X
+  assert.equal(groupCount(open, "zh"), "3 · 被挡 1"); // the chips read 待认领 3 and 被挡 1
+  assert.equal(groupCount(open, "en"), "3 · 1 blocked");
+  assert.equal(groupCount({ key: "open", tasks: [task("A")] }, "zh"), "1");
+  assert.equal(groupCount(working, "zh"), "1");
+  assert.equal(groupCount(done, "en"), "1");
+});
+
+test("an event's author reads as you for the user's own decisions, else agent", () => {
+  assert.equal(authorLabel("user", "zh"), "你");
+  assert.equal(authorLabel("user", "en"), "You");
+  assert.equal(authorLabel("76ecefa7-ecd3-4558-9567-badac0af274c", "zh"), "agent");
+  assert.equal(authorLabel(null, "en"), "agent");
+});
+
+test("a selection that the filter, a refresh or another project hid is no selection", () => {
+  const rows = [{ key: "head:open", kind: "head" }, { key: "task:B", kind: "task" }];
+  assert.equal(shownSelection(rows, "task:A"), null);
+  assert.equal(shownSelection(rows, "task:B"), "task:B");
+  assert.equal(shownSelection(rows, null), null);
 });

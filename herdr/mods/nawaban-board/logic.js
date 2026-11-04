@@ -40,6 +40,42 @@ export function filterGroups(groups, query, chip) {
     .map((g) => (key === "open" ? { ...g, tasks: g.tasks.filter((t) => t.blocked === (chip === "blocked")) } : g));
 }
 
+// The list as one run of rows, the way the panel draws and the keyboard walks it: each group's
+// heading, then (unless folded) its rows that can start, the "show N more" row when the group is
+// longer than `shown` allows, and its blocked rows last, so their mark is never cut. A filtered list
+// neither folds nor cuts. Empty groups take no row.
+export function listRows(groups, { narrowed, shut, expanded, shown }) {
+  const rows = [];
+  for (const g of groups) {
+    if (!g.tasks.length) continue; // an empty group says nothing the chips do not
+    rows.push({ key: `head:${g.key}`, kind: "head", group: g });
+    if (!narrowed && shut.has(g.key)) continue;
+    const free = g.tasks.filter((t) => !t.blocked), blocked = g.tasks.filter((t) => t.blocked);
+    const limit = shown[g.key] ?? Infinity;
+    const cut = narrowed || expanded.has(g.key) ? 0 : Math.max(0, free.length - limit);
+    const task = (t) => rows.push({ key: `task:${t.id}`, kind: "task", task: t });
+    free.slice(0, free.length - cut).forEach(task);
+    if (!narrowed && free.length > limit) rows.push({ key: `more:${g.key}`, kind: "more", group: g, cut });
+    blocked.forEach(task);
+  }
+  return rows;
+}
+
+// The row the up (-1) or down (+1) arrow selects from `key`; it stops at either end. With nothing
+// selected, or a row no longer listed, down starts at the top and up at the bottom.
+export function moveSelection(rows, key, delta) {
+  if (!rows.length) return null;
+  const at = rows.findIndex((r) => r.key === key);
+  if (at < 0) return rows[delta > 0 ? 0 : rows.length - 1].key;
+  return rows[Math.min(rows.length - 1, Math.max(0, at + delta))].key;
+}
+
+// The selected row's key while that row is still on screen, else null: Enter never opens a task
+// the filter, a refresh or another project has taken out of the list.
+export function shownSelection(rows, key) {
+  return rows.some((r) => r.key === key) ? key : null;
+}
+
 // How long ago an epoch-seconds time was, short.
 export function ago(at, now, lang) {
   const s = Math.max(0, now - at);
@@ -79,12 +115,31 @@ export const isBlocked = (d) =>
 // The events a task's detail lists: notes, decisions and links, in the CLI's newest-first order.
 export const detailEvents = (events) => (events ?? []).filter((e) => ["note", "decision", "link"].includes(e.kind));
 
+// Whether paths `watchFolder` reported on the board's folder mean the board changed: the board file,
+// its write-ahead log, or the folder itself (the watcher gave up listing). Not `-shm`: every reader,
+// this panel's own refresh included, writes it, so counting it would refresh in a loop.
+export const boardChanged = (paths, db) =>
+  paths.some((p) => p === db || p === `${db}-wal` || p === db.slice(0, db.lastIndexOf("/")));
+
+// A group heading's count. The open group holds tasks that can start and blocked ones; it counts
+// them apart, as the 待认领 and 被挡 chips do ("19 · 被挡 5"), so neither number looks wrong.
+export function groupCount(g, lang) {
+  const blocked = g.tasks.filter((t) => t.blocked).length;
+  if (!blocked) return String(g.tasks.length);
+  const free = g.tasks.length - blocked;
+  return lang === "zh" ? `${free} · ${WORDS.zh.blocked} ${blocked}` : `${free} · ${blocked} blocked`;
+}
+
+// Who wrote an event: the user's own decisions read as "you", the rest came from an agent session
+// (its id says nothing to a person).
+export const authorLabel = (author, lang) => (author === "user" ? WORDS[lang].you : "agent");
+
 export const WORDS = {
   zh: { title: "任务", in_progress: "进行中", open: "待认领", done: "最近完成", blocked: "被挡", all: "全部项目",
     statuses: "全部", filter: "按 ID 或标题过滤", more: (n) => `再显示 ${n} 条`, less: "收起",
     blockedBy: (ids) => `被 ${ids.join("、")} 挡住`, language: "语言",
     empty: "没有任务", none: "没有匹配的任务", loading: "读取中…", error: "读不到看板",
-    back: "返回", wholeBody: "显示全文", progress: "当前进度", body: "正文", parent: "上级", user: "用户", events: "事件",
+    back: "返回", wholeBody: "显示全文", progress: "当前进度", body: "正文", parent: "上级", you: "你", events: "事件",
     state: { in_progress: "进行中", open: "待认领", blocked: "被挡", done: "已完成", cancelled: "已取消" },
     relations: { blocked_by: "被这些任务挡住", dependents: "挡住的任务", children: "子任务" },
     kinds: { note: "记录", decision: "决定", link: "链接" } },
@@ -92,7 +147,7 @@ export const WORDS = {
     statuses: "All", filter: "Filter by ID or title", more: (n) => `Show ${n} more`, less: "Show less",
     blockedBy: (ids) => `Blocked by ${ids.join(", ")}`, language: "Language",
     empty: "No tasks", none: "No tasks match", loading: "Loading…", error: "Can't read the board",
-    back: "Back", wholeBody: "Show all", progress: "Current progress", body: "Description", parent: "Parent", user: "user", events: "Activity",
+    back: "Back", wholeBody: "Show all", progress: "Current progress", body: "Description", parent: "Parent", you: "You", events: "Activity",
     state: { in_progress: "In progress", open: "Open", blocked: "Blocked", done: "Done", cancelled: "Cancelled" },
     relations: { blocked_by: "Blocked by", dependents: "Blocking", children: "Subtasks" },
     kinds: { note: "Note", decision: "Decision", link: "Link" } },
@@ -103,4 +158,17 @@ export const WORDS = {
 export function latestOnly() {
   let n = 0;
   return () => { const me = ++n; return () => me === n; };
+}
+
+// A key pressed in the panel as one of its commands (the same names `nawaban-board.<command>`
+// reaches from keys.json or `herdr-app do`), or null to leave the key alone.
+const KEYS = { down: "down", up: "up", enter: "open", escape: "back" };
+export const keyCommand = (e) => KEYS[e.keystroke] ?? (e.key_char === "/" ? "filter" : null);
+
+// What Esc undoes, innermost first: the task shown ("pop"), the filter box holding the keyboard
+// ("leave-filter"), the filter's text ("clear-filter"); null when there is nothing to undo.
+export function escapeStep({ trail, inFilter, query }) {
+  if (trail.length) return "pop";
+  if (inFilter) return "leave-filter";
+  return query.trim() ? "clear-filter" : null;
 }

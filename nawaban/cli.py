@@ -401,6 +401,9 @@ def json_out(path: Path, a) -> int:
     """The board's read API as JSON on stdout; an error is {"error": ...} with exit 1."""
     import json
     from nawaban import board_view  # lazy: board_view imports this module
+    if a.what == "db":  # the board file itself, links resolved: what a watcher must watch
+        print(json.dumps({"db": str(path.resolve())}, ensure_ascii=False))
+        return 0
     try:
         if a.what == "projects":
             out = board_view.projects_data(path)
@@ -460,8 +463,8 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("migrate", help="把旧结构看板迁成新看板(只读旧文件 · 目标已有任务就拒绝)")
     p.add_argument("old")
     p.add_argument("new")
-    p = sub.add_parser("json", help="看板的 JSON(同 /api/projects、/api/board、/api/task)")
-    p.add_argument("what", choices=("projects", "board", "task"))
+    p = sub.add_parser("json", help="看板的 JSON(同 /api/projects、/api/board、/api/task;db:看板文件的真实路径)")
+    p.add_argument("what", choices=("projects", "board", "task", "db"))
     p.add_argument("id", nargs="?", default="", help="task:任务 id")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--project", help="board:只看这个项目")

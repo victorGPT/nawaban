@@ -107,3 +107,7 @@ The [Herdr](https://herdr.dev) app can show the board as a read-only panel besid
    Herdr does not use `ctrl-shift-j` by default. Avoid plain ctrl+letters such as `ctrl-k`: terminal programs need them. Without a key, `herdr-app do layout.toggle --id nawaban` opens and closes the panel.
 
 Herdr applies both files within a second. A broken file is ignored, the last good version stays, and Herdr writes `~/.config/herdr-app/layout.error` or `keys.error`; `herdr-app status` lists the same problems under `errors`, which should be `[]`.
+
+The panel takes the keyboard when you click it or reach it with `pane.go`. Then ↑ and ↓ move the selection, Enter opens a task (or folds a group), Esc steps back (the task, then the filter box, then its text), and `/` jumps to the filter; `pane.go` (or a click elsewhere) hands the keyboard back. Each of these is also a command, `nawaban-board.down`, `.up`, `.open`, `.back`, `.filter` and `.focus` (takes the keyboard), for a `keys.json` binding or `herdr-app do nawaban-board.open`; Herdr delivers them only while the panel is shown.
+
+The panel rereads the board when the board file changes, so a hidden panel starts no process until something is written; it also rereads once a minute in case a change was missed.
