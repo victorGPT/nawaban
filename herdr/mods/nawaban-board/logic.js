@@ -40,6 +40,36 @@ export function filterGroups(groups, query, chip) {
     .map((g) => (key === "open" ? { ...g, tasks: g.tasks.filter((t) => t.blocked === (chip === "blocked")) } : g));
 }
 
+// The list as one run of rows, the way the panel draws and the keyboard walks it: each group's
+// heading, then (unless folded) its rows that can start, the "show N more" row when the group is
+// longer than `shown` allows, and its blocked rows last, so their mark is never cut. A filtered list
+// neither folds nor cuts, and drops groups without a match.
+export function listRows(groups, { narrowed, shut, expanded, shown }) {
+  const rows = [];
+  for (const g of groups) {
+    if (narrowed && !g.tasks.length) continue;
+    rows.push({ key: `head:${g.key}`, kind: "head", group: g });
+    if (!narrowed && shut.has(g.key)) continue;
+    const free = g.tasks.filter((t) => !t.blocked), blocked = g.tasks.filter((t) => t.blocked);
+    const limit = shown[g.key] ?? Infinity;
+    const cut = narrowed || expanded.has(g.key) ? 0 : Math.max(0, free.length - limit);
+    const task = (t) => rows.push({ key: `task:${t.id}`, kind: "task", task: t });
+    free.slice(0, free.length - cut).forEach(task);
+    if (!narrowed && free.length > limit) rows.push({ key: `more:${g.key}`, kind: "more", group: g, cut });
+    blocked.forEach(task);
+  }
+  return rows;
+}
+
+// The row the up (-1) or down (+1) arrow selects from `key`; it stops at either end. With nothing
+// selected, or a row no longer listed, down starts at the top and up at the bottom.
+export function moveSelection(rows, key, delta) {
+  if (!rows.length) return null;
+  const at = rows.findIndex((r) => r.key === key);
+  if (at < 0) return rows[delta > 0 ? 0 : rows.length - 1].key;
+  return rows[Math.min(rows.length - 1, Math.max(0, at + delta))].key;
+}
+
 // How long ago an epoch-seconds time was, short.
 export function ago(at, now, lang) {
   const s = Math.max(0, now - at);
@@ -103,4 +133,17 @@ export const WORDS = {
 export function latestOnly() {
   let n = 0;
   return () => { const me = ++n; return () => me === n; };
+}
+
+// A key pressed in the panel as one of its commands (the same names `nawaban-board.<command>`
+// reaches from keys.json or `herdr-app do`), or null to leave the key alone.
+const KEYS = { down: "down", up: "up", enter: "open", escape: "back" };
+export const keyCommand = (e) => KEYS[e.keystroke] ?? (e.key_char === "/" ? "filter" : null);
+
+// What Esc undoes, innermost first: the task shown ("pop"), the filter box holding the keyboard
+// ("leave-filter"), the filter's text ("clear-filter"); null when there is nothing to undo.
+export function escapeStep({ trail, inFilter, query }) {
+  if (trail.length) return "pop";
+  if (inFilter) return "leave-filter";
+  return query.trim() ? "clear-filter" : null;
 }
