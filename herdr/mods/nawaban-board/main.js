@@ -5,7 +5,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, InputState, Input, TextView } from "gpui-base";
 import { spaces, focused, exec, theme, home, props } from "herdr";
-import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, WORDS }
+import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly, WORDS }
   from "./logic.js";
 
 const POLL_MS = 5000;
@@ -45,7 +45,8 @@ export default class NawabanBoard extends View {
     this.chip = "all";
     this.shut = new Set();      // folded groups
     this.expanded = new Set();  // groups showing every row
-    this.trail = [];            // tasks opened, the shown one last; empty: the list
+    this.detailTicket = latestOnly(); // a slower, older detail answer never replaces a newer one
+    this.trail = [];          // tasks opened, the shown one last; empty: the list
     this.detail = null;         // `nawaban json task` of the shown task
     try { this.lang = localStorage.getItem("lang"); } catch { this.lang = null; }
     if (this.lang !== "zh" && this.lang !== "en") {
@@ -82,14 +83,15 @@ export default class NawabanBoard extends View {
   loadDetail(cx) {
     const id = this.trail.at(-1);
     if (!id) return;
+    const latest = this.detailTicket();
     cx.spawn(async (cx) => {
       try {
         const { out, raw } = await nawaban(["json", "task", id], folder());
-        if (this.trail.at(-1) !== id) return;
+        if (!latest() || this.trail.at(-1) !== id) return;
         this.detailError = null;
         if (raw !== this.detailRaw) { this.detailRaw = raw; this.detail = out; }
       } catch (e) {
-        if (this.trail.at(-1) === id) this.detailError = String(e?.message ?? e);
+        if (latest() && this.trail.at(-1) === id) this.detailError = String(e?.message ?? e);
       } finally {
         cx.notify();
       }

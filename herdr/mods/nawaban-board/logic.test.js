@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked } from "./logic.js";
+import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly } from "./logic.js";
 
 const task = (id, open_blockers = 0) => ({ id, title: id, open_blockers });
 
@@ -102,4 +102,11 @@ test("the detail's event stream holds notes, decisions and links, newest first, 
   const events = [ev("status", 5), ev("note", 4), ev("link", 3), ev("decision", 2), ev("status", 1)];
   assert.deepEqual(detailEvents(events).map((e) => e.kind), ["note", "link", "decision"]);
   assert.deepEqual(detailEvents(undefined), []);
+});
+
+test("only the latest request's answer counts, whatever order the answers arrive in", () => {
+  const ticket = latestOnly();
+  const first = ticket(), second = ticket();
+  assert.equal(first(), false);
+  assert.equal(second(), true);
 });

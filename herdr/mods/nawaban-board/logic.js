@@ -97,3 +97,10 @@ export const WORDS = {
     relations: { blocked_by: "Blocked by", dependents: "Blocking", children: "Subtasks" },
     kinds: { note: "Note", decision: "Decision", link: "Link" } },
 };
+
+// Out-of-order answers: each call hands out a check that stays true only until the next call, so an
+// answer that arrives after a newer request was sent is dropped.
+export function latestOnly() {
+  let n = 0;
+  return () => { const me = ++n; return () => me === n; };
+}
