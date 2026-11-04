@@ -43,11 +43,11 @@ export function filterGroups(groups, query, chip) {
 // The list as one run of rows, the way the panel draws and the keyboard walks it: each group's
 // heading, then (unless folded) its rows that can start, the "show N more" row when the group is
 // longer than `shown` allows, and its blocked rows last, so their mark is never cut. A filtered list
-// neither folds nor cuts, and drops groups without a match.
+// neither folds nor cuts. Empty groups take no row.
 export function listRows(groups, { narrowed, shut, expanded, shown }) {
   const rows = [];
   for (const g of groups) {
-    if (narrowed && !g.tasks.length) continue;
+    if (!g.tasks.length) continue; // an empty group says nothing the chips do not
     rows.push({ key: `head:${g.key}`, kind: "head", group: g });
     if (!narrowed && shut.has(g.key)) continue;
     const free = g.tasks.filter((t) => !t.blocked), blocked = g.tasks.filter((t) => t.blocked);

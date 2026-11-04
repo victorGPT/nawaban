@@ -134,6 +134,12 @@ test("the list is one run of rows: each group's heading, its rows, then its show
   assert.deepEqual(keys(listRows(narrowed, { ...plain, narrowed: true, shut: new Set(["open"]) })), ["head:open", "task:X"]);
 });
 
+test("a group with no tasks takes no heading", () => {
+  const groups = groupTasks({ columns: [{ key: "open", tasks: [task("A")] }, { key: "done", tasks: [task("D")] }] });
+  assert.deepEqual(keys(listRows(groups, { narrowed: false, shut: new Set(), expanded: new Set(), shown: {} })),
+    ["head:open", "task:A", "head:done", "task:D"]); // no "in progress 0"
+});
+
 test("the arrow keys move the selection along the rows and stop at either end", () => {
   const rows = listRows(board3(), { narrowed: false, shut: new Set(), expanded: new Set(), shown: {} });
   assert.equal(moveSelection(rows, null, 1), "head:in_progress"); // nothing picked yet: down starts at the top
