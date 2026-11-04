@@ -22,3 +22,6 @@ webui/dist/
 .DS_Store
 
 .nawaban/
+# written by herdr-app into a mod folder it loads
+herdr/mods/*/gpui-kit.d.ts
+herdr/mods/*/jsconfig.json
