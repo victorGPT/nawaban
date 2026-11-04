@@ -397,6 +397,25 @@ def migrate(old_path: Path, new_path: Path) -> str:
     return out + (f" · 跳过悬空关系 {skipped}" if skipped else "")
 
 
+def json_out(path: Path, a) -> int:
+    """The board's read API as JSON on stdout; an error is {"error": ...} with exit 1."""
+    import json
+    from nawaban import board_view  # lazy: board_view imports this module
+    try:
+        if a.what == "projects":
+            out = board_view.projects_data(path)
+        elif a.what == "board":
+            out = board_view.board_data(path, "" if a.unassigned else a.project)
+        else:
+            out = board_view.task_detail(path, a.id)
+    # board_view.cli, not Refused: run as a script this module is __main__, a second copy.
+    except (board_view.NotFound, board_view.cli.Refused) as e:
+        print(json.dumps({"error": str(e)}, ensure_ascii=False))
+        return 1
+    print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
 # ── entry ─────────────────────────────────────────────────────────
 
 def _parser() -> argparse.ArgumentParser:
@@ -441,6 +460,12 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("migrate", help="把旧结构看板迁成新看板(只读旧文件 · 目标已有任务就拒绝)")
     p.add_argument("old")
     p.add_argument("new")
+    p = sub.add_parser("json", help="看板的 JSON(同 /api/projects、/api/board、/api/task)")
+    p.add_argument("what", choices=("projects", "board", "task"))
+    p.add_argument("id", nargs="?", default="", help="task:任务 id")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--project", help="board:只看这个项目")
+    g.add_argument("--unassigned", action="store_true", help="board:只看无项目的任务")
     return ap
 
 
@@ -454,6 +479,8 @@ def main(argv: list[str] | None = None) -> int:
         if a.verb == "migrate":
             print(migrate(Path(a.old).expanduser(), Path(a.new).expanduser()))
             return 0
+        if a.verb == "json":
+            return json_out(path, a)
         con = open_board(path)
         try:
             if a.verb == "backup":

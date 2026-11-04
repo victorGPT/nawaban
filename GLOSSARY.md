@@ -124,7 +124,7 @@ _Current identifiers_: `events.kind` = `link`; CLI `event --kind link`.
 The one SQLite file that holds every task and event, and the read-only web page over it.
 看板是存放全部任务和事件的那一个 SQLite 文件，以及它之上的只读网页。
 _Avoid_: database as a product term, inbox, modules view.
-_Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`; `nawaban/board_view.py`; `nawaban/board-up.sh`.
+_Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`; `nawaban/board_view.py`; `nawaban/board-up.sh`.
 
 **Backup**(备份)
 A timestamped copy of the board file under the board directory's `backups/`, kept for 14 days.
