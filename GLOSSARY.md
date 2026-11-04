@@ -126,6 +126,12 @@ The one SQLite file that holds every task and event, and the read-only web page 
 _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`; `nawaban/board_view.py`; `nawaban/board-up.sh`.
 
+**Herdr panel**(Herdr 面板)
+A read-only view of the board docked in a Herdr window beside the terminals, listing the tasks of the project the current space is in. Claiming, closing and dispatching stay with agents and the CLI.
+Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，列出当前 space 所在项目的任务。认领、关闭、派活仍由 agent 通过 CLI 完成。
+_Avoid_: sidebar, shepherdr, board tab.
+_Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `ctrl-shift-j`.
+
 **Backup**(备份)
 A timestamped copy of the board file under the board directory's `backups/`, kept for 14 days.
 备份是看板文件带时间戳的副本，放在看板目录的 `backups/` 下，保留 14 天。

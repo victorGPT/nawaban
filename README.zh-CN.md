@@ -118,7 +118,7 @@ DEMO-02  open  your-project  用验证码登录
 
 | 主题 | 页面 |
 | --- | --- |
-| 从 GitHub 安装、Codex 配置、会话身份、从克隆直接运行 | [docs/install.md](docs/install.md) |
+| 从 GitHub 安装、Codex 配置、会话身份、从克隆直接运行、Herdr 面板 | [docs/install.md](docs/install.md) |
 | 多个仓库共用一块看板、看板筛选与显示 | [docs/board.md](docs/board.md) |
 | 卡片上的久未更新颜色 | [docs/task-staleness.md](docs/task-staleness.md) |
 | 产品术语表（中英对照） | [GLOSSARY.md](GLOSSARY.md) |

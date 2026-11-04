@@ -117,7 +117,7 @@ The same checkout is a Claude Code plugin and a Codex plugin; it ships one skill
 
 | Topic | Page |
 | --- | --- |
-| GitHub and Codex install, session identity, running from a checkout | [docs/install.md](docs/install.md) |
+| GitHub and Codex install, session identity, running from a checkout, the Herdr panel | [docs/install.md](docs/install.md) |
 | Several repositories on one board, board filters and display | [docs/board.md](docs/board.md) |
 | Inactivity colours on cards | [docs/task-staleness.md](docs/task-staleness.md) |
 | Product vocabulary, in English and Chinese | [GLOSSARY.md](GLOSSARY.md) |
