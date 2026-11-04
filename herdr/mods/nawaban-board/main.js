@@ -288,7 +288,7 @@ export default class NawabanBoard extends View {
       .when(detail, (el) => el.child(this.detailView(t, w)))
       .child(v_flex().flex_1().min_h(0).p(6)
         .when(detail, (el) => el.hidden().flex_none().h(0)) // hidden alone still takes half the height
-        .when(Boolean(note), (el) => el.child(div().flex_none().px(8).py(8).text_size(12).text_color(this.error ? t.blocked : t.dim).child(note)))
+        .when(Boolean(note), (el) => el.child(div().flex_none().px(8).py(8).text_size(12).text_color(this.error ? t.blocked : t.muted).child(note)))
         .child(div().relative().flex_1().min_h(0)
           .child(v_virtual_list("nawaban-list", rows.length, sizes, (i) => rows[i].key,
             (range) => rows.slice(range.start, range.end).map((r, k) => this.rowEl(r, sizes[range.start + k], keyboard, t, w)))
@@ -332,13 +332,13 @@ export default class NawabanBoard extends View {
   menu(id, items, pick, t, title = null) {
     return v_flex().id(id).w(220).max_h(360).mt(4).p(4).gap(1).rounded(8).overflow_y_scroll()
       .bg(t.popover).border_1().border_color(t.border).text_size(13)
-      .when(Boolean(title), (el) => el.child(div().h(26).px(8).flex().items_center().text_size(12).text_color(t.dim).child(title)))
+      .when(Boolean(title), (el) => el.child(div().h(26).px(8).flex().items_center().text_size(12).text_color(t.muted).child(title)))
       .children(items.map((x) => h_flex().id(`${id}-${x.key}`).h(30).flex_none().px(8).gap(8).items_center().rounded(6)
         .cursor_pointer().hover((s) => s.bg(t.hover))
         .on_click((_e, cx) => { pick(x.key, cx); cx.notify(); })
         .child(div().size(16).flex_none().when(x.on, (el) => el.child(svg(CHROME("check")).size(16).text_color(t.foreground))))
         .child(div().flex_1().min_w(0).truncate().child(x.label))
-        .when(Boolean(x.hint), (el) => el.child(div().flex_none().text_size(12).text_color(t.dim).child(x.hint)))));
+        .when(Boolean(x.hint), (el) => el.child(div().flex_none().text_size(12).text_color(t.muted).child(x.hint)))));
   }
 
   filterBox(t) {
@@ -356,7 +356,7 @@ export default class NawabanBoard extends View {
       .hover((s) => s.bg(on ? t.selected : t.hover).text_color(t.foreground))
       .on_click((_e, cx) => { this.chip = key; cx.notify(); })
       .child(label)
-      .when(n > 0, (el) => el.child(div().text_color(t.dim).child(String(n))));
+      .when(n > 0, (el) => el.child(div().text_color(t.muted).child(String(n))));
   }
 
   // One list row (listRows), drawn `h` tall; clicks come through the list's on_item_click. The
@@ -376,8 +376,8 @@ export default class NawabanBoard extends View {
       .cursor_pointer().hover((s) => s.bg(t.hover))
       .child(h_flex().w(16).h(16).flex_none().items_center().justify_center()
         .child(svg(CHROME(`chevron-${shut ? "right" : "down"}`)).size(12).flex_none().text_color(t.dim)))
-      .child(div().flex_1().min_w(0).truncate().font_medium().text_color(t.dim).child(w[g.key]))
-      .child(div().flex_none().text_color(t.dim).child(groupCount(g, this.lang)))));
+      .child(div().flex_1().min_w(0).truncate().font_medium().text_color(t.muted).child(w[g.key]))
+      .child(div().flex_none().text_color(t.muted).child(groupCount(g, this.lang)))));
   }
 
   // One task: its status icon, the ID in a fixed column, the title; an in-progress task adds its
@@ -386,11 +386,11 @@ export default class NawabanBoard extends View {
   row(task, t, w) {
     const narrow = this.narrow;
     const where = !this.project && task.project ? task.project : null;
-    const id = div().flex_none().truncate().text_size(11).text_color(t.dim).child(shortId(task.id, ID_CHARS));
+    const id = div().flex_none().truncate().text_size(11).text_color(t.muted).child(shortId(task.id, ID_CHARS));
     const first = h_flex().h(18).min_w(0).gap(8).items_center()
       .when(!narrow, (el) => el.child(id.w(ID_W)))
       .child(div().flex_1().min_w(0).truncate().text_color(task.status === "done" ? t.muted : t.foreground).child(task.title))
-      .when(Boolean(where), (el) => el.child(div().flex_none().max_w(110).truncate().text_size(12).text_color(t.dim).child(where)));
+      .when(Boolean(where), (el) => el.child(div().flex_none().max_w(110).truncate().text_size(12).text_color(t.muted).child(where)));
     const tip = task.blocked ? (task.blocked_by?.length ? w.blockedBy(task.blocked_by) : w.blocked) : null;
     const row = h_flex().id(`nawaban-task-${task.id}`).flex_none().px(8).gap(10).rounded(8).cursor_pointer()
       .hover((s) => s.bg(t.hover))
@@ -403,7 +403,7 @@ export default class NawabanBoard extends View {
     const second = h_flex().h(16).gap(8).items_center().when(!narrow, (el) => el.pl(ID_W + 8))
       .when(narrow, (el) => el.child(id))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(said ?? ""))
-      .when(Boolean(at), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(ago(at, Math.floor(Date.now() / 1000), this.lang))));
+      .when(Boolean(at), (el) => el.child(div().flex_none().text_size(11).text_color(t.muted).child(ago(at, Math.floor(Date.now() / 1000), this.lang))));
     return row.h(ROW_H.working).py(6).items_start().child(glyph).child(v_flex().flex_1().min_w(0).gap(2).child(first).child(second));
   }
 
@@ -425,11 +425,11 @@ export default class NawabanBoard extends View {
         .on_click((_e, cx) => this.back(cx))
         .child(svg(CHROME("chevron-left")).size(16).flex_none())
         .child(w.back))
-      .child(div().flex_1().min_w(0).truncate().text_right().text_size(12).text_color(t.dim).child(id));
+      .child(div().flex_1().min_w(0).truncate().text_right().text_size(12).text_color(t.muted).child(id));
     const note = this.detailError ? `${w.error}: ${this.detailError}` : !d ? w.loading : null;
     return v_flex().flex_1().min_h(0)
       .child(head)
-      .when(Boolean(note), (el) => el.child(div().px(14).py(12).text_size(12).text_color(this.detailError ? t.blocked : t.dim).child(note)))
+      .when(Boolean(note), (el) => el.child(div().px(14).py(12).text_size(12).text_color(this.detailError ? t.blocked : t.muted).child(note)))
       .when(Boolean(d), (el) => el.child(this.detailBody(d, t, w)));
   }
 
@@ -438,7 +438,7 @@ export default class NawabanBoard extends View {
     const blocked = isBlocked(d);
     const state = blocked ? "blocked" : d.status;
     const color = { in_progress: t.working, blocked: t.blocked }[state] ?? t.muted;
-    const meta = h_flex().flex_wrap().gap(6).items_center().text_size(12).text_color(t.dim)
+    const meta = h_flex().flex_wrap().gap(6).items_center().text_size(12).text_color(t.muted)
       .child(h_flex().h(22).pl(4).pr(8).gap(4).items_center().rounded(6).bg(t.surface).border_1().border_color(t.border)
         .child(this.glyph(d.status, blocked, t)).child(div().text_color(color).child(w.state[state] ?? d.status)))
       .when(Boolean(d.project), (el) => el.child(div().child(d.project)))
@@ -455,10 +455,10 @@ export default class NawabanBoard extends View {
         .child(div().text_size(15).font_semibold().line_height("22px").child(d.title))
         .child(meta)
         .when(Boolean(d.parent), (el) => el.child(h_flex().gap(6).items_center().text_size(12)
-          .child(div().flex_none().text_color(t.dim).child(w.parent))
+          .child(div().flex_none().text_color(t.muted).child(w.parent))
           .child(this.related(d.parent, "parent", t).flex_1()))))
       .when(Boolean(progress), (el) => el.child(v_flex().flex_none().p(10).gap(6).rounded(8).bg(t.surface).border_1().border_color(t.border)
-        .child(h_flex().gap(6).items_center().text_size(12).text_color(t.dim)
+        .child(h_flex().gap(6).items_center().text_size(12).text_color(t.muted)
           .child(svg(ICON("working")).size(12).flex_none().text_color(t.working))
           .child(div().flex_1().font_medium().child(w.progress))
           .child(div().child(ago(progress.at, now, this.lang))))
@@ -485,8 +485,8 @@ export default class NawabanBoard extends View {
   // A heading (dim, with a count) over its content.
   section(title, n, t, content) {
     return v_flex().flex_none().gap(8)
-      .child(h_flex().gap(6).items_center().text_size(12).font_medium().text_color(t.dim)
-        .child(title).when(n != null, (el) => el.child(div().text_color(t.dim).child(String(n)))))
+      .child(h_flex().gap(6).items_center().text_size(12).font_medium().text_color(t.muted)
+        .child(title).when(n != null, (el) => el.child(div().text_color(t.muted).child(String(n)))))
       .child(content);
   }
 
@@ -496,7 +496,7 @@ export default class NawabanBoard extends View {
       .bg(t.surface).hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => this.open(r.id, cx))
       .child(this.glyph(r.status, false, t))
-      .child(div().flex_none().text_size(11).text_color(t.dim).child(shortId(r.id, ID_CHARS)))
+      .child(div().flex_none().text_size(11).text_color(t.muted).child(shortId(r.id, ID_CHARS)))
       .child(div().flex_1().min_w(0).truncate().text_color(r.status === "done" ? t.muted : t.foreground).child(r.title));
   }
 
@@ -504,7 +504,7 @@ export default class NawabanBoard extends View {
   // opens in the browser.
   eventEl(taskId, e, i, now, t, w) {
     const who = authorLabel(e.author, this.lang);
-    const top = h_flex().h(18).gap(6).items_center().text_size(12).text_color(t.dim)
+    const top = h_flex().h(18).gap(6).items_center().text_size(12).text_color(t.muted)
       .child(svg(KIND_ICON[e.kind]).size(14).flex_none().text_color(e.kind === "decision" ? t.accent : t.muted))
       .child(div().flex_none().font_medium().text_color(t.muted).child(w.kinds[e.kind]))
       .child(div().flex_1().min_w(0).truncate().child(who))
@@ -514,7 +514,7 @@ export default class NawabanBoard extends View {
       const l = linkParts(e.body);
       body = h_flex().id(`nawaban-link-${i}`).h(30).min_w(0).px(8).gap(8).items_center().rounded(8).bg(t.surface)
         .when(Boolean(l.url), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => cx.open_url(l.url)))
-        .when(Boolean(l.kind), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(l.kind)))
+        .when(Boolean(l.kind), (el) => el.child(div().flex_none().text_size(11).text_color(t.muted).child(l.kind)))
         .child(div().flex_1().min_w(0).truncate().text_color(l.url ? t.accent : t.foreground).child(l.value))
         .when(Boolean(l.note), (el) => el.child(div().flex_none().max_w(140).truncate().text_size(12).text_color(t.muted).child(l.note)));
     } else {
