@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly,
-  listRows, moveSelection, keyCommand, escapeStep, boardChanged, groupCount, authorLabel } from "./logic.js";
+  listRows, moveSelection, keyCommand, escapeStep, boardChanged, groupCount, authorLabel, shownSelection } from "./logic.js";
 
 const task = (id, open_blockers = 0) => ({ id, title: id, open_blockers });
 
@@ -195,4 +195,11 @@ test("an event's author reads as you for the user's own decisions, else agent", 
   assert.equal(authorLabel("user", "en"), "You");
   assert.equal(authorLabel("76ecefa7-ecd3-4558-9567-badac0af274c", "zh"), "agent");
   assert.equal(authorLabel(null, "en"), "agent");
+});
+
+test("a selection that the filter, a refresh or another project hid is no selection", () => {
+  const rows = [{ key: "head:open", kind: "head" }, { key: "task:B", kind: "task" }];
+  assert.equal(shownSelection(rows, "task:A"), null);
+  assert.equal(shownSelection(rows, "task:B"), "task:B");
+  assert.equal(shownSelection(rows, null), null);
 });

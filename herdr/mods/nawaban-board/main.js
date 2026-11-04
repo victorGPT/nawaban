@@ -6,7 +6,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, InputState, Input, TextView, v_virtual_list, VirtualListScrollHandle, Scrollbar } from "gpui-base";
 import { spaces, focused, exec, theme, home, props, nextCommand, watchFolder } from "herdr";
 import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly,
-  listRows, moveSelection, keyCommand, escapeStep, boardChanged, groupCount, authorLabel, WORDS } from "./logic.js";
+  listRows, moveSelection, keyCommand, escapeStep, boardChanged, groupCount, authorLabel, shownSelection, WORDS } from "./logic.js";
 
 const POLL_MS = 5000;      // re-read the board this often when it cannot be watched
 const FALLBACK_MS = 60000; // and this often when it is, in case a change was missed
@@ -161,7 +161,7 @@ export default class NawabanBoard extends View {
     }
     if (this.trail.length) return; // the rest act on the list
     if (cmd === "filter") return this.query.focus();
-    if (cmd === "open") return this.activate(this.sel, cx);
+    if (cmd === "open") return this.activate(shownSelection(this.rows(), this.sel), cx);
     if (cmd !== "down" && cmd !== "up") return;
     if (this.inFilter) this.h.focus();
     const rows = this.rows();

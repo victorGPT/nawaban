@@ -70,6 +70,12 @@ export function moveSelection(rows, key, delta) {
   return rows[Math.min(rows.length - 1, Math.max(0, at + delta))].key;
 }
 
+// The selected row's key while that row is still on screen, else null: Enter never opens a task
+// the filter, a refresh or another project has taken out of the list.
+export function shownSelection(rows, key) {
+  return rows.some((r) => r.key === key) ? key : null;
+}
+
 // How long ago an epoch-seconds time was, short.
 export function ago(at, now, lang) {
   const s = Math.max(0, now - at);
