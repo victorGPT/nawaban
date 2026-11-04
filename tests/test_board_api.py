@@ -97,6 +97,28 @@ def test_board_filters_by_project_and_unassigned(board, get):
     assert column(get("/api/board?unassigned=1")[1], "open") == []
 
 
+def test_board_open_tasks_carry_their_latest_note_and_open_blockers(board, get):
+    _, cli = board
+    for t in ("HELD", "WAIT", "B1", "B2", "DONE"):
+        cli("create", t, "--title", t.lower(), "--body", "")
+    cli("block", "WAIT", "B1")
+    cli("block", "WAIT", "B2")
+    cli("close", "B2", "--done")
+    cli("claim", "HELD")
+    cli("event", "HELD", "--kind", "note", "--body", "first")
+    cli("event", "HELD", "--kind", "decision", "--body", "Question: q\nVerdict: v")
+    cli("event", "HELD", "--kind", "note", "--body", "tests pass")
+    cli("event", "DONE", "--kind", "note", "--body", "shipped")
+    cli("close", "DONE", "--done")
+    tasks = {t["id"]: t for c in get("/api/board")[1]["columns"] for t in c["tasks"]}
+    assert tasks["HELD"]["progress"]["body"] == "tests pass"
+    assert isinstance(tasks["HELD"]["progress"]["at"], int)
+    assert tasks["WAIT"]["progress"] is None
+    assert tasks["WAIT"]["blocked_by"] == ["B1"]  # B2 is done: no longer in the way
+    assert tasks["HELD"]["blocked_by"] == []
+    assert "progress" not in tasks["DONE"] and "blocked_by" not in tasks["DONE"]
+
+
 def test_board_rejects_a_malformed_date_range(get):
     assert get("/api/board?since=yesterday")[0] == 400
 
@@ -177,3 +199,55 @@ def test_write_requests_are_rejected(board, get, method, url):
     code, data = get(url, method=method)
     assert code == 405 and "只读" in data["error"]
     assert path.read_bytes() == before
+
+
+# ── the CLI's json verb prints what the HTTP API returns (NAWABAN-HERDR-PANEL-01) ──
+
+@pytest.fixture
+def cli_json(board, capsys):
+    path, _ = board
+
+    def cli_json(*args, db=path):
+        code = nawaban_cli.main(["--db", str(db), "json", *args])
+        return code, json.loads(capsys.readouterr().out)
+
+    return cli_json
+
+
+def test_json_projects_matches_the_api(board, get, cli_json):
+    _, cli = board
+    cli("create", "A", "--title", "a", "--body", "", "--project", "alpha")
+    cli("create", "B", "--title", "b", "--body", "")
+    assert cli_json("projects") == (0, get("/api/projects")[1])
+
+
+def test_json_board_matches_the_api_with_each_filter(board, get, cli_json):
+    _, cli = board
+    cli("create", "A", "--title", "a", "--body", "", "--project", "alpha")
+    cli("create", "B", "--title", "b", "--body", "", "--project", "beta")
+    cli("create", "C", "--title", "c", "--body", "")
+    cli("claim", "B")
+    for args, url in ((("board",), "/api/board"),
+                      (("board", "--project", "alpha"), "/api/board?project=alpha"),
+                      (("board", "--unassigned"), "/api/board?unassigned=1")):
+        assert cli_json(*args) == (0, get(url)[1])
+    assert column(cli_json("board", "--project", "alpha")[1], "open") == ["A"]
+
+
+def test_json_task_matches_the_api(board, get, cli_json):
+    _, cli = board
+    cli("create", "SPEC", "--title", "spec", "--body", "")
+    cli("create", "T", "--title", "能看到任务", "--body", "## 正文", "--parent", "SPEC",
+        "--blocked-by", "SPEC")
+    cli("event", "T", "--kind", "link", "--body", "pr: https://example.test/pull/1")
+    assert cli_json("task", "T") == (0, get("/api/task?id=T")[1])
+
+
+def test_json_unknown_task_is_a_json_error(cli_json):
+    code, data = cli_json("task", "NOPE")
+    assert code == 1 and "NOPE" in data["error"]
+
+
+def test_json_missing_board_is_a_json_error(cli_json, tmp_path):
+    code, data = cli_json("board", db=tmp_path / "nope.db")
+    assert code == 1 and "看板不存在" in data["error"]

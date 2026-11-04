@@ -64,3 +64,46 @@ Launch the board with `bash "$NAWABAN_HOME/nawaban/board-up.sh"`. `NAWABAN_BOARD
 ## Session identity
 
 Commands that write as someone (`claim`, `close`, `event`) take the identity from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in every session, then from `NAWABAN_OWNER`. Codex sets no session variable, so set `NAWABAN_OWNER` to a stable name in the environment Codex runs commands in; without either variable those commands refuse and say so.
+
+## Herdr panel
+
+The [Herdr](https://herdr.dev) app can show the board as a read-only panel beside your terminals. It lists the tasks of the project the current space is in, and needs no board server: it runs `python3 ~/nawaban/nawaban/cli.py json ...` in the space's folder. So it needs the checkout at `~/nawaban` (step 2 above) and `python3`.
+
+1. Copy the mod into Herdr. Copy rather than symlink: Herdr does not reload a symlinked mod when it changes. Run the same command again after pulling to update it.
+
+   ```sh
+   cp -R ~/nawaban/herdr/mods/nawaban-board ~/.config/herdr-app/mods/
+   herdr-app check ~/.config/herdr-app/mods/nawaban-board
+   ```
+
+   The mod has `"place": "none"`, so it shows only where a layout puts it.
+
+2. Add the panel to a layout you own. Herdr's shipped layouts are read-only; clone one first if needed: `herdr-app do layout.clone '{"name":"main","as":"my-layout"}'`. In `~/.config/herdr-app/layouts/<layout>.json`, find the row that holds the terminals (in clones of `main` it is the row with id `work-body`) and add this block as its last child, so it sits on the right:
+
+   ```json
+   {
+     "id": "nawaban",
+     "type": "block",
+     "hidden": true,
+     "size": { "px": 420 },
+     "min": 360,
+     "max": 720,
+     "background": "background",
+     "radius": 8,
+     "content": { "mod": "nawaban-board" }
+   }
+   ```
+
+   It starts hidden, at 420 px; drag its edge to resize it between 360 and 720 px. Below 360 px the titles are cut to a few characters. `background` and `radius` only paint the panel as a card; drop them if your layout has its own look.
+
+3. Bind a key in `~/.config/herdr-app/keys.json`, in the section for that layout (create the section if it is missing):
+
+   ```json
+   "layout:<layout>": {
+     "ctrl-shift-j": "layout.toggle:nawaban"
+   }
+   ```
+
+   Herdr does not use `ctrl-shift-j` by default. Avoid plain ctrl+letters such as `ctrl-k`: terminal programs need them. Without a key, `herdr-app do layout.toggle --id nawaban` opens and closes the panel.
+
+Herdr applies both files within a second. A broken file is ignored, the last good version stays, and Herdr writes `~/.config/herdr-app/layout.error` or `keys.error`; `herdr-app status` lists the same problems under `errors`, which should be `[]`.

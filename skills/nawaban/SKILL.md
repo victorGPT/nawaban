@@ -54,6 +54,7 @@ nawaban block <ID> <blocker ID>
 
 - `nawaban show <ID>`: title, status, project, parent, holding session, current progress (the latest note, shown for open tasks only), the tasks it is blocked by and its dependents with their status, the body, and the latest 20 events.
 - `nawaban list --parent <SPEC-ID>`: every task of a spec, one line each: `<id>  <status>  <project>  <title>`. `nawaban list --project <name>` filters by project.
+- `nawaban json projects`, `nawaban json board [--project <name> | --unassigned]`, `nawaban json task <ID>`: the board server's `/api/projects`, `/api/board` and `/api/task` JSON on stdout, read-only, without the server running. An unknown id or a missing board prints `{"error": ...}` on stdout and exits 1.
 
 ## Frontier
 

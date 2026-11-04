@@ -20,5 +20,6 @@ jobs:
       - run: npm --prefix nawaban/webui test
       - run: npm --prefix nawaban/webui run test:components
       - run: npm --prefix nawaban/webui run test:proxy
+      - run: node --test herdr/mods/nawaban-board/logic.test.js
       - run: uv run --no-project --python 3.12 --with pytest python -m pytest -q tests
       - run: uv run --no-project --python 3.12 --with pytest --with pyyaml python tests/run.py
