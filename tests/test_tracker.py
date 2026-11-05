@@ -525,10 +525,12 @@ def test_json_board_filters_by_project(run):
     assert _column(_json(run, "board", "--project", "alpha")[1], "open") == ["A"]
 
 
-def test_json_board_done_column_shows_only_the_latest_twelve(run):
+def test_json_board_done_column_shows_only_the_latest_twelve_of_those_done_over_a_day_ago(run, monkeypatch):
+    _at(monkeypatch, 1_000)
     for i in range(14):
         run("create", f"D{i:02}", "--title", "d", "--body", "")
         run("close", f"D{i:02}", "--done")
+    _at(monkeypatch, 1_000_000)
     assert len(_column(_json(run, "board")[1], "done")) == 12
 
 
@@ -581,6 +583,110 @@ def test_json_board_a_later_triage_note_ends_the_wait_and_other_notes_do_not(run
 
 def _tasks_json(run):
     return {t["id"]: t for c in _json(run, "board")[1]["columns"] for t in c["tasks"]}
+
+
+def _as(monkeypatch, session):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
+
+
+def test_json_board_a_task_s_leader_is_the_author_of_its_latest_dispatch_note_else_its_holder(run, monkeypatch):
+    for t in ("PLAIN", "CORD", "HELD", "LATER", "NONE"):
+        run("create", t, "--title", t.lower(), "--body", "")
+    _as(monkeypatch, "lead-a")
+    run("event", "PLAIN", "--kind", "note", "--body", "dispatch: plain")
+    run("event", "CORD", "--kind", "note", "--body", 'coord: dispatch {"worker": "cord"}')
+    run("event", "LATER", "--kind", "note", "--body", "dispatch: later")
+    _as(monkeypatch, "lead-b")
+    run("event", "LATER", "--kind", "note", "--body", "dispatch: later again")
+    run("event", "HELD", "--kind", "note", "--body", "dispatching soon")  # not a dispatch note
+    _as(monkeypatch, "worker")
+    for t in ("PLAIN", "HELD"):
+        run("claim", t)
+    tasks = _tasks_json(run)
+    assert {t: tasks[t]["leader"] for t in tasks} == {
+        "PLAIN": "lead-a", "CORD": "lead-a", "HELD": "worker", "LATER": "lead-b", "NONE": None}
+
+
+def _at(monkeypatch, ts):
+    monkeypatch.setattr(cli.time, "time", lambda: ts)
+
+
+def test_json_board_claimed_at_is_the_first_claim_not_a_re_claim(run, monkeypatch):
+    run("create", "X", "--title", "x", "--body", "")
+    run("create", "NEVER", "--title", "never", "--body", "")
+    _at(monkeypatch, 1_000)
+    run("claim", "X")
+    _at(monkeypatch, 2_000)
+    run("claim", "X", "--release")
+    _as(monkeypatch, "other")
+    _at(monkeypatch, 3_000)
+    run("claim", "X")
+    tasks = _tasks_json(run)
+    assert tasks["X"]["claimed_at"] == 1_000
+    assert tasks["NEVER"]["claimed_at"] is None
+
+
+def test_json_board_an_open_task_s_decision_is_its_latest_verdict(run, monkeypatch):
+    for t in ("V", "PLAIN", "NONE", "DONE"):
+        run("create", t, "--title", t.lower(), "--body", "")
+    _at(monkeypatch, 1_000)
+    run("event", "V", "--kind", "decision", "--body", "Question: q\nVerdict: old")
+    _at(monkeypatch, 2_000)
+    run("event", "V", "--kind", "decision", "--body", "Question: which?\nVerdict: group by leader\nRejected: x - y")
+    run("event", "PLAIN", "--kind", "decision", "--body", "keep the schema\nbecause ADR 0001")
+    run("event", "DONE", "--kind", "decision", "--body", "Verdict: shipped")
+    run("close", "DONE", "--done")
+    tasks = _tasks_json(run)
+    assert tasks["V"]["decision"] == {"at": 2_000, "verdict": "group by leader"}
+    assert tasks["PLAIN"]["decision"] == {"at": 2_000, "verdict": "keep the schema"}
+    assert tasks["NONE"]["decision"] is None
+    assert "decision" not in tasks["DONE"]
+
+
+def test_json_board_progress_skips_coord_bookkeeping_notes(run):
+    run("create", "X", "--title", "x", "--body", "")
+    run("create", "ONLY", "--title", "only", "--body", "")
+    run("event", "X", "--kind", "note", "--body", "tests pass")
+    run("event", "X", "--kind", "note", "--body", 'coord: dispatch {"worker": "x"}')
+    run("event", "ONLY", "--kind", "note", "--body", "coord: heartbeat")
+    tasks = _tasks_json(run)
+    assert tasks["X"]["progress"]["body"] == "tests pass"
+    assert tasks["ONLY"]["progress"] is None
+
+
+def test_json_board_returns_every_task_done_in_the_last_24_hours_beyond_the_limit(run, monkeypatch):
+    now, hour = 10_000_000, 3600
+    _at(monkeypatch, now - 30 * hour)
+    for t in ("OLD23", "OLD25", *(f"D{i:02}" for i in range(12))):
+        run("create", t, "--title", t.lower(), "--body", "")
+    _at(monkeypatch, now - 25 * hour)
+    run("close", "OLD25", "--done")
+    _at(monkeypatch, now - 23 * hour)
+    run("close", "OLD23", "--done")
+    _at(monkeypatch, now - hour)
+    for i in range(12):
+        run("close", f"D{i:02}", "--done")
+    _at(monkeypatch, now)
+    done = _column(_json(run, "board")[1], "done")
+    assert "OLD23" in done and "OLD25" not in done and len(done) == 13
+
+
+def test_json_board_returns_every_done_child_of_an_open_spec(run, monkeypatch):
+    _at(monkeypatch, 1_000)
+    run("create", "SPEC", "--title", "spec", "--body", "")
+    run("create", "OLDSPEC", "--title", "old spec", "--body", "")
+    run("create", "C1", "--title", "c1", "--body", "", "--parent", "SPEC")
+    run("create", "C2", "--title", "c2", "--body", "", "--parent", "OLDSPEC")
+    run("close", "C1", "--done")
+    run("close", "C2", "--done")
+    run("close", "OLDSPEC", "--done")
+    _at(monkeypatch, 2_000)
+    for i in range(12):
+        run("create", f"D{i:02}", "--title", "d", "--body", "")
+        run("close", f"D{i:02}", "--done")
+    _at(monkeypatch, 1_000_000)  # everything closed long ago
+    done = _column(_json(run, "board")[1], "done")
+    assert "C1" in done and "C2" not in done and len(done) == 13
 
 
 def test_claim_in_herdr_records_the_terminal_and_json_board_returns_it(run, monkeypatch):
