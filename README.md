@@ -14,9 +14,9 @@ The checkout installs as a Claude Code plugin or a Codex plugin. It ships the on
 
 ## See it in Herdr
 
-![The nawaban panel in Herdr: one task waiting on you at the top, then the tasks waiting to be claimed](docs/images/herdr-panel.png)
+![The nawaban panel in Herdr: the project, how many windows and how many items wait in other projects, then the table of windows](docs/images/herdr-panel.png)
 
-The panel lists the current project's tasks in four groups: 等你 (waiting on you), 进行中 (in progress), 待认领 (open) and 最近完成 (recently done). A task is waiting on you when its agent needs you to answer or act; the card shows the question. Its labels are in Chinese.
+The panel lists the windows of the current space, joined with the board: a card for each window waiting on you, with its question, then a table of what the others are doing (停了, 完成, 在干), and the idle ones in one row. A window is waiting on you when its agent needs you to answer or act. A click on a card or row goes to that window. Its labels are in Chinese, or English.
 
 ## Install
 
