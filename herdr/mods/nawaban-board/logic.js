@@ -22,18 +22,19 @@ export function resolveLang(saved, system) {
 export const boardChanged = (paths, db) =>
   paths.some((p) => p === db || p === `${db}-wal` || p === db.slice(0, db.lastIndexOf("/")));
 
-// The focused space's Herdr agents (`agents()` of that space) joined with its project's
+// The focused space's Herdr agents (those of `agents`, every space's, whose `space` is `space`) joined with its project's
 // `nawaban json board`, as the panel draws them: a card per window waiting on you, a row per
 // window stopped, done or working, and the idle ones counted. A task is in the window whose
 // terminal address is its `terminal`. Each window takes the first state that holds: 等你 (it holds
 // a task asking a triage question, or Herdr says blocked), 停了 (it holds an open task and Herdr says idle), 完成, 在干,
 // 空闲. Durations run from the held task's latest event; Herdr records none of its own.
 // `otherWaiting` sums `json projects`' waiting counts of every project but `project`.
-export function windowsView({ agents, board, now, lang, projects, project }) {
+export function windowsView({ agents, space, board, now, lang, projects, project }) {
   const open = (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? [])
     .sort((x, y) => y.active_at - x.active_at);
   const words = WINDOW_WORDS[lang];
-  const windows = agents.map((a) => {
+  const here = agents.filter((a) => a.space === space);
+  const windows = here.map((a) => {
     const mine = open.filter((t) => t.terminal === a.address);
     const asking = mine.find((t) => t.waiting != null);
     const task = asking ?? mine[0];
@@ -46,10 +47,14 @@ export function windowsView({ agents, board, now, lang, projects, project }) {
       doing: blocked ? a.title : task?.title ?? a.title, state, label: words[state], duration: since == null ? null : span(now - since, lang, !!asking),
       focus: a.address, seq: a.seq, since };
   });
-  // A waiting task in no window of this space (its terminal unknown, or elsewhere) still asks; named by its ID.
-  const strays = open.filter((t) => t.waiting != null && !agents.some((a) => a.address === t.terminal))
-    .map((t) => ({ name: t.id, question: t.waiting, doing: t.title, state: "waiting", label: words.waiting,
-      duration: span(now - t.active_at, lang, true), focus: null, seq: 0, since: t.active_at }));
+  // A waiting task in no window of this space still asks. Its terminal in another space: named by
+  // that window, which its button focuses. Unknown to Herdr: named by its ID, with no button.
+  const strays = open.filter((t) => t.waiting != null && !here.some((a) => a.address === t.terminal))
+    .map((t) => {
+      const away = agents.find((a) => a.address === t.terminal);
+      return { name: away ? away.tab_name || away.title : t.id, question: t.waiting, doing: t.title, state: "waiting",
+        label: words.waiting, duration: span(now - t.active_at, lang, true), focus: away?.address ?? null, seq: 0, since: t.active_at };
+    });
   const out = ({ seq, since, ...w }) => w;
   // Longest-waiting first; the blocked windows, whose wait has no length, after them.
   const waiting = [...windows, ...strays].filter((w) => w.state === "waiting")

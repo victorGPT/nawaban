@@ -24,11 +24,8 @@ function folder() {
   return focused()?.cwd || space?.folder || home();
 }
 
-// The agents of the focused space.
-function spaceAgents() {
-  const space = focused()?.space ?? spaces().find((s) => s.active)?.id;
-  return agents().filter((a) => a.space === space);
-}
+// The focused space's id.
+const spaceId = () => focused()?.space ?? spaces().find((s) => s.active)?.id;
 
 async function nawaban(args, cwd) {
   const r = await exec("python3", [cli(), ...args], { cwd });
@@ -128,14 +125,14 @@ export default class NawabanBoard extends View {
   }
 
   render(cx) {
-    const mine = spaceAgents();
+    const all = agents(), space = spaceId(), mine = all.filter((a) => a.space === space);
     // Read again on a new space, and when a window comes, goes or changes state; not on its
     // title or seq, which change all the time while an agent works.
     const sig = mine.map((a) => `${a.address}:${a.status}`).join(",");
     if (folder() !== this.context || (this.sig != null && sig !== this.sig)) this.refresh(cx);
     this.sig = sig;
     const t = theme(), w = WINDOW_WORDS[this.lang];
-    const v = windowsView({ agents: mine, board: this.board, now: Math.floor(Date.now() / 1000), lang: this.lang,
+    const v = windowsView({ agents: all, space, board: this.board, now: Math.floor(Date.now() / 1000), lang: this.lang,
       projects: this.projectsOut, project: this.project });
     this.items = [...v.waiting, ...v.rows].map((x) => x.focus).filter(Boolean);
     const keyboard = this.h.is_focused();

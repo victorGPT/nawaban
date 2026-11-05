@@ -56,12 +56,12 @@ test("a change under the board's folder counts when it is the board or its write
 });
 
 // Herdr agents (AgentInfo) and `nawaban json board` tasks, as windowsView reads them.
-const agent = (address, status, title, tab_name = "", seq = 0) => ({ address, pane: `p-${address}`, status, title, tab_name, seq });
+const agent = (address, status, title, tab_name = "", seq = 0, space = "here") => ({ address, pane: `p-${address}`, status, title, tab_name, seq, space });
 const held = (id, terminal, { status = "in_progress", waiting = null, active_at = 0, title = id } = {}) =>
   ({ id, title, status, terminal, waiting, session: null, active_at });
 const boardOf = (...tasks) => ({ columns: ["open", "in_progress", "done"].map((key) => ({ key, tasks: tasks.filter((t) => t.status === key) })) });
 const NOW = 100000;
-const view = (agents, tasks = [], extra = {}) => windowsView({ agents, board: boardOf(...tasks), now: NOW, lang: "zh", ...extra });
+const view = (agents, tasks = [], extra = {}) => windowsView({ agents, space: "here", board: boardOf(...tasks), now: NOW, lang: "zh", ...extra });
 
 test("a working window with no task is 在干 on its terminal title, named by its tab", () => {
   const v = view([agent("t1", "working", "读 CRM 字段", "分析 CRM")]);
@@ -111,16 +111,22 @@ test("a window Herdr reports blocked is 等你 on its terminal title, asking for
   assert.deepEqual([card.name, card.doing, card.duration], ["清理flag", "rm -rf build?", null]);
 });
 
-test("a waiting task in no window of this space still gets a card, with nothing to focus; cards wait longest first", () => {
+test("a waiting task in no window of this space still gets a card: it focuses its terminal in another space, nothing when unknown; cards wait longest first", () => {
   const tasks = [held("NOWHERE", null, { status: "open", title: "补文档", waiting: "哪个目录？", active_at: NOW - 600 }),
-    held("AWAY", "other-space", { title: "上传", waiting: "能上 prod 吗？", active_at: NOW - 2 * 86400 }),
+    held("AWAY", "o1", { title: "上传", waiting: "能上 prod 吗？", active_at: NOW - 2 * 86400 }),
+    held("GONE", "closed", { title: "清缓存", waiting: "清哪个？", active_at: NOW - 300 }),
     held("HERE", "t1", { title: "同步", waiting: "放行吗？", active_at: NOW - 3600 })];
-  const v = view([agent("t1", "working", "claude", "清理flag"), agent("t2", "blocked", "确认删除？", "", 3)], tasks);
+  const v = view([agent("t1", "working", "claude", "清理flag"), agent("t2", "blocked", "确认删除？", "", 3),
+    agent("o1", "working", "claude", "上传窗", 0, "other"), agent("o2", "blocked", "别处确认？", "", 4, "other")], tasks);
   assert.deepEqual(v.waiting.map((c) => [c.name, c.question, c.doing, c.duration, c.focus]), [
-    ["AWAY", "能上 prod 吗？", "上传", "2 天", null],
+    ["上传窗", "能上 prod 吗？", "上传", "2 天", "o1"],
     ["清理flag", "放行吗？", "同步", "1 小时", "t1"],
     ["NOWHERE", "哪个目录？", "补文档", "10 分钟", null],
+    ["GONE", "清哪个？", "清缓存", "5 分钟", null],
     ["确认删除？", "在等你确认", "确认删除？", null, "t2"]]);
+  // the windows listed are this space's only
+  assert.deepEqual(v.rows.map((r) => r.focus), []);
+  assert.deepEqual(v.idle, { count: 0, names: [] });
 });
 
 test("the header counts what waits on you in the other projects of `json projects`", () => {
