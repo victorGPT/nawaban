@@ -12,14 +12,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm --prefix nawaban/webui ci
-      - run: npm --prefix nawaban/webui run build
-      - name: committed board UI matches the source
-        run: git diff --exit-code --stat -- nawaban/webui/dist && test -z "$(git status --porcelain -- nawaban/webui/dist)"
-      - run: npm --prefix nawaban/webui run lint
-      - run: npm --prefix nawaban/webui test
-      - run: npm --prefix nawaban/webui run test:components
-      - run: npm --prefix nawaban/webui run test:proxy
       - run: node --test herdr/mods/nawaban-board/logic.test.js
       - run: uv run --no-project --python 3.12 --with pytest python -m pytest -q tests
       - run: uv run --no-project --python 3.12 --with pytest --with pyyaml python tests/run.py

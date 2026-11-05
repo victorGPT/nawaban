@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from nawaban import board_view, cli  # noqa: E402
+from nawaban import cli  # noqa: E402
 
 VERBS = {"init", "create", "block", "claim", "close", "event", "show", "list", "backup", "migrate", "json"}
 
@@ -65,14 +65,3 @@ def test_linked_worktree_uses_main_board(tmp_path, monkeypatch):
     assert cli.resolve_db(None).resolve() == (main / ".nawaban/nawaban.db").resolve()
     assert not (linked / ".nawaban").exists()
 
-
-def test_listener_environment(monkeypatch, tmp_path):
-    path = tmp_path / "board.db"
-    cli.init(path)
-    monkeypatch.setenv("NAWABAN_DB", str(path))
-    monkeypatch.setenv("NAWABAN_BOARD_PORT", "18814")
-    monkeypatch.setenv("NAWABAN_BOARD_HOST", "127.0.0.2")
-    calls = []
-    monkeypatch.setattr(board_view, "serve", lambda *args, **kwargs: calls.append((args, kwargs)))
-    assert board_view.main([]) == 0
-    assert calls == [((path, 18814), {"host": "127.0.0.2"})]

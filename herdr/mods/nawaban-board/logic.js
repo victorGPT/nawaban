@@ -92,8 +92,7 @@ export function shortId(id, max) {
   return `${id.slice(0, max - 1 - tail)}…${id.slice(-tail)}`;
 }
 
-// A link event body, `[kind:] value [· note]`, read as the web board reads it (nawaban/webui/src/
-// lib/nawaban-model.ts linkParts); `url` is the value when a browser can open it.
+// A link event body, `[kind:] value [· note]`; `url` is the value when a browser can open it.
 export function linkParts(body) {
   const m = /^([a-z][\w-]*):(?!\/\/)\s*([\s\S]*)$/i.exec(body.trim());
   const rest = m ? m[2] : body.trim();

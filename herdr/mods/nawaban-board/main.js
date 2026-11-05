@@ -1,5 +1,5 @@
-// nawaban board, read-only: the tasks of the project the shown space works in, grouped as the web
-// board's columns. Data comes from the nawaban CLI (`nawaban json ...`), so no board server is needed.
+// nawaban board, read-only: the tasks of the project the shown space works in, grouped by the
+// board's columns. Data comes from the nawaban CLI (`nawaban json ...`).
 // The CLI is the checkout docs/install.md puts at ~/nawaban; it runs in the space's folder without
 // --db, so it finds the same board an agent working there does.
 import { View, div, svg } from "gpui-kit";

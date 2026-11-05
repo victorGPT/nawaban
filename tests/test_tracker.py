@@ -457,3 +457,157 @@ def test_frontier_composes_with_parent_and_project(run):
     run("create", "X", "--title", "x", "--body", "b", "--project", "beta")
     assert _ids(run("list", "--parent", "SPEC", "--frontier")[1]) == {"S1"}
     assert _ids(run("list", "--project", "beta", "--frontier")[1]) == {"X"}
+
+
+# ── json: the read projections the Herdr panel draws ──────────────
+
+def _json(run, *args, **kw):
+    import json
+    code, out, _ = run("json", *args, **kw)
+    return code, json.loads(out)
+
+
+def _column(board_json, key):
+    return {c["key"]: [t["id"] for t in c["tasks"]] for c in board_json["columns"]}[key]
+
+
+def test_json_empty_board_has_no_projects_and_empty_columns(run):
+    assert _json(run, "projects") == (0, {"projects": []})
+    code, data = _json(run, "board")
+    assert code == 0
+    assert [(c["key"], c["tasks"]) for c in data["columns"]] == [
+        ("open", []), ("in_progress", []), ("done", [])]
+
+
+def test_json_projects_count_open_and_total_tasks(run):
+    run("create", "A", "--title", "a", "--body", "", "--project", "alpha")
+    run("create", "B", "--title", "b", "--body", "", "--project", "alpha")
+    run("create", "C", "--title", "c", "--body", "", "--project", "beta")
+    run("close", "B", "--done")
+    assert _json(run, "projects")[1] == {"projects": [
+        {"name": "alpha", "open": 1, "total": 2}, {"name": "beta", "open": 1, "total": 1}]}
+
+
+def test_json_board_columns_follow_derived_status(run):
+    for t in ("OPEN", "HELD", "DONE", "GONE"):
+        run("create", t, "--title", t.lower(), "--body", "")
+    run("claim", "HELD")
+    run("close", "DONE", "--done")
+    run("close", "GONE", "--cancelled")
+    data = _json(run, "board")[1]
+    assert _column(data, "open") == ["OPEN"]
+    assert _column(data, "in_progress") == ["HELD"]
+    assert _column(data, "done") == ["DONE"]
+    held = data["columns"][1]["tasks"][0]
+    assert held["status"] == "in_progress" and held["session"] == "selftest-session"
+
+
+def test_json_board_filters_by_project(run):
+    run("create", "A", "--title", "a", "--body", "", "--project", "alpha")
+    run("create", "B", "--title", "b", "--body", "", "--project", "beta")
+    assert _column(_json(run, "board", "--project", "alpha")[1], "open") == ["A"]
+
+
+def test_json_board_done_column_shows_only_the_latest_twelve(run):
+    for i in range(14):
+        run("create", f"D{i:02}", "--title", "d", "--body", "")
+        run("close", f"D{i:02}", "--done")
+    assert len(_column(_json(run, "board")[1], "done")) == 12
+
+
+def test_json_board_open_tasks_carry_their_latest_note_and_open_blockers(run):
+    for t in ("HELD", "WAIT", "B1", "B2", "DONE"):
+        run("create", t, "--title", t.lower(), "--body", "")
+    run("block", "WAIT", "B1")
+    run("block", "WAIT", "B2")
+    run("close", "B2", "--done")
+    run("claim", "HELD")
+    run("event", "HELD", "--kind", "note", "--body", "first")
+    run("event", "HELD", "--kind", "decision", "--body", "Question: q\nVerdict: v")
+    run("event", "HELD", "--kind", "note", "--body", "tests pass")
+    run("event", "DONE", "--kind", "note", "--body", "shipped")
+    run("close", "DONE", "--done")
+    tasks = {t["id"]: t for c in _json(run, "board")[1]["columns"] for t in c["tasks"]}
+    assert tasks["HELD"]["progress"]["body"] == "tests pass"
+    assert isinstance(tasks["HELD"]["progress"]["at"], int)
+    assert tasks["WAIT"]["progress"] is None
+    assert tasks["WAIT"]["blocked_by"] == ["B1"]  # B2 is done: no longer in the way
+    assert tasks["HELD"]["blocked_by"] == []
+    assert "progress" not in tasks["DONE"] and "blocked_by" not in tasks["DONE"]
+
+
+def test_json_task_shows_body_status_and_project(run):
+    run("create", "T", "--title", "能看到任务", "--body", "## Acceptance criteria\n- 可以",
+        "--project", "alpha")
+    code, d = _json(run, "task", "T")
+    assert code == 0
+    assert (d["id"], d["title"], d["status"], d["project"], d["session"]) == (
+        "T", "能看到任务", "open", "alpha", None)
+    assert d["body"] == "## Acceptance criteria\n- 可以"
+    assert d["latest_note"] is None and d["decisions"] == [] and d["links"] == []
+    assert d["created_at"] > 0
+
+
+def test_json_task_shows_latest_note_decisions_and_links(run):
+    run("create", "T", "--title", "t", "--body", "")
+    run("event", "T", "--kind", "note", "--body", "第一步")
+    run("event", "T", "--kind", "decision", "--body", "用 A · 否:B", "--by", "user")
+    run("event", "T", "--kind", "link", "--body", "pr: https://example.test/pull/1")
+    run("event", "T", "--kind", "note", "--body", "第二步")
+    d = _json(run, "task", "T")[1]
+    assert d["latest_note"]["body"] == "第二步"
+    assert [(e["body"], e["author"]) for e in d["decisions"]] == [("用 A · 否:B", "user")]
+    assert [e["body"] for e in d["links"]] == ["pr: https://example.test/pull/1"]
+    assert [e["kind"] for e in d["events"]] == ["note", "link", "decision", "note"]
+
+
+def test_json_task_status_follows_claim_and_close(run):
+    run("create", "T", "--title", "t", "--body", "")
+    run("claim", "T")
+    d = _json(run, "task", "T")[1]
+    assert (d["status"], d["session"]) == ("in_progress", "selftest-session")
+    run("close", "T", "--done")
+    d = _json(run, "task", "T")[1]
+    assert (d["status"], d["session"]) == ("done", None)
+    assert [e["kind"] for e in d["events"]] == ["status", "status"]
+
+
+def test_json_task_shows_parent_children_blockers_and_dependents(run):
+    run("create", "SPEC", "--title", "spec", "--body", "")
+    run("create", "S-1", "--title", "one", "--body", "", "--parent", "SPEC")
+    run("create", "S-2", "--title", "two", "--body", "", "--parent", "SPEC", "--blocked-by", "S-1")
+    run("claim", "S-1")
+    two = _json(run, "task", "S-2")[1]
+    assert two["parent"] == {"id": "SPEC", "title": "spec", "status": "open"}
+    assert two["blocked_by"] == [{"id": "S-1", "title": "one", "status": "in_progress"}]
+    one = _json(run, "task", "S-1")[1]
+    assert one["dependents"] == [{"id": "S-2", "title": "two", "status": "open"}]
+    spec = _json(run, "task", "SPEC")[1]
+    assert spec["parent"] is None
+    assert [c["id"] for c in spec["children"]] == ["S-1", "S-2"]
+
+
+def test_json_unknown_task_is_a_json_error(run):
+    code, data = _json(run, "task", "NOPE")
+    assert code == 1 and "NOPE" in data["error"]
+
+
+def test_json_old_schema_board_is_a_json_error(run, tmp_path):
+    import sqlite3
+    old = tmp_path / "old.db"
+    sqlite3.connect(old).execute("CREATE TABLE tasks (id TEXT)").connection.close()
+    code, data = _json(run, "board", db=old)
+    assert code == 1 and "不是新版看板" in data["error"]
+
+
+def test_json_missing_board_is_a_json_error(run, tmp_path):
+    code, data = _json(run, "board", db=tmp_path / "nope.db")
+    assert code == 1 and "看板不存在" in data["error"]
+
+
+def test_json_db_names_the_board_file_through_links(run, tmp_path):
+    # The Herdr panel watches this file's folder; a linked board (~/nawaban/.nawaban -> ~/.nawaban)
+    # changes where the link points, so the answer is the real file.
+    link = tmp_path / "linked.db"
+    link.symlink_to(run.board)
+    assert _json(run, "db", db=link) == (0, {"db": str(run.board.resolve())})
