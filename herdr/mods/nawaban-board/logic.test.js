@@ -271,3 +271,24 @@ test("every window of the space holding no task is in the last row, whatever Her
   const en = leaders([agent("t1", "working", "claude", "deploy"), agent("t2", "idle", "zsh", "chat")], [], { lang: "en" });
   assert.equal(WINDOW_WORDS.en.idleRow(en.idle.count, en.idle.names), "No task 2 · deploy (working), chat");
 });
+
+test("a held task the board gives no leader is led by its holder: it never vanishes from the panel", () => {
+  for (const leader of [null, undefined]) {
+    const held = { ...task("A", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 1 }), leader };
+    const v = leaders([agent("t1", "working", "claude", "入职")], [held]);
+    assert.deepEqual(v.groups.map((g) => [g.leader, g.name, g.items.map((i) => [i.id, i.state, i.who, i.focus])]),
+      [["L", "入职", [["A", "current", "self", "t1"]]]], `leader ${leader}`);
+    assert.deepEqual([v.idle.count, v.keys], [0, ["L/A"]]);
+  }
+});
+
+test("a spec held itself, none of its tickets held, speaks for itself: current or stopped, its note, its window", () => {
+  const spec = (status) => [task("S", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 1, active_at: 5, progress: "拆票中" }),
+    task("S-01", { parent: "S", leader: "L", created_at: 2 })]; // dispatched, not started
+  for (const [herdr, state] of [["working", "current"], ["idle", "stopped"]]) {
+    const v = leaders([agent("t1", herdr, "claude", "入职")], spec());
+    assert.deepEqual(v.groups[0].items.map((i) => [i.id, i.state, i.who, i.note, i.focus]),
+      [["S", state, "self", "拆票中", "t1"]], herdr);
+    assert.deepEqual([v.idle.count, v.keys], [0, ["L/S"]]);
+  }
+});

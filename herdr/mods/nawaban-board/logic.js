@@ -89,8 +89,9 @@ export function leadersView(args) {
   const rootOf = (t) => { while (byId.has(t.parent)) t = byId.get(t.parent); return t; };
   const groups = new Map(); // leader -> the items' tasks, deduplicated
   for (const t of tasks) {
-    if (t.leader == null || !inGroup(t)) continue;
-    const leader = sessionKey(t.leader);
+    // A board with no leader field (an older CLI): the holder leads, so nothing held vanishes.
+    const leader = sessionKey(t.leader ?? t.session);
+    if (leader == null || !inGroup(t)) continue;
     if (!groups.has(leader)) groups.set(leader, new Set());
     groups.get(leader).add(rootOf(t));
   }
@@ -98,12 +99,13 @@ export function leadersView(args) {
     const a = agentAt(tasks.find((x) => sessionKey(x.session) === leader && x.terminal)?.terminal);
     return a ? a.tab_name || a.title : leader.slice(0, 8);
   };
-  // An item: a task, or a spec with its tickets, whose held ticket (a stopped one first) speaks for it.
+  // An item: a task, or a spec with its tickets, whose held ticket (a stopped one first) speaks for
+  // it; with none held, the spec speaks for itself.
   const itemOf = (r, leader) => {
     const tickets = specOrder(tasks.filter((t) => t !== r && rootOf(t) === r));
     const states = tickets.map(stateOf), done = states.filter((s) => s === "done").length;
-    const lead = tickets.length ? tickets[states.indexOf("stopped")] ?? tickets[states.indexOf("current")] : r;
-    const state = r.status === "done" || (tickets.length && done === tickets.length) ? "done" : lead ? stateOf(lead) : "todo";
+    const lead = tickets[states.indexOf("stopped")] ?? tickets[states.indexOf("current")] ?? r;
+    const state = r.status === "done" || (tickets.length && done === tickets.length) ? "done" : stateOf(lead);
     const held = state === "current" || state === "stopped";
     // Dispatched: held by another session, or a task not started (only a dispatch note gives an unclaimed task a leader).
     const who = held ? (sessionKey(lead.session) === leader ? "self" : "worker") : state === "todo" && !tickets.length ? "worker" : null;
