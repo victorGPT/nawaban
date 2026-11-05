@@ -1,22 +1,37 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly,
-  listRows, moveSelection, keyCommand, escapeStep, boardChanged, groupCount, authorLabel, shownSelection } from "./logic.js";
+  listRows, moveSelection, keyCommand, escapeStep, boardChanged, authorLabel, shownSelection } from "./logic.js";
 
-const task = (id, open_blockers = 0) => ({ id, title: id, open_blockers });
+const task = (id, open_blockers = 0, waiting = null, active_at = 0) => ({ id, title: id, open_blockers, waiting, active_at });
 
-test("groups run in progress, then open with blocked tasks last and marked, then done", () => {
+test("groups run waiting on you, in progress, open with blocked tasks last and marked, then done", () => {
   const board = { columns: [
     { key: "open", tasks: [task("B1", 1), task("A"), task("B2", 2), task("C")] },
     { key: "in_progress", tasks: [task("P")] },
     { key: "done", tasks: [task("D")] },
   ] };
   const groups = groupTasks(board);
-  assert.deepEqual(groups.map((g) => g.key), ["in_progress", "open", "done"]);
-  assert.deepEqual(groups[1].tasks.map((t) => [t.id, t.blocked]),
+  assert.deepEqual(groups.map((g) => g.key), ["waiting", "in_progress", "open", "done"]);
+  assert.deepEqual(groups[0].tasks, []);
+  assert.deepEqual(groups[2].tasks.map((t) => [t.id, t.blocked]),
     [["A", false], ["C", false], ["B1", true], ["B2", true]]);
-  assert.deepEqual(groups[0].tasks.map((t) => t.id), ["P"]);
-  assert.deepEqual(groups[2].tasks.map((t) => t.id), ["D"]);
+  assert.deepEqual(groups[1].tasks.map((t) => t.id), ["P"]);
+  assert.deepEqual(groups[3].tasks.map((t) => t.id), ["D"]);
+});
+
+test("a task waiting on the user is listed only under waiting on you, latest activity first", () => {
+  const board = { columns: [
+    { key: "open", tasks: [task("A"), task("ASKED", 0, "which port?", 5)] },
+    { key: "in_progress", tasks: [task("HELD", 0, "批准拆法吗？", 9), task("P")] },
+    { key: "done", tasks: [task("D")] },
+  ] };
+  const ids = (gs) => gs.map((g) => [g.key, g.tasks.map((t) => t.id)]);
+  assert.deepEqual(ids(groupTasks(board)),
+    [["waiting", ["HELD", "ASKED"]], ["in_progress", ["P"]], ["open", ["A"]], ["done", ["D"]]]);
+  // the CLI's `waiting` is null again once a later `triage: ready-for-agent` note ends the wait
+  assert.deepEqual(ids(groupTasks({ columns: [{ key: "in_progress", tasks: [task("HELD", 0, null, 9)] }] })),
+    [["waiting", []], ["in_progress", ["HELD"]], ["open", []], ["done", []]]);
 });
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
@@ -39,18 +54,17 @@ test("the saved language wins, else the system's first preferred language: Chine
   assert.equal(resolveLang("fr", "zh_CN.UTF-8"), "zh"); // an unknown saved value is ignored
 });
 
-test("the filter box matches ID or title, and a status chip keeps one kind of task", () => {
+test("the filter box matches ID or title", () => {
   const groups = groupTasks({ columns: [
     { key: "in_progress", tasks: [{ id: "NAWA-1", title: "Panel view" }] },
     { key: "open", tasks: [{ id: "NAWA-2", title: "Detail page", open_blockers: 1 }, { id: "NAWA-3", title: "Install docs" }] },
     { key: "done", tasks: [{ id: "OTHER-4", title: "panel data" }] },
   ] });
   const ids = (gs) => gs.map((g) => [g.key, g.tasks.map((t) => t.id)]);
-  assert.deepEqual(ids(filterGroups(groups, "PANEL", "all")), [["in_progress", ["NAWA-1"]], ["open", []], ["done", ["OTHER-4"]]]);
-  assert.deepEqual(ids(filterGroups(groups, " nawa-3 ", "all")), [["in_progress", []], ["open", ["NAWA-3"]], ["done", []]]);
-  assert.deepEqual(ids(filterGroups(groups, "", "open")), [["open", ["NAWA-3"]]]);
-  assert.deepEqual(ids(filterGroups(groups, "", "blocked")), [["open", ["NAWA-2"]]]);
-  assert.deepEqual(ids(filterGroups(groups, "", "in_progress")), [["in_progress", ["NAWA-1"]]]);
+  assert.deepEqual(ids(filterGroups(groups, "PANEL")), [["waiting", []], ["in_progress", ["NAWA-1"]], ["open", []], ["done", ["OTHER-4"]]]);
+  assert.deepEqual(ids(filterGroups(groups, " nawa-3 ")), [["waiting", []], ["in_progress", []], ["open", ["NAWA-3"]], ["done", []]]);
+  assert.deepEqual(ids(filterGroups(groups, "")),
+    [["waiting", []], ["in_progress", ["NAWA-1"]], ["open", ["NAWA-3", "NAWA-2"]], ["done", ["OTHER-4"]]]);
 });
 
 test("times read as how long ago, in the panel's language", () => {
@@ -119,36 +133,26 @@ const board3 = () => groupTasks({ columns: [
   { key: "done", tasks: [task("D")] },
 ] });
 
-test("the list is one run of rows: each group's heading, its rows, then its show-more row", () => {
-  const plain = { narrowed: false, shut: new Set(), expanded: new Set(), shown: { open: 2 } };
-  assert.deepEqual(keys(listRows(board3(), plain)),
-    ["head:in_progress", "task:P", "head:open", "task:A", "task:B", "more:open", "task:X", "head:done", "task:D"]);
-  assert.equal(listRows(board3(), plain).find((r) => r.key === "more:open").cut, 1);
-  // a folded group keeps only its heading; an expanded one lists every row and offers to show less
-  assert.deepEqual(keys(listRows(board3(), { ...plain, shut: new Set(["open"]) })),
-    ["head:in_progress", "task:P", "head:open", "head:done", "task:D"]);
-  assert.deepEqual(keys(listRows(board3(), { ...plain, expanded: new Set(["open"]) })).slice(2, 8),
-    ["head:open", "task:A", "task:B", "task:C", "more:open", "task:X"]);
-  // filtered: nothing folds or cuts, and groups without a match drop out
-  const narrowed = filterGroups(board3(), "x", "all");
-  assert.deepEqual(keys(listRows(narrowed, { ...plain, narrowed: true, shut: new Set(["open"]) })), ["head:open", "task:X"]);
+test("the list is one run of rows: each group's heading, then every one of its tasks", () => {
+  assert.deepEqual(keys(listRows(board3())),
+    ["head:in_progress", "task:P", "head:open", "task:A", "task:B", "task:C", "task:X", "head:done", "task:D"]);
+  assert.deepEqual(keys(listRows(filterGroups(board3(), "x"))), ["head:open", "task:X"]); // filtered
 });
 
 test("a group with no tasks takes no heading", () => {
   const groups = groupTasks({ columns: [{ key: "open", tasks: [task("A")] }, { key: "done", tasks: [task("D")] }] });
-  assert.deepEqual(keys(listRows(groups, { narrowed: false, shut: new Set(), expanded: new Set(), shown: {} })),
-    ["head:open", "task:A", "head:done", "task:D"]); // no "in progress 0"
+  assert.deepEqual(keys(listRows(groups)), ["head:open", "task:A", "head:done", "task:D"]); // no "in progress 0"
 });
 
-test("the arrow keys move the selection along the rows and stop at either end", () => {
-  const rows = listRows(board3(), { narrowed: false, shut: new Set(), expanded: new Set(), shown: {} });
-  assert.equal(moveSelection(rows, null, 1), "head:in_progress"); // nothing picked yet: down starts at the top
+test("the arrow keys move the selection from task to task, past the headings, and stop at either end", () => {
+  const rows = listRows(board3());
+  assert.equal(moveSelection(rows, null, 1), "task:P"); // nothing picked yet: down starts at the top
   assert.equal(moveSelection(rows, null, -1), "task:D"); // and up at the bottom
-  assert.equal(moveSelection(rows, "task:P", 1), "head:open");
-  assert.equal(moveSelection(rows, "task:P", -1), "head:in_progress");
+  assert.equal(moveSelection(rows, "task:P", 1), "task:A");
+  assert.equal(moveSelection(rows, "task:A", -1), "task:P");
   assert.equal(moveSelection(rows, "task:D", 1), "task:D");
-  assert.equal(moveSelection(rows, "head:in_progress", -1), "head:in_progress");
-  assert.equal(moveSelection(rows, "task:GONE", 1), "head:in_progress"); // a row that left the list
+  assert.equal(moveSelection(rows, "task:P", -1), "task:P");
+  assert.equal(moveSelection(rows, "task:GONE", 1), "task:P"); // a row that left the list
   assert.equal(moveSelection([], null, 1), null);
 });
 
@@ -179,15 +183,6 @@ test("a change under the board's folder counts when it is the board or its write
   assert.equal(boardChanged(["/u/.nawaban/nawaban.db-shm"], db), false); // readers, the panel too, touch this
   assert.equal(boardChanged(["/u/.nawaban/backups/nawaban-1.db", "/u/.nawaban/nawaban.old.db"], db), false);
   assert.equal(boardChanged([], db), false);
-});
-
-test("the open group counts as its chips do: tasks that can start, then the blocked ones", () => {
-  const [working, open, done] = board3(); // open: A, B, C and blocked X
-  assert.equal(groupCount(open, "zh"), "3 · 被挡 1"); // the chips read 待认领 3 and 被挡 1
-  assert.equal(groupCount(open, "en"), "3 · 1 blocked");
-  assert.equal(groupCount({ key: "open", tasks: [task("A")] }, "zh"), "1");
-  assert.equal(groupCount(working, "zh"), "1");
-  assert.equal(groupCount(done, "en"), "1");
 });
 
 test("an event's author reads as you for the user's own decisions, else agent", () => {

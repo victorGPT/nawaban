@@ -368,6 +368,16 @@ def projects_data(path: Path | str) -> dict:
         return {"projects": [dict(r) for r in rows]}
 
 
+_NEEDS_INFO = re.compile(r"triage:\s*needs-info[\s—–:：-]*(?:等你\s*[:：])?\s*")
+
+
+def waiting_question(triage_note: str | None) -> str | None:
+    """What a task waits on the user for: the latest `triage:` note's question when it is
+    `triage: needs-info — 等你：<question>`, without that lead-in; None for any other label."""
+    m = _NEEDS_INFO.match(triage_note.strip()) if triage_note else None
+    return triage_note.strip()[m.end():] if m else None
+
+
 def board_data(path: Path | str, project: str | None = None) -> dict:
     """Tasks in three columns, latest activity first."""
     sql = ("SELECT t.*, MAX(COALESCE(e.at, t.created_at)) AS active_at,"
@@ -385,6 +395,10 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
             "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
             " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
             " WHERE task=e.task AND kind='note')")}
+        triage = {r["task"]: r["body"] for r in con.execute(
+            "SELECT e.task, e.body FROM events e JOIN tasks t ON t.id=e.task"
+            " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
+            " WHERE task=e.task AND kind='note' AND ltrim(body) LIKE 'triage:%')")}
         blockers: dict[str, list[str]] = {}
         for r in con.execute("SELECT b.task, b.blocker FROM blockers b JOIN tasks x ON x.id=b.blocker"
                              " WHERE x.status='open' ORDER BY b.blocker"):
@@ -399,6 +413,7 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
         if r["status"] == "open":
             task["progress"] = notes.get(r["id"])
             task["blocked_by"] = blockers.get(r["id"], [])
+            task["waiting"] = waiting_question(triage.get(r["id"]))
         columns[status].append(task)
     columns["done"] = columns["done"][:DONE_LIMIT]
     return {"columns": [{"key": k, "tasks": v} for k, v in columns.items()]}

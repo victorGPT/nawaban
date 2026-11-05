@@ -6,15 +6,14 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, InputState, Input, TextView, v_virtual_list, VirtualListScrollHandle, Scrollbar } from "gpui-base";
 import { spaces, focused, exec, theme, home, props, nextCommand, watchFolder } from "herdr";
 import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly,
-  listRows, moveSelection, keyCommand, escapeStep, boardChanged, groupCount, authorLabel, shownSelection, WORDS } from "./logic.js";
+  listRows, moveSelection, keyCommand, escapeStep, boardChanged, authorLabel, shownSelection, WORDS } from "./logic.js";
 
 const POLL_MS = 5000;      // re-read the board this often when it cannot be watched
 const FALLBACK_MS = 60000; // and this often when it is, in case a change was missed
-const SHOWN = { open: 8, done: 5 }; // rows a group shows before "show N more"
 const ID_W = 132; // the ID column
 const ID_CHARS = 18; // longer IDs are cut in the middle to fit ID_W, keeping their distinguishing tail
 const NARROW_W = 400; // a narrower panel moves a task's ID under its title, giving the title the row
-const ROW_H = { head: 30, task: 32, working: 48, more: 28 }; // list rows; a heading after the first adds HEAD_GAP above
+const ROW_H = { head: 30, task: 32, working: 48 }; // list rows; a heading after the first adds HEAD_GAP above
 const HEAD_GAP = 6;
 const CLEAR = "#00000000"; // a border that takes its space and shows nothing
 const EVENTS_SHOWN = 8; // events a detail lists before "show N more"
@@ -49,9 +48,6 @@ export default class NawabanBoard extends View {
     this.dbs = new Map();       // folder -> the board file its CLI reads (null: unknown)
     this.watched = new Set();   // board files being watched
     this.projectList = [];      // the board's projects, for the picker
-    this.chip = "all";
-    this.shut = new Set();      // folded groups
-    this.expanded = new Set();  // groups showing every row
     this.detailTicket = latestOnly(); // a slower, older detail answer never replaces a newer one
     this.trail = [];          // tasks opened, the shown one last; empty: the list
     this.detail = null;         // `nawaban json task` of the shown task
@@ -141,13 +137,8 @@ export default class NawabanBoard extends View {
 
   key() { return `${folder()}|${this.scope}`; }
 
-  // The list's rows as shown: filter text and status chip applied, folded and cut groups.
-  rows() {
-    const query = this.query.value();
-    const narrowed = Boolean(query.trim()) || this.chip !== "all";
-    return listRows(filterGroups(this.groups ?? [], query, this.chip),
-      { narrowed, shut: this.shut, expanded: this.expanded, shown: SHOWN });
-  }
+  // The list's rows as shown: the filter text applied.
+  rows() { return listRows(filterGroups(this.groups ?? [], this.query.value())); }
 
   // One command, from a key in the panel or from nextCommand(): down, up, open, back, filter, focus.
   act(cmd, cx) {
@@ -170,13 +161,9 @@ export default class NawabanBoard extends View {
     if (at >= 0) this.scroll.scroll_to_item(at); // only moves when the row is off screen
   }
 
-  // A row clicked or opened with Enter: a task opens, a heading folds, "show N more" expands.
+  // A task row clicked or opened with Enter opens; a heading does nothing.
   activate(key, cx) {
-    if (!key) return;
-    const at = key.indexOf(":"), kind = key.slice(0, at), rest = key.slice(at + 1);
-    if (kind === "task") return this.open(rest, cx);
-    const set = kind === "head" ? this.shut : this.expanded;
-    set.has(rest) ? set.delete(rest) : set.add(rest);
+    if (key?.startsWith("task:")) this.open(key.slice(5), cx);
   }
 
   refresh(cx) {
@@ -251,20 +238,14 @@ export default class NawabanBoard extends View {
   render(cx) {
     if (this.key() !== this.context) this.refresh(cx);
     const t = theme(), w = WORDS[this.lang];
-    const query = this.query.value();
     const all = this.groups ?? [];
-    const searched = filterGroups(all, query, "all");
-    const count = (k) => k === "blocked" ? searched[1]?.tasks.filter((x) => x.blocked).length ?? 0
-      : k === "open" ? searched[1]?.tasks.filter((x) => !x.blocked).length ?? 0
-      : searched.find((g) => g.key === k)?.tasks.length ?? 0;
-    const shown = filterGroups(all, query, this.chip);
     const rows = this.rows();
     const sizes = rows.map((r, i) => (r.kind === "head" && i > 0 ? HEAD_GAP : 0)
-      + ROW_H[r.kind === "task" && (this.narrow || r.task.status === "in_progress") ? "working" : r.kind]);
+      + ROW_H[r.kind === "task" && (this.narrow || this.twoLines(r.task)) ? "working" : r.kind]);
     const keyboard = this.h.is_focused();
 
     const note = this.error ? `${w.error}: ${this.error}` : !this.groups ? w.loading
-      : all.every((g) => !g.tasks.length) ? w.empty : shown.every((g) => !g.tasks.length) ? w.none : null;
+      : all.every((g) => !g.tasks.length) ? w.empty : !rows.length ? w.none : null;
 
     const detail = this.trail.length > 0;
     return v_flex().id("nawaban-board").size_full().min_h(0).rounded(10).overflow_hidden()
@@ -281,11 +262,7 @@ export default class NawabanBoard extends View {
         cx.stop_propagation();
         cx.notify();
       })
-      .when(!detail, (el) => el.child(this.header(t, w))
-        .child(this.filterBox(t))
-        .child(h_flex().flex_none().px(6).pt(6).gap(2)
-          .child(this.chipEl("all", w.statuses, 0, t))
-          .children(["in_progress", "open", "blocked"].map((k) => this.chipEl(k, w[k], count(k), t)))))
+      .when(!detail, (el) => el.child(this.header(t, w)).child(this.filterBox(t)))
       .when(detail, (el) => el.child(this.detailView(t, w)))
       .child(v_flex().flex_1().min_h(0).p(6)
         .when(detail, (el) => el.hidden().flex_none().h(0)) // hidden alone still takes half the height
@@ -294,7 +271,7 @@ export default class NawabanBoard extends View {
           .child(v_virtual_list("nawaban-list", rows.length, sizes, (i) => rows[i].key,
             (range) => rows.slice(range.start, range.end).map((r, k) => this.rowEl(r, sizes[range.start + k], keyboard, t, w)))
             .track_scroll(this.scroll).size_full()
-            .on_item_click((key, cx) => { this.sel = key; this.activate(key, cx); cx.notify(); }))
+            .on_item_click((key, cx) => { if (key.startsWith("task:")) this.sel = key; this.activate(key, cx); cx.notify(); }))
           .child(Scrollbar.vertical("nawaban-list").absolute().inset_0())));
   }
 
@@ -350,16 +327,6 @@ export default class NawabanBoard extends View {
         .child(Input.new(this.query).flex_1().min_w(0).text_size(13).text_color(t.foreground)));
   }
 
-  chipEl(key, label, n, t) {
-    const on = this.chip === key;
-    return h_flex().id(`nawaban-chip-${key}`).h(24).px(8).gap(5).flex_none().items_center().rounded(6).cursor_pointer().text_size(12)
-      .bg(on ? t.selected : t.background).text_color(on ? t.foreground : t.muted)
-      .hover((s) => s.bg(on ? t.selected : t.hover).text_color(t.foreground))
-      .on_click((_e, cx) => { this.chip = key; cx.notify(); })
-      .child(label)
-      .when(n > 0, (el) => el.child(div().text_color(t.muted).child(String(n))));
-  }
-
   // One list row (listRows), drawn `h` tall; clicks come through the list's on_item_click. The
   // selected row is tinted, and outlined while the panel has the keyboard. Every row carries the
   // 1 px border (clear when unmarked), so the outline never shifts its content.
@@ -367,23 +334,18 @@ export default class NawabanBoard extends View {
     const on = r.key === this.sel;
     const mark = (el) => el.border_1().border_color(on && keyboard ? t.accent : CLEAR).when(on, (el) => el.bg(t.selected));
     if (r.kind === "task") return mark(this.row(r.task, t, w));
-    const box = v_flex().h(h).flex_none().justify_end();
-    if (r.kind === "more") {
-      return box.child(mark(h_flex().id(r.key).h(ROW_H.more).pl(34).pr(8).items_center().rounded(8).cursor_pointer()
-        .text_size(12).text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
-        .child(r.cut > 0 ? w.more(r.cut) : w.less)));
-    }
-    const g = r.group, shut = this.shut.has(g.key);
-    return box.child(mark(h_flex().id(r.key).h(ROW_H.head).px(8).gap(10).items_center().rounded(8).text_size(12)
-      .cursor_pointer().hover((s) => s.bg(t.hover))
-      .child(h_flex().w(16).h(16).flex_none().items_center().justify_center()
-        .child(svg(CHROME(`chevron-${shut ? "right" : "down"}`)).size(12).flex_none().text_color(t.dim)))
-      .child(div().flex_1().min_w(0).truncate().font_medium().text_color(t.muted).child(w[g.key]))
-      .child(div().flex_none().text_color(t.muted).child(groupCount(g, this.lang)))));
+    const g = r.group;
+    return v_flex().h(h).flex_none().justify_end()
+      .child(h_flex().id(r.key).h(ROW_H.head).px(9).gap(10).items_center().text_size(12)
+        .child(div().flex_1().min_w(0).truncate().font_medium().text_color(t.muted).child(w[g.key]))
+        .child(div().flex_none().text_color(t.muted).child(String(g.tasks.length))));
   }
 
-  // One task: its status icon, the ID in a fixed column, the title; an in-progress task adds its
-  // latest note and how long ago on a second line. A narrow panel puts the ID on that second line,
+  // A task waiting on you shows its question on a second line, one in progress its latest note.
+  twoLines(task) { return task.waiting != null || task.status === "in_progress"; }
+
+  // One task: its status icon, the ID in a fixed column, the title; a task waiting on you adds its
+  // question, an in-progress one its latest note, and how long ago, on a second line. A narrow panel puts the ID on that second line,
   // ahead of the note. With all projects, the project at the right.
   row(task, t, w) {
     const narrow = this.narrow;
@@ -398,13 +360,13 @@ export default class NawabanBoard extends View {
       .hover((s) => s.bg(t.hover))
       .when(Boolean(tip), (el) => el.tooltip(tip));
     const glyph = this.glyph(task.status, task.blocked, t);
-    const working = task.status === "in_progress";
-    if (!working && !narrow) return row.h(ROW_H.task).items_center().child(glyph).child(first.flex_1());
-    const said = working ? task.progress?.body?.replace(/\s+/g, " ").trim() : null;
-    const at = working ? task.progress?.at ?? task.active_at : null;
+    const two = this.twoLines(task), asks = task.waiting != null;
+    if (!two && !narrow) return row.h(ROW_H.task).items_center().child(glyph).child(first.flex_1());
+    const said = two ? (asks ? task.waiting : task.progress?.body)?.replace(/\s+/g, " ").trim() : null;
+    const at = two ? task.progress?.at ?? task.active_at : null;
     const second = h_flex().h(16).gap(8).items_center().when(!narrow, (el) => el.pl(ID_W + 8))
       .when(narrow, (el) => el.child(id))
-      .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(said ?? ""))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(asks ? t.foreground : t.muted).child(said ?? ""))
       .when(Boolean(at), (el) => el.child(div().flex_none().text_size(11).text_color(t.muted).child(ago(at, Math.floor(Date.now() / 1000), this.lang))));
     return row.h(ROW_H.working).py(6).items_start().child(glyph).child(v_flex().flex_1().min_w(0).gap(2).child(first).child(second));
   }

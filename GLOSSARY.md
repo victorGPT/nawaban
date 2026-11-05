@@ -68,6 +68,12 @@ An open task that a session holds. It is derived, never stored.
 _Avoid_: in_progress as a stored status, doing.
 _Current identifiers_: `in_progress` in `show`, `list` and board responses.
 
+**Waiting on you**(等你)
+An open task whose latest `triage:` note is `triage: needs-info — 等你：<question>`: the agent needs the user to answer or act. It is derived, never stored; its session keeps holding it, and a later `triage:` note such as `triage: ready-for-agent` ends the wait. The Herdr panel lists these first, each with its question.
+等你是最新一条 `triage:` 备注为 `triage: needs-info — 等你：<问题>` 的未关闭任务：agent 需要用户回答或动手。由数据推导，不单独存储；会话继续持有它，之后再记一条 `triage:` 备注（如 `triage: ready-for-agent`）就不再等。Herdr 面板把它们列在最上面，并显示那句问题。
+_Avoid_: needs-info as a status, a stored question.
+_Current identifiers_: `waiting` on open tasks in `json board` (the question, or null); panel group `waiting`.
+
 **Done**(完成)
 A task closed because its acceptance criteria are met. Closing clears its session.
 完成是成功判据满足后关闭的任务，关闭时清掉会话。

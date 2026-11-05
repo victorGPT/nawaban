@@ -536,6 +536,32 @@ def test_json_board_open_tasks_carry_their_latest_note_and_open_blockers(run):
     assert "progress" not in tasks["DONE"] and "blocked_by" not in tasks["DONE"]
 
 
+def _waiting(run):
+    return {t["id"]: t.get("waiting") for c in _json(run, "board")[1]["columns"] for t in c["tasks"]}
+
+
+def test_json_board_an_open_task_waits_on_the_user_while_its_latest_triage_note_is_needs_info(run):
+    for t in ("ASK", "BARE", "PLAIN", "DONE"):
+        run("create", t, "--title", t.lower(), "--body", "")
+    run("claim", "ASK")
+    run("event", "ASK", "--kind", "note", "--body", "triage: needs-info — 等你：批准拆法吗？")
+    run("event", "BARE", "--kind", "note", "--body", "triage: needs-info: which port?")
+    run("event", "PLAIN", "--kind", "note", "--body", "triage: ready-for-agent")
+    run("event", "DONE", "--kind", "note", "--body", "triage: needs-info — 等你：x")
+    run("close", "DONE", "--done")
+    assert _waiting(run) == {"ASK": "批准拆法吗？", "BARE": "which port?", "PLAIN": None, "DONE": None}
+
+
+def test_json_board_a_later_triage_note_ends_the_wait_and_other_notes_do_not(run):
+    run("create", "T", "--title", "t", "--body", "")
+    run("event", "T", "--kind", "note", "--body", "triage: needs-info — 等你：批准吗？")
+    run("event", "T", "--kind", "note", "--body", "still working on the docs")
+    run("event", "T", "--kind", "decision", "--body", "Question: q\nVerdict: triage: ready-for-agent")
+    assert _waiting(run) == {"T": "批准吗？"}
+    run("event", "T", "--kind", "note", "--body", "triage: ready-for-agent")
+    assert _waiting(run) == {"T": None}
+
+
 def test_json_task_shows_body_status_and_project(run):
     run("create", "T", "--title", "能看到任务", "--body", "## Acceptance criteria\n- 可以",
         "--project", "alpha")
