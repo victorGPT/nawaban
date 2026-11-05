@@ -1,26 +1,20 @@
-// nawaban board, read-only: the tasks of the project the shown space works in, grouped by the
-// board's columns. Data comes from the nawaban CLI (`nawaban json ...`).
-// The CLI is the checkout docs/install.md puts at ~/nawaban; it runs in the space's folder without
-// --db, so it finds the same board an agent working there does.
+// nawaban board, read-only: the windows (Herdr agent terminals) of the focused space, joined with
+// the board of the project that space works in (windowsView in logic.js). A card per window
+// waiting on you, a table of the others, the idle ones in one last row; a click goes to the window.
+// Board data comes from the nawaban CLI (`nawaban json ...`), the checkout docs/install.md puts at
+// ~/nawaban; it runs in the space's folder without --db, so it finds the same board an agent
+// working there does.
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, Popover, InputState, Input, TextView, v_virtual_list, VirtualListScrollHandle, Scrollbar } from "gpui-base";
-import { spaces, focused, exec, theme, home, props, nextCommand, watchFolder } from "herdr";
-import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly,
-  listRows, moveSelection, keyCommand, escapeStep, boardChanged, authorLabel, shownSelection, WORDS } from "./logic.js";
+import { v_flex, h_flex, Popover } from "gpui-base";
+import { spaces, focused, agents, run, exec, theme, home, nextCommand, watchFolder } from "herdr";
+import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, WINDOW_WORDS } from "./logic.js";
 
 const POLL_MS = 5000;      // re-read the board this often when it cannot be watched
 const FALLBACK_MS = 60000; // and this often when it is, in case a change was missed
-const ID_W = 132; // the ID column
-const ID_CHARS = 18; // longer IDs are cut in the middle to fit ID_W, keeping their distinguishing tail
-const NARROW_W = 400; // a narrower panel moves a task's ID under its title, giving the title the row
-const ROW_H = { head: 30, task: 32, working: 48 }; // list rows; a heading after the first adds HEAD_GAP above
-const HEAD_GAP = 6;
-const CLEAR = "#00000000"; // a border that takes its space and shows nothing
-const EVENTS_SHOWN = 8; // events a detail lists before "show N more"
-const BODY_FOLD_CHARS = 600, BODY_FOLDED_H = 240; // a longer body shows its top until "show all"
+const NARROW_W = 400;      // a narrower panel drops the 多久 column
+const NAME_W = 134, TIME_W = 36, STATE_W = { zh: 44, en: 60 }; // table columns; 在干 takes the rest
 const ICON = (name) => `mods/nawaban-board/${name}.svg`;
 const CHROME = (name) => `mods/workspace-chrome/${name}.svg`; // Herdr's shipped icons
-const KIND_ICON = { note: CHROME("file-text"), decision: CHROME("circle-check"), link: ICON("link") };
 const cli = () => `${home()}/nawaban/nawaban/cli.py`;
 
 // The shown space's folder; home for a remote space (v1 reads this computer's board only).
@@ -30,174 +24,86 @@ function folder() {
   return focused()?.cwd || space?.folder || home();
 }
 
+// The agents of the focused space.
+function spaceAgents() {
+  const space = focused()?.space ?? spaces().find((s) => s.active)?.id;
+  return agents().filter((a) => a.space === space);
+}
+
 async function nawaban(args, cwd) {
   const r = await exec("python3", [cli(), ...args], { cwd });
   let out = null;
   try { out = JSON.parse(r.stdout || "null"); } catch {}
   if (r.code !== 0 || !out || out.error) throw new Error(out?.error || r.stderr?.trim().split("\n").pop() || `exit ${r.code}`);
-  return { out, raw: r.stdout };
+  return out;
 }
 
+const goTo = (terminal) => run("agent.focus", { terminal });
+
 export default class NawabanBoard extends View {
-  // props().task: open on that task's detail (`pane.split` with `"props": {"task": "<ID>"}`).
   init(_props, cx) {
-    this.groups = null;
+    this.board = null;          // `nawaban json board` of the space's project
+    this.projectsOut = null;    // `nawaban json projects`, for the other projects' waiting count
     this.error = null;
-    this.scope = null;          // null: the space's project; "*": all projects; else a project picked
     this.projects = new Map();  // folder -> its project (null: none), resolved once per folder
     this.dbs = new Map();       // folder -> the board file its CLI reads (null: unknown)
     this.watched = new Set();   // board files being watched
-    this.projectList = [];      // the board's projects, for the picker
-    this.detailTicket = latestOnly(); // a slower, older detail answer never replaces a newer one
-    this.trail = [];          // tasks opened, the shown one last; empty: the list
-    this.detail = null;         // `nawaban json task` of the shown task
+    this.items = [];            // the cards and rows a click or Enter can go to, in the order shown
+    this.sel = null;            // the selected one's terminal address
     try { this.lang = localStorage.getItem("lang"); } catch { this.lang = null; }
     if (this.lang !== "zh" && this.lang !== "en") {
       this.lang = "en";
       cx.spawn(async (cx) => {
         let r = await exec("defaults", ["read", "-g", "AppleLanguages"]).catch(() => null);
         if (r?.code !== 0) r = await exec("sh", ["-c", 'printf %s "$LANG"']).catch(() => null);
-        this.setLang(resolveLang(null, r?.stdout), cx);
+        this.lang = resolveLang(null, r?.stdout);
+        cx.notify();
       });
     }
-    this.h = cx.focus_handle();       // the panel's keyboard: arrows, Enter, Esc, /
-    this.scroll = VirtualListScrollHandle.new(); // the list's position, kept while a detail shows
-    this.sel = null;                  // the selected row's key (listRows)
-    this.makeQuery(cx);
+    this.h = cx.focus_handle(); // the panel's keyboard: arrows, Enter, Esc
     this.refresh(cx);
     // Keys bound in keys.json to `nawaban-board.<command>`, `herdr-app do nawaban-board.<command>`,
     // and "focus" when `pane.go` gives the panel the keyboard.
     cx.spawn(async (cx) => { for (;;) { this.act(await nextCommand(), cx); cx.notify(); } });
-    const task = props()?.task;
-    if (task) this.open(String(task), cx);
     // A ticking clock costs nothing; a read starts a python process, so it waits for FALLBACK_MS
     // while the board is watched. Timers keep running while the panel is hidden.
     cx.timer.every(POLL_MS, (cx) => {
       if (this.watched.has(this.db) && Date.now() - this.readAt < FALLBACK_MS) return;
       this.refresh(cx);
-      this.loadDetail(cx);
     });
   }
 
-  // A task's detail. Its blockers, dependents, subtasks and parent open on top of it; "back" goes
-  // one step, to the list last. The list stays rendered (hidden) underneath, keeping its scroll.
-  open(id, cx) {
-    this.trail.push(id);
-    this.allEvents = this.fullBody = false;
-    this.loadDetail(cx);
-    cx.notify();
-  }
-
-  back(cx) {
-    this.trail.pop();
-    this.allEvents = this.fullBody = false;
-    this.loadDetail(cx);
-    cx.notify();
-  }
-
-  loadDetail(cx) {
-    const id = this.trail.at(-1);
-    if (!id) return;
-    const latest = this.detailTicket();
-    cx.spawn(async (cx) => {
-      try {
-        const { out, raw } = await nawaban(["json", "task", id], folder());
-        if (!latest() || this.trail.at(-1) !== id) return;
-        this.detailError = null;
-        if (raw !== this.detailRaw) { this.detailRaw = raw; this.detail = out; }
-      } catch (e) {
-        if (latest() && this.trail.at(-1) === id) this.detailError = String(e?.message ?? e);
-      } finally {
-        cx.notify();
-      }
-    });
-  }
-
-  // The filter box; made again when the language changes, as its placeholder is fixed at creation.
-  makeQuery(cx) {
-    const value = this.query?.value() ?? "";
-    this.query = InputState.new({ placeholder: WORDS[this.lang].filter, value });
-    this.query.on("change", (_e, cx) => cx.notify());
-    this.query.on("focus", (_e, cx) => { this.inFilter = true; cx.notify(); });
-    this.query.on("blur", (_e, cx) => { this.inFilter = false; cx.notify(); });
-    // Enter in the filter box: on to the list, at its first task.
-    this.query.on("submit", (_e, cx) => {
-      this.sel = this.rows().find((r) => r.kind === "task")?.key ?? this.sel;
-      this.h.focus();
-      cx.notify();
-    });
-    cx.notify();
-  }
-
-  setLang(lang, cx) {
-    if (lang === this.lang) return;
-    this.lang = lang;
-    this.makeQuery(cx);
-  }
-
-  key() { return `${folder()}|${this.scope}`; }
-
-  // The list's rows as shown: the filter text applied.
-  rows() { return listRows(filterGroups(this.groups ?? [], this.query.value())); }
-
-  // One command, from a key in the panel or from nextCommand(): down, up, open, back, filter, focus.
-  act(cmd, cx) {
+  // One command, from a key in the panel or from nextCommand(): down, up, open, back, focus.
+  act(cmd) {
     if (cmd === "focus") return this.h.focus();
-    if (cmd === "back") {
-      const step = escapeStep({ trail: this.trail, inFilter: this.inFilter, query: this.query.value() });
-      if (step === "pop") this.back(cx);
-      else if (step === "leave-filter") this.h.focus();
-      else if (step === "clear-filter") this.query.set_value("");
-      return;
-    }
-    if (this.trail.length) return; // the rest act on the list
-    if (cmd === "filter") return this.query.focus();
-    if (cmd === "open") return this.activate(shownSelection(this.rows(), this.sel), cx);
-    if (cmd !== "down" && cmd !== "up") return;
-    if (this.inFilter) this.h.focus();
-    const rows = this.rows();
-    this.sel = moveSelection(rows, this.sel, cmd === "down" ? 1 : -1);
-    const at = rows.findIndex((r) => r.key === this.sel);
-    if (at >= 0) this.scroll.scroll_to_item(at); // only moves when the row is off screen
-  }
-
-  // A task row clicked or opened with Enter opens; a heading does nothing.
-  activate(key, cx) {
-    if (key?.startsWith("task:")) this.open(key.slice(5), cx);
+    if (cmd === "back") { this.sel = null; return; }
+    if (cmd === "open") { if (this.items.includes(this.sel)) goTo(this.sel); return; }
+    if (cmd === "down" || cmd === "up") this.sel = moveSelection(this.items, this.sel, cmd === "down" ? 1 : -1);
   }
 
   refresh(cx) {
     if (this.loading) { this.again = true; return; } // read once more when this one ends
     const cwd = folder();
-    if (cwd !== this.cwd) { this.cwd = cwd; this.scope = null; } // a new space: follow its project again
-    const key = this.key(), scope = this.scope;
     this.loading = true;
     this.readAt = Date.now();
-    this.context = key;
+    this.context = cwd;
     cx.spawn(async (cx) => {
       try {
+        const projects = await nawaban(["json", "projects"], cwd);
         if (!this.projects.has(cwd)) {
           const git = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd });
-          const { out } = await nawaban(["json", "projects"], cwd);
           // null with a CLI older than `json db`: the panel then polls every POLL_MS.
-          this.dbs.set(cwd, await nawaban(["json", "db"], cwd).then((r) => r.out.db, () => null));
-          this.projects.set(cwd, projectFor(git.code === 0 ? git.stdout : "", out));
-          this.projectList = out.projects;
+          this.dbs.set(cwd, await nawaban(["json", "db"], cwd).then((out) => out.db, () => null));
+          this.projects.set(cwd, projectFor(git.code === 0 ? git.stdout : "", projects));
         }
         this.db = this.dbs.get(cwd);
         if (this.db) this.watch(this.db, cx);
-        const own = this.projects.get(cwd);
-        const project = scope === "*" ? null : scope ?? own;
-        const { out, raw } = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], cwd);
-        if (this.key() !== key) return; // the space or scope changed meanwhile: the next refresh reads it
-        this.own = own;
-        this.project = project;
-        this.error = null;
-        if (raw === this.raw) return;
-        this.raw = raw;
-        this.groups = groupTasks(out);
+        const project = this.projects.get(cwd);
+        const board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], cwd);
+        if (folder() !== cwd) return; // the space changed meanwhile: the next refresh reads it
+        Object.assign(this, { project, projectsOut: projects, board, error: null });
       } catch (e) {
-        this.error = String(e?.message ?? e); // keep the last list shown
+        this.error = String(e?.message ?? e); // keep the last board shown
       } finally {
         this.loading = false;
         cx.notify();
@@ -216,274 +122,126 @@ export default class NawabanBoard extends View {
       for (;;) {
         let paths;
         try { paths = await watchFolder(db.slice(0, db.lastIndexOf("/"))); } catch { this.watched.delete(db); return; }
-        if (db === this.db && boardChanged(paths, db)) { this.refresh(cx); this.loadDetail(cx); }
+        if (db === this.db && boardChanged(paths, db)) this.refresh(cx);
       }
     });
   }
 
-  // The picker's list is read again each time it opens, so new projects show up.
-  readProjects(cx) {
-    cx.spawn(async (cx) => {
-      try { this.projectList = (await nawaban(["json", "projects"], folder())).out.projects; cx.notify(); } catch {}
-    });
-  }
-
-  pickScope(scope, cx) {
-    this.scope = scope === this.own ? null : scope;
-    this.pickerOpen = false;
-    this.raw = null;
-    this.refresh(cx);
-  }
-
   render(cx) {
-    if (this.key() !== this.context) this.refresh(cx);
-    const t = theme(), w = WORDS[this.lang];
-    const all = this.groups ?? [];
-    const rows = this.rows();
-    const sizes = rows.map((r, i) => (r.kind === "head" && i > 0 ? HEAD_GAP : 0)
-      + ROW_H[r.kind === "task" && (this.narrow || this.twoLines(r.task)) ? "working" : r.kind]);
+    const mine = spaceAgents();
+    // Read again on a new space, and when a window comes, goes or changes state; not on its
+    // title or seq, which change all the time while an agent works.
+    const sig = mine.map((a) => `${a.address}:${a.status}`).join(",");
+    if (folder() !== this.context || (this.sig != null && sig !== this.sig)) this.refresh(cx);
+    this.sig = sig;
+    const t = theme(), w = WINDOW_WORDS[this.lang];
+    const v = windowsView({ agents: mine, board: this.board, now: Math.floor(Date.now() / 1000), lang: this.lang,
+      projects: this.projectsOut, project: this.project });
+    this.items = [...v.waiting, ...v.rows].map((x) => x.focus).filter(Boolean);
     const keyboard = this.h.is_focused();
+    const note = this.error ? `${w.error}: ${this.error}` : !this.board ? w.loading
+      : !v.waiting.length && !mine.length ? w.none : null;
+    const table = v.rows.length > 0 || v.idle.count > 0;
 
-    const note = this.error ? `${w.error}: ${this.error}` : !this.groups ? w.loading
-      : all.every((g) => !g.tasks.length) ? w.empty : !rows.length ? w.none : null;
-
-    const detail = this.trail.length > 0;
     return v_flex().id("nawaban-board").size_full().min_h(0).rounded(10).overflow_hidden()
-      .bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
+      .bg(t.canvas).border_1().border_color(t.border).text_color(t.foreground).text_size(13.5)
       .on_size_change((size, cx) => {
         const narrow = size.width < NARROW_W;
         if (narrow !== this.narrow) { this.narrow = narrow; cx.notify(); }
       })
       .track_focus(this.h).on_key_down((e, cx) => {
         const cmd = keyCommand(e);
-        // In the filter box only Esc and the arrows are the panel's; the rest is typing.
-        if (!cmd || (this.inFilter && !["back", "down", "up"].includes(cmd))) return;
-        this.act(cmd, cx);
+        if (!cmd) return;
+        this.act(cmd);
         cx.stop_propagation();
         cx.notify();
       })
-      .when(!detail, (el) => el.child(this.header(t, w)).child(this.filterBox(t)))
-      .when(detail, (el) => el.child(this.detailView(t, w)))
-      .child(v_flex().flex_1().min_h(0).p(6)
-        .when(detail, (el) => el.hidden().flex_none().h(0)) // hidden alone still takes half the height
-        .when(Boolean(note), (el) => el.child(div().flex_none().px(8).py(8).text_size(12).text_color(this.error ? t.blocked : t.muted).child(note)))
-        .child(div().relative().flex_1().min_h(0)
-          .child(v_virtual_list("nawaban-list", rows.length, sizes, (i) => rows[i].key,
-            (range) => rows.slice(range.start, range.end).map((r, k) => this.rowEl(r, sizes[range.start + k], keyboard, t, w)))
-            .track_scroll(this.scroll).size_full()
-            .on_item_click((key, cx) => { if (key.startsWith("task:")) this.sel = key; this.activate(key, cx); cx.notify(); }))
-          .child(Scrollbar.vertical("nawaban-list").absolute().inset_0())));
+      .child(this.header(t, w, mine.length, v.otherWaiting))
+      .child(v_flex().id("nawaban-body").flex_1().min_h(0).overflow_y_scrollbar().pb(16)
+        .when(Boolean(note), (el) => el.child(div().flex_none().px(16).pb(8).text_size(12.5).text_color(t.muted).child(note)))
+        .when(v.waiting.length > 0, (el) => el
+          .child(div().flex_none().px(16).pt(2).pb(10).text_size(20).font_semibold().text_color(t.blocked).child(w.headline(v.waiting.length)))
+          .child(v_flex().flex_none().px(12).gap(8).children(v.waiting.map((x, i) => this.card(x, i, keyboard, t, w)))))
+        .when(table, (el) => el.child(this.table(v, keyboard, t, w).when(v.waiting.length > 0, (el) => el.mt(18)))));
   }
 
-  header(t, w) {
-    const iconButton = (id) => h_flex().id(id).size(24).flex_none().items_center().justify_center().rounded(6)
-      .cursor_pointer().text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground));
-    const label = this.project ?? w.all;
-    const picker = Popover.new("nawaban-project-menu").anchor("top_right").open(Boolean(this.pickerOpen))
-      .on_open_change((open, cx) => { this.pickerOpen = open; if (open) this.readProjects(cx); cx.notify(); })
-      .trigger(h_flex().id("nawaban-project").h(24).max_w(200).flex_none().pl(8).pr(6).gap(4).items_center().rounded(6)
-        .cursor_pointer().text_size(12).text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
-        .child(div().min_w(0).truncate().child(label))
-        .child(svg(CHROME("chevron-down")).size(12).flex_none().text_color(t.dim)))
-      .content(this.menu("nawaban-projects", [
-        { key: "*", label: w.all, on: !this.project },
-        ...this.projectList.filter((p) => p.name).map((p) => ({ key: p.name, label: p.name, hint: String(p.open), on: p.name === this.project })),
-      ], (k, cx) => this.pickScope(k, cx), t));
+  // The project, then how many windows and what waits in other projects; the language menu.
+  header(t, w, windows, elsewhere) {
+    const name = this.project ?? spaces().find((s) => s.active)?.name ?? "";
     const more = Popover.new("nawaban-more-menu").anchor("top_right").open(Boolean(this.moreOpen))
       .on_open_change((open, cx) => { this.moreOpen = open; cx.notify(); })
-      .trigger(iconButton("nawaban-more").child(svg(ICON("more")).size(16).flex_none()))
+      .trigger(h_flex().id("nawaban-more").size(24).flex_none().items_center().justify_center().rounded(6)
+        .cursor_pointer().text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .child(svg(ICON("more")).size(16).flex_none()))
       .content(this.menu("nawaban-lang", [
         { key: "zh", label: "中文", on: this.lang === "zh" },
         { key: "en", label: "English", on: this.lang === "en" },
-      ], (lang, cx) => {
+      ], (lang) => {
         try { localStorage.setItem("lang", lang); } catch {}
         this.moreOpen = false;
-        this.setLang(lang, cx);
+        this.lang = lang;
       }, t, w.language));
-    return h_flex().h(42).flex_none().pl(14).pr(8).gap(4).items_center().border_b(1).border_color(t.border)
-      .child(div().flex_1().font_semibold().child(w.title))
-      .child(picker)
+    return h_flex().h(44).flex_none().pl(16).pr(8).gap(8).items_center()
+      .child(div().flex_1().min_w(0).truncate().font_semibold().child(name))
+      .child(div().flex_none().text_size(11).text_color(t.dim).child(`${w.windows(windows)} · ${w.elsewhere(elsewhere)}`))
       .child(more);
   }
 
   // A popup list of choices, the picked one checked; `title` is a dim heading over it.
-  menu(id, items, pick, t, title = null) {
-    return v_flex().id(id).w(220).max_h(360).mt(4).p(4).gap(1).rounded(8).overflow_y_scroll()
-      .bg(t.popover).border_1().border_color(t.border).text_size(13)
-      .when(Boolean(title), (el) => el.child(div().h(26).px(8).flex().items_center().text_size(12).text_color(t.muted).child(title)))
+  menu(id, items, pick, t, title) {
+    return v_flex().id(id).w(220).mt(4).p(4).gap(1).rounded(8)
+      .bg(t.popover).border_1().border_color(t.border).text_size(13.5)
+      .child(div().h(26).px(8).flex().items_center().text_size(12.5).text_color(t.muted).child(title))
       .children(items.map((x) => h_flex().id(`${id}-${x.key}`).h(30).flex_none().px(8).gap(8).items_center().rounded(6)
         .cursor_pointer().hover((s) => s.bg(t.hover))
-        .on_click((_e, cx) => { pick(x.key, cx); cx.notify(); })
+        .on_click((_e, cx) => { pick(x.key); cx.notify(); })
         .child(div().size(16).flex_none().when(x.on, (el) => el.child(svg(CHROME("check")).size(16).text_color(t.foreground))))
-        .child(div().flex_1().min_w(0).truncate().child(x.label))
-        .when(Boolean(x.hint), (el) => el.child(div().flex_none().text_size(12).text_color(t.muted).child(x.hint)))));
+        .child(div().flex_1().min_w(0).truncate().child(x.label))));
   }
 
-  filterBox(t) {
-    return div().flex_none().px(6).pt(6)
-      .child(h_flex().id("nawaban-filter").h(30).pl(9).pr(6).gap(7).items_center().rounded(8).border_1()
-        .border_color(t.input).bg(t.background)
-        .child(svg(CHROME("search")).size(14).flex_none().text_color(t.dim))
-        .child(Input.new(this.query).flex_1().min_w(0).text_size(13).text_color(t.foreground)));
+  // A window waiting on you: its name and how long it has waited, the question (two lines at
+  // most), then what it is working on and "去窗口 →". The whole card is the button; a waiting task
+  // in no window of this space has nothing to go to, so no button. The selection is outlined.
+  card(x, i, keyboard, t, w) {
+    const can = x.focus != null, on = can && x.focus === this.sel;
+    return v_flex().id(`nawaban-card-${i}`).flex_none().p(12).rounded(8).bg(t.blocked + "26")
+      .border_1().border_color(on ? (keyboard ? t.accent : t.blocked) : t.blocked + "00")
+      .when(can, (el) => el.cursor_pointer().hover((s) => s.bg(t.blocked + "33"))
+        .on_click((_e, cx) => { this.sel = x.focus; goTo(x.focus); cx.notify(); }))
+      .child(h_flex().gap(8).items_center()
+        .child(div().flex_1().min_w(0).truncate().font_semibold().child(x.name))
+        .when(x.duration != null, (el) => el.child(div().flex_none().text_size(12.5).text_color(t.blocked).child(w.waited(x.duration)))))
+      .child(div().mt(6).max_h(40).overflow_hidden().line_height("20px").child(x.question.replace(/\s+/g, " ").trim()))
+      .child(h_flex().mt(10).gap(10).items_center()
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(t.dim).child(x.doing))
+        .when(can, (el) => el.child(div().flex_none().px(10).py(5).rounded(6).bg(t.blocked)
+          .text_size(12.5).font_semibold().text_color(t.canvas).child(w.go))));
   }
 
-  // One list row (listRows), drawn `h` tall; clicks come through the list's on_item_click. The
-  // selected row is tinted, and outlined while the panel has the keyboard. Every row carries the
-  // 1 px border (clear when unmarked), so the outline never shifts its content.
-  rowEl(r, h, keyboard, t, w) {
-    const on = r.key === this.sel;
-    const mark = (el) => el.border_1().border_color(on && keyboard ? t.accent : CLEAR).when(on, (el) => el.bg(t.selected));
-    if (r.kind === "task") return mark(this.row(r.task, t, w));
-    const g = r.group;
-    return v_flex().h(h).flex_none().justify_end()
-      .child(h_flex().id(r.key).h(ROW_H.head).px(9).gap(10).items_center().text_size(12)
-        .child(div().flex_1().min_w(0).truncate().font_medium().text_color(t.muted).child(w[g.key]))
-        .child(div().flex_none().text_color(t.muted).child(String(g.tasks.length))));
-  }
-
-  // A task waiting on you shows its question on a second line, one in progress its latest note.
-  twoLines(task) { return task.waiting != null || task.status === "in_progress"; }
-
-  // One task: its status icon, the ID in a fixed column, the title; a task waiting on you adds its
-  // question, an in-progress one its latest note, and how long ago, on a second line. A narrow panel puts the ID on that second line,
-  // ahead of the note. With all projects, the project at the right.
-  row(task, t, w) {
-    const narrow = this.narrow;
-    const where = !this.project && task.project ? task.project : null;
-    const id = div().flex_none().truncate().text_size(11).text_color(t.muted).child(shortId(task.id, ID_CHARS));
-    const first = h_flex().h(18).min_w(0).gap(8).items_center()
-      .when(!narrow, (el) => el.child(id.w(ID_W)))
-      .child(div().flex_1().min_w(0).truncate().text_color(task.status === "done" ? t.muted : t.foreground).child(task.title))
-      .when(Boolean(where), (el) => el.child(div().flex_none().max_w(110).truncate().text_size(12).text_color(t.muted).child(where)));
-    const tip = task.blocked ? (task.blocked_by?.length ? w.blockedBy(task.blocked_by) : w.blocked) : null;
-    const row = h_flex().id(`nawaban-task-${task.id}`).flex_none().px(8).gap(10).rounded(8).cursor_pointer()
-      .hover((s) => s.bg(t.hover))
-      .when(Boolean(tip), (el) => el.tooltip(tip));
-    const glyph = this.glyph(task.status, task.blocked, t);
-    const two = this.twoLines(task), asks = task.waiting != null;
-    if (!two && !narrow) return row.h(ROW_H.task).items_center().child(glyph).child(first.flex_1());
-    const said = two ? (asks ? task.waiting : task.progress?.body)?.replace(/\s+/g, " ").trim() : null;
-    const at = two ? task.progress?.at ?? task.active_at : null;
-    const second = h_flex().h(16).gap(8).items_center().when(!narrow, (el) => el.pl(ID_W + 8))
-      .when(narrow, (el) => el.child(id))
-      .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(asks ? t.foreground : t.muted).child(said ?? ""))
-      .when(Boolean(at), (el) => el.child(div().flex_none().text_size(11).text_color(t.muted).child(ago(at, Math.floor(Date.now() / 1000), this.lang))));
-    return row.h(ROW_H.working).py(6).items_start().child(glyph).child(v_flex().flex_1().min_w(0).gap(2).child(first).child(second));
-  }
-
-  // A task's status icon: in progress, open, blocked, done (cancelled shows as done).
-  glyph(status, blocked, t) {
-    const [icon, color] = status === "in_progress" ? ["working", t.working] : blocked ? ["blocked", t.blocked]
-      : status === "done" || status === "cancelled" ? ["done", t.dim] : ["open", t.muted];
-    return h_flex().w(16).h(18).flex_none().items_center().justify_center().child(svg(ICON(icon)).size(16).text_color(color));
-  }
-
-  // The shown task: "‹ back" and its ID on top; below, scrolling, its title and status, current
-  // progress, body, related tasks and its notes, decisions and links.
-  detailView(t, w) {
-    const id = this.trail.at(-1);
-    const d = this.detail?.id === id ? this.detail : null;
-    const head = h_flex().h(42).flex_none().pl(6).pr(14).gap(8).items_center().border_b(1).border_color(t.border)
-      .child(h_flex().id("nawaban-back").h(26).pl(2).pr(8).gap(2).flex_none().items_center().rounded(6).cursor_pointer()
-        .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
-        .on_click((_e, cx) => this.back(cx))
-        .child(svg(CHROME("chevron-left")).size(16).flex_none())
-        .child(w.back))
-      .child(div().flex_1().min_w(0).truncate().text_right().text_size(12).text_color(t.muted).child(id));
-    const note = this.detailError ? `${w.error}: ${this.detailError}` : !d ? w.loading : null;
-    return v_flex().flex_1().min_h(0)
-      .child(head)
-      .when(Boolean(note), (el) => el.child(div().px(14).py(12).text_size(12).text_color(this.detailError ? t.blocked : t.muted).child(note)))
-      .when(Boolean(d), (el) => el.child(this.detailBody(d, t, w)));
-  }
-
-  detailBody(d, t, w) {
-    const now = Math.floor(Date.now() / 1000);
-    const blocked = isBlocked(d);
-    const state = blocked ? "blocked" : d.status;
-    const color = { in_progress: t.working, blocked: t.blocked }[state] ?? t.muted;
-    const meta = h_flex().flex_wrap().gap(6).items_center().text_size(12).text_color(t.muted)
-      .child(h_flex().h(22).pl(4).pr(8).gap(4).items_center().rounded(6).bg(t.surface).border_1().border_color(t.border)
-        .child(this.glyph(d.status, blocked, t)).child(div().text_color(color).child(w.state[state] ?? d.status)))
-      .when(Boolean(d.project), (el) => el.child(div().child(d.project)))
-      .child(div().child("·")).child(div().child(ago(d.created_at, now, this.lang)));
-    const progress = (d.status === "open" || d.status === "in_progress") && d.latest_note;
-    const relations = ["blocked_by", "dependents", "children"].filter((k) => d[k]?.length)
-      .map((k) => this.section(w.relations[k], d[k].length, t,
-        v_flex().gap(1).children(d[k].map((r) => this.related(r, k, t)))));
-    const long = (d.body ?? "").length > BODY_FOLD_CHARS;
-    const events = detailEvents(d.events);
-    const shown = this.allEvents ? events : events.slice(0, EVENTS_SHOWN);
-    return v_flex().id(`nawaban-detail-${d.id}`).flex_1().min_h(0).overflow_y_scrollbar().px(14).pt(14).pb(20).gap(18)
-      .child(v_flex().flex_none().gap(8)
-        .child(div().text_size(15).font_semibold().line_height("22px").child(d.title))
-        .child(meta)
-        .when(Boolean(d.parent), (el) => el.child(h_flex().gap(6).items_center().text_size(12)
-          .child(div().flex_none().text_color(t.muted).child(w.parent))
-          .child(this.related(d.parent, "parent", t).flex_1()))))
-      .when(Boolean(progress), (el) => el.child(v_flex().flex_none().p(10).gap(6).rounded(8).bg(t.surface).border_1().border_color(t.border)
-        .child(h_flex().gap(6).items_center().text_size(12).text_color(t.muted)
-          .child(svg(ICON("working")).size(12).flex_none().text_color(t.working))
-          .child(div().flex_1().font_medium().child(w.progress))
-          .child(div().child(ago(progress.at, now, this.lang))))
-        .child(TextView.markdown(`nawaban-progress-${d.id}`, eventMarkdown(progress.body)).selectable(true).scrollable(false))))
-      .children(relations)
-      .when(Boolean(d.body?.trim()), (el) => el.child(this.section(w.body, null, t, v_flex().gap(4)
-        .child(div().when(long && !this.fullBody, (el) => el.max_h(BODY_FOLDED_H).overflow_hidden())
-          .child(TextView.markdown(`nawaban-body-${d.id}`, d.body).selectable(true).scrollable(false)))
-        .when(long, (el) => el.child(this.moreRow("nawaban-body-more", this.fullBody ? w.less : w.wholeBody, t,
-          (cx) => { this.fullBody = !this.fullBody; cx.notify(); }))))))
-      .when(events.length > 0, (el) => el.child(this.section(w.events, events.length, t,
-        v_flex().gap(6)
-          .children(shown.map((e, i) => this.eventEl(d.id, e, i, now, t, w)))
-          .when(events.length > EVENTS_SHOWN, (el) => el.child(this.moreRow("nawaban-events-more",
-            this.allEvents ? w.less : w.more(events.length - EVENTS_SHOWN), t,
-            (cx) => { this.allEvents = !this.allEvents; cx.notify(); }))))));
-  }
-
-  moreRow(id, label, t, click) {
-    return h_flex().id(id).h(28).px(8).items_center().rounded(8).cursor_pointer().text_size(12).text_color(t.muted)
-      .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => click(cx)).child(label);
-  }
-
-  // A heading (dim, with a count) over its content.
-  section(title, n, t, content) {
-    return v_flex().flex_none().gap(8)
-      .child(h_flex().gap(6).items_center().text_size(12).font_medium().text_color(t.muted)
-        .child(title).when(n != null, (el) => el.child(div().text_color(t.muted).child(String(n)))))
-      .child(content);
-  }
-
-  // A related task, opened on click: its status icon, ID and title.
-  related(r, key, t) {
-    return h_flex().id(`nawaban-${key}-${r.id}`).h(30).min_w(0).px(8).gap(8).items_center().rounded(8).cursor_pointer()
-      .bg(t.surface).hover((s) => s.bg(t.hover))
-      .on_click((_e, cx) => this.open(r.id, cx))
-      .child(this.glyph(r.status, false, t))
-      .child(div().flex_none().text_size(11).text_color(t.muted).child(shortId(r.id, ID_CHARS)))
-      .child(div().flex_1().min_w(0).truncate().text_color(r.status === "done" ? t.muted : t.foreground).child(r.title));
-  }
-
-  // One note, decision or link: its kind, who and when, then the text; a link with a web address
-  // opens in the browser.
-  eventEl(taskId, e, i, now, t, w) {
-    const who = authorLabel(e.author, this.lang);
-    const top = h_flex().h(18).gap(6).items_center().text_size(12).text_color(t.muted)
-      .child(svg(KIND_ICON[e.kind]).size(14).flex_none().text_color(e.kind === "decision" ? t.accent : t.muted))
-      .child(div().flex_none().font_medium().text_color(t.muted).child(w.kinds[e.kind]))
-      .child(div().flex_1().min_w(0).truncate().child(who))
-      .child(div().flex_none().child(ago(e.at, now, this.lang)));
-    let body;
-    if (e.kind === "link") {
-      const l = linkParts(e.body);
-      body = h_flex().id(`nawaban-link-${i}`).h(30).min_w(0).px(8).gap(8).items_center().rounded(8).bg(t.surface)
-        .when(Boolean(l.url), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => cx.open_url(l.url)))
-        .when(Boolean(l.kind), (el) => el.child(div().flex_none().text_size(11).text_color(t.muted).child(l.kind)))
-        .child(div().flex_1().min_w(0).truncate().text_color(l.url ? t.accent : t.foreground).child(l.value))
-        .when(Boolean(l.note), (el) => el.child(div().flex_none().max_w(140).truncate().text_size(12).text_color(t.muted).child(l.note)));
-    } else {
-      body = div().pl(20).child(TextView.markdown(`nawaban-event-${taskId}-${i}`, eventMarkdown(e.body)).selectable(true).scrollable(false));
-    }
-    return v_flex().flex_none().gap(4).py(6).border_t(1).border_color(t.border).child(top).child(e.kind === "link" ? body.ml(20) : body);
+  // 窗口 | 在干 | 状态 | 多久 (多久 dropped below NARROW_W), one row per window, then the idle row.
+  table(v, keyboard, t, w) {
+    const stateW = STATE_W[this.lang], wide = !this.narrow;
+    const line = () => h_flex().flex_none().px(16).gap(12).items_center().border_b(1).border_color(t.border);
+    const color = { stopped: t.blocked, done: t.done, working: t.working };
+    const head = line().h(28).text_size(11).font_semibold().text_color(t.dim)
+      .child(div().w(NAME_W).flex_none().child(w.cols[0]))
+      .child(div().flex_1().min_w(0).child(w.cols[1]))
+      .child(div().w(stateW).flex_none().child(w.cols[2]))
+      .when(wide, (el) => el.child(div().w(TIME_W).flex_none().text_right().child(w.cols[3])));
+    const rows = v.rows.map((x) => {
+      const on = x.focus === this.sel, c = color[x.state];
+      return line().id(`nawaban-row-${x.focus}`).h(38).cursor_pointer()
+        .when(on, (el) => el.bg(keyboard ? t.selected : t.hover)).hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => { this.sel = x.focus; goTo(x.focus); cx.notify(); })
+        .child(div().w(NAME_W).flex_none().truncate().font_semibold().child(x.name))
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(t.muted).child(x.doing))
+        .child(h_flex().w(stateW).flex_none().child(div().px(6).py(1).rounded(4).text_size(11).font_semibold()
+          .text_color(c).bg(c + "26").child(x.label)))
+        .when(wide, (el) => el.child(div().w(TIME_W).flex_none().text_right().text_size(12.5)
+          .text_color(x.state === "stopped" ? t.blocked : t.muted).child(x.duration ?? "")));
+    });
+    return v_flex().flex_none().child(head).children(rows)
+      .when(v.idle.count > 0, (el) => el.child(line().h(38).text_size(12.5).text_color(t.dim)
+        .child(div().flex_1().min_w(0).truncate().child(w.idleRow(v.idle.count, v.idle.names)))));
   }
 }

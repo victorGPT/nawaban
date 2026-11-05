@@ -69,10 +69,10 @@ _Avoid_: in_progress as a stored status, doing.
 _Current identifiers_: `in_progress` in `show`, `list` and board responses.
 
 **Waiting on you**(等你)
-An open task whose latest `triage:` note is `triage: needs-info — 等你：<question>`: the agent needs the user to answer or act. It is derived, never stored; its session keeps holding it, and a later `triage:` note such as `triage: ready-for-agent` ends the wait. The Herdr panel lists these first, each with its question.
-等你是最新一条 `triage:` 备注为 `triage: needs-info — 等你：<问题>` 的未关闭任务：agent 需要用户回答或动手。由数据推导，不单独存储；会话继续持有它，之后再记一条 `triage:` 备注（如 `triage: ready-for-agent`）就不再等。Herdr 面板把它们列在最上面，并显示那句问题。
+An open task whose latest `triage:` note is `triage: needs-info — 等你：<question>`: the agent needs the user to answer or act. It is derived, never stored; its session keeps holding it, and a later `triage:` note such as `triage: ready-for-agent` ends the wait. The Herdr panel shows these first, as cards, each with its question.
+等你是最新一条 `triage:` 备注为 `triage: needs-info — 等你：<问题>` 的未关闭任务：agent 需要用户回答或动手。由数据推导，不单独存储；会话继续持有它，之后再记一条 `triage:` 备注（如 `triage: ready-for-agent`）就不再等。Herdr 面板把它们做成卡片放在最上面，并显示那句问题。
 _Avoid_: needs-info as a status, a stored question.
-_Current identifiers_: `waiting` on open tasks in `json board` (the question, or null); panel group `waiting`.
+_Current identifiers_: `waiting` on open tasks in `json board` (the question, or null); panel window state `waiting`.
 
 **Done**(完成)
 A task closed because its acceptance criteria are met. Closing clears its session.
@@ -133,8 +133,8 @@ _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`.
 
 **Herdr panel**(Herdr 面板)
-A read-only view of the board docked in a Herdr window beside the terminals, listing the tasks of the project the current space is in. Claiming, closing and dispatching stay with agents and the CLI.
-Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，列出当前 space 所在项目的任务。认领、关闭、派活仍由 agent 通过 CLI 完成。
+A read-only view of the board docked in a Herdr window beside the terminals, listing the windows of the current space, joined with the board of the project that space is in. Claiming, closing and dispatching stay with agents and the CLI.
+Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，列出当前 space 的窗口，并配上该 space 所在项目的看板。认领、关闭、派活仍由 agent 通过 CLI 完成。
 _Avoid_: sidebar, shepherdr, board tab.
 _Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `cmd-shift-j`.
 
