@@ -10,8 +10,8 @@ A Herdr app mod (gpui-kit JS, `herdr/mods/nawaban-board`), shown as a side panel
 
 ## Users
 
-- **The owner (董事长).** One person running several coding agents across a few projects (nawaban, agent-center, bzkanbanv2, …). They talk only to the lead agent of each task window and do not run the CLI themselves.
-- **Lead agents (总经理).** One per task window. Each pursues a goal, dispatches workers and records progress, decisions and questions on the board through the CLI. They never read the panel.
+- **The owner.** One person running several coding agents across a few projects (nawaban, agent-center, bzkanbanv2, …). They talk only to the leader of each piece of work and do not run the CLI themselves.
+- **Leaders.** The session the owner talks to, one per window. Each does some tasks itself, dispatches others to workers, and records progress, decisions and questions on the board through the CLI. Work arrives in no fixed order: the owner adds tasks during the day. Leaders and workers never read the panel.
 
 The panel is for the owner. They open it at two moments (confirmed 2026-11-05):
 

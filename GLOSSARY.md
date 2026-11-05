@@ -98,6 +98,12 @@ Setting a task's session. A claim on a task another session holds fails and name
 _Avoid_: assign, start, lock.
 _Current identifiers_: CLI `claim`, `claim --take`, `claim --release`.
 
+**Leader**(leader)
+The session the user talks to about a piece of work. It does tasks itself and dispatches others to worker sessions; a task's leader is the author of its latest `dispatch:` note, else the session holding it.
+leader 是用户就一摊工作直接对话的那个会话。它自己做一些任务，也把别的任务派给 worker 会话；一个任务的 leader 是它最新一条 `dispatch:` note 的作者，没有这条 note 时就是持有它的会话。
+_Avoid_: 总经理, lead agent, dispatcher, coordinator.
+_Current identifiers_: note `dispatch: <worker name>` (agent-center also writes `coord: dispatch {…}`).
+
 ### Events
 
 **Event**(事件)
@@ -133,8 +139,8 @@ _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`.
 
 **Herdr panel**(Herdr 面板)
-A read-only view of the board docked in a Herdr window beside the terminals, listing the windows of the current space, joined with the board of the project that space is in. Claiming, closing and dispatching stay with agents and the CLI.
-Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，列出当前 space 的窗口，并配上该 space 所在项目的看板。认领、关闭、派活仍由 agent 通过 CLI 完成。
+A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each leader and its workers are doing. Claiming, closing and dispatching stay with agents and the CLI.
+Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按 leader 列出当前 space 所在项目里每个 leader 和它的 worker 在做什么。认领、关闭、派活仍由 agent 通过 CLI 完成。
 _Avoid_: sidebar, shepherdr, board tab.
 _Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `cmd-shift-j`.
 
