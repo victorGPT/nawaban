@@ -123,7 +123,6 @@ DEMO-02  open  your-project  用验证码登录
 | 卡片上的久未更新颜色 | [docs/task-staleness.md](docs/task-staleness.md) |
 | 产品术语表（中英对照） | [GLOSSARY.md](GLOSSARY.md) |
 | 仓库结构与运行测试 | [docs/development.md](docs/development.md) |
-| 发布说明与旧配置的兼容 | [CHANGELOG.md](CHANGELOG.md) |
 
 ## 名字
 
