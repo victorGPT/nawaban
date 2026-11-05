@@ -485,7 +485,24 @@ def test_json_projects_count_open_and_total_tasks(run):
     run("create", "C", "--title", "c", "--body", "", "--project", "beta")
     run("close", "B", "--done")
     assert _json(run, "projects")[1] == {"projects": [
-        {"name": "alpha", "open": 1, "total": 2}, {"name": "beta", "open": 1, "total": 1}]}
+        {"name": "alpha", "open": 1, "total": 2, "waiting": 0},
+        {"name": "beta", "open": 1, "total": 1, "waiting": 0}]}
+
+
+def test_json_projects_count_tasks_waiting_on_the_user(run):
+    for t, project in (("ASK", "alpha"), ("PLAIN", "alpha"), ("DONE", "alpha"), ("NONE", None)):
+        run("create", t, "--title", t.lower(), "--body", "", *(("--project", project) if project else ()))
+    run("event", "ASK", "--kind", "note", "--body", "triage: needs-info — 等你：批准吗？")
+    run("event", "PLAIN", "--kind", "note", "--body", "triage: ready-for-agent")
+    run("event", "DONE", "--kind", "note", "--body", "triage: needs-info — 等你：x")
+    run("close", "DONE", "--done")
+    run("event", "NONE", "--kind", "note", "--body", "triage: needs-info — 等你：y")
+
+    def waiting():
+        return {p["name"]: p["waiting"] for p in _json(run, "projects")[1]["projects"]}
+    assert waiting() == {"alpha": 1, "proj": 1}
+    run("event", "ASK", "--kind", "note", "--body", "triage: ready-for-agent")
+    assert waiting()["alpha"] == 0
 
 
 def test_json_board_columns_follow_derived_status(run):
@@ -560,6 +577,78 @@ def test_json_board_a_later_triage_note_ends_the_wait_and_other_notes_do_not(run
     assert _waiting(run) == {"T": "批准吗？"}
     run("event", "T", "--kind", "note", "--body", "triage: ready-for-agent")
     assert _waiting(run) == {"T": None}
+
+
+def _tasks_json(run):
+    return {t["id"]: t for c in _json(run, "board")[1]["columns"] for t in c["tasks"]}
+
+
+def test_claim_in_herdr_records_the_terminal_and_json_board_returns_it(run, monkeypatch):
+    run("create", "X", "--title", "x", "--body", "")
+    monkeypatch.setenv("HC_TERMINAL_ID", "t6")
+    run("claim", "X")
+    assert "open→in_progress · terminal t6\n" in run("show", "X")[1] + "\n"
+    assert _tasks_json(run)["X"]["terminal"] == "t6"
+
+
+def test_claim_outside_herdr_records_no_terminal(run):
+    run("create", "X", "--title", "x", "--body", "")
+    run("claim", "X")
+    assert "terminal" not in run("show", "X")[1]
+    assert _tasks_json(run)["X"]["terminal"] is None
+
+
+def test_take_and_a_reclaim_from_another_terminal_move_the_terminal(run, monkeypatch):
+    run("create", "X", "--title", "x", "--body", "")
+    monkeypatch.setenv("HC_TERMINAL_ID", "t6")
+    run("claim", "X")
+    monkeypatch.setenv("HC_TERMINAL_ID", "t9")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "other-session")
+    run("claim", "X", "--take")
+    assert "in_progress→in_progress · 接手自 selftest-session · terminal t9" in run("show", "X")[1]
+    assert _tasks_json(run)["X"]["terminal"] == "t9"
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "selftest-session")
+    run("claim", "X", "--take")  # back to t6's session, now in t9
+    monkeypatch.setenv("HC_TERMINAL_ID", "t7")
+    run("claim", "X")
+    assert "status · selftest-session] in_progress→in_progress · terminal t7" in run("show", "X")[1]
+    assert _tasks_json(run)["X"]["terminal"] == "t7"
+
+
+def test_claim_again_from_the_same_terminal_writes_no_event(run, monkeypatch):
+    run("create", "X", "--title", "x", "--body", "")
+    monkeypatch.setenv("HC_TERMINAL_ID", "t6")
+    run("claim", "X")
+    assert run("claim", "X")[0] == 0
+    assert "共 1 条" in run("show", "X")[1]
+
+
+def test_a_nawaban_owner_session_records_no_terminal(run, monkeypatch):
+    run("create", "X", "--title", "x", "--body", "")
+    monkeypatch.setenv("HC_TERMINAL_ID", "t6")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    run("claim", "X")
+    assert "terminal" not in run("show", "X")[1]
+    assert _tasks_json(run)["X"]["terminal"] is None
+
+
+@pytest.mark.parametrize("args", [("claim", "X", "--release"), ("close", "X", "--done")])
+def test_release_or_close_clears_the_terminal(run, monkeypatch, args):
+    run("create", "X", "--title", "x", "--body", "")
+    monkeypatch.setenv("HC_TERMINAL_ID", "t6")
+    run("claim", "X")
+    run(*args)
+    assert _tasks_json(run)["X"]["terminal"] is None
+
+
+def test_a_later_claim_outside_herdr_forgets_an_earlier_terminal(run, monkeypatch):
+    run("create", "X", "--title", "x", "--body", "")
+    monkeypatch.setenv("HC_TERMINAL_ID", "t6")
+    run("claim", "X")
+    run("claim", "X", "--release")
+    monkeypatch.delenv("HC_TERMINAL_ID")
+    run("claim", "X")
+    assert _tasks_json(run)["X"]["terminal"] is None
 
 
 def test_json_task_shows_body_status_and_project(run):

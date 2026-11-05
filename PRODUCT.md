@@ -36,7 +36,7 @@ The board is written only by agents and read by a person. The panel does not man
 ## Capabilities and Constraints
 
 - **Read-only.** The panel never writes to the board.
-- **Click to go.** Clicking an item should focus the Herdr window or pane of the agent responsible for it (confirmed 2026-11-05). Today the board does not record which terminal holds a task: `claim` stores the session id, and Herdr's terminal list carries no session id. Recording `HC_TERMINAL_ID` at claim time would close that gap. Not built yet.
+- **Click to go.** Clicking an item should focus the Herdr window or pane of the agent responsible for it (confirmed 2026-11-05). Herdr's terminal list carries no session id, so `claim` records `HC_TERMINAL_ID` in its status event and `json board` returns it as each held task's `terminal` (`docs/adr/0001-claim-records-the-terminal-in-the-event-body.md`).
 - **Default scope is the current space's project** (confirmed 2026-11-05). Other projects appear only as a hint of how many items are waiting on the owner there.
 - The panel is 420 px wide by default and can be resized from 360 to 720 px. It is toggled with `cmd-shift-j`.
 - Keyboard: ↑ and ↓ move, Enter opens, Esc steps back, `/` jumps to the filter.
