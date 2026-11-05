@@ -122,7 +122,6 @@ The same checkout is a Claude Code plugin and a Codex plugin; it ships one skill
 | Inactivity colours on cards | [docs/task-staleness.md](docs/task-staleness.md) |
 | Product vocabulary, in English and Chinese | [GLOSSARY.md](GLOSSARY.md) |
 | Repository layout and running the tests | [docs/development.md](docs/development.md) |
-| Release notes and legacy configuration | [CHANGELOG.md](CHANGELOG.md) |
 
 ## The name
 

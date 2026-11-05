@@ -9,7 +9,7 @@ A nawaban board records **tasks** and an append-only **event** log per task. It 
 
 ## Rules
 
-1. **Three questions for the user.** Bring the user only questions about how the product should behave, what is said to the outside, and whether something goes to production. Settle every other choice yourself.
+1. **Three questions for the user.** Bring the user only questions about how the product should behave, what is said to the outside, and whether something goes to production. Settle every other choice yourself. A step the running skill marks as the user's (approving the split in `/to-tickets`, confirming the seam in `/to-spec`, `grilling`, a wayfinder HITL ticket) goes to the user as written; this rule governs only the choices outside those steps.
 2. **Every choice becomes a decision event.** Whenever you choose between options, record it (see "Record events"), including the user's answers to the three questions above.
 3. **Claim before work.** Claim a task before working on it, and close or release it when you stop.
 
@@ -54,7 +54,7 @@ nawaban block <ID> <blocker ID>
 
 - `nawaban show <ID>`: title, status, project, parent, holding session, current progress (the latest note, shown for open tasks only), the tasks it is blocked by and its dependents with their status, the body, and the latest 20 events.
 - `nawaban list --parent <SPEC-ID>`: every task of a spec, one line each: `<id>  <status>  <project>  <title>`. `nawaban list --project <name>` filters by project.
-- `nawaban json projects`, `nawaban json board [--project <name> | --unassigned]`, `nawaban json task <ID>`: the board server's `/api/projects`, `/api/board` and `/api/task` JSON on stdout, read-only, without the server running. An unknown id or a missing board prints `{"error": ...}` on stdout and exits 1.
+- `nawaban json projects`, `nawaban json board [--project <name>]`, `nawaban json task <ID>`: the JSON the Herdr panel reads, on stdout, read-only. An unknown id or a missing board prints `{"error": ...}` on stdout and exits 1.
 
 ## Frontier
 
@@ -110,8 +110,30 @@ nawaban event <ID> --kind link --body "pr:<url>"
 - Link prefixes: `pr:`, `commit:`, `artifact:`, `adr:`.
 - Triage labels are notes: `--kind note --body "triage: <label>"`.
 
-## Back up and migrate
+## Waiting on the user
+
+When the work needs the user to answer or act, ask in the conversation as usual and record
+
+```
+nawaban event <ID> --kind note --body "triage: needs-info — 等你：<one-line question or what the user must do>"
+```
+
+Keep holding the task. The Herdr panel shows it under 等你 with that line. Once the user answers, record the answer as a decision with `--by user`, then a note `triage: ready-for-agent`.
+
+## Wayfinder maps
+
+A wayfinder map is a parent task with a note `wayfinder: map`. The board has no command that edits a body, so the map's body stays as first written and its events carry the changes:
+
+- A ticket is `nawaban create <ID> --parent <MAP>` plus a note `wayfinder: <type>`, with no `triage:` prefix. A ticket blocking another is `nawaban block`. The frontier is `nawaban list --parent <MAP> --frontier`.
+- Resolving a ticket:
+  1. Record its full conclusion as a decision on the ticket, and a note on the map `decided: <ticket ID> <ticket title>: <one-line conclusion>`. These notes are the map's Decisions so far.
+  2. A research ticket: a link `commit:<sha on the research branch>`, then `close --done`.
+  3. A grilling ticket: `close --done` after its decision.
+  4. A ticket out of scope: `close --cancelled`, and a note on the map `out-of-scope: …`.
+- Fog that becomes a ticket: a note on the map `graduated: <fog> → <new ticket ID>`.
+- Removing a ticket: `close --cancelled` plus a note with the reason.
+
+## Back up
 
 - `nawaban backup`: copy the board into `backups/` beside it with a timestamp; copies older than 14 days are pruned. Run it before risky changes.
-- `nawaban migrate <old board> <new board>`: build a new board from an old-schema board. It never writes the old file and refuses when the new board already holds tasks.
 - `nawaban init`: create an empty board, only when connecting a new project.
