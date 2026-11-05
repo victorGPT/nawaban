@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { groupTasks, projectFor, resolveLang, filterGroups, ago, shortId, linkParts, eventMarkdown, detailEvents, isBlocked, latestOnly,
-  listRows, moveSelection, keyCommand, escapeStep, boardChanged, authorLabel, shownSelection } from "./logic.js";
+  listRows, moveSelection, keyCommand, escapeStep, boardChanged, authorLabel, shownSelection, windowsView } from "./logic.js";
 
 const task = (id, open_blockers = 0, waiting = null, active_at = 0) => ({ id, title: id, open_blockers, waiting, active_at });
 
@@ -197,4 +197,75 @@ test("a selection that the filter, a refresh or another project hid is no select
   assert.equal(shownSelection(rows, "task:A"), null);
   assert.equal(shownSelection(rows, "task:B"), "task:B");
   assert.equal(shownSelection(rows, null), null);
+});
+
+// Herdr agents (AgentInfo) and `nawaban json board` tasks, as windowsView reads them.
+const agent = (address, status, title, tab_name = "", seq = 0) => ({ address, pane: `p-${address}`, status, title, tab_name, seq });
+const held = (id, terminal, { status = "in_progress", waiting = null, active_at = 0, title = id } = {}) =>
+  ({ id, title, status, terminal, waiting, session: null, active_at });
+const boardOf = (...tasks) => ({ columns: ["open", "in_progress", "done"].map((key) => ({ key, tasks: tasks.filter((t) => t.status === key) })) });
+const NOW = 100000;
+const view = (agents, tasks = [], extra = {}) => windowsView({ agents, board: boardOf(...tasks), now: NOW, lang: "zh", ...extra });
+
+test("a working window with no task is 在干 on its terminal title, named by its tab", () => {
+  const v = view([agent("t1", "working", "读 CRM 字段", "分析 CRM")]);
+  assert.deepEqual(v.rows, [{ name: "分析 CRM", doing: "读 CRM 字段", state: "working", label: "在干", duration: null, focus: "t1" }]);
+  assert.deepEqual(v.waiting, []);
+  assert.deepEqual(v.idle, { count: 0, names: [] });
+});
+
+test("an idle window holding an open task is 停了 on that task, for as long as since its latest event", () => {
+  const tasks = [held("A", "t1", { title: "解析 Frontmatter", active_at: NOW - 3 * 3600 }), held("B", "elsewhere")];
+  const v = view([agent("t1", "idle", "zsh", "解析")], tasks);
+  assert.deepEqual(v.rows, [{ name: "解析", doing: "解析 Frontmatter", state: "stopped", label: "停了", duration: "3h", focus: "t1" }]);
+  assert.equal(view([agent("t1", "idle", "zsh", "解析")], tasks, { lang: "en" }).rows[0].label, "Stopped");
+});
+
+test("a window that finished unseen is 完成; one idle with no open task is 空闲, collapsed into the idle row", () => {
+  const tasks = [held("OLD", "t2", { status: "done" })];
+  const v = view([agent("t1", "done", "知识库重试", "13"), agent("t2", "idle", "zsh", "7"), agent("t3", "idle", "~", "")], tasks);
+  assert.deepEqual(v.rows.map((r) => [r.name, r.doing, r.state, r.label]), [["13", "知识库重试", "done", "完成"]]);
+  assert.deepEqual(v.idle, { count: 2, names: ["7", "~"] });
+});
+
+test("rows run 停了, then 完成, then 在干, the window Herdr changed most recently first within each", () => {
+  const tasks = [held("S1", "s1"), held("S2", "s2")];
+  const v = view([agent("w1", "working", "w1", "", 5), agent("d1", "done", "d1", "", 1), agent("s1", "idle", "s1", "", 2),
+    agent("w2", "working", "w2", "", 9), agent("s2", "idle", "s2", "", 7)], tasks);
+  assert.deepEqual(v.rows.map((r) => r.focus), ["s2", "s1", "d1", "w2", "w1"]);
+});
+
+test("a window holding a task that asks a triage question is 等你: a card with the question, out of the table", () => {
+  const tasks = [held("Q", "t1", { title: "日报同步", waiting: "要放行吗？", active_at: NOW - 3600 })];
+  const v = view([agent("t1", "working", "claude", "清理flag")], tasks);
+  assert.deepEqual(v.waiting, [{ name: "清理flag", question: "要放行吗？", doing: "日报同步", state: "waiting", label: "等你",
+    duration: "1 小时", focus: "t1" }]);
+  assert.deepEqual(v.rows, []);
+  assert.equal(view([agent("t1", "working", "claude", "清理flag")], tasks, { lang: "en" }).waiting[0].duration, "1h");
+});
+
+test("a window Herdr reports blocked is 等你 on its terminal title, asking for a confirmation, for no known time", () => {
+  const v = view([agent("t1", "blocked", "rm -rf build?", "")]);
+  assert.deepEqual(v.waiting, [{ name: "rm -rf build?", question: "在等你确认", doing: "rm -rf build?", state: "waiting",
+    label: "等你", duration: null, focus: "t1" }]);
+  assert.deepEqual(v.rows, []);
+  assert.equal(view([agent("t1", "blocked", "x")], [], { lang: "en" }).waiting[0].question, "Waiting for you to confirm");
+});
+
+test("a waiting task in no window of this space still gets a card, with nothing to focus; cards wait longest first", () => {
+  const tasks = [held("NOWHERE", null, { status: "open", title: "补文档", waiting: "哪个目录？", active_at: NOW - 600 }),
+    held("AWAY", "other-space", { title: "上传", waiting: "能上 prod 吗？", active_at: NOW - 2 * 86400 }),
+    held("HERE", "t1", { title: "同步", waiting: "放行吗？", active_at: NOW - 3600 })];
+  const v = view([agent("t1", "working", "claude", "清理flag"), agent("t2", "blocked", "确认删除？", "", 3)], tasks);
+  assert.deepEqual(v.waiting.map((c) => [c.name, c.question, c.doing, c.duration, c.focus]), [
+    ["AWAY", "能上 prod 吗？", "上传", "2 天", null],
+    ["清理flag", "放行吗？", "同步", "1 小时", "t1"],
+    ["NOWHERE", "哪个目录？", "补文档", "10 分钟", null],
+    ["确认删除？", "在等你确认", "确认删除？", null, "t2"]]);
+});
+
+test("the header counts what waits on you in the other projects of `json projects`", () => {
+  const projects = { projects: [{ name: "nawaban", waiting: 4 }, { name: "roubao", waiting: 2 }, { name: "huafa", waiting: 1 }] };
+  assert.equal(view([], [], { projects, project: "nawaban" }).otherWaiting, 3);
+  assert.equal(view([]).otherWaiting, 0);
 });

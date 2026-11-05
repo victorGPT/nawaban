@@ -133,6 +133,58 @@ export const WORDS = {
     kinds: { note: "Note", decision: "Decision", link: "Link" } },
 };
 
+// The focused space's Herdr agents (`agents()` of that space) joined with its project's
+// `nawaban json board`, as the panel draws them: a card per window waiting on you, a row per
+// window stopped, done or working, and the idle ones counted. A task is in the window whose
+// terminal address is its `terminal`. Each window takes the first state that holds: 等你 (it holds
+// a task asking a triage question, or Herdr says blocked), 停了 (it holds an open task and Herdr says idle), 完成, 在干,
+// 空闲. Durations run from the held task's latest event; Herdr records none of its own.
+// `otherWaiting` sums `json projects`' waiting counts of every project but `project`.
+export function windowsView({ agents, board, now, lang, projects, project }) {
+  const open = (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? [])
+    .sort((x, y) => y.active_at - x.active_at);
+  const words = WINDOW_WORDS[lang];
+  const windows = agents.map((a) => {
+    const mine = open.filter((t) => t.terminal === a.address);
+    const asking = mine.find((t) => t.waiting != null);
+    const task = asking ?? mine[0];
+    const blocked = !asking && a.status === "blocked";
+    const state = asking || blocked ? "waiting" : task && a.status === "idle" ? "stopped"
+      : a.status === "done" || a.status === "working" ? a.status : "idle";
+    // Herdr records no time for `blocked` (`seq` only orders changes), so that wait has no length.
+    const since = blocked ? null : task?.active_at ?? null;
+    return { name: a.tab_name || a.title, ...(state === "waiting" && { question: asking?.waiting ?? words.confirm }),
+      doing: task?.title ?? a.title, state, label: words[state], duration: since == null ? null : span(now - since, lang, !!asking),
+      focus: a.address, seq: a.seq, since };
+  });
+  // A waiting task in no window of this space (its terminal unknown, or elsewhere) still asks; named by its ID.
+  const strays = open.filter((t) => t.waiting != null && !agents.some((a) => a.address === t.terminal))
+    .map((t) => ({ name: t.id, question: t.waiting, doing: t.title, state: "waiting", label: words.waiting,
+      duration: span(now - t.active_at, lang, true), focus: null, seq: 0, since: t.active_at }));
+  const out = ({ seq, since, ...w }) => w;
+  // Longest-waiting first; the blocked windows, whose wait has no length, after them.
+  const waiting = [...windows, ...strays].filter((w) => w.state === "waiting")
+    .sort((x, y) => (x.since ?? Infinity) - (y.since ?? Infinity) || y.seq - x.seq).map(out);
+  const rows = ROW_ORDER.flatMap((s) => windows.filter((w) => w.state === s).sort((x, y) => y.seq - x.seq)).map(out);
+  const idle = windows.filter((w) => w.state === "idle").map((w) => w.name);
+  const otherWaiting = (projects?.projects ?? []).reduce((n, p) => n + (p.name === project ? 0 : p.waiting ?? 0), 0);
+  return { waiting, rows, idle: { count: idle.length, names: idle }, otherWaiting };
+}
+
+const ROW_ORDER = ["stopped", "done", "working"];
+
+// A duration in seconds: "20m", "3h", "2d" in the table; on a card, in Chinese, "20 分钟", "1 小时".
+const span = (s, lang, card) => {
+  if (s < 60) return lang === "zh" ? "刚刚" : "now";
+  const [n, zh, en] = s < 3600 ? [s / 60, "分钟", "m"] : s < 86400 ? [s / 3600, "小时", "h"] : [s / 86400, "天", "d"];
+  return lang === "zh" && card ? `${Math.floor(n)} ${zh}` : `${Math.floor(n)}${en}`;
+};
+
+export const WINDOW_WORDS = {
+  zh: { waiting: "等你", stopped: "停了", done: "完成", working: "在干", idle: "空闲", confirm: "在等你确认" },
+  en: { waiting: "Waiting", stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", confirm: "Waiting for you to confirm" },
+};
+
 // Out-of-order answers: each call hands out a check that stays true only until the next call, so an
 // answer that arrives after a newer request was sent is dropped.
 export function latestOnly() {
