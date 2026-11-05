@@ -103,7 +103,7 @@ The [Herdr](https://herdr.dev) app can show the board as a read-only panel besid
 
 Herdr applies both files within a second. A broken file is ignored, the last good version stays, and Herdr writes `~/.config/herdr-app/layout.error` or `keys.error`; `herdr-app status` lists the same problems under `errors`, which should be `[]`.
 
-![The nawaban panel in Herdr: the project, the count of windows and of items waiting in other projects, then one group per leader with its items on a rail](images/herdr-panel.png)
+![The nawaban panel in Herdr: the project, the count of windows and of items waiting in other projects, then the table of windows (an older screenshot; the panel now groups items by leader)](images/herdr-panel.png)
 
 The panel shows one project, the one of the focused space. Top to bottom:
 
