@@ -67,6 +67,90 @@ export function windowsView({ agents, space, board, now, lang, projects, project
 
 const ROW_ORDER = ["stopped", "done", "working"];
 
+// The line view (DESIGN.md): windowsView's waiting cards, idle row and other projects' count, and
+// in place of its rows one group per leader (GLOSSARY: Leader).
+export function leadersView(args) {
+  const { waiting, idle, otherWaiting } = windowsView(args);
+  const tasks = (args.board?.columns ?? []).flatMap((c) => c.tasks ?? []);
+  const agentAt = (terminal) => args.agents.find((a) => a.address === terminal);
+  // A task's state, as an item or a spec's segment: done, current (held, its terminal working or
+  // unknown), stopped (held, its terminal idle or gone), todo.
+  const stateOf = (t) => {
+    if (t.status === "done") return "done";
+    if (!t.session) return "todo";
+    const a = t.terminal && agentAt(t.terminal);
+    return t.terminal && (!a || a.status === "idle") ? "stopped" : "current";
+  };
+  // Whether a task puts an item under its leader: held, or dispatched and not started (a leader but
+  // never claimed), or done in the last 24 h. A released task is in no group: nobody is on it.
+  const inGroup = (t) => t.status === "done" ? t.done_at >= args.now - DAY : t.session != null || t.claimed_at == null;
+  // A ticket stands in its spec's place: the item is the topmost task on the board above it.
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const rootOf = (t) => { while (byId.has(t.parent)) t = byId.get(t.parent); return t; };
+  const groups = new Map(); // leader -> the items' tasks, deduplicated
+  for (const t of tasks) {
+    if (t.leader == null || !inGroup(t)) continue;
+    const leader = sessionKey(t.leader);
+    if (!groups.has(leader)) groups.set(leader, new Set());
+    groups.get(leader).add(rootOf(t));
+  }
+  const named = (leader) => {
+    const a = agentAt(tasks.find((x) => sessionKey(x.session) === leader && x.terminal)?.terminal);
+    return a ? a.tab_name || a.title : leader.slice(0, 8);
+  };
+  // An item: a task, or a spec with its tickets, whose held ticket (a stopped one first) speaks for it.
+  const itemOf = (r, leader) => {
+    const tickets = specOrder(tasks.filter((t) => t !== r && rootOf(t) === r));
+    const states = tickets.map(stateOf), done = states.filter((s) => s === "done").length;
+    const lead = tickets.length ? tickets[states.indexOf("stopped")] ?? tickets[states.indexOf("current")] : r;
+    const state = r.status === "done" || (tickets.length && done === tickets.length) ? "done" : lead ? stateOf(lead) : "todo";
+    const held = state === "current" || state === "stopped";
+    // Dispatched: held by another session, or a task not started (only a dispatch note gives an unclaimed task a leader).
+    const who = held ? (sessionKey(lead.session) === leader ? "self" : "worker") : state === "todo" && !tickets.length ? "worker" : null;
+    const all = [r, ...tickets], claims = all.map((t) => t.claimed_at).filter((c) => c != null);
+    // Since when, in seconds: done, when it was done; current, its first claim; stopped, its latest event.
+    const at = state === "done" ? r.done_at ?? Math.max(...tickets.map((t) => t.done_at ?? 0))
+      : state === "current" ? lead.claimed_at : state === "stopped" ? lead.active_at : null;
+    return { id: r.id, title: r.title, state, at, gone: state === "stopped" && !agentAt(lead.terminal), who,
+      note: held ? lead.progress?.body ?? null : null, focus: held && agentAt(lead.terminal) ? lead.terminal : null,
+      spec: tickets.length ? { tickets: tickets.map((t) => t.id), segments: states, done, total: tickets.length } : null,
+      claimed: claims.length ? Math.min(...claims) : Infinity, created_at: r.created_at,
+      decisions: all.map((t) => t.decision).filter(Boolean), // the board gives open tasks only a decision
+      active: Math.max(...all.map((t) => t.active_at)) };
+  };
+  const out = [...groups].map(([leader, roots]) => {
+    const all = [...roots].map((r) => itemOf(r, leader))
+      .sort((x, y) => x.claimed - y.claimed || x.created_at - y.created_at);
+    const items = all.map(({ claimed, created_at, decisions, active, ...x }, i) => ({ key: `${leader}/${x.id}`, number: i + 1, ...x }));
+    const dispatched = items.filter((i) => i.who === "worker").length;
+    const last = all.flatMap((x) => x.decisions).sort((x, y) => y.at - x.at)[0];
+    return { leader, name: named(leader), self: items.length - dispatched, dispatched,
+      decision: last ? { at: last.at, verdict: last.verdict.split("\n")[0] } : null, items,
+      stopped: items.some((i) => i.state === "stopped"), active: Math.max(...all.map((x) => x.active)) };
+  }).sort((x, y) => y.stopped - x.stopped || y.active - x.active).map(({ stopped, active, ...g }) => g);
+  // Selection keys, unique where terminals are not: a card and an item, or two items, can share one.
+  const cards = waiting.map((c, i) => ({ key: `card:${i}`, ...c }));
+  const keys = [...cards, ...out.flatMap((g) => g.items)].filter((x) => x.focus != null).map((x) => x.key);
+  return { waiting: cards, groups: out, idle, otherWaiting, keys };
+}
+
+// A spec's tickets in blocked-by order: the done ones first, by when each was done, then the open
+// ones each after its open blockers (the board lists no done blocker); ties keep the board's order.
+const specOrder = (tickets) => {
+  const out = tickets.filter((t) => t.status === "done").sort((x, y) => x.done_at - y.done_at);
+  const open = tickets.filter((t) => t.status !== "done");
+  while (open.length) {
+    const free = open.findIndex((t) => !(t.blocked_by ?? []).some((b) => open.some((o) => o.id === b)));
+    out.push(...open.splice(Math.max(free, 0), 1)); // a cycle: take the first
+  }
+  return out;
+};
+
+const DAY = 86400;
+
+// A session as a leader's key: agent-center authors its notes `ac:<session>`, the same session.
+const sessionKey = (s) => s?.replace(/^[a-z]+:(?=[0-9a-f]{8})/, "") ?? null;
+
 // A duration in seconds: "20m", "3h", "2d" in the table; on a card, in Chinese, "20 分钟", "1 小时".
 const span = (s, lang, card) => {
   if (s < 60) return lang === "zh" ? "刚刚" : "now";

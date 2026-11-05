@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView } from "./logic.js";
+import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, leadersView } from "./logic.js";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
   const projects = { projects: [{ name: "nawaban" }, { name: "roubao" }] };
@@ -133,4 +133,112 @@ test("the header counts what waits on you in the other projects of `json project
   const projects = { projects: [{ name: "nawaban", waiting: 4 }, { name: "roubao", waiting: 2 }, { name: "huafa", waiting: 1 }] };
   assert.equal(view([], [], { projects, project: "nawaban" }).otherWaiting, 3);
   assert.equal(view([]).otherWaiting, 0);
+});
+
+// `nawaban json board` tasks as leadersView reads them: open ones carry progress, blocked_by (open
+// blockers only), waiting and decision; done ones carry done_at and none of those.
+const task = (id, { status = "open", session = null, leader = session, terminal = null, parent = null, created_at = 0,
+  claimed_at = null, active_at = 0, done_at = null, progress = null, blocked_by = [], decision = null, title = id } = {}) =>
+  status === "done"
+    ? { id, title, status, parent, session, created_at, active_at, terminal, leader, claimed_at, done_at }
+    : { id, title, status, parent, session, created_at, active_at, terminal, leader, claimed_at,
+      progress: progress && { body: progress, at: active_at }, blocked_by, waiting: null, decision };
+const leaders = (agents, tasks, extra = {}) =>
+  leadersView({ agents, space: "here", board: boardOf(...tasks), now: NOW, lang: "zh", ...extra });
+
+test("a leader's items are numbered by first claim, not by id; unclaimed ones after, by creation", () => {
+  const v = leaders([agent("t1", "working", "claude", "入职")], [
+    task("A-9", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 100 }),
+    task("A-1", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 500 }), // added later
+    task("A-5", { leader: "L", created_at: 50 }), // dispatched, no worker on it yet
+    task("A-2", { leader: "L", created_at: 40 })]);
+  assert.deepEqual(v.groups.map((g) => [g.name, g.items.map((i) => [i.number, i.id])]),
+    [["入职", [[1, "A-9"], [2, "A-1"], [3, "A-2"], [4, "A-5"]]]]);
+});
+
+test("a dispatched task sits in its leader's group, done by a worker, with the worker's latest note", () => {
+  const L = "d9194652-1420-4755", W = "eb2f6c83-4582-41e5";
+  const v = leaders([agent("t1", "working", "claude", "入职"), agent("t2", "working", "claude", "w")], [
+    task("OWN", { status: "in_progress", session: L, terminal: "t1", claimed_at: 1, progress: "verify：3814 个测试通过" }),
+    // agent-center writes its dispatch notes as `ac:<session>`: the same leader
+    task("SENT", { status: "in_progress", session: W, leader: `ac:${L}`, terminal: "t2", claimed_at: 2, progress: "handoff：原件兜底" }),
+    task("QUEUED", { leader: `ac:${L}`, created_at: 3 }), // dispatched, not started
+    task("PUT-BACK", { leader: W, claimed_at: 4 })]); // released: nobody is on it, so it is in no group
+  assert.equal(v.groups.length, 1);
+  const g = v.groups[0];
+  assert.deepEqual([g.name, g.self, g.dispatched], ["入职", 1, 2]);
+  assert.deepEqual(g.items.map((i) => [i.id, i.state, i.who, i.note, i.focus]), [
+    ["OWN", "current", "self", "verify：3814 个测试通过", "t1"],
+    ["SENT", "current", "worker", "handoff：原件兜底", "t2"],
+    ["QUEUED", "todo", "worker", null, null]]);
+});
+
+test("a spec is one item in its tickets' place, its segments in blocked-by order: done ones first, then the open ones", () => {
+  const v = leaders([agent("t2", "working", "claude", "w"), agent("t9", "working", "claude", "报表")], [
+    task("S-03", { parent: "S", leader: "L", blocked_by: ["S-02"], created_at: 3 }), // dispatched, waits on S-02
+    task("S-04", { parent: "S", leader: "L", created_at: 4 }), // its blocker S-01 is done, so none listed
+    task("S-02", { parent: "S", status: "in_progress", session: "W", leader: "L", terminal: "t2", claimed_at: 20, progress: "第 3 张" }),
+    task("S-01", { parent: "S", status: "done", leader: "L", claimed_at: 10, done_at: NOW - 3600 }),
+    task("S", { title: "报表迁到新底座" }), // a spec nobody claims
+    task("T", { status: "in_progress", session: "L", terminal: "t9", claimed_at: 15 })]);
+  const g = v.groups[0];
+  assert.deepEqual(v.groups.map((x) => x.leader), ["L"]);
+  assert.deepEqual(g.items.map((i) => [i.number, i.id]), [[1, "S"], [2, "T"]]); // the spec arrived with its first claim
+  const spec = g.items[0];
+  assert.deepEqual([spec.title, spec.state, spec.who, spec.note, spec.focus], ["报表迁到新底座", "current", "worker", "第 3 张", "t2"]);
+  assert.deepEqual(spec.spec, { tickets: ["S-01", "S-04", "S-02", "S-03"], segments: ["done", "todo", "current", "todo"], done: 1, total: 4 });
+  assert.deepEqual([g.self, g.dispatched], [1, 1]);
+});
+
+test("a held item whose terminal is idle or gone is stopped; gone, it has no window to go to", () => {
+  const v = leaders([agent("t1", "idle", "zsh", "入职"), agent("o1", "working", "claude", "别处", 0, "other")], [
+    task("IDLE", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 1, active_at: NOW - 7200 }),
+    task("GONE", { status: "in_progress", session: "W", leader: "L", terminal: "closed", claimed_at: 2, progress: "handoff" }),
+    task("AWAY", { status: "in_progress", session: "W2", leader: "L", terminal: "o1", claimed_at: 3 }), // another space: not gone
+    task("NO-TERMINAL", { status: "in_progress", session: "W3", leader: "L", claimed_at: 4 })]); // unknown: taken as working
+  assert.deepEqual(v.groups[0].items.map((i) => [i.id, i.state, i.gone, i.focus, i.note]), [
+    ["IDLE", "stopped", false, "t1", null],
+    ["GONE", "stopped", true, null, "handoff"],
+    ["AWAY", "current", false, "o1", null],
+    ["NO-TERMINAL", "current", false, null, null]]);
+  assert.equal(v.groups[0].items[0].at, NOW - 7200); // stopped since its latest event
+  assert.equal(v.groups[0].items[2].at, 3); // current since its first claim
+});
+
+test("a done item stays for 24 hours after it was done, then leaves; a leader with nothing else leaves with it", () => {
+  const v = leaders([], [
+    task("FRESH", { status: "done", leader: "L", claimed_at: 1, done_at: NOW - 23 * 3600 }),
+    task("OLD", { status: "done", leader: "L", claimed_at: 2, done_at: NOW - 25 * 3600 }),
+    task("GONE-BY", { status: "done", leader: "M", claimed_at: 3, done_at: NOW - 25 * 3600 })]);
+  assert.deepEqual(v.groups.map((g) => [g.leader, g.items.map((i) => [i.id, i.state, i.at, i.who])]),
+    [["L", [["FRESH", "done", NOW - 23 * 3600, null]]]]);
+});
+
+test("a leader's decision is the newest recorded on any of its open items, a spec's tickets included", () => {
+  const decided = (at, verdict) => ({ at, verdict });
+  const v = leaders([], [
+    task("A", { status: "in_progress", session: "L", claimed_at: 1, decision: decided(500, "旧报表先只读并存两周") }),
+    task("S-1", { parent: "S", status: "in_progress", session: "W", leader: "L", claimed_at: 2, decision: decided(900, "原件兜底存一份\n第二行不显示") }),
+    task("S", { decision: decided(700, "spec 的决定") }),
+    task("B", { status: "in_progress", session: "M", claimed_at: 3 })]);
+  assert.deepEqual(v.groups.map((g) => [g.leader, g.decision]), [["L", { at: 900, verdict: "原件兜底存一份" }], ["M", null]]);
+});
+
+test("groups with a stopped item come first, then the one that moved most recently", () => {
+  const v = leaders([agent("t1", "idle", "zsh")], [
+    task("OLDEST", { status: "in_progress", session: "A", claimed_at: 1, active_at: 100 }),
+    task("STUCK", { status: "in_progress", session: "B", terminal: "t1", claimed_at: 1, active_at: 50 }),
+    task("LATEST", { status: "in_progress", session: "C", claimed_at: 1, active_at: 300 }),
+    task("C-DONE", { status: "done", leader: "A", claimed_at: 2, active_at: 400, done_at: NOW - 60 })]);
+  assert.deepEqual(v.groups.map((g) => g.leader), ["B", "A", "C"]);
+});
+
+test("the arrows walk the cards, then the items with a window, each once, though they share a terminal", () => {
+  const asking = { ...task("Q", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 1 }), waiting: "放行吗？" };
+  const v = leaders([agent("t1", "working", "claude", "入职")], [asking,
+    task("R", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 2 }),
+    task("NOWHERE", { status: "in_progress", session: "L", claimed_at: 3 })]); // no terminal: nothing to go to
+  assert.deepEqual(v.keys, ["card:0", "L/Q", "L/R"]);
+  assert.deepEqual([v.waiting[0].key, ...v.groups[0].items.map((i) => i.key)], ["card:0", "L/Q", "L/R", "L/NOWHERE"]);
+  assert.equal(moveSelection(v.keys, "L/Q", 1), "L/R");
 });
