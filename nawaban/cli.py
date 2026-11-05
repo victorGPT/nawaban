@@ -428,6 +428,8 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
            "  WHERE b.task=t.id AND x.status='open') AS open_blockers,"
            " (SELECT at FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→in_progress%'"
            "  ORDER BY id LIMIT 1) AS claimed_at,"
+           " (SELECT author FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→in_progress%'"
+           "  ORDER BY id DESC LIMIT 1) AS last_claimer,"
            " (SELECT at FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→done%'"
            "  ORDER BY id DESC LIMIT 1) AS done_at,"
            " (SELECT status='open' FROM tasks p WHERE p.id=t.parent) AS parent_open"
@@ -472,7 +474,7 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
             "id": r["id"], "title": r["title"], "status": status, "project": r["project"],
             "parent": r["parent"], "session": r["session"], "created_at": r["created_at"],
             "active_at": r["active_at"], "open_blockers": r["open_blockers"],
-            "terminal": terminals.get(r["id"]), "leader": dispatchers.get(r["id"], r["session"]),
+            "terminal": terminals.get(r["id"]), "leader": dispatchers.get(r["id"], r["session"] or r["last_claimer"]),
             "claimed_at": r["claimed_at"]}
         if r["status"] == "open":
             task["progress"] = notes.get(r["id"])

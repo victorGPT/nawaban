@@ -607,6 +607,21 @@ def test_json_board_a_task_s_leader_is_the_author_of_its_latest_dispatch_note_el
         "PLAIN": "lead-a", "CORD": "lead-a", "HELD": "worker", "LATER": "lead-b", "NONE": None}
 
 
+def test_json_board_a_task_done_or_released_without_a_dispatch_note_keeps_its_last_claimer_as_leader(run, monkeypatch):
+    for t in ("DONE", "FREED"):
+        run("create", t, "--title", t.lower(), "--body", "")
+    _as(monkeypatch, "first")
+    run("claim", "DONE")
+    _as(monkeypatch, "lead")
+    run("claim", "DONE", "--take")
+    run("claim", "FREED")
+    run("claim", "FREED", "--release")
+    run("close", "DONE", "--done")
+    tasks = _tasks_json(run)
+    assert tasks["DONE"]["leader"] == "lead"
+    assert tasks["FREED"]["leader"] == "lead"
+
+
 def _at(monkeypatch, ts):
     monkeypatch.setattr(cli.time, "time", lambda: ts)
 
