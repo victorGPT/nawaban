@@ -12,14 +12,13 @@ The agent follows the next section. The sections after it are the same install b
 
 Run these steps in order. Each one is safe to run again. Stop and tell the user if a step fails.
 
-1. Check that `git` and `python3` exist and that `python3 --version` is 3.9 or newer. Node is not needed: the board UI is already built.
+1. Check that `git` and `python3` exist and that `python3 --version` is 3.9 or newer.
 2. Put nawaban at `~/nawaban`. If that directory exists and is a nawaban checkout, run `git -C ~/nawaban pull --ff-only`; otherwise run `git clone https://github.com/victorGPT/nawaban ~/nawaban`.
 3. Install the plugin.
    - Claude Code: `claude plugin marketplace add ~/nawaban`, then `claude plugin install nawaban@nawaban`.
    - Codex: add the marketplace and plugin entries shown under [Plugin install](#plugin-install) to `~/.codex/config.toml` with `source = "<absolute path of ~/nawaban>"`, then run `codex plugin add nawaban@nawaban`. Also set `NAWABAN_OWNER` to a stable name in the environment Codex runs commands in ([Session identity](#session-identity)).
 4. In the user's project, create the board: `python3 ~/nawaban/nawaban/cli.py init`. It prints the board path, or says the board already exists.
-5. Start the board: `bash ~/nawaban/nawaban/board-up.sh`, run from the project. It prints the address, `http://127.0.0.1:8813/` by default. If it says the port is taken by another board or program, run it again with `NAWABAN_BOARD_PORT` set to a free port, such as `NAWABAN_BOARD_PORT=8814`.
-6. Tell the user three things: the board address, the board path from step 4, and that the `nawaban` skill loads in a new session, so they should start one.
+5. Tell the user three things: the board path from step 4, that the `nawaban` skill loads in a new session, so they should start one, and that they see the board in the Herdr panel, which they install by following [Herdr panel](#herdr-panel).
 
 Optional, for a person who wants to type commands: add `nawaban() { python3 ~/nawaban/nawaban/cli.py "$@"; }` to their shell profile, only if they ask.
 
@@ -57,17 +56,13 @@ nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
 
 Run `nawaban init` in the project to create `.nawaban/nawaban.db`, then `nawaban list`. The CLI picks the board from an explicit `--db`, then `NAWABAN_DB`, then `.nawaban/nawaban.db` in the repository's main checkout (so linked worktrees share it), then the nearest `.nawaban/` above the current directory. Several projects can share one board: pass the same absolute `--db` everywhere; a new task's project defaults to its parent's, then to the repository holding the board. `nawaban backup` copies the board into `backups/` beside it.
 
-The board UI is committed already built, in `nawaban/webui/dist`. Rebuild it only after changing the frontend ([webui README](../nawaban/webui/README.md)).
-
-Launch the board with `bash "$NAWABAN_HOME/nawaban/board-up.sh"`. `NAWABAN_BOARD_PORT` and `NAWABAN_BOARD_HOST` select the listener; `NAWABAN_DB` selects its board.
-
 ## Session identity
 
 Commands that write as someone (`claim`, `close`, `event`) take the identity from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in every session, then from `NAWABAN_OWNER`. Codex sets no session variable, so set `NAWABAN_OWNER` to a stable name in the environment Codex runs commands in; without either variable those commands refuse and say so.
 
 ## Herdr panel
 
-The [Herdr](https://herdr.dev) app can show the board as a read-only panel beside your terminals. It lists the tasks of the project the current space is in, and needs no board server: it runs `python3 ~/nawaban/nawaban/cli.py json ...` in the space's folder. So it needs the checkout at `~/nawaban` (step 2 above) and `python3`.
+The [Herdr](https://herdr.dev) app can show the board as a read-only panel beside your terminals. It lists the tasks of the project the current space is in; it runs `python3 ~/nawaban/nawaban/cli.py json ...` in the space's folder. So it needs the checkout at `~/nawaban` (step 2 above) and `python3`.
 
 1. Copy the mod into Herdr. Copy rather than symlink: Herdr does not reload a symlinked mod when it changes. Run the same command again after pulling to update it.
 
@@ -108,6 +103,8 @@ The [Herdr](https://herdr.dev) app can show the board as a read-only panel besid
 
 Herdr applies both files within a second. A broken file is ignored, the last good version stays, and Herdr writes `~/.config/herdr-app/layout.error` or `keys.error`; `herdr-app status` lists the same problems under `errors`, which should be `[]`.
 
-The panel takes the keyboard when you click it or reach it with `pane.go`. Then ↑ and ↓ move the selection, Enter opens a task (or folds a group), Esc steps back (the task, then the filter box, then its text), and `/` jumps to the filter; `pane.go` (or a click elsewhere) hands the keyboard back. Each of these is also a command, `nawaban-board.down`, `.up`, `.open`, `.back`, `.filter` and `.focus` (takes the keyboard), for a `keys.json` binding or `herdr-app do nawaban-board.open`; Herdr delivers them only while the panel is shown.
+The panel lists every task in four groups, top to bottom: 等你 (Waiting on you), 进行中 (In progress), 待认领 (Open, blocked tasks last) and 最近完成 (Recently done). A task goes under 等你 when its latest `triage:` note is `triage: needs-info — 等你：<question>`, and only there; its card shows the question on the second line. A later `triage:` note, such as `triage: ready-for-agent`, puts it back in its own group. The filter box narrows the groups by ID or title.
+
+The panel takes the keyboard when you click it or reach it with `pane.go`. Then ↑ and ↓ move the selection from task to task, Enter opens a task, Esc steps back (the task, then the filter box, then its text), and `/` jumps to the filter; `pane.go` (or a click elsewhere) hands the keyboard back. Each of these is also a command, `nawaban-board.down`, `.up`, `.open`, `.back`, `.filter` and `.focus` (takes the keyboard), for a `keys.json` binding or `herdr-app do nawaban-board.open`; Herdr delivers them only while the panel is shown.
 
 The panel rereads the board when the board file changes, so a hidden panel starts no process until something is written; it also rereads once a minute in case a change was missed.

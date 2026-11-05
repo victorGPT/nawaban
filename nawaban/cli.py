@@ -17,9 +17,6 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # run as a script, too
-from nawaban import old_board  # noqa: E402
-
 VERSION = 1  # PRAGMA user_version; old-schema boards read 0
 SCHEMA = """
 CREATE TABLE tasks (
@@ -154,7 +151,7 @@ def open_board(path: Path) -> sqlite3.Connection:
 
 
 def open_readonly(path: Path | str) -> sqlite3.Connection:
-    """The board opened read-only (the web page); refuses a missing or old-schema file."""
+    """The board opened read-only (the json verb); refuses a missing or old-schema file."""
     path = Path(path)
     _check_board(path)
     con = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True, timeout=10)
@@ -195,9 +192,9 @@ def dependents(con, task_id: str) -> list[sqlite3.Row]:
                        " ORDER BY t.id", (task_id,)).fetchall()
 
 
-def add_event(con, task_id: str, author: str, kind: str, body: str, at: int | None = None) -> None:
+def add_event(con, task_id: str, author: str, kind: str, body: str) -> None:
     con.execute("INSERT INTO events (task, at, author, kind, body) VALUES (?,?,?,?,?)",
-                (task_id, int(time.time()) if at is None else at, author, kind, body))
+                (task_id, int(time.time()), author, kind, body))
 
 
 def _status_event(con, task_id: str, who: str, frm: str, to: str, note: str = "") -> None:
@@ -349,70 +346,116 @@ def backup(path: Path, keep_days: int = 14) -> Path:
     return dest_path
 
 
-# ── migrate from an old-schema board ──────────────────────────────
+# ── json: read-only projections for the Herdr panel ───────────────
 
-def _copy_old(old, con) -> tuple[int, int, int]:
-    """Copy every task, its events and its edges in one transaction; returns (tasks, events, skipped edges)."""
-    tasks = old_board.tasks(old)
-    n_events = skipped = 0
-    with con:
-        for row, evs in tasks:
-            con.execute("INSERT INTO tasks (id, project, title, body, status, session, created_at)"
-                        " VALUES (:id,:project,:title,:body,:status,:session,:created_at)", row)
-            for at, author, kind, body in evs:
-                add_event(con, row["id"], author, kind, body, at)
-            n_events += len(evs)
-        ids = {row["id"] for row, _ in tasks}
-        for kind, src, dst in old_board.edges(old):
-            if src not in ids or dst not in ids:
-                skipped += 1  # the old board never enforced its foreign keys
-            elif kind == "split_from":
-                con.execute("UPDATE tasks SET parent=? WHERE id=?", (dst, src))
-            else:
-                con.execute("INSERT INTO blockers (task, blocker) VALUES (?,?)", (src, dst))
-    return len(tasks), n_events, skipped
+COLUMNS = ("open", "in_progress", "done")
+DONE_LIMIT = 12  # the done column shows only the latest few
 
 
-def migrate(old_path: Path, new_path: Path) -> str:
-    """Read an old-schema board (read-only) into an empty new board."""
-    if not old_path.exists():
-        raise Refused(f"旧看板不存在:{old_path}")
-    with closing(sqlite3.connect(old_path.absolute().as_uri() + "?mode=ro", uri=True)) as old:
-        old.row_factory = sqlite3.Row
-        try:
-            tables = {r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        except sqlite3.DatabaseError:
-            tables = set()
-        if not old_board.TABLES <= tables:
-            raise Refused(f"不是旧版看板:{old_path}")
-        init(new_path)
-        with closing(open_board(new_path)) as con:
-            if con.execute("SELECT 1 FROM tasks LIMIT 1").fetchone():
-                raise Refused(f"目标看板已有任务,拒绝迁移:{new_path}")
-            try:
-                n_tasks, n_events, skipped = _copy_old(old, con)
-            except (sqlite3.Error, IndexError) as e:  # IndexError: a column the old schema should have
-                raise Refused(f"迁移失败,新看板未写入:{type(e).__name__}: {e}") from None
-    out = f"✓ migrate {old_path} → {new_path} · 任务 {n_tasks} · 事件 {n_events}"
-    return out + (f" · 跳过悬空关系 {skipped}" if skipped else "")
+def _ref(r: sqlite3.Row) -> dict:
+    return {"id": r["id"], "title": r["title"], "status": derived_status(r)}
+
+
+def _event(r: sqlite3.Row) -> dict:
+    return {"kind": r["kind"], "body": r["body"], "author": r["author"], "at": r["at"]}
+
+
+def projects_data(path: Path | str) -> dict:
+    with closing(open_readonly(path)) as con:
+        rows = con.execute(
+            "SELECT NULLIF(project,'') AS name, SUM(status='open') AS open, count(*) AS total"
+            " FROM tasks GROUP BY name ORDER BY name IS NULL, name").fetchall()
+        return {"projects": [dict(r) for r in rows]}
+
+
+_NEEDS_INFO = re.compile(r"triage:\s*needs-info[\s—–:：-]*(?:等你\s*[:：])?\s*")
+
+
+def waiting_question(triage_note: str | None) -> str | None:
+    """What a task waits on the user for: the latest `triage:` note's question when it is
+    `triage: needs-info — 等你：<question>`, without that lead-in; None for any other label."""
+    m = _NEEDS_INFO.match(triage_note.strip()) if triage_note else None
+    return triage_note.strip()[m.end():] if m else None
+
+
+def board_data(path: Path | str, project: str | None = None) -> dict:
+    """Tasks in three columns, latest activity first."""
+    sql = ("SELECT t.*, MAX(COALESCE(e.at, t.created_at)) AS active_at,"
+           " (SELECT count(*) FROM blockers b JOIN tasks x ON x.id=b.blocker"
+           "  WHERE b.task=t.id AND x.status='open') AS open_blockers"
+           " FROM tasks t LEFT JOIN events e ON e.task=t.id WHERE t.status!='cancelled'")
+    args: dict = {}
+    if project is not None:
+        sql += " AND COALESCE(t.project,'')=:project"
+        args["project"] = project
+    with closing(open_readonly(path)) as con:
+        rows = con.execute(sql + " GROUP BY t.id ORDER BY active_at DESC, t.id", args).fetchall()
+        # Open tasks only: the latest note (current progress) and the open tasks in their way.
+        notes = {r["task"]: {"body": r["body"], "at": r["at"]} for r in con.execute(
+            "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
+            " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
+            " WHERE task=e.task AND kind='note')")}
+        triage = {r["task"]: r["body"] for r in con.execute(
+            "SELECT e.task, e.body FROM events e JOIN tasks t ON t.id=e.task"
+            " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
+            " WHERE task=e.task AND kind='note' AND ltrim(body) LIKE 'triage:%')")}
+        blockers: dict[str, list[str]] = {}
+        for r in con.execute("SELECT b.task, b.blocker FROM blockers b JOIN tasks x ON x.id=b.blocker"
+                             " WHERE x.status='open' ORDER BY b.blocker"):
+            blockers.setdefault(r["task"], []).append(r["blocker"])
+    columns = {key: [] for key in COLUMNS}
+    for r in rows:
+        status = derived_status(r)
+        task = {
+            "id": r["id"], "title": r["title"], "status": status, "project": r["project"],
+            "parent": r["parent"], "session": r["session"], "created_at": r["created_at"],
+            "active_at": r["active_at"], "open_blockers": r["open_blockers"]}
+        if r["status"] == "open":
+            task["progress"] = notes.get(r["id"])
+            task["blocked_by"] = blockers.get(r["id"], [])
+            task["waiting"] = waiting_question(triage.get(r["id"]))
+        columns[status].append(task)
+    columns["done"] = columns["done"][:DONE_LIMIT]
+    return {"columns": [{"key": k, "tasks": v} for k, v in columns.items()]}
+
+
+def task_detail(path: Path | str, task_id: str) -> dict:
+    with closing(open_readonly(path)) as con:
+        t = con.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+        if t is None:
+            raise Refused(f"任务不存在:{task_id}")
+        events = [_event(r) for r in con.execute(
+            "SELECT * FROM events WHERE task=? ORDER BY id DESC", (task_id,))]
+        parent = con.execute("SELECT * FROM tasks WHERE id=?", (t["parent"],)).fetchone()
+        children = con.execute("SELECT * FROM tasks WHERE parent=? ORDER BY id", (task_id,))
+        return {
+            "id": t["id"], "title": t["title"], "body": t["body"], "status": derived_status(t),
+            "project": t["project"], "session": t["session"], "created_at": t["created_at"],
+            "parent": _ref(parent) if parent else None,
+            "children": [_ref(r) for r in children],
+            "blocked_by": [_ref(r) for r in blocked_by(con, task_id)],
+            "dependents": [_ref(r) for r in dependents(con, task_id)],
+            "latest_note": next((e for e in events if e["kind"] == "note"), None),
+            "decisions": [e for e in events if e["kind"] == "decision"],
+            "links": [e for e in events if e["kind"] == "link"],
+            "events": events,
+        }
 
 
 def json_out(path: Path, a) -> int:
-    """The board's read API as JSON on stdout; an error is {"error": ...} with exit 1."""
+    """The board as JSON on stdout; an error is {"error": ...} with exit 1."""
     import json
-    from nawaban import board_view  # lazy: board_view imports this module
     if a.what == "db":  # the board file itself, links resolved: what a watcher must watch
         print(json.dumps({"db": str(path.resolve())}, ensure_ascii=False))
         return 0
     try:
         if a.what == "projects":
-            out = board_view.projects_data(path)
+            out = projects_data(path)
         elif a.what == "board":
-            out = board_view.board_data(path, "" if a.unassigned else a.project)
+            out = board_data(path, a.project)
         else:
-            out = board_view.task_detail(path, a.id)
-    # board_view.cli, not Refused: run as a script this module is __main__, a second copy.
-    except (board_view.NotFound, board_view.cli.Refused) as e:
+            out = task_detail(path, a.id)
+    except Refused as e:
         print(json.dumps({"error": str(e)}, ensure_ascii=False))
         return 1
     print(json.dumps(out, ensure_ascii=False))
@@ -460,15 +503,10 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--parent")
     p.add_argument("--frontier", action="store_true", help="只列可开工:未关闭、没人认领、前置都已关闭")
     sub.add_parser("backup", help="备份到 <看板目录>/backups/ · 保留 14 天")
-    p = sub.add_parser("migrate", help="把旧结构看板迁成新看板(只读旧文件 · 目标已有任务就拒绝)")
-    p.add_argument("old")
-    p.add_argument("new")
-    p = sub.add_parser("json", help="看板的 JSON(同 /api/projects、/api/board、/api/task;db:看板文件的真实路径)")
+    p = sub.add_parser("json", help="看板的 JSON(projects、board、task;db:看板文件的真实路径)")
     p.add_argument("what", choices=("projects", "board", "task", "db"))
     p.add_argument("id", nargs="?", default="", help="task:任务 id")
-    g = p.add_mutually_exclusive_group()
-    g.add_argument("--project", help="board:只看这个项目")
-    g.add_argument("--unassigned", action="store_true", help="board:只看无项目的任务")
+    p.add_argument("--project", help="board:只看这个项目")
     return ap
 
 
@@ -478,9 +516,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if a.verb == "init":
             print(f"✓ init → {path}" if init(path) else f"✓ 看板已存在:{path}")
-            return 0
-        if a.verb == "migrate":
-            print(migrate(Path(a.old).expanduser(), Path(a.new).expanduser()))
             return 0
         if a.verb == "json":
             return json_out(path, a)

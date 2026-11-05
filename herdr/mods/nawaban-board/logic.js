@@ -2,14 +2,21 @@
 
 const ORDER = ["in_progress", "open", "done"];
 
-// `nawaban json board` columns as the panel lists them: in progress, open (tasks that can start
-// first, blocked ones last and marked), recently done. The board's own order is kept within each.
+// `nawaban json board` columns as the panel lists them: waiting on you (open tasks whose `waiting`
+// holds the question of a `triage: needs-info` note; they leave their own group), in progress, open
+// (tasks that can start first, blocked ones last and marked), recently done. The board's own
+// order, latest activity first, is kept within each.
 export function groupTasks(board) {
   const byKey = Object.fromEntries((board?.columns ?? []).map((c) => [c.key, c.tasks ?? []]));
-  return ORDER.map((key) => {
-    const tasks = (byKey[key] ?? []).map((t) => ({ ...t, blocked: key === "open" && t.open_blockers > 0 }));
+  const waits = (t) => t.waiting != null;
+  const groups = ORDER.map((key) => {
+    const tasks = (byKey[key] ?? []).filter((t) => !waits(t))
+      .map((t) => ({ ...t, blocked: key === "open" && t.open_blockers > 0 }));
     return { key, tasks: [...tasks.filter((t) => !t.blocked), ...tasks.filter((t) => t.blocked)] };
   });
+  const waiting = [...(byKey.in_progress ?? []), ...(byKey.open ?? [])].filter(waits)
+    .map((t) => ({ ...t, blocked: false })).sort((a, b) => b.active_at - a.active_at);
+  return [{ key: "waiting", tasks: waiting }, ...groups];
 }
 
 // The project a folder belongs to, as the CLI names it (its repository's main checkout, also from
@@ -28,46 +35,29 @@ export function resolveLang(saved, system) {
   return /^zh/i.test(String(system ?? "").replace(/[\s("]/g, "")) ? "zh" : "en";
 }
 
-// The groups the panel shows: tasks whose ID or title holds the filter text, then the status
-// chip: "all", or one kind ("in_progress", "open" that can start, "blocked").
-export function filterGroups(groups, query, chip) {
+// The groups the panel shows: tasks whose ID or title holds the filter text.
+export function filterGroups(groups, query) {
   const q = query.trim().toLowerCase();
   const hit = (t) => !q || t.id.toLowerCase().includes(q) || t.title.toLowerCase().includes(q);
-  const kept = groups.map((g) => ({ ...g, tasks: g.tasks.filter(hit) }));
-  if (chip === "all") return kept;
-  const key = chip === "blocked" ? "open" : chip;
-  return kept.filter((g) => g.key === key)
-    .map((g) => (key === "open" ? { ...g, tasks: g.tasks.filter((t) => t.blocked === (chip === "blocked")) } : g));
+  return groups.map((g) => ({ ...g, tasks: g.tasks.filter(hit) }));
 }
 
-// The list as one run of rows, the way the panel draws and the keyboard walks it: each group's
-// heading, then (unless folded) its rows that can start, the "show N more" row when the group is
-// longer than `shown` allows, and its blocked rows last, so their mark is never cut. A filtered list
-// neither folds nor cuts. Empty groups take no row.
-export function listRows(groups, { narrowed, shut, expanded, shown }) {
-  const rows = [];
-  for (const g of groups) {
-    if (!g.tasks.length) continue; // an empty group says nothing the chips do not
-    rows.push({ key: `head:${g.key}`, kind: "head", group: g });
-    if (!narrowed && shut.has(g.key)) continue;
-    const free = g.tasks.filter((t) => !t.blocked), blocked = g.tasks.filter((t) => t.blocked);
-    const limit = shown[g.key] ?? Infinity;
-    const cut = narrowed || expanded.has(g.key) ? 0 : Math.max(0, free.length - limit);
-    const task = (t) => rows.push({ key: `task:${t.id}`, kind: "task", task: t });
-    free.slice(0, free.length - cut).forEach(task);
-    if (!narrowed && free.length > limit) rows.push({ key: `more:${g.key}`, kind: "more", group: g, cut });
-    blocked.forEach(task);
-  }
-  return rows;
+// The list as one run of rows, the way the panel draws it: each group's heading, then every one of
+// its tasks. Empty groups take no row.
+export function listRows(groups) {
+  return groups.filter((g) => g.tasks.length).flatMap((g) => [{ key: `head:${g.key}`, kind: "head", group: g },
+    ...g.tasks.map((t) => ({ key: `task:${t.id}`, kind: "task", task: t }))]);
 }
 
-// The row the up (-1) or down (+1) arrow selects from `key`; it stops at either end. With nothing
-// selected, or a row no longer listed, down starts at the top and up at the bottom.
+// The task row the up (-1) or down (+1) arrow selects from `key`, past the headings; it stops at
+// either end. With nothing selected, or a row no longer listed, down starts at the top and up at
+// the bottom.
 export function moveSelection(rows, key, delta) {
-  if (!rows.length) return null;
-  const at = rows.findIndex((r) => r.key === key);
-  if (at < 0) return rows[delta > 0 ? 0 : rows.length - 1].key;
-  return rows[Math.min(rows.length - 1, Math.max(0, at + delta))].key;
+  const tasks = rows.filter((r) => r.kind === "task");
+  if (!tasks.length) return null;
+  const at = tasks.findIndex((r) => r.key === key);
+  if (at < 0) return tasks[delta > 0 ? 0 : tasks.length - 1].key;
+  return tasks[Math.min(tasks.length - 1, Math.max(0, at + delta))].key;
 }
 
 // The selected row's key while that row is still on screen, else null: Enter never opens a task
@@ -92,8 +82,7 @@ export function shortId(id, max) {
   return `${id.slice(0, max - 1 - tail)}…${id.slice(-tail)}`;
 }
 
-// A link event body, `[kind:] value [· note]`, read as the web board reads it (nawaban/webui/src/
-// lib/nawaban-model.ts linkParts); `url` is the value when a browser can open it.
+// A link event body, `[kind:] value [· note]`; `url` is the value when a browser can open it.
 export function linkParts(body) {
   const m = /^([a-z][\w-]*):(?!\/\/)\s*([\s\S]*)$/i.exec(body.trim());
   const rest = m ? m[2] : body.trim();
@@ -121,30 +110,21 @@ export const detailEvents = (events) => (events ?? []).filter((e) => ["note", "d
 export const boardChanged = (paths, db) =>
   paths.some((p) => p === db || p === `${db}-wal` || p === db.slice(0, db.lastIndexOf("/")));
 
-// A group heading's count. The open group holds tasks that can start and blocked ones; it counts
-// them apart, as the 待认领 and 被挡 chips do ("19 · 被挡 5"), so neither number looks wrong.
-export function groupCount(g, lang) {
-  const blocked = g.tasks.filter((t) => t.blocked).length;
-  if (!blocked) return String(g.tasks.length);
-  const free = g.tasks.length - blocked;
-  return lang === "zh" ? `${free} · ${WORDS.zh.blocked} ${blocked}` : `${free} · ${blocked} blocked`;
-}
-
 // Who wrote an event: the user's own decisions read as "you", the rest came from an agent session
 // (its id says nothing to a person).
 export const authorLabel = (author, lang) => (author === "user" ? WORDS[lang].you : "agent");
 
 export const WORDS = {
-  zh: { title: "任务", in_progress: "进行中", open: "待认领", done: "最近完成", blocked: "被挡", all: "全部项目",
-    statuses: "全部", filter: "按 ID 或标题过滤", more: (n) => `再显示 ${n} 条`, less: "收起",
+  zh: { title: "任务", waiting: "等你", in_progress: "进行中", open: "待认领", done: "最近完成", blocked: "被挡", all: "全部项目",
+    filter: "按 ID 或标题过滤", more: (n) => `再显示 ${n} 条`, less: "收起",
     blockedBy: (ids) => `被 ${ids.join("、")} 挡住`, language: "语言",
     empty: "没有任务", none: "没有匹配的任务", loading: "读取中…", error: "读不到看板",
     back: "返回", wholeBody: "显示全文", progress: "当前进度", body: "正文", parent: "上级", you: "你", events: "事件",
     state: { in_progress: "进行中", open: "待认领", blocked: "被挡", done: "已完成", cancelled: "已取消" },
     relations: { blocked_by: "被这些任务挡住", dependents: "挡住的任务", children: "子任务" },
     kinds: { note: "记录", decision: "决定", link: "链接" } },
-  en: { title: "Tasks", in_progress: "In progress", open: "Open", done: "Recently done", blocked: "Blocked", all: "All projects",
-    statuses: "All", filter: "Filter by ID or title", more: (n) => `Show ${n} more`, less: "Show less",
+  en: { title: "Tasks", waiting: "Waiting on you", in_progress: "In progress", open: "Open", done: "Recently done", blocked: "Blocked", all: "All projects",
+    filter: "Filter by ID or title", more: (n) => `Show ${n} more`, less: "Show less",
     blockedBy: (ids) => `Blocked by ${ids.join(", ")}`, language: "Language",
     empty: "No tasks", none: "No tasks match", loading: "Loading…", error: "Can't read the board",
     back: "Back", wholeBody: "Show all", progress: "Current progress", body: "Description", parent: "Parent", you: "You", events: "Activity",

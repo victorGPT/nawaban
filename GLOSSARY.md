@@ -68,6 +68,12 @@ An open task that a session holds. It is derived, never stored.
 _Avoid_: in_progress as a stored status, doing.
 _Current identifiers_: `in_progress` in `show`, `list` and board responses.
 
+**Waiting on you**(等你)
+An open task whose latest `triage:` note is `triage: needs-info — 等你：<question>`: the agent needs the user to answer or act. It is derived, never stored; its session keeps holding it, and a later `triage:` note such as `triage: ready-for-agent` ends the wait. The Herdr panel lists these first, each with its question.
+等你是最新一条 `triage:` 备注为 `triage: needs-info — 等你：<问题>` 的未关闭任务：agent 需要用户回答或动手。由数据推导，不单独存储；会话继续持有它，之后再记一条 `triage:` 备注（如 `triage: ready-for-agent`）就不再等。Herdr 面板把它们列在最上面，并显示那句问题。
+_Avoid_: needs-info as a status, a stored question.
+_Current identifiers_: `waiting` on open tasks in `json board` (the question, or null); panel group `waiting`.
+
 **Done**(完成)
 A task closed because its acceptance criteria are met. Closing clears its session.
 完成是成功判据满足后关闭的任务，关闭时清掉会话。
@@ -121,10 +127,10 @@ _Current identifiers_: `events.kind` = `link`; CLI `event --kind link`.
 ### Board and data
 
 **Board**(看板)
-The one SQLite file that holds every task and event, and the read-only web page over it.
-看板是存放全部任务和事件的那一个 SQLite 文件，以及它之上的只读网页。
+The one SQLite file that holds every task and event.
+看板是存放全部任务和事件的那一个 SQLite 文件。
 _Avoid_: database as a product term, inbox, modules view.
-_Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`; `nawaban/board_view.py`; `nawaban/board-up.sh`.
+_Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`.
 
 **Herdr panel**(Herdr 面板)
 A read-only view of the board docked in a Herdr window beside the terminals, listing the tasks of the project the current space is in. Claiming, closing and dispatching stay with agents and the CLI.
@@ -137,116 +143,3 @@ A timestamped copy of the board file under the board directory's `backups/`, kep
 备份是看板文件带时间戳的副本，放在看板目录的 `backups/` 下，保留 14 天。
 _Avoid_: source checkout as a backup of task data.
 _Current identifiers_: CLI `backup`.
-
-**Migration**(迁移)
-Reading an old-schema board and writing its tasks and events into a new, empty board. The old file is never written and stays as the archive.
-迁移是读取旧结构看板，把任务和事件写进一个新的空看板；旧文件从不被写入，留作存档。
-_Avoid_: upgrade in place.
-_Current identifiers_: CLI `migrate`.
-
-### Interface messages
-
-Exact display templates below are part of the English vocabulary. Braced names are interpolation slots; Chinese text preserves the existing interface. These entries govern display only, not stored enum values or user-authored task content.
-
-| English | 中文 | _Avoid_ |
-|---|---|---|
-| Display | 显示 | Board display preferences; presentation only, never task mutation. |
-| Sort by | 排序 | Board display preferences; presentation only, never task mutation. |
-| Default order | 默认顺序 | Board display preferences; presentation only, never task mutation. |
-| Recently updated | 最近更新 | Board display preferences; presentation only, never task mutation. |
-| Recently created | 最近创建 | Board display preferences; presentation only, never task mutation. |
-| Title (A–Z) | 标题顺序 | Board display preferences; presentation only, never task mutation. |
-| Compact density | 紧凑密度 | Board display preferences; presentation only, never task mutation. |
-| Visible fields | 显示字段 | Board display preferences; presentation only, never task mutation. |
-| Board columns | 看板列 | Board display preferences; presentation only, never task mutation. |
-| Hidden columns keep their tasks. The list still shows every matching task. | 收起列不会更改任务；列表仍显示全部符合筛选的任务。 | Board display preferences; presentation only, never task mutation. |
-| Show all columns | 显示全部列 | Board display preferences; presentation only, never task mutation. |
-| All board columns are hidden. | 所有看板列已收起。 | Board display preferences; presentation only, never task mutation. |
-| Hidden columns: {count} · Restore them in Display | 已收起 {count} 列 · 可在「显示」中恢复 | Board display preferences; presentation only, never task mutation. |
-| Refresh tasks | 刷新真实数据 | Board toolbar and synchronization status |
-| Syncing… | 同步中… | Board toolbar and synchronization status |
-| Synced at {time} | 同步于 {time} | Board toolbar and synchronization status |
-| Refresh every {seconds} seconds | 每 {seconds} 秒刷新 | Board toolbar and synchronization status |
-| Sync failed | 同步失败 | Board toolbar and synchronization status |
-| Workspace | 工作区 | Runtime enum values as display labels or a different action sharing this label. |
-| Filter | 筛选 | Narrows the task collection; never changes tasks. |
-| Language | 语言 | Runtime enum values as display labels or a different action sharing this label. |
-| Switch to Chinese | 切换到英文 | Runtime enum values as display labels or a different action sharing this label. |
-| Loading… | 加载中… | Runtime enum values as display labels or a different action sharing this label. |
-| Today | 今天 | Runtime enum values as display labels or a different action sharing this label. |
-| Yesterday | 昨天 | Runtime enum values as display labels or a different action sharing this label. |
-| This week | 本周 | Runtime enum values as display labels or a different action sharing this label. |
-| Last week | 上周 | Runtime enum values as display labels or a different action sharing this label. |
-| Last 7 days | 最近 7 天 | Runtime enum values as display labels or a different action sharing this label. |
-| Start date | 起始日期 | A control label that describes an action different from what the control performs. |
-| End date | 结束日期 | A control label that describes an action different from what the control performs. |
-| Updated | 更新时间 | A control label that describes an action different from what the control performs. |
-| Copy failed; select the text manually | 复制失败,手动选中吧 | A control label that describes an action different from what the control performs. |
-| Cancel | 取消 | Runtime enum values as display labels or a different action sharing this label. |
-| Just now | 刚刚 | Runtime enum values as display labels or a different action sharing this label. |
-| Collapse | 收起 | Runtime enum values as display labels or a different action sharing this label. |
-| Status | 状态 | Runtime enum values as display labels or a different action sharing this label. |
-| Time | 时间 | Runtime enum values as display labels or a different action sharing this label. |
-| Child tasks | 子任务 | Detail label for the tasks whose parent is this task; not "split out". |
-| Dependents | 下游任务 | Detail label for the reverse of blocked by; not "unblocks". |
-| Properties | 属性 | Runtime enum values as display labels or a different action sharing this label. |
-| {count} minutes ago | {count} 分钟前 | Dropped interpolation values or raw template placeholders in rendered text. |
-| {count} hours ago | {count} 小时前 | Dropped interpolation values or raw template placeholders in rendered text. |
-| {count} days ago | {count} 天前 | Dropped interpolation values or raw template placeholders in rendered text. |
-| Copy {text} | 复制 {text} | Dropped interpolation values or raw template placeholders in rendered text. |
-| {count} more | 还有 {count} 条 | Dropped interpolation values or raw template placeholders in rendered text. |
-| No {label} | 无 {label} | Dropped interpolation values or raw template placeholders in rendered text. |
-| Created {time} | 创建 {time} | Dropped interpolation values or raw template placeholders in rendered text. |
-| Close | 关闭 | Runtime enum values as display labels or a different action sharing this label. |
-| No session | 无窗口 | Empty session value; not "no owner", and not the Unassigned status. |
-| EN | 中文 | Display text only; preserve stored values and user-authored content. |
-| Main navigation | 主导航 | Display text only; preserve stored values and user-authored content. |
-| Toggle sidebar | 切换侧栏 | Display text only; preserve stored values and user-authored content. |
-| All projects | 全部项目 | Display text only; preserve stored values and user-authored content. |
-| No project | 无项目 | Cards with a null or empty project; distinct from all projects. |
-| Switch project | 切换项目 | Display text only; preserve stored values and user-authored content. |
-| Agents advance tasks | 任务由 Agent 推进 | Display text only; preserve stored values and user-authored content. |
-| Search tasks | 搜索任务 | Display text only; preserve stored values and user-authored content. |
-| Search ID, title, session… | 搜索编号、标题、窗口… | Display text only; preserve stored values and user-authored content. |
-| List | 列表 | Display text only; preserve stored values and user-authored content. |
-| {count} tasks | {count} 张任务 | Display text only; preserve stored values and user-authored content. |
-| Task list | 任务列表 | Display text only; preserve stored values and user-authored content. |
-| ID | 编号 | Display text only; preserve stored values and user-authored content. |
-| Title | 标题 | Display text only; preserve stored values and user-authored content. |
-| No matching tasks | 没有匹配的任务 | Display text only; preserve stored values and user-authored content. |
-| All epics | 全部模块 | Display text only; preserve stored values and user-authored content. |
-| Filter epics | 筛选工作模块 | Display text only; preserve stored values and user-authored content. |
-| Loading tasks… | 正在读取任务… | Display text only; preserve stored values and user-authored content. |
-| Custom updated date range | 自定义更新时间范围 | Display text only; preserve stored values and user-authored content. |
-| Custom dates | 自定义日期 | Display text only; preserve stored values and user-authored content. |
-| Clear filters | 清除筛选 | Display text only; preserve stored values and user-authored content. |
-| View {id} {title} | 查看 {id} {title} | Display text only; preserve stored values and user-authored content. |
-| Expand full text | 展开全文 | Display text only; preserve stored values and user-authored content. |
-| Task details {id} | 任务详情 {id} | Display text only; preserve stored values and user-authored content. |
-| Back | 返回 | Display text only; preserve stored values and user-authored content. |
-| Current progress | 当前进展 | Display text only; preserve stored values and user-authored content. |
-| Dismiss notification | 关闭通知 | Display text only; preserve stored values and user-authored content. |
-| Failed to load | 加载失败 | Display text only; preserve stored values and user-authored content. |
-| Switch to light mode | 切换浅色模式 | Display text only; preserve stored values and user-authored content. |
-| Switch to dark mode | 切换深色模式 | Display text only; preserve stored values and user-authored content. |
-| Theme | 主题 | Display text only; preserve stored values and user-authored content. |
-| Light mode | 浅色模式 | Display text only; preserve stored values and user-authored content. |
-| Dark mode | 深色模式 | Display text only; preserve stored values and user-authored content. |
-| Date | 日期 | Display text only; preserve stored values and user-authored content. |
-| Date range | 日期范围 | Display text only; preserve stored values and user-authored content. |
-| Select date | 选择日期 | Display text only; preserve stored values and user-authored content. |
-| Select date range | 选择日期范围 | Display text only; preserve stored values and user-authored content. |
-| Apply | 应用 | Display text only; preserve stored values and user-authored content. |
-| This month | 本月 | Display text only; preserve stored values and user-authored content. |
-| Last month | 上月 | Display text only; preserve stored values and user-authored content. |
-| This year | 今年 | Display text only; preserve stored values and user-authored content. |
-| Last year | 去年 | Display text only; preserve stored values and user-authored content. |
-| All time | 全部时间 | Display text only; preserve stored values and user-authored content. |
-| {count} days selected | 已选 {count} 天 | Display text only; preserve stored values and user-authored content. |
-| {count} day selected | 已选 {count} 天 | Display text only; preserve stored values and user-authored content. |
-| No updates for {count} days | {count} 天没动静 | Days since an in-progress task's last event. |
-| Reference | 引用 | Detail heading for link events; the term is Link. |
-| Context | 来由 | Detail heading for the task body. |
-| Decision log | 决策 | Detail heading for decision events; the term is Decision. |
-| Activity | 活动 | Detail heading for the full event log in time order. |
-| Notifications | 通知 | Toast region label; not a task message. |

@@ -1,15 +1,13 @@
 # Triage Labels
 
-The skills speak in terms of five canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker.
+The skills speak in terms of canonical triage roles. This repo uses three, under the same names:
 
-| Label in mattpocock/skills | Label in our tracker | Meaning                                  |
-| -------------------------- | -------------------- | ---------------------------------------- |
-| `needs-triage`             | `needs-triage`       | Maintainer needs to evaluate this issue  |
-| `needs-info`               | `needs-info`         | Waiting on reporter for more information |
-| `ready-for-agent`          | `ready-for-agent`    | Fully specified, ready for an AFK agent  |
-| `ready-for-human`          | `ready-for-human`    | Requires human implementation            |
-| `wontfix`                  | `wontfix`            | Will not be actioned                     |
+| Label             | Meaning                                       |
+| ----------------- | --------------------------------------------- |
+| `needs-info`      | Waiting on the user to answer or act          |
+| `ready-for-agent` | Fully specified, ready for an AFK agent       |
+| `ready-for-human` | Requires human implementation                 |
 
-When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
+The nawaban board has no label field. To apply a label, record a note event on the task: `nawaban event <ID> --kind note --body "triage: <label>"` (the command is in `docs/agents/issue-tracker.md`). The latest `triage:` note is the task's current label. A task that is `open`, has no `triage:` note and whose blockers are all `done` or `cancelled` counts as `ready-for-agent`.
 
-The nawaban board has no label field. To apply a label, record a note event on the task: `nawaban event <ID> --kind note --body "triage: <label>"` (`nawaban` as defined in `docs/agents/issue-tracker.md`). The latest `triage:` note is the task's current label. A task that is `open`, has no `triage:` note and whose blockers are all `done` or `cancelled` counts as `ready-for-agent`.
+`needs-info` carries the question: `triage: needs-info — 等你：<one-line question or what the user must do>`. The agent keeps holding the task and asks in the conversation as usual; once the user answers, it records the answer as a decision with `--by user`, then `triage: ready-for-agent`. The `nawaban` skill's "Waiting on the user" section is the full rule.
