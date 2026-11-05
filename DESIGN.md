@@ -80,7 +80,7 @@ From top to bottom:
 1. **Header.** The project name. On the right: how many windows, and how many items are waiting in other projects.
 2. **Waiting.** A large headline, "N 个窗口在等你", then one card per waiting window. Unchanged from mix B+C.
 3. **Leaders.** One group per leader with an open task: its own tasks and the ones it dispatched, numbered by arrival. A spec is one item with its own progress segments. Done items stay, ticked, for 24 hours. A 1 px `border` line separates groups.
-4. **Idle.** Windows holding no task collapse into one last row, with their count and names.
+4. **没认领.** Every window of the space that is neither a card nor holding a task collapses into one last row, with its count and names, the Herdr state after a working or done one: "没认领 3 · 部署（在干）、闲聊、13（完成）". A window working with no task still shows.
 
 When nothing is waiting, the headline and the cards disappear, and the leaders move to the top.
 
@@ -102,7 +102,7 @@ When nothing is waiting, the headline and the cards disappear, and the leaders m
   - 13.5 px, leader names, window names and questions;
   - 12.5 px, item titles;
   - 12 px, the decision line and the note under a current item;
-  - 11 px, numbers, who does it, states and counts.
+  - 11 px, numbers, states and counts.
 - **Numbers.** Durations and counts use tabular figures where the platform allows (gpui-kit has no font-feature setting as of 2026-11-06).
 
 ## Layout
@@ -111,9 +111,9 @@ When nothing is waiting, the headline and the cards disappear, and the leaders m
   - 16 px side edge.
   - Cards sit 12 px in from the panel edge, with 8 px between them.
   - Items are 30 px high; a current one grows by its note.
-- **Item grid.** An 18 px rail column, the number and title, who does it (自己 or worker), and the state on the right. The title is cut off with an ellipsis; extra width goes to it.
+- **Item grid.** An 18 px rail column, the number and title, a spec's segments and done/total, and the state on the right. Who does it (自己 or worker) opens the note line, not a column. The title is cut off with an ellipsis; extra width goes to it.
 - **Order.** Groups: a leader with a stopped item first, then the rest by when they last moved. Items: by when each was first claimed; not yet claimed ones after, by creation. Inside a spec: blocked-by order, ties by the board's order.
-- **Width.** From 360 to 720 px. Below 400 px, the 自己 / worker column and the progress segments are dropped.
+- **Width.** From 360 to 720 px. Below 400 px, the progress segments are dropped.
 
 ## Shapes
 
@@ -131,12 +131,12 @@ When nothing is waiting, the headline and the cards disappear, and the leaders m
 - **Wait card.** Line 1: the window name on the left, "等了 1 小时" in amber on the right. Then the question it is asking, at most two lines. Then the task id, muted, on one line, with the "去窗口 →" button on the right. Clicking the card or the button focuses that window's terminal (`agent.focus {terminal}`).
 - **Leader header.** The leader's window name, semibold, on the left. On the right, dim: "自己 3 · 派出 2".
 - **Decision line.** Under the header, dim, one line: the date of the latest decision recorded on any of the leader's open items, "定：", and the first line of its verdict. Left out when there is none.
-- **Item.** A dot on the rail, the number (11 px, dim), the task or spec title, who does it, and its state on the right. A spec shows its progress segments (one per ticket: `muted` done, `working` held, `border` not started) and "done/total" in place of who does it.
-  - done: filled `muted` dot, "完成";
-  - current (held): a `working` ring with a breathing inner dot, "在干 12 分";
-  - stopped (held, its window gone or idle): a `blocked` ring, "停了";
+- **Item.** A dot on the rail, the number (11 px, dim), the task or spec title, and its state on the right. A spec shows its progress segments (one per ticket: `muted` done, `working` held, `border` not started) and "done/total" before the state. A spec whose tickets nobody holds, held itself, is current or stopped on its own note. Durations read as on the cards ("40 分钟", "2 小时"; en "40m", "2h").
+  - done: filled `muted` dot, "完成 09:10" ("完成 昨天 18:40", "完成 11-04 18:40");
+  - current (held): a `working` ring with a breathing inner dot, "在干 40 分钟";
+  - stopped (held, its window gone or idle): a `blocked` ring, "停了 2 小时";
   - not started: a hollow `dim` dot, "还没动".
-- **Note.** Under a current or stopped item only: the latest note its worker wrote, at most two lines, skipping `coord:` notes, which are bookkeeping. "去窗口 →" sits at its right, in `foreground`, when the window is still there. A stopped item whose window is gone says so and has no button. Resting the pointer on the item opens a HoverCard with the whole note.
+- **Note.** Under a current or stopped item only: who is on it, 自己 or worker, then the latest note it wrote ("自己 · verify：3814 个测试通过"), at most two lines, skipping `coord:` notes, which are bookkeeping. "去窗口 →" sits at its right, in `foreground`, when the window is still there. A stopped item whose window is gone says so and has no button. Resting the pointer on the item opens a HoverCard with the whole note.
 - **Row behaviour.** Clicking an item with a window focuses it, the same as a card. ↑ and ↓ move through cards and items together, and Enter goes to the selected one.
 
 ## Do's and Don'ts

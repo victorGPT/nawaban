@@ -374,6 +374,7 @@ def backup(path: Path, keep_days: int = 14) -> Path:
 
 COLUMNS = ("open", "in_progress", "done")
 DONE_LIMIT = 12  # the done column shows only the latest few
+DONE_RECENT = 24 * 3600  # ...plus every task done this recently
 
 
 def _ref(r: sqlite3.Row) -> dict:
@@ -411,11 +412,27 @@ def waiting_question(triage_note: str | None) -> str | None:
     return triage_note.strip()[m.end():] if m else None
 
 
+_VERDICT = re.compile(r"^\s*Verdict:\s*(.*)$", re.M)
+
+
+def _verdict(body: str) -> str:
+    """The text after `Verdict:` on its line, else the decision's first line."""
+    m = _VERDICT.search(body)
+    return m.group(1).strip() if m else body.strip().split("\n", 1)[0]
+
+
 def board_data(path: Path | str, project: str | None = None) -> dict:
     """Tasks in three columns, latest activity first."""
     sql = ("SELECT t.*, MAX(COALESCE(e.at, t.created_at)) AS active_at,"
            " (SELECT count(*) FROM blockers b JOIN tasks x ON x.id=b.blocker"
-           "  WHERE b.task=t.id AND x.status='open') AS open_blockers"
+           "  WHERE b.task=t.id AND x.status='open') AS open_blockers,"
+           " (SELECT at FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→in_progress%'"
+           "  ORDER BY id LIMIT 1) AS claimed_at,"
+           " (SELECT author FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→in_progress%'"
+           "  ORDER BY id DESC LIMIT 1) AS last_claimer,"
+           " (SELECT at FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→done%'"
+           "  ORDER BY id DESC LIMIT 1) AS done_at,"
+           " (SELECT status='open' FROM tasks p WHERE p.id=t.parent) AS parent_open"
            " FROM tasks t LEFT JOIN events e ON e.task=t.id WHERE t.status!='cancelled'")
     args: dict = {}
     if project is not None:
@@ -423,11 +440,21 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
         args["project"] = project
     with closing(open_readonly(path)) as con:
         rows = con.execute(sql + " GROUP BY t.id ORDER BY active_at DESC, t.id", args).fetchall()
-        # Open tasks only: the latest note (current progress) and the open tasks in their way.
+        # Open tasks only: the latest note that is not `coord:` bookkeeping (current progress),
+        # and the open tasks in their way.
         notes = {r["task"]: {"body": r["body"], "at": r["at"]} for r in con.execute(
             "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
             " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
-            " WHERE task=e.task AND kind='note')")}
+            " WHERE task=e.task AND kind='note' AND ltrim(body) NOT LIKE 'coord:%')")}
+        # GLOSSARY Leader: the author of the latest dispatch note (agent-center writes `coord: dispatch …`).
+        dispatchers = {r["task"]: r["author"] for r in con.execute(
+            "SELECT e.task, e.author FROM events e WHERE e.id=(SELECT MAX(id) FROM events"
+            " WHERE task=e.task AND kind='note'"
+            " AND (ltrim(body) LIKE 'dispatch:%' OR ltrim(body) LIKE 'coord: dispatch%'))")}
+        decisions = {r["task"]: {"at": r["at"], "verdict": _verdict(r["body"])} for r in con.execute(
+            "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
+            " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
+            " WHERE task=e.task AND kind='decision')")}
         triage = {r["task"]: r["body"] for r in _triage_notes(con)}
         terminals = {r["id"]: held_terminal(con, r["id"], r["session"])
                      for r in rows if r["status"] == "open" and r["session"]}
@@ -436,19 +463,27 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
                              " WHERE x.status='open' ORDER BY b.blocker"):
             blockers.setdefault(r["task"], []).append(r["blocker"])
     columns = {key: [] for key in COLUMNS}
+    recent = time.time() - DONE_RECENT
     for r in rows:
         status = derived_status(r)
+        # Past the latest few, done tasks stay only while recent or under an open spec (the panel ticks them).
+        if (status == "done" and len(columns["done"]) >= DONE_LIMIT
+                and not r["parent_open"] and (r["done_at"] or 0) < recent):
+            continue
         task = {
             "id": r["id"], "title": r["title"], "status": status, "project": r["project"],
             "parent": r["parent"], "session": r["session"], "created_at": r["created_at"],
             "active_at": r["active_at"], "open_blockers": r["open_blockers"],
-            "terminal": terminals.get(r["id"])}
+            "terminal": terminals.get(r["id"]), "leader": dispatchers.get(r["id"], r["session"] or r["last_claimer"]),
+            "claimed_at": r["claimed_at"]}
         if r["status"] == "open":
             task["progress"] = notes.get(r["id"])
             task["blocked_by"] = blockers.get(r["id"], [])
             task["waiting"] = waiting_question(triage.get(r["id"]))
+            task["decision"] = decisions.get(r["id"])
+        if status == "done":
+            task["done_at"] = r["done_at"]
         columns[status].append(task)
-    columns["done"] = columns["done"][:DONE_LIMIT]
     return {"columns": [{"key": k, "tasks": v} for k, v in columns.items()]}
 
 

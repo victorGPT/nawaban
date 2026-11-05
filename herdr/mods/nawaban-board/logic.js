@@ -67,6 +67,99 @@ export function windowsView({ agents, space, board, now, lang, projects, project
 
 const ROW_ORDER = ["stopped", "done", "working"];
 
+// The line view (DESIGN.md): windowsView's waiting cards, idle row and other projects' count, and
+// in place of its rows one group per leader (GLOSSARY: Leader).
+export function leadersView(args) {
+  const { waiting, otherWaiting } = windowsView(args);
+  const tasks = (args.board?.columns ?? []).flatMap((c) => c.tasks ?? []);
+  const agentAt = (terminal) => args.agents.find((a) => a.address === terminal);
+  // A task's state, as an item or a spec's segment: done, current (held, its terminal working or
+  // unknown), stopped (held, its terminal idle or gone), todo.
+  const stateOf = (t) => {
+    if (t.status === "done") return "done";
+    if (!t.session) return "todo";
+    const a = t.terminal && agentAt(t.terminal);
+    return t.terminal && (!a || a.status === "idle") ? "stopped" : "current";
+  };
+  // Whether a task puts an item under its leader: held, or dispatched and not started (a leader but
+  // never claimed), or done in the last 24 h. A released task is in no group: nobody is on it.
+  const inGroup = (t) => t.status === "done" ? t.done_at >= args.now - DAY : t.session != null || t.claimed_at == null;
+  // A ticket stands in its spec's place: the item is the topmost task on the board above it.
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const rootOf = (t) => { while (byId.has(t.parent)) t = byId.get(t.parent); return t; };
+  const groups = new Map(); // leader -> the items' tasks, deduplicated
+  for (const t of tasks) {
+    // A board with no leader field (an older CLI): the holder leads, so nothing held vanishes.
+    const leader = sessionKey(t.leader ?? t.session);
+    if (leader == null || !inGroup(t)) continue;
+    if (!groups.has(leader)) groups.set(leader, new Set());
+    groups.get(leader).add(rootOf(t));
+  }
+  const named = (leader) => {
+    const a = agentAt(tasks.find((x) => sessionKey(x.session) === leader && x.terminal)?.terminal);
+    return a ? a.tab_name || a.title : leader.slice(0, 8);
+  };
+  // An item: a task, or a spec with its tickets, whose held ticket (a stopped one first) speaks for
+  // it; with none held, the spec speaks for itself.
+  const itemOf = (r, leader) => {
+    const tickets = specOrder(tasks.filter((t) => t !== r && rootOf(t) === r));
+    const states = tickets.map(stateOf), done = states.filter((s) => s === "done").length;
+    const lead = tickets[states.indexOf("stopped")] ?? tickets[states.indexOf("current")] ?? r;
+    const state = r.status === "done" || (tickets.length && done === tickets.length) ? "done" : stateOf(lead);
+    const held = state === "current" || state === "stopped";
+    // Dispatched: held by another session, or a task not started (only a dispatch note gives an unclaimed task a leader).
+    const who = held ? (sessionKey(lead.session) === leader ? "self" : "worker") : state === "todo" && !tickets.length ? "worker" : null;
+    const all = [r, ...tickets], claims = all.map((t) => t.claimed_at).filter((c) => c != null);
+    // Since when, in seconds: done, when it was done; current, its first claim; stopped, its latest event.
+    const at = state === "done" ? r.done_at ?? Math.max(...tickets.map((t) => t.done_at ?? 0))
+      : state === "current" ? lead.claimed_at : state === "stopped" ? lead.active_at : null;
+    return { id: r.id, title: r.title, state, at, gone: state === "stopped" && !agentAt(lead.terminal), who,
+      note: held ? lead.progress?.body ?? null : null, focus: held && agentAt(lead.terminal) ? lead.terminal : null,
+      spec: tickets.length ? { tickets: tickets.map((t) => t.id), segments: states, done, total: tickets.length } : null,
+      claimed: claims.length ? Math.min(...claims) : Infinity, created_at: r.created_at,
+      decisions: all.map((t) => t.decision).filter(Boolean), // the board gives open tasks only a decision
+      active: Math.max(...all.map((t) => t.active_at)) };
+  };
+  const out = [...groups].map(([leader, roots]) => {
+    const all = [...roots].map((r) => itemOf(r, leader))
+      .sort((x, y) => x.claimed - y.claimed || x.created_at - y.created_at);
+    const items = all.map(({ claimed, created_at, decisions, active, ...x }, i) => ({ key: `${leader}/${x.id}`, number: i + 1, ...x }));
+    const dispatched = items.filter((i) => i.who === "worker").length;
+    const last = all.flatMap((x) => x.decisions).sort((x, y) => y.at - x.at)[0];
+    return { leader, name: named(leader), self: items.length - dispatched, dispatched,
+      decision: last ? { at: last.at, verdict: last.verdict.split("\n")[0] } : null, items,
+      stopped: items.some((i) => i.state === "stopped"), active: Math.max(...all.map((x) => x.active)) };
+  }).sort((x, y) => y.stopped - x.stopped || y.active - x.active).map(({ stopped, active, ...g }) => g);
+  // Every window of the space that is neither a card nor the terminal of an open task, named with
+  // what Herdr says it is doing unless idle: a window working without a task still shows.
+  const words = WINDOW_WORDS[args.lang];
+  const free = args.agents.filter((a) => a.space === args.space && !waiting.some((c) => c.focus === a.address)
+    && !tasks.some((t) => t.status !== "done" && t.terminal === a.address))
+    .map((a) => (a.status === "working" || a.status === "done" ? words.withState(a.tab_name || a.title, words[a.status]) : a.tab_name || a.title));
+  const idle = { count: free.length, names: free };
+  // Selection keys, unique where terminals are not: a card and an item, or two items, can share one.
+  const cards = waiting.map((c, i) => ({ key: `card:${i}`, ...c }));
+  const keys = [...cards, ...out.flatMap((g) => g.items)].filter((x) => x.focus != null).map((x) => x.key);
+  return { waiting: cards, groups: out, idle, otherWaiting, keys };
+}
+
+// A spec's tickets in blocked-by order: the done ones first, by when each was done, then the open
+// ones each after its open blockers (the board lists no done blocker); ties keep the board's order.
+const specOrder = (tickets) => {
+  const out = tickets.filter((t) => t.status === "done").sort((x, y) => x.done_at - y.done_at);
+  const open = tickets.filter((t) => t.status !== "done");
+  while (open.length) {
+    const free = open.findIndex((t) => !(t.blocked_by ?? []).some((b) => open.some((o) => o.id === b)));
+    out.push(...open.splice(Math.max(free, 0), 1)); // a cycle: take the first
+  }
+  return out;
+};
+
+const DAY = 86400;
+
+// A session as a leader's key: agent-center authors its notes `ac:<session>`, the same session.
+const sessionKey = (s) => s?.replace(/^[a-z]+:(?=[0-9a-f]{8})/, "") ?? null;
+
 // A duration in seconds: "20m", "3h", "2d" in the table; on a card, in Chinese, "20 分钟", "1 小时".
 const span = (s, lang, card) => {
   if (s < 60) return lang === "zh" ? "刚刚" : "now";
@@ -74,17 +167,39 @@ const span = (s, lang, card) => {
   return lang === "zh" && card ? `${Math.floor(n)} ${zh}` : `${Math.floor(n)}${en}`;
 };
 
+// An item's state on its right (leadersView's `at` is seconds): "完成 09:10", "完成 昨天 18:40",
+// "在干 40 分钟", "停了 2 小时", "还没动". Local time, from Date's getters.
+export function itemLabel({ state, at }, now, lang) {
+  const w = WINDOW_WORDS[lang], label = w[ITEM_STATE[state]];
+  if (at == null) return label;
+  if (state !== "done") return `${label} ${span(now - at, lang, true)}`;
+  const d = new Date(at * 1000), day = (x) => new Date(x * 1000).setHours(0, 0, 0, 0);
+  const ago = Math.round((day(now) - day(at)) / 86400000);
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${label} ${ago === 0 ? time : ago === 1 ? `${w.yesterday} ${time}` : `${decisionDate(at)} ${time}`}`;
+}
+
+const ITEM_STATE = { done: "done", current: "working", stopped: "stopped", todo: "todo" };
+const pad = (n) => String(n).padStart(2, "0");
+
+// A decision's day, "11-05", local time.
+export const decisionDate = (at) => { const d = new Date(at * 1000); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+
 // The panel's words; WINDOW_WORDS[lang][state] is a state's label.
 export const WINDOW_WORDS = {
-  zh: { waiting: "等你", stopped: "停了", done: "完成", working: "在干", idle: "空闲", confirm: "在等你确认",
+  zh: { waiting: "等你", stopped: "停了", done: "完成", working: "在干", idle: "空闲", todo: "还没动", yesterday: "昨天", confirm: "在等你确认",
     windows: (n) => `${n} 个窗口`, elsewhere: (n) => (n ? `其他项目 ${n} 个等你` : "其他项目没有等你的"),
     headline: (n) => `${n} 个窗口在等你`, waited: (d) => `等了 ${d}`, go: "去窗口 →",
-    cols: ["窗口", "在干", "状态", "多久"], idleRow: (n, names) => `空闲 ${n} · ${names.join("、")}`,
+    counts: (own, sent) => `自己 ${own} · 派出 ${sent}`, decided: "定", who: { self: "自己", worker: "worker" },
+    gone: "窗口已关，任务还拿着没交还",
+    withState: (name, state) => `${name}（${state}）`, idleRow: (n, names) => `没认领 ${n} · ${names.join("、")}`,
     none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言" },
-  en: { waiting: "Waiting", stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", confirm: "Waiting for you to confirm",
+  en: { waiting: "Waiting", stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
     headline: (n) => `${n} window${n === 1 ? "" : "s"} waiting on you`, waited: (d) => `waiting ${d}`, go: "Go to window →",
-    cols: ["Window", "Doing", "State", "For"], idleRow: (n, names) => `Idle ${n} · ${names.join(", ")}`,
+    counts: (own, sent) => `own ${own} · sent ${sent}`, decided: "decided", who: { self: "self", worker: "worker" },
+    gone: "Window closed, task still held",
+    withState: (name, state) => `${name} (${state.toLowerCase()})`, idleRow: (n, names) => `No task ${n} · ${names.join(", ")}`,
     none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language" },
 };
 
