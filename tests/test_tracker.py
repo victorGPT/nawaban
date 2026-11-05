@@ -641,6 +641,16 @@ def test_release_or_close_clears_the_terminal(run, monkeypatch, args):
     assert _tasks_json(run)["X"]["terminal"] is None
 
 
+def test_a_later_claim_outside_herdr_forgets_an_earlier_terminal(run, monkeypatch):
+    run("create", "X", "--title", "x", "--body", "")
+    monkeypatch.setenv("HC_TERMINAL_ID", "t6")
+    run("claim", "X")
+    run("claim", "X", "--release")
+    monkeypatch.delenv("HC_TERMINAL_ID")
+    run("claim", "X")
+    assert _tasks_json(run)["X"]["terminal"] is None
+
+
 def test_json_task_shows_body_status_and_project(run):
     run("create", "T", "--title", "能看到任务", "--body", "## Acceptance criteria\n- 可以",
         "--project", "alpha")

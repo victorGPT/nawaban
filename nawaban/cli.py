@@ -212,11 +212,11 @@ _TERMINAL = re.compile(r" · terminal (\S+)$")
 
 
 def held_terminal(con, task_id: str, session: str | None) -> str | None:
-    """The terminal named by the holding session's latest claim event that names one."""
+    """The terminal named by the holding session's latest claim (`→in_progress`) event; None if it names none."""
     if not session:
         return None
     r = con.execute("SELECT body FROM events WHERE task=? AND kind='status' AND author=?"
-                    " AND body LIKE '% · terminal %' ORDER BY id DESC LIMIT 1",
+                    " AND body LIKE '%→in_progress%' ORDER BY id DESC LIMIT 1",
                     (task_id, session)).fetchone()
     m = _TERMINAL.search(r["body"]) if r else None
     return m.group(1) if m else None
