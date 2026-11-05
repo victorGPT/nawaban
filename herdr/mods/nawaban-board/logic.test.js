@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, leadersView } from "./logic.js";
+import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, leadersView, itemLabel, decisionDate, WINDOW_WORDS } from "./logic.js";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
   const projects = { projects: [{ name: "nawaban" }, { name: "roubao" }] };
@@ -241,4 +241,33 @@ test("the arrows walk the cards, then the items with a window, each once, though
   assert.deepEqual(v.keys, ["card:0", "L/Q", "L/R"]);
   assert.deepEqual([v.waiting[0].key, ...v.groups[0].items.map((i) => i.key)], ["card:0", "L/Q", "L/R", "L/NOWHERE"]);
   assert.equal(moveSelection(v.keys, "L/Q", 1), "L/R");
+});
+
+test("an item's state says since when: done at a time of day, today or yesterday; current and stopped for how long", () => {
+  const at = (d, h, m) => new Date(2026, 10, d, h, m).getTime() / 1000; // local time, as the panel shows it
+  const now = at(6, 12, 0);
+  const label = (state, when, lang = "zh") => itemLabel({ state, at: when }, now, lang);
+  assert.equal(label("done", at(6, 9, 10)), "完成 09:10");
+  assert.equal(label("done", at(5, 18, 40)), "完成 昨天 18:40");
+  assert.equal(label("done", at(4, 18, 40)), "完成 11-04 18:40");
+  assert.equal(label("done", at(5, 18, 40), "en"), "Done yesterday 18:40");
+  assert.equal(label("current", now - 40 * 60), "在干 40 分钟");
+  assert.equal(label("current", now - 30), "在干 刚刚");
+  assert.equal(label("stopped", now - 2 * 3600 - 59), "停了 2 小时");
+  assert.equal(label("stopped", now - 2 * 3600, "en"), "Stopped 2h");
+  assert.equal(label("current", null), "在干"); // claimed with no claim event
+  assert.equal(label("todo", null), "还没动");
+  assert.equal(decisionDate(at(5, 23, 59)), "11-05");
+});
+
+test("every window of the space holding no task is in the last row, whatever Herdr says it is doing", () => {
+  const v = leaders([agent("t1", "working", "claude", "部署"), agent("t2", "idle", "zsh", "闲聊"),
+    agent("t3", "working", "claude", "入职"), agent("t4", "blocked", "rm?", "确认"), agent("t5", "done", "claude", "13"),
+    agent("o1", "working", "claude", "别处", 0, "other")],
+  [task("A", { status: "in_progress", session: "L", terminal: "t3", claimed_at: 1 })]);
+  // t3 is its task's item, t4 a card, o1 another space's
+  assert.deepEqual(v.idle, { count: 3, names: ["部署（在干）", "闲聊", "13（完成）"] });
+  assert.equal(WINDOW_WORDS.zh.idleRow(v.idle.count, v.idle.names), "没认领 3 · 部署（在干）、闲聊、13（完成）");
+  const en = leaders([agent("t1", "working", "claude", "deploy"), agent("t2", "idle", "zsh", "chat")], [], { lang: "en" });
+  assert.equal(WINDOW_WORDS.en.idleRow(en.idle.count, en.idle.names), "No task 2 · deploy (working), chat");
 });

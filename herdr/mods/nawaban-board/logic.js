@@ -70,7 +70,7 @@ const ROW_ORDER = ["stopped", "done", "working"];
 // The line view (DESIGN.md): windowsView's waiting cards, idle row and other projects' count, and
 // in place of its rows one group per leader (GLOSSARY: Leader).
 export function leadersView(args) {
-  const { waiting, idle, otherWaiting } = windowsView(args);
+  const { waiting, otherWaiting } = windowsView(args);
   const tasks = (args.board?.columns ?? []).flatMap((c) => c.tasks ?? []);
   const agentAt = (terminal) => args.agents.find((a) => a.address === terminal);
   // A task's state, as an item or a spec's segment: done, current (held, its terminal working or
@@ -128,6 +128,13 @@ export function leadersView(args) {
       decision: last ? { at: last.at, verdict: last.verdict.split("\n")[0] } : null, items,
       stopped: items.some((i) => i.state === "stopped"), active: Math.max(...all.map((x) => x.active)) };
   }).sort((x, y) => y.stopped - x.stopped || y.active - x.active).map(({ stopped, active, ...g }) => g);
+  // Every window of the space that is neither a card nor the terminal of an open task, named with
+  // what Herdr says it is doing unless idle: a window working without a task still shows.
+  const words = WINDOW_WORDS[args.lang];
+  const free = args.agents.filter((a) => a.space === args.space && !waiting.some((c) => c.focus === a.address)
+    && !tasks.some((t) => t.status !== "done" && t.terminal === a.address))
+    .map((a) => (a.status === "working" || a.status === "done" ? words.withState(a.tab_name || a.title, words[a.status]) : a.tab_name || a.title));
+  const idle = { count: free.length, names: free };
   // Selection keys, unique where terminals are not: a card and an item, or two items, can share one.
   const cards = waiting.map((c, i) => ({ key: `card:${i}`, ...c }));
   const keys = [...cards, ...out.flatMap((g) => g.items)].filter((x) => x.focus != null).map((x) => x.key);
@@ -158,17 +165,39 @@ const span = (s, lang, card) => {
   return lang === "zh" && card ? `${Math.floor(n)} ${zh}` : `${Math.floor(n)}${en}`;
 };
 
+// An item's state on its right (leadersView's `at` is seconds): "完成 09:10", "完成 昨天 18:40",
+// "在干 40 分钟", "停了 2 小时", "还没动". Local time, from Date's getters.
+export function itemLabel({ state, at }, now, lang) {
+  const w = WINDOW_WORDS[lang], label = w[ITEM_STATE[state]];
+  if (at == null) return label;
+  if (state !== "done") return `${label} ${span(now - at, lang, true)}`;
+  const d = new Date(at * 1000), day = (x) => new Date(x * 1000).setHours(0, 0, 0, 0);
+  const ago = Math.round((day(now) - day(at)) / 86400000);
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${label} ${ago === 0 ? time : ago === 1 ? `${w.yesterday} ${time}` : `${decisionDate(at)} ${time}`}`;
+}
+
+const ITEM_STATE = { done: "done", current: "working", stopped: "stopped", todo: "todo" };
+const pad = (n) => String(n).padStart(2, "0");
+
+// A decision's day, "11-05", local time.
+export const decisionDate = (at) => { const d = new Date(at * 1000); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+
 // The panel's words; WINDOW_WORDS[lang][state] is a state's label.
 export const WINDOW_WORDS = {
-  zh: { waiting: "等你", stopped: "停了", done: "完成", working: "在干", idle: "空闲", confirm: "在等你确认",
+  zh: { waiting: "等你", stopped: "停了", done: "完成", working: "在干", idle: "空闲", todo: "还没动", yesterday: "昨天", confirm: "在等你确认",
     windows: (n) => `${n} 个窗口`, elsewhere: (n) => (n ? `其他项目 ${n} 个等你` : "其他项目没有等你的"),
     headline: (n) => `${n} 个窗口在等你`, waited: (d) => `等了 ${d}`, go: "去窗口 →",
-    cols: ["窗口", "在干", "状态", "多久"], idleRow: (n, names) => `空闲 ${n} · ${names.join("、")}`,
+    counts: (own, sent) => `自己 ${own} · 派出 ${sent}`, decided: "定", who: { self: "自己", worker: "worker" },
+    gone: "窗口已关，任务还拿着没交还",
+    withState: (name, state) => `${name}（${state}）`, idleRow: (n, names) => `没认领 ${n} · ${names.join("、")}`,
     none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言" },
-  en: { waiting: "Waiting", stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", confirm: "Waiting for you to confirm",
+  en: { waiting: "Waiting", stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
     headline: (n) => `${n} window${n === 1 ? "" : "s"} waiting on you`, waited: (d) => `waiting ${d}`, go: "Go to window →",
-    cols: ["Window", "Doing", "State", "For"], idleRow: (n, names) => `Idle ${n} · ${names.join(", ")}`,
+    counts: (own, sent) => `own ${own} · sent ${sent}`, decided: "decided", who: { self: "self", worker: "worker" },
+    gone: "Window closed, task still held",
+    withState: (name, state) => `${name} (${state.toLowerCase()})`, idleRow: (n, names) => `No task ${n} · ${names.join(", ")}`,
     none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language" },
 };
 

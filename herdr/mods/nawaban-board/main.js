@@ -1,18 +1,19 @@
 // nawaban board, read-only: the windows (Herdr agent terminals) of the focused space, joined with
-// the board of the project that space works in (windowsView in logic.js). A card per window
-// waiting on you, a table of the others, the idle ones in one last row; a click goes to the window.
+// the board of the project that space works in (leadersView in logic.js, DESIGN.md's line view).
+// A card per window waiting on you, then one group per leader, its items on a rail in the order
+// they arrived, the windows holding no task in one last row; a click goes to the window.
 // Board data comes from the nawaban CLI (`nawaban json ...`), the checkout docs/install.md puts at
 // ~/nawaban; it runs in the space's folder without --db, so it finds the same board an agent
 // working there does.
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, Popover } from "gpui-base";
+import { v_flex, h_flex, Popover, HoverCard } from "gpui-base";
 import { spaces, focused, agents, run, exec, theme, home, nextCommand, watchFolder } from "herdr";
-import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, WINDOW_WORDS } from "./logic.js";
+import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, leadersView, itemLabel, decisionDate,
+  WINDOW_WORDS } from "./logic.js";
 
 const POLL_MS = 5000;      // re-read the board this often when it cannot be watched
 const FALLBACK_MS = 60000; // and this often when it is, in case a change was missed
-const NARROW_W = 400;      // a narrower panel drops the 多久 column
-const NAME_W = 134, TIME_W = 36, STATE_W = { zh: 44, en: 60 }; // table columns; 在干 takes the rest
+const NARROW_W = 400;      // a narrower panel drops a spec's progress segments
 const ICON = (name) => `mods/nawaban-board/${name}.svg`;
 const CHROME = (name) => `mods/workspace-chrome/${name}.svg`; // Herdr's shipped icons
 const cli = () => `${home()}/nawaban/nawaban/cli.py`;
@@ -45,8 +46,9 @@ export default class NawabanBoard extends View {
     this.projects = new Map();  // folder -> its project (null: none), resolved once per folder
     this.dbs = new Map();       // folder -> the board file its CLI reads (null: unknown)
     this.watched = new Set();   // board files being watched
-    this.items = [];            // the cards and rows a click or Enter can go to, in the order shown
-    this.sel = null;            // the selected one's terminal address
+    this.keys = [];             // the cards and items Enter can go to, in the order shown
+    this.focusOf = new Map();   // their key -> the terminal they go to
+    this.sel = null;            // the selected one's key (a card and an item can share a terminal)
     try { this.lang = localStorage.getItem("lang"); } catch { this.lang = null; }
     if (this.lang !== "zh" && this.lang !== "en") {
       this.lang = "en";
@@ -74,8 +76,8 @@ export default class NawabanBoard extends View {
   act(cmd) {
     if (cmd === "focus") return this.h.focus();
     if (cmd === "back") { this.sel = null; return; }
-    if (cmd === "open") { if (this.items.includes(this.sel)) goTo(this.sel); return; }
-    if (cmd === "down" || cmd === "up") this.sel = moveSelection(this.items, this.sel, cmd === "down" ? 1 : -1);
+    if (cmd === "open") { const f = this.focusOf.get(this.sel); if (f) goTo(f); return; }
+    if (cmd === "down" || cmd === "up") this.sel = moveSelection(this.keys, this.sel, cmd === "down" ? 1 : -1);
   }
 
   refresh(cx) {
@@ -132,13 +134,15 @@ export default class NawabanBoard extends View {
     if (folder() !== this.context || (this.sig != null && sig !== this.sig)) this.refresh(cx);
     this.sig = sig;
     const t = theme(), w = WINDOW_WORDS[this.lang];
-    const v = windowsView({ agents: all, space, board: this.board, now: Math.floor(Date.now() / 1000), lang: this.lang,
+    const now = Math.floor(Date.now() / 1000);
+    const v = leadersView({ agents: all, space, board: this.board, now, lang: this.lang,
       projects: this.projectsOut, project: this.project });
-    this.items = [...v.waiting, ...v.rows].map((x) => x.focus).filter(Boolean);
+    this.keys = v.keys;
+    this.focusOf = new Map([...v.waiting, ...v.groups.flatMap((g) => g.items)].map((x) => [x.key, x.focus]));
     const keyboard = this.h.is_focused();
     const note = this.error ? `${w.error}: ${this.error}` : !this.board ? w.loading
-      : !v.waiting.length && !mine.length ? w.none : null;
-    const table = v.rows.length > 0 || v.idle.count > 0;
+      : !v.waiting.length && !v.groups.length && !mine.length ? w.none : null;
+    const sep = () => div().flex_none().h(1).mx(16).mt(12).bg(t.border);
 
     return v_flex().id("nawaban-board").size_full().min_h(0).rounded(10).overflow_hidden()
       .bg(t.canvas).border_1().border_color(t.border).text_color(t.foreground).text_size(13.5)
@@ -159,7 +163,10 @@ export default class NawabanBoard extends View {
         .when(v.waiting.length > 0, (el) => el
           .child(div().flex_none().px(16).pt(2).pb(10).text_size(20).font_semibold().text_color(t.blocked).child(w.headline(v.waiting.length)))
           .child(v_flex().flex_none().px(12).gap(8).children(v.waiting.map((x, i) => this.card(x, i, keyboard, t, w)))))
-        .when(table, (el) => el.child(this.table(v, keyboard, t, w).when(v.waiting.length > 0, (el) => el.mt(18)))));
+        .children(v.groups.flatMap((g, i) => [...(i > 0 ? [sep()] : []), this.group(g, now, keyboard, t, w)]))
+        .when(v.idle.count > 0, (el) => el.when(v.groups.length > 0, (el) => el.child(sep()))
+          .child(div().flex_none().px(16).pt(12).text_size(12).text_color(t.dim).truncate()
+            .child(w.idleRow(v.idle.count, v.idle.names)))));
   }
 
   // The project, then how many windows and what waits in other projects; the language menu.
@@ -200,11 +207,11 @@ export default class NawabanBoard extends View {
   // most), then what it is working on and "去窗口 →". The whole card is the button; a waiting task
   // in no window of this space has nothing to go to, so no button. The selection is outlined.
   card(x, i, keyboard, t, w) {
-    const can = x.focus != null, on = can && x.focus === this.sel;
+    const can = x.focus != null, on = can && x.key === this.sel;
     return v_flex().id(`nawaban-card-${i}`).flex_none().p(12).rounded(8).bg(t.blocked + "26")
       .border_1().border_color(on ? (keyboard ? t.accent : t.blocked) : t.blocked + "00")
       .when(can, (el) => el.cursor_pointer().hover((s) => s.bg(t.blocked + "33"))
-        .on_click((_e, cx) => { this.sel = x.focus; goTo(x.focus); cx.notify(); }))
+        .on_click((_e, cx) => { this.sel = x.key; goTo(x.focus); cx.notify(); }))
       .child(h_flex().gap(8).items_center()
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(x.name))
         .when(x.duration != null, (el) => el.child(div().flex_none().text_size(12.5).text_color(t.blocked).child(w.waited(x.duration)))))
@@ -215,30 +222,61 @@ export default class NawabanBoard extends View {
           .text_size(12.5).font_semibold().text_color(t.canvas).child(w.go))));
   }
 
-  // 窗口 | 在干 | 状态 | 多久 (多久 dropped below NARROW_W), one row per window, then the idle row.
-  table(v, keyboard, t, w) {
-    const stateW = STATE_W[this.lang], wide = !this.narrow;
-    const line = () => h_flex().flex_none().px(16).gap(12).items_center().border_b(1).border_color(t.border);
-    const color = { stopped: t.blocked, done: t.done, working: t.working };
-    const head = line().h(28).text_size(11).font_semibold().text_color(t.dim)
-      .child(div().w(NAME_W).flex_none().child(w.cols[0]))
-      .child(div().flex_1().min_w(0).child(w.cols[1]))
-      .child(div().w(stateW).flex_none().child(w.cols[2]))
-      .when(wide, (el) => el.child(div().w(TIME_W).flex_none().text_right().child(w.cols[3])));
-    const rows = v.rows.map((x) => {
-      const on = x.focus === this.sel, c = color[x.state];
-      return line().id(`nawaban-row-${x.focus}`).h(38).cursor_pointer()
-        .when(on, (el) => el.bg(keyboard ? t.selected : t.hover)).hover((s) => s.bg(t.hover))
-        .on_click((_e, cx) => { this.sel = x.focus; goTo(x.focus); cx.notify(); })
-        .child(div().w(NAME_W).flex_none().truncate().font_semibold().child(x.name))
-        .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(t.muted).child(x.doing))
-        .child(h_flex().w(stateW).flex_none().child(div().px(6).py(1).rounded(4).text_size(11).font_semibold()
-          .text_color(c).bg(c + "26").child(x.label)))
-        .when(wide, (el) => el.child(div().w(TIME_W).flex_none().text_right().text_size(12.5)
-          .text_color(x.state === "stopped" ? t.blocked : t.muted).child(x.duration ?? "")));
-    });
-    return v_flex().flex_none().child(head).children(rows)
-      .when(v.idle.count > 0, (el) => el.child(line().h(38).text_size(12.5).text_color(t.dim)
-        .child(div().flex_1().min_w(0).truncate().child(w.idleRow(v.idle.count, v.idle.names)))));
+  // A leader: its window's name and 自己 n · 派出 m, its latest decision, then its items on a rail.
+  group(g, now, keyboard, t, w) {
+    return v_flex().flex_none().pt(16).pb(4)
+      .child(h_flex().px(16).gap(12).items_center()
+        .child(div().flex_1().min_w(0).truncate().font_semibold().child(g.name))
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(w.counts(g.self, g.dispatched))))
+      .child(g.decision
+        ? h_flex().px(16).mt(3).mb(8).text_size(12).text_color(t.dim)
+          .child(div().flex_none().text_color(t.muted).child(`${decisionDate(g.decision.at)} ${w.decided}`))
+          .child(div().flex_1().min_w(0).truncate().child(`：${g.decision.verdict}`))
+        : div().h(8))
+      .children(g.items.map((x, i) => this.item(x, i === 0, i === g.items.length - 1, now, keyboard, t, w)));
+  }
+
+  // One item: a dot on the rail, its number, title (a spec: its segments and done/total) and state;
+  // under a held one, who is on it, its latest note (two lines) and 去窗口 → while its window is
+  // there. Resting on an item with a note shows the whole note.
+  item(x, first, last, now, keyboard, t, w) {
+    const held = x.state === "current" || x.state === "stopped", on = x.key === this.sel;
+    const railColor = x.state === "done" ? t.muted : t.border;
+    const ring = (c) => div().size(12).flex_none().rounded_full().border_2().border_color(c).bg(t.canvas);
+    const dot = x.state === "done" ? div().size(8).flex_none().rounded_full().bg(t.muted)
+      : x.state === "todo" ? div().size(8).flex_none().rounded_full().border_2().border_color(t.dim).bg(t.canvas)
+      : x.state === "stopped" ? ring(t.blocked)
+      : ring(t.working).flex().items_center().justify_center()
+        .child(div().size(4).rounded_full().bg(t.working).loop("opacity", { from: 1, to: 0.25, period: 1600 }));
+    const rail = v_flex().w(18).flex_none().items_center()
+      .child(div().w(2).h(held ? 7 : 9).when(!first, (el) => el.bg(railColor)))
+      .child(dot)
+      .child(div().w(2).flex_1().min_h(4).when(!last, (el) => el.bg(railColor)));
+    const segColor = { done: t.muted, current: t.working, stopped: t.blocked, todo: t.border };
+    const stateColor = x.state === "current" ? t.working : x.state === "stopped" ? t.blocked : t.dim;
+    const said = x.gone ? (x.note ? `${w.gone} · ${x.note}` : w.gone) : x.note;
+    const body = v_flex().flex_1().min_w(0)
+      .child(h_flex().h(26).gap(6).items_center().text_size(12.5)
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(String(x.number)))
+        .child(div().flex_1().min_w(0).truncate()
+          .text_color(x.state === "done" || x.state === "todo" ? t.muted : t.foreground).child(x.title))
+        .when(Boolean(x.spec), (el) => el
+          .when(!this.narrow, (el) => el.child(h_flex().flex_none().gap(3).items_center()
+            .children(x.spec.segments.map((s) => div().w(14).h(3).rounded(1).bg(segColor[s])))))
+          .child(div().flex_none().text_size(11).text_color(t.dim).child(`${x.spec.done}/${x.spec.total}`)))
+        .child(div().flex_none().text_size(11).text_color(stateColor).child(itemLabel(x, now, this.lang))))
+      .when(held, (el) => el.child(h_flex().gap(10).pb(8).items_end().text_size(12)
+        .child(div().flex_1().min_w(0).max_h(36).overflow_hidden().line_height("18px").text_color(t.muted)
+          .child([x.who && w.who[x.who], said?.replace(/\s+/g, " ").trim()].filter(Boolean).join(" · ")))
+        .when(x.focus != null, (el) => el.child(div().flex_none().text_color(t.foreground).child(w.go)))));
+    const row = h_flex().id(`nawaban-item-${x.key}`).flex_none().px(16).gap(8).items_stretch().min_h(30)
+      .when(on, (el) => el.bg(keyboard ? t.selected : t.hover))
+      .when(x.focus != null, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => { this.sel = x.key; goTo(x.focus); cx.notify(); }))
+      .child(rail).child(body);
+    if (!x.note) return row;
+    return HoverCard.new(`nawaban-note-${x.key}`).anchor("bottom_left").trigger(row)
+      .content(div().w(320).p(10).rounded(8).bg(t.popover).border_1().border_color(t.border)
+        .text_size(12).line_height("18px").text_color(t.foreground).child(x.note));
   }
 }

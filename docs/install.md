@@ -62,7 +62,7 @@ Commands that write as someone (`claim`, `close`, `event`) take the identity fro
 
 ## Herdr panel
 
-The [Herdr](https://herdr.dev) app can show the board as a read-only panel beside your terminals. It lists the windows (agent terminals) of the focused space, joined with the board of the project that space is in; it runs `python3 ~/nawaban/nawaban/cli.py json ...` in the space's folder. So it needs the checkout at `~/nawaban` (step 2 above) and `python3`.
+The [Herdr](https://herdr.dev) app can show the board as a read-only panel beside your terminals. It shows the windows (agent terminals) of the focused space waiting on you, and what each leader and the workers it dispatched are doing on the board of the project that space is in; it runs `python3 ~/nawaban/nawaban/cli.py json ...` in the space's folder. So it needs the checkout at `~/nawaban` (step 2 above) and `python3`.
 
 1. Copy the mod into Herdr. Copy rather than symlink: Herdr does not reload a symlinked mod when it changes. Run the same command again after pulling to update it.
 
@@ -89,7 +89,7 @@ The [Herdr](https://herdr.dev) app can show the board as a read-only panel besid
    }
    ```
 
-   It starts hidden, at 420 px; drag its edge to resize it between 360 and 720 px. Extra width goes to the 在干 column; below 400 px the 多久 column is dropped. `background` and `radius` only paint the panel as a card; drop them if your layout has its own look.
+   It starts hidden, at 420 px; drag its edge to resize it between 360 and 720 px. Extra width goes to the item titles; below 400 px a spec's progress segments are dropped. `background` and `radius` only paint the panel as a card; drop them if your layout has its own look.
 
 3. Bind a key in `~/.config/herdr-app/keys.json`, in the section for that layout (create the section if it is missing):
 
@@ -103,15 +103,15 @@ The [Herdr](https://herdr.dev) app can show the board as a read-only panel besid
 
 Herdr applies both files within a second. A broken file is ignored, the last good version stays, and Herdr writes `~/.config/herdr-app/layout.error` or `keys.error`; `herdr-app status` lists the same problems under `errors`, which should be `[]`.
 
-![The nawaban panel in Herdr: the project, the count of windows and of items waiting in other projects, then the table of windows](images/herdr-panel.png)
+![The nawaban panel in Herdr: the project, the count of windows and of items waiting in other projects, then one group per leader with its items on a rail](images/herdr-panel.png)
 
-The panel shows one project, the one of the focused space, and lists that space's windows. Top to bottom:
+The panel shows one project, the one of the focused space. Top to bottom:
 
 - **Header.** The project name; on the right, how many windows the space has and how many items wait on you in other projects.
 - **Waiting.** "N 个窗口在等你", then one amber card per window waiting on you: the window, how long it has waited, the question, what it is working on, and "去窗口 →". A window waits on you when it holds a task whose latest `triage:` note is `triage: needs-info — 等你：<question>`, or when Herdr reports it blocked (the card says 在等你确认). A waiting task of this project in no window of this space still gets a card, without the button. When nothing waits, the headline and the cards are gone.
-- **Table.** Every other window that is not idle, in four columns, 窗口 | 在干 | 状态 | 多久, ordered 停了 (it holds an open task and Herdr reports it idle), 完成 (it finished while you were not looking), 在干 (working). 在干 is the title of the task the window holds (the task it claimed in that terminal), else the terminal title.
-- **Idle.** One last row with the count and names of idle windows.
+- **Leaders.** One group per leader (GLOSSARY: Leader, the author of a task's latest `dispatch:` note, else the session holding it): its window's name and "自己 n · 派出 m", the first line of the latest decision on its open items ("11-05 定：…"), then its items on a rail, numbered by when each was first claimed; unclaimed ones after, by creation. A spec is one item, with a segment per ticket in blocked-by order and done/total. Each item says its state on the right: 完成 09:10 (done items stay 24 hours), 在干 40 分钟 (held, its window working; the inner dot breathes), 停了 2 小时 (held, its window idle or closed), 还没动. Under a held item, 自己 or worker, its latest note (two lines; `coord:` notes skipped) and "去窗口 →" while the window is there; resting the pointer on the item shows the whole note. A leader with a stopped item comes first, then the one that moved last.
+- **No task.** One last row with every window of the space that holds no open task and is not a card, whatever Herdr says it is doing: "没认领 2 · 部署（在干）、闲聊".
 
-Clicking a card or a row goes to that window (`agent.focus`). The panel takes the keyboard when you click it or reach it with `pane.go`. Then ↑ and ↓ move the selection through the cards and rows, Enter goes to the selected window, and Esc clears the selection; `pane.go` (or a click elsewhere) hands the keyboard back. Each of these is also a command, `nawaban-board.down`, `.up`, `.open`, `.back` and `.focus` (takes the keyboard), for a `keys.json` binding or `herdr-app do nawaban-board.open`; Herdr delivers them only while the panel is shown. The ⋯ menu switches the labels between Chinese and English.
+Clicking a card or an item goes to its window (`agent.focus`). The panel takes the keyboard when you click it or reach it with `pane.go`. Then ↑ and ↓ move the selection through the cards and items, Enter goes to the selected window, and Esc clears the selection; `pane.go` (or a click elsewhere) hands the keyboard back. Each of these is also a command, `nawaban-board.down`, `.up`, `.open`, `.back` and `.focus` (takes the keyboard), for a `keys.json` binding or `herdr-app do nawaban-board.open`; Herdr delivers them only while the panel is shown. The ⋯ menu switches the labels between Chinese and English.
 
 The panel rereads the board when the board file changes, and when a window of the space comes, goes or changes state, not on a clock; it also rereads once a minute in case a change was missed.
