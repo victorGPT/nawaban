@@ -137,9 +137,3 @@ A timestamped copy of the board file under the board directory's `backups/`, kep
 备份是看板文件带时间戳的副本，放在看板目录的 `backups/` 下，保留 14 天。
 _Avoid_: source checkout as a backup of task data.
 _Current identifiers_: CLI `backup`.
-
-**Migration**(迁移)
-Reading an old-schema board and writing its tasks and events into a new, empty board. The old file is never written and stays as the archive.
-迁移是读取旧结构看板，把任务和事件写进一个新的空看板；旧文件从不被写入，留作存档。
-_Avoid_: upgrade in place.
-_Current identifiers_: CLI `migrate`.

@@ -17,9 +17,6 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # run as a script, too
-from nawaban import old_board  # noqa: E402
-
 VERSION = 1  # PRAGMA user_version; old-schema boards read 0
 SCHEMA = """
 CREATE TABLE tasks (
@@ -195,9 +192,9 @@ def dependents(con, task_id: str) -> list[sqlite3.Row]:
                        " ORDER BY t.id", (task_id,)).fetchall()
 
 
-def add_event(con, task_id: str, author: str, kind: str, body: str, at: int | None = None) -> None:
+def add_event(con, task_id: str, author: str, kind: str, body: str) -> None:
     con.execute("INSERT INTO events (task, at, author, kind, body) VALUES (?,?,?,?,?)",
-                (task_id, int(time.time()) if at is None else at, author, kind, body))
+                (task_id, int(time.time()), author, kind, body))
 
 
 def _status_event(con, task_id: str, who: str, frm: str, to: str, note: str = "") -> None:
@@ -349,54 +346,6 @@ def backup(path: Path, keep_days: int = 14) -> Path:
     return dest_path
 
 
-# ── migrate from an old-schema board ──────────────────────────────
-
-def _copy_old(old, con) -> tuple[int, int, int]:
-    """Copy every task, its events and its edges in one transaction; returns (tasks, events, skipped edges)."""
-    tasks = old_board.tasks(old)
-    n_events = skipped = 0
-    with con:
-        for row, evs in tasks:
-            con.execute("INSERT INTO tasks (id, project, title, body, status, session, created_at)"
-                        " VALUES (:id,:project,:title,:body,:status,:session,:created_at)", row)
-            for at, author, kind, body in evs:
-                add_event(con, row["id"], author, kind, body, at)
-            n_events += len(evs)
-        ids = {row["id"] for row, _ in tasks}
-        for kind, src, dst in old_board.edges(old):
-            if src not in ids or dst not in ids:
-                skipped += 1  # the old board never enforced its foreign keys
-            elif kind == "split_from":
-                con.execute("UPDATE tasks SET parent=? WHERE id=?", (dst, src))
-            else:
-                con.execute("INSERT INTO blockers (task, blocker) VALUES (?,?)", (src, dst))
-    return len(tasks), n_events, skipped
-
-
-def migrate(old_path: Path, new_path: Path) -> str:
-    """Read an old-schema board (read-only) into an empty new board."""
-    if not old_path.exists():
-        raise Refused(f"旧看板不存在:{old_path}")
-    with closing(sqlite3.connect(old_path.absolute().as_uri() + "?mode=ro", uri=True)) as old:
-        old.row_factory = sqlite3.Row
-        try:
-            tables = {r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        except sqlite3.DatabaseError:
-            tables = set()
-        if not old_board.TABLES <= tables:
-            raise Refused(f"不是旧版看板:{old_path}")
-        init(new_path)
-        with closing(open_board(new_path)) as con:
-            if con.execute("SELECT 1 FROM tasks LIMIT 1").fetchone():
-                raise Refused(f"目标看板已有任务,拒绝迁移:{new_path}")
-            try:
-                n_tasks, n_events, skipped = _copy_old(old, con)
-            except (sqlite3.Error, IndexError) as e:  # IndexError: a column the old schema should have
-                raise Refused(f"迁移失败,新看板未写入:{type(e).__name__}: {e}") from None
-    out = f"✓ migrate {old_path} → {new_path} · 任务 {n_tasks} · 事件 {n_events}"
-    return out + (f" · 跳过悬空关系 {skipped}" if skipped else "")
-
-
 # ── json: read-only projections for the Herdr panel ───────────────
 
 COLUMNS = ("open", "in_progress", "done")
@@ -539,9 +488,6 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--parent")
     p.add_argument("--frontier", action="store_true", help="只列可开工:未关闭、没人认领、前置都已关闭")
     sub.add_parser("backup", help="备份到 <看板目录>/backups/ · 保留 14 天")
-    p = sub.add_parser("migrate", help="把旧结构看板迁成新看板(只读旧文件 · 目标已有任务就拒绝)")
-    p.add_argument("old")
-    p.add_argument("new")
     p = sub.add_parser("json", help="看板的 JSON(projects、board、task;db:看板文件的真实路径)")
     p.add_argument("what", choices=("projects", "board", "task", "db"))
     p.add_argument("id", nargs="?", default="", help="task:任务 id")
@@ -555,9 +501,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if a.verb == "init":
             print(f"✓ init → {path}" if init(path) else f"✓ 看板已存在:{path}")
-            return 0
-        if a.verb == "migrate":
-            print(migrate(Path(a.old).expanduser(), Path(a.new).expanduser()))
             return 0
         if a.verb == "json":
             return json_out(path, a)
