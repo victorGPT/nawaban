@@ -14,6 +14,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from collections import Counter
 from contextlib import closing
 from pathlib import Path
 
@@ -202,6 +203,25 @@ def _status_event(con, task_id: str, who: str, frm: str, to: str, note: str = ""
     add_event(con, task_id, who, "status", f"{frm}→{to}" + (f" · {note}" if note else ""))
 
 
+def herdr_terminal() -> str | None:
+    """The Herdr terminal a Claude Code session runs in; None outside Herdr or for NAWABAN_OWNER."""
+    return os.environ.get("HC_TERMINAL_ID") if os.environ.get("CLAUDE_CODE_SESSION_ID") else None
+
+
+_TERMINAL = re.compile(r" · terminal (\S+)$")
+
+
+def held_terminal(con, task_id: str, session: str | None) -> str | None:
+    """The terminal named by the holding session's latest claim event that names one."""
+    if not session:
+        return None
+    r = con.execute("SELECT body FROM events WHERE task=? AND kind='status' AND author=?"
+                    " AND body LIKE '% · terminal %' ORDER BY id DESC LIMIT 1",
+                    (task_id, session)).fetchone()
+    m = _TERMINAL.search(r["body"]) if r else None
+    return m.group(1) if m else None
+
+
 def _add_blocker(con, task_id: str, blocker: str) -> None:
     _task(con, task_id)
     _task(con, blocker)
@@ -260,12 +280,16 @@ def claim(con, a) -> str:
         return f"✓ release {a.id}"
     if t["status"] != "open":
         raise Refused(f"{a.id} 已是 {t['status']},不能认领;要重做先 close --reopen")
-    if holder == who:
+    here = herdr_terminal()
+    # The holder claiming again only records a move to another terminal.
+    if holder == who and (not here or here == held_terminal(con, a.id, who)):
         return f"✓ {a.id} 已在本窗口 {who} 手上"
+    note = " · ".join(filter(None, [f"接手自 {holder}" if holder and holder != who else "",
+                                     f"terminal {here}" if here else ""]))
     with con:
         con.execute("UPDATE tasks SET session=? WHERE id=?", (who, a.id))
-        _status_event(con, a.id, who, derived_status(t), "in_progress", f"接手自 {holder}" if holder else "")
-    return f"✓ claim {a.id} · 窗口 {who}"
+        _status_event(con, a.id, who, derived_status(t), "in_progress", note)
+    return f"✓ claim {a.id} · 窗口 {who}" + (f" · terminal {here}" if here else "")
 
 
 def close(con, a) -> str:
@@ -360,12 +384,21 @@ def _event(r: sqlite3.Row) -> dict:
     return {"kind": r["kind"], "body": r["body"], "author": r["author"], "at": r["at"]}
 
 
+def _triage_notes(con) -> list[sqlite3.Row]:
+    """Each open task's latest `triage:` note, with the task's project."""
+    return con.execute(
+        "SELECT e.task, NULLIF(t.project,'') AS project, e.body FROM events e JOIN tasks t ON t.id=e.task"
+        " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
+        " WHERE task=e.task AND kind='note' AND ltrim(body) LIKE 'triage:%')").fetchall()
+
+
 def projects_data(path: Path | str) -> dict:
     with closing(open_readonly(path)) as con:
         rows = con.execute(
             "SELECT NULLIF(project,'') AS name, SUM(status='open') AS open, count(*) AS total"
             " FROM tasks GROUP BY name ORDER BY name IS NULL, name").fetchall()
-        return {"projects": [dict(r) for r in rows]}
+        waiting = Counter(r["project"] for r in _triage_notes(con) if waiting_question(r["body"]) is not None)
+        return {"projects": [dict(r) | {"waiting": waiting[r["name"]]} for r in rows]}
 
 
 _NEEDS_INFO = re.compile(r"triage:\s*needs-info[\s—–:：-]*(?:等你\s*[:：])?\s*")
@@ -395,10 +428,9 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
             "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
             " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
             " WHERE task=e.task AND kind='note')")}
-        triage = {r["task"]: r["body"] for r in con.execute(
-            "SELECT e.task, e.body FROM events e JOIN tasks t ON t.id=e.task"
-            " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
-            " WHERE task=e.task AND kind='note' AND ltrim(body) LIKE 'triage:%')")}
+        triage = {r["task"]: r["body"] for r in _triage_notes(con)}
+        terminals = {r["id"]: held_terminal(con, r["id"], r["session"])
+                     for r in rows if r["status"] == "open" and r["session"]}
         blockers: dict[str, list[str]] = {}
         for r in con.execute("SELECT b.task, b.blocker FROM blockers b JOIN tasks x ON x.id=b.blocker"
                              " WHERE x.status='open' ORDER BY b.blocker"):
@@ -409,7 +441,8 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
         task = {
             "id": r["id"], "title": r["title"], "status": status, "project": r["project"],
             "parent": r["parent"], "session": r["session"], "created_at": r["created_at"],
-            "active_at": r["active_at"], "open_blockers": r["open_blockers"]}
+            "active_at": r["active_at"], "open_blockers": r["open_blockers"],
+            "terminal": terminals.get(r["id"])}
         if r["status"] == "open":
             task["progress"] = notes.get(r["id"])
             task["blocked_by"] = blockers.get(r["id"], [])

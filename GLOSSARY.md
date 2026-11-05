@@ -93,8 +93,8 @@ _Avoid_: owner, worker, agent as the holder field.
 _Current identifiers_: `tasks.session`; `CLAUDE_CODE_SESSION_ID`; `NAWABAN_OWNER`.
 
 **Claim**(认领)
-Setting a task's session. A claim on a task another session holds fails and names the holder, unless it is a takeover; releasing returns the task to the frontier.
-认领是把任务的会话设成自己。别的会话已持有时认领失败并说出持有者，除非显式接手；交还后任务回到可开工列表。
+Setting a task's session. A claim on a task another session holds fails and names the holder, unless it is a takeover; releasing returns the task to the frontier. Inside Herdr a claim also records the terminal it ran in.
+认领是把任务的会话设成自己。别的会话已持有时认领失败并说出持有者，除非显式接手；交还后任务回到可开工列表。在 Herdr 里认领还会记下所在终端。
 _Avoid_: assign, start, lock.
 _Current identifiers_: CLI `claim`, `claim --take`, `claim --release`.
 
