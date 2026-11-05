@@ -154,7 +154,7 @@ export function windowsView({ agents, board, now, lang, projects, project }) {
     // Herdr records no time for `blocked` (`seq` only orders changes), so that wait has no length.
     const since = blocked ? null : task?.active_at ?? null;
     return { name: a.tab_name || a.title, ...(state === "waiting" && { question: asking?.waiting ?? words.confirm }),
-      doing: task?.title ?? a.title, state, label: words[state], duration: since == null ? null : span(now - since, lang, !!asking),
+      doing: blocked ? a.title : task?.title ?? a.title, state, label: words[state], duration: since == null ? null : span(now - since, lang, !!asking),
       focus: a.address, seq: a.seq, since };
   });
   // A waiting task in no window of this space (its terminal unknown, or elsewhere) still asks; named by its ID.

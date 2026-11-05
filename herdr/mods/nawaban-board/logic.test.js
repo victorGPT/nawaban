@@ -250,6 +250,9 @@ test("a window Herdr reports blocked is 等你 on its terminal title, asking for
     label: "等你", duration: null, focus: "t1" }]);
   assert.deepEqual(v.rows, []);
   assert.equal(view([agent("t1", "blocked", "x")], [], { lang: "en" }).waiting[0].question, "Waiting for you to confirm");
+  // the terminal title says what it asks to confirm, so it stays on the card when the window holds a task
+  const card = view([agent("t1", "blocked", "rm -rf build?", "清理flag")], [held("A", "t1", { title: "清理" })]).waiting[0];
+  assert.deepEqual([card.name, card.doing, card.duration], ["清理flag", "rm -rf build?", null]);
 });
 
 test("a waiting task in no window of this space still gets a card, with nothing to focus; cards wait longest first", () => {
