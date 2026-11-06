@@ -80,8 +80,15 @@ test("an idle window holding an open task is 停了 on that task, for as long as
 test("a window that finished unseen is 完成; one idle with no open task is 空闲, collapsed into the idle row", () => {
   const tasks = [held("OLD", "t2", { status: "done" })];
   const v = view([agent("t1", "done", "知识库重试", "13"), agent("t2", "idle", "zsh", "7"), agent("t3", "idle", "~", "")], tasks);
-  assert.deepEqual(v.rows.map((r) => [r.name, r.doing, r.state, r.label]), [["13", "知识库重试", "done", "完成"]]);
-  assert.deepEqual(v.idle, { count: 2, names: ["7", "~"] });
+  // a tab nobody named is called by its index ("13"): never a name, the terminal title instead
+  assert.deepEqual(v.rows.map((r) => [r.name, r.doing, r.state, r.label]), [["知识库重试", "知识库重试", "done", "完成"]]);
+  assert.deepEqual(v.idle, { count: 2, names: ["zsh", "~"] });
+});
+
+test("a window is named by its Herdr terminal name first, then its tab's name, then its terminal title", () => {
+  const agents = [agent("t1", "working", "读字段", "分析 CRM"), agent("t2", "working", "读字段", "4"), agent("t3", "working", "读字段", "")];
+  const terminals = [{ address: "t1", name: "gh-239", state: "live" }, { address: "t2", name: "gh-256", state: "live" }];
+  assert.deepEqual(view(agents, [], { terminals }).rows.map((r) => r.name), ["gh-239", "gh-256", "读字段"]);
 });
 
 test("rows run 停了, then 完成, then 在干, the window Herdr changed most recently first within each", () => {
@@ -266,8 +273,8 @@ test("every window of the space holding no task is in the last row, whatever Her
     agent("o1", "working", "claude", "别处", 0, "other")],
   [task("A", { status: "in_progress", session: "L", terminal: "t3", claimed_at: 1 })]);
   // t3 is its task's item, t4 a card, o1 another space's
-  assert.deepEqual(v.idle, { count: 3, names: ["部署（在干）", "闲聊", "13（完成）"] });
-  assert.equal(WINDOW_WORDS.zh.idleRow(v.idle.count, v.idle.names), "没认领 3 · 部署（在干）、闲聊、13（完成）");
+  assert.deepEqual(v.idle, { count: 3, names: ["部署（在干）", "闲聊", "claude（完成）"] }); // tab "13": unnamed
+  assert.equal(WINDOW_WORDS.zh.idleRow(v.idle.count, v.idle.names), "没认领 3 · 部署（在干）、闲聊、claude（完成）");
   const en = leaders([agent("t1", "working", "claude", "deploy"), agent("t2", "idle", "zsh", "chat")], [], { lang: "en" });
   assert.equal(WINDOW_WORDS.en.idleRow(en.idle.count, en.idle.names), "No task 2 · deploy (working), chat");
 });
@@ -291,4 +298,38 @@ test("a spec held itself, none of its tickets held, speaks for itself: current o
       [["S", state, "self", "拆票中", "t1"]], herdr);
     assert.deepEqual([v.idle.count, v.keys], [0, ["L/S"]]);
   }
+});
+
+// Herdr's terminal tree (`terminals()`): a leader started its workers with `hc run`, so they are its
+// children and have no pane, hence no AgentInfo. As in the roubao space on 2026-11-06.
+const kid = (address, name, status, parent = "t23") => ({ address, name, parent, status, state: "live" });
+const roubao = [{ address: "t23", name: null, parent: null, status: "idle", state: "live" },
+  kid("t4r", "gh-256", "working"), kid("t4n", "gh-239", "done"), kid("t4p", "gh-238r", "idle")];
+
+test("a leader terminal's children are its items, by Herdr name, in start order, none in the last row", () => {
+  const terminals = [...roubao, { ...kid("t4s", "ended", "done"), state: "finished" }];
+  const v = leaders([agent("t23", "idle", "claude", "leader agent"), agent("t1z", "idle", "claude", "4")], [], { terminals });
+  assert.deepEqual(v.groups.map((g) => [g.leader, g.name, g.self, g.dispatched,
+    g.items.map((i) => [i.number, i.title, i.state, i.who, i.focus])]), [["t23", "leader agent", 0, 3, [
+    [1, "gh-239", "done", "worker", "t4n"], [2, "gh-238r", "stopped", "worker", "t4p"], [3, "gh-256", "current", "worker", "t4r"]]]]);
+  assert.deepEqual(v.idle, { count: 1, names: ["claude"] }); // t1z: neither the leader nor its children
+  assert.deepEqual(v.keys, ["t23/t4n", "t23/t4p", "t23/t4r"]);
+  // a terminal with no children and no task stays in the last row, under its Herdr name when it has one
+  const named = leaders([agent("t1z", "idle", "claude", "4")], [], { terminals: [{ address: "t1z", name: "kb", parent: null, state: "live" }] });
+  assert.deepEqual([named.groups, named.idle], [[], { count: 1, names: ["kb"] }]);
+});
+
+test("a child holding a nawaban task shows the task and its note; the leader's own tasks and the ones it dispatched with no window yet join its group", () => {
+  const v = leaders([agent("t23", "working", "claude", "leader agent")], [
+    task("OWN", { status: "in_progress", session: "L", terminal: "t23", claimed_at: 5, progress: "拆票" }),
+    task("GH", { status: "in_progress", session: "W", leader: "L", terminal: "t4n", claimed_at: 9, progress: "第 2 步" }),
+    task("QUEUED", { leader: "L", created_at: 3 }), // dispatched, not started: only the board knows its leader
+    task("ELSE", { status: "in_progress", session: "M", claimed_at: 1 })], { terminals: roubao });
+  assert.deepEqual(v.groups.map((g) => [g.leader, g.name, g.self, g.dispatched]), [["t23", "leader agent", 1, 4], ["M", "M", 1, 0]]);
+  assert.deepEqual(v.groups[0].items.map((i) => [i.number, i.title, i.name, i.state, i.who, i.note, i.focus]), [
+    [1, "GH", "gh-239", "current", "worker", "第 2 步", "t4n"], // t4n is Herdr-done: the task is still held
+    [2, "gh-238r", undefined, "stopped", "worker", null, "t4p"],
+    [3, "gh-256", undefined, "current", "worker", null, "t4r"],
+    [4, "OWN", undefined, "current", "self", "拆票", "t23"],
+    [5, "QUEUED", undefined, "todo", "worker", null, null]]);
 });

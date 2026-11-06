@@ -29,7 +29,8 @@ export const boardChanged = (paths, db) =>
 // a task asking a triage question, or Herdr says blocked), 停了 (it holds an open task and Herdr says idle), 完成, 在干,
 // 空闲. Durations run from the held task's latest event; Herdr records none of its own.
 // `otherWaiting` sums `json projects`' waiting counts of every project but `project`.
-export function windowsView({ agents, space, board, now, lang, projects, project }) {
+export function windowsView({ agents, space, board, now, lang, projects, project, terminals = [] }) {
+  const nameOf = namer(terminals);
   const open = (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? [])
     .sort((x, y) => y.active_at - x.active_at);
   const words = WINDOW_WORDS[lang];
@@ -43,7 +44,7 @@ export function windowsView({ agents, space, board, now, lang, projects, project
       : a.status === "done" || a.status === "working" ? a.status : "idle";
     // Herdr records no time for `blocked` (`seq` only orders changes), so that wait has no length.
     const since = blocked ? null : task?.active_at ?? null;
-    return { name: a.tab_name || a.title, ...(state === "waiting" && { question: asking?.waiting ?? words.confirm }),
+    return { name: nameOf(a), ...(state === "waiting" && { question: asking?.waiting ?? words.confirm }),
       doing: blocked ? a.title : task?.title ?? a.title, state, label: words[state], duration: since == null ? null : span(now - since, lang, !!asking),
       focus: a.address, seq: a.seq, since };
   });
@@ -52,7 +53,7 @@ export function windowsView({ agents, space, board, now, lang, projects, project
   const strays = open.filter((t) => t.waiting != null && !here.some((a) => a.address === t.terminal))
     .map((t) => {
       const away = agents.find((a) => a.address === t.terminal);
-      return { name: away ? away.tab_name || away.title : t.id, question: t.waiting, doing: t.title, state: "waiting",
+      return { name: away ? nameOf(away) : t.id, question: t.waiting, doing: t.title, state: "waiting",
         label: words.waiting, duration: span(now - t.active_at, lang, true), focus: away?.address ?? null, seq: 0, since: t.active_at };
     });
   const out = ({ seq, since, ...w }) => w;
@@ -67,18 +68,40 @@ export function windowsView({ agents, space, board, now, lang, projects, project
 
 const ROW_ORDER = ["stopped", "done", "working"];
 
+// What a window is called (agents()' AgentInfo): its terminal's Herdr name (`terminals()`, as
+// `hc run --name gh-239` gives it), else its tab's name, else its terminal title; never a tab's bare
+// index ("4"), which is what Herdr calls a tab nobody named. ponytail: a tab someone named "4"
+// reads as unnamed; pass spaces()' TabInfo.named in if that matters.
+const namer = (terminals) => {
+  const names = new Map(terminals.map((k) => [k.address, k.name]));
+  return (a) => names.get(a.address) || (/^\d+$/.test(a.tab_name) ? "" : a.tab_name) || a.title;
+};
+
 // The line view (DESIGN.md): windowsView's waiting cards, idle row and other projects' count, and
-// in place of its rows one group per leader (GLOSSARY: Leader).
+// in place of its rows one group per leader (GLOSSARY: Leader), as Herdr's terminal tree shows it.
+// `terminals` is Herdr's terminals(): every core terminal with its `name`, `parent` and `status`.
 export function leadersView(args) {
   const { waiting, otherWaiting } = windowsView(args);
+  const terminals = args.terminals ?? [], nameOf = namer(terminals);
   const tasks = (args.board?.columns ?? []).flatMap((c) => c.tasks ?? []);
   const agentAt = (terminal) => args.agents.find((a) => a.address === terminal);
+  // A window: its agent, else its live terminal (a worker started with `hc run` has no pane, so no agent).
+  const live = terminals.filter((k) => k.state === "live");
+  const windowAt = (terminal) => agentAt(terminal) ?? live.find((k) => k.address === terminal);
+  // Herdr's tree: an agent of the space with live child terminals leads them, in start order.
+  // ponytail: start order is address order (Herdr numbers terminals as they start, in base 36:
+  // t9, t10, t1b); `hc ls` gives no start time. Only direct children: a grandchild is not listed.
+  const order = (k) => parseInt(k.address.split("/").pop().slice(1), 36);
+  const kids = new Map(args.agents.filter((a) => a.space === args.space)
+    .map((a) => [a.address, live.filter((k) => k.parent === a.address).sort((x, y) => order(x) - order(y))])
+    .filter(([, c]) => c.length));
+  const parentOf = new Map([...kids].flatMap(([p, c]) => c.map((k) => [k.address, p])));
   // A task's state, as an item or a spec's segment: done, current (held, its terminal working or
   // unknown), stopped (held, its terminal idle or gone), todo.
   const stateOf = (t) => {
     if (t.status === "done") return "done";
     if (!t.session) return "todo";
-    const a = t.terminal && agentAt(t.terminal);
+    const a = t.terminal && windowAt(t.terminal);
     return t.terminal && (!a || a.status === "idle") ? "stopped" : "current";
   };
   // Whether a task puts an item under its leader: held, or dispatched and not started (a leader but
@@ -87,17 +110,28 @@ export function leadersView(args) {
   // A ticket stands in its spec's place: the item is the topmost task on the board above it.
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const rootOf = (t) => { while (byId.has(t.parent)) t = byId.get(t.parent); return t; };
-  const groups = new Map(); // leader -> the items' tasks, deduplicated
-  for (const t of tasks) {
-    // A board with no leader field (an older CLI): the holder leads, so nothing held vanishes.
+  // A task's group: the Herdr leader of the window holding it (that window's parent, or the window
+  // itself); else its board leader (a board with no leader field, an older CLI: its holder), which
+  // is that leader's Herdr group when the leader's session holds a task in a leader terminal.
+  const groupOf = (t) => {
+    if (parentOf.has(t.terminal)) return parentOf.get(t.terminal);
+    if (kids.has(t.terminal)) return t.terminal;
     const leader = sessionKey(t.leader ?? t.session);
+    const home = tasks.find((x) => leader != null && sessionKey(x.session) === leader && kids.has(x.terminal))?.terminal;
+    return home ?? leader;
+  };
+  const groups = new Map([...kids.keys()].map((p) => [p, new Set()])); // leader -> the items' tasks, deduplicated
+  const atKid = new Map(); // a child terminal -> the item's task of the open task it holds
+  for (const t of tasks) {
+    const leader = groupOf(t);
     if (leader == null || !inGroup(t)) continue;
     if (!groups.has(leader)) groups.set(leader, new Set());
     groups.get(leader).add(rootOf(t));
+    if (t.status !== "done" && t.session != null && parentOf.has(t.terminal)) atKid.set(t.terminal, rootOf(t));
   }
   const named = (leader) => {
-    const a = agentAt(tasks.find((x) => sessionKey(x.session) === leader && x.terminal)?.terminal);
-    return a ? a.tab_name || a.title : leader.slice(0, 8);
+    const a = agentAt(kids.has(leader) ? leader : tasks.find((x) => sessionKey(x.session) === leader && x.terminal)?.terminal);
+    return a ? nameOf(a) : leader.slice(0, 8);
   };
   // An item: a task, or a spec with its tickets, whose held ticket (a stopped one first) speaks for
   // it; with none held, the spec speaks for itself.
@@ -107,22 +141,35 @@ export function leadersView(args) {
     const lead = tickets[states.indexOf("stopped")] ?? tickets[states.indexOf("current")] ?? r;
     const state = r.status === "done" || (tickets.length && done === tickets.length) ? "done" : stateOf(lead);
     const held = state === "current" || state === "stopped";
-    // Dispatched: held by another session, or a task not started (only a dispatch note gives an unclaimed task a leader).
-    const who = held ? (sessionKey(lead.session) === leader ? "self" : "worker") : state === "todo" && !tickets.length ? "worker" : null;
+    // Dispatched: held by another session or window, or a task not started (only a dispatch note gives an unclaimed task a leader).
+    const self = sessionKey(lead.session) === leader || lead.terminal === leader;
+    const who = held ? (self ? "self" : "worker") : state === "todo" && !tickets.length ? "worker" : null;
     const all = [r, ...tickets], claims = all.map((t) => t.claimed_at).filter((c) => c != null);
     // Since when, in seconds: done, when it was done; current, its first claim; stopped, its latest event.
     const at = state === "done" ? r.done_at ?? Math.max(...tickets.map((t) => t.done_at ?? 0))
       : state === "current" ? lead.claimed_at : state === "stopped" ? lead.active_at : null;
-    return { id: r.id, title: r.title, state, at, gone: state === "stopped" && !agentAt(lead.terminal), who,
-      note: held ? lead.progress?.body ?? null : null, focus: held && agentAt(lead.terminal) ? lead.terminal : null,
+    return { id: r.id, title: r.title, state, at, gone: state === "stopped" && !windowAt(lead.terminal), who,
+      note: held ? lead.progress?.body ?? null : null, focus: held && windowAt(lead.terminal) ? lead.terminal : null,
       spec: tickets.length ? { tickets: tickets.map((t) => t.id), segments: states, done, total: tickets.length } : null,
       claimed: claims.length ? Math.min(...claims) : Infinity, created_at: r.created_at,
       decisions: all.map((t) => t.decision).filter(Boolean), // the board gives open tasks only a decision
       active: Math.max(...all.map((t) => t.active_at)) };
   };
+  // A child terminal: the task it holds, under the child's Herdr name; holding none, what Herdr says
+  // of it: its name, its title (when it has a pane, so an agent) as the note.
+  // ponytail: Herdr's states as an item's: working is current, done done, any other stopped.
+  const kidName = (k) => k.name || k.program?.name || k.address;
+  const kidItem = (k, leader) => {
+    if (atKid.has(k.address)) return { ...itemOf(atKid.get(k.address), leader), name: kidName(k) };
+    const a = agentAt(k.address), status = a?.status ?? k.status;
+    return { id: k.address, title: kidName(k), state: status === "working" ? "current" : status === "done" ? "done" : "stopped",
+      at: null, gone: false, who: "worker", note: a?.title || null, focus: k.address, spec: null, decisions: [], active: 0 };
+  };
   const out = [...groups].map(([leader, roots]) => {
-    const all = [...roots].map((r) => itemOf(r, leader))
-      .sort((x, y) => x.claimed - y.claimed || x.created_at - y.created_at);
+    const tree = kids.get(leader) ?? [], taken = new Set(tree.map((k) => atKid.get(k.address)));
+    // The children first, as they started; then the rest by first claim (arrival), unclaimed ones by creation.
+    const all = [...tree.map((k) => kidItem(k, leader)), ...[...roots].filter((r) => !taken.has(r)).map((r) => itemOf(r, leader))
+      .sort((x, y) => x.claimed - y.claimed || x.created_at - y.created_at)];
     const items = all.map(({ claimed, created_at, decisions, active, ...x }, i) => ({ key: `${leader}/${x.id}`, number: i + 1, ...x }));
     const dispatched = items.filter((i) => i.who === "worker").length;
     const last = all.flatMap((x) => x.decisions).sort((x, y) => y.at - x.at)[0];
@@ -130,12 +177,12 @@ export function leadersView(args) {
       decision: last ? { at: last.at, verdict: last.verdict.split("\n")[0] } : null, items,
       stopped: items.some((i) => i.state === "stopped"), active: Math.max(...all.map((x) => x.active)) };
   }).sort((x, y) => y.stopped - x.stopped || y.active - x.active).map(({ stopped, active, ...g }) => g);
-  // Every window of the space that is neither a card nor the terminal of an open task, named with
-  // what Herdr says it is doing unless idle: a window working without a task still shows.
+  // Every window of the space that is neither a card, a leader or its child, nor the terminal of an
+  // open task, named with what Herdr says it is doing unless idle: a window working without a task still shows.
   const words = WINDOW_WORDS[args.lang];
   const free = args.agents.filter((a) => a.space === args.space && !waiting.some((c) => c.focus === a.address)
-    && !tasks.some((t) => t.status !== "done" && t.terminal === a.address))
-    .map((a) => (a.status === "working" || a.status === "done" ? words.withState(a.tab_name || a.title, words[a.status]) : a.tab_name || a.title));
+    && !kids.has(a.address) && !parentOf.has(a.address) && !tasks.some((t) => t.status !== "done" && t.terminal === a.address))
+    .map((a) => (a.status === "working" || a.status === "done" ? words.withState(nameOf(a), words[a.status]) : nameOf(a)));
   const idle = { count: free.length, names: free };
   // Selection keys, unique where terminals are not: a card and an item, or two items, can share one.
   const cards = waiting.map((c, i) => ({ key: `card:${i}`, ...c }));

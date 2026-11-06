@@ -7,7 +7,7 @@
 // working there does.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, HoverCard } from "gpui-base";
-import { spaces, focused, agents, run, exec, theme, home, nextCommand, watchFolder } from "herdr";
+import { spaces, focused, agents, terminals, run, exec, theme, home, nextCommand, watchFolder } from "herdr";
 import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, leadersView, itemLabel, decisionDate,
   WINDOW_WORDS } from "./logic.js";
 
@@ -135,7 +135,7 @@ export default class NawabanBoard extends View {
     this.sig = sig;
     const t = theme(), w = WINDOW_WORDS[this.lang];
     const now = Math.floor(Date.now() / 1000);
-    const v = leadersView({ agents: all, space, board: this.board, now, lang: this.lang,
+    const v = leadersView({ agents: all, terminals: terminals(), space, board: this.board, now, lang: this.lang,
       projects: this.projectsOut, project: this.project });
     this.keys = v.keys;
     this.focusOf = new Map([...v.waiting, ...v.groups.flatMap((g) => g.items)].map((x) => [x.key, x.focus]));
@@ -237,7 +237,7 @@ export default class NawabanBoard extends View {
   }
 
   // One item: a dot on the rail, its number, title (a spec: its segments and done/total) and state;
-  // under a held one, who is on it, its latest note (two lines) and 去窗口 → while its window is
+  // under a held one, who is on it (a child terminal: its Herdr name), its latest note (two lines) and 去窗口 → while its window is
   // there. Resting on an item with a note shows the whole note.
   item(x, first, last, now, keyboard, t, w) {
     const held = x.state === "current" || x.state === "stopped", on = x.key === this.sel;
@@ -267,7 +267,7 @@ export default class NawabanBoard extends View {
         .child(div().flex_none().text_size(11).text_color(stateColor).child(itemLabel(x, now, this.lang))))
       .when(held, (el) => el.child(h_flex().gap(10).pb(8).items_end().text_size(12)
         .child(div().flex_1().min_w(0).max_h(36).overflow_hidden().line_height("18px").text_color(t.muted)
-          .child([x.who && w.who[x.who], said?.replace(/\s+/g, " ").trim()].filter(Boolean).join(" · ")))
+          .child([x.name ?? (x.who && w.who[x.who]), said?.replace(/\s+/g, " ").trim()].filter(Boolean).join(" · ")))
         .when(x.focus != null, (el) => el.child(div().flex_none().text_color(t.foreground).child(w.go)))));
     const row = h_flex().id(`nawaban-item-${x.key}`).flex_none().px(16).gap(8).items_stretch().min_h(30)
       .when(on, (el) => el.bg(keyboard ? t.selected : t.hover))
