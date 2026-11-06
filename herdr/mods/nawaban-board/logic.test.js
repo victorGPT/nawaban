@@ -322,6 +322,26 @@ test("a leader terminal's children are its items, by Herdr name, in start order,
   assert.deepEqual([named.groups, named.idle], [[], { count: 1, names: ["kb"] }]);
 });
 
+test("a leader's whole subtree is its items, in start order: a worker's own workers too, whether or not they have a pane", () => {
+  const terminals = [kid("t1", "lead", "idle", null), kid("t2", "w", "idle", "t1"), kid("t3", "ww", "working", "t2"),
+    kid("t5", "www", "idle", "t3"), kid("t4", "w2", "idle", "t1")];
+  // t3 has a pane (an agent of the space) and leads t5; it is still t1's
+  const v = leaders([agent("t1", "idle", "lead"), agent("t3", "working", "ww")], [], { terminals });
+  assert.deepEqual(v.groups.map((g) => [g.leader, g.items.map((i) => i.focus)]), [["t1", ["t2", "t3", "t4", "t5"]]]);
+  assert.deepEqual(v.idle, { count: 0, names: [] });
+});
+
+test("each child terminal is its own item, keyed by its terminal, though two hold tickets of one spec", () => {
+  const v = leaders([agent("t23", "working", "claude", "leader agent")], [task("S", { title: "报表迁移" }),
+    task("S-1", { parent: "S", status: "in_progress", session: "W1", leader: "L", terminal: "t4r", claimed_at: 1, progress: "一" }),
+    task("S-2", { parent: "S", status: "in_progress", session: "W2", leader: "L", terminal: "t4n", claimed_at: 2, progress: "二" })],
+  { terminals: roubao.map((k) => ({ ...k, status: "working" })) });
+  assert.deepEqual(v.groups[0].items.map((i) => [i.key, i.title, i.name, i.note, i.focus]), [
+    ["t23/t4n", "S-2", "gh-239", "二", "t4n"],
+    ["t23/t4p", "gh-238r", undefined, null, "t4p"],
+    ["t23/t4r", "S-1", "gh-256", "一", "t4r"]]);
+});
+
 test("a child holding a nawaban task shows the task and its note; the leader's own tasks and the ones it dispatched with no window yet join its group", () => {
   const v = leaders([agent("t23", "working", "claude", "leader agent")], [
     task("OWN", { status: "in_progress", session: "L", terminal: "t23", claimed_at: 5, progress: "拆票" }),

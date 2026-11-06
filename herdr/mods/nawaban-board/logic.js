@@ -88,14 +88,18 @@ export function leadersView(args) {
   // A window: its agent, else its live terminal (a worker started with `hc run` has no pane, so no agent).
   const live = terminals.filter((k) => k.state === "live");
   const windowAt = (terminal) => agentAt(terminal) ?? live.find((k) => k.address === terminal);
-  // Herdr's tree: an agent of the space with live child terminals leads them, in start order.
+  // Herdr's tree: an agent of the space with live child terminals leads its whole subtree (its
+  // workers' workers too, with a pane or not), in start order, unless it is itself in another
+  // agent's subtree: the topmost one leads. `seen` stops a cycle in `parent`.
   // ponytail: start order is address order (Herdr numbers terminals as they start, in base 36:
-  // t9, t10, t1b); `hc ls` gives no start time. Only direct children: a grandchild is not listed.
+  // t9, t10, t1b); `hc ls` gives no start time.
   const order = (k) => parseInt(k.address.split("/").pop().slice(1), 36);
-  const kids = new Map(args.agents.filter((a) => a.space === args.space)
-    .map((a) => [a.address, live.filter((k) => k.parent === a.address).sort((x, y) => order(x) - order(y))])
-    .filter(([, c]) => c.length));
-  const parentOf = new Map([...kids].flatMap(([p, c]) => c.map((k) => [k.address, p])));
+  const below = (addr, seen) => live.filter((k) => k.parent === addr && !seen.has(k.address))
+    .flatMap((k) => (seen.add(k.address), [k, ...below(k.address, seen)]));
+  const trees = args.agents.filter((a) => a.space === args.space).map((a) => [a.address, below(a.address, new Set([a.address]))]);
+  const inner = new Set(trees.flatMap(([, d]) => d.map((k) => k.address)));
+  const kids = new Map(trees.filter(([a, d]) => d.length && !inner.has(a)).map(([a, d]) => [a, d.sort((x, y) => order(x) - order(y))]));
+  const parentOf = new Map([...kids].flatMap(([p, c]) => c.map((k) => [k.address, p]))); // a terminal -> its leader
   // A task's state, as an item or a spec's segment: done, current (held, its terminal working or
   // unknown), stopped (held, its terminal idle or gone), todo.
   const stateOf = (t) => {
@@ -121,13 +125,13 @@ export function leadersView(args) {
     return home ?? leader;
   };
   const groups = new Map([...kids.keys()].map((p) => [p, new Set()])); // leader -> the items' tasks, deduplicated
-  const atKid = new Map(); // a child terminal -> the item's task of the open task it holds
+  const atKid = new Map(); // a child terminal -> the open task it holds (a ticket, not its spec)
   for (const t of tasks) {
     const leader = groupOf(t);
     if (leader == null || !inGroup(t)) continue;
     if (!groups.has(leader)) groups.set(leader, new Set());
     groups.get(leader).add(rootOf(t));
-    if (t.status !== "done" && t.session != null && parentOf.has(t.terminal)) atKid.set(t.terminal, rootOf(t));
+    if (t.status !== "done" && t.session != null && parentOf.has(t.terminal)) atKid.set(t.terminal, t);
   }
   const named = (leader) => {
     const a = agentAt(kids.has(leader) ? leader : tasks.find((x) => sessionKey(x.session) === leader && x.terminal)?.terminal);
@@ -155,19 +159,22 @@ export function leadersView(args) {
       decisions: all.map((t) => t.decision).filter(Boolean), // the board gives open tasks only a decision
       active: Math.max(...all.map((t) => t.active_at)) };
   };
-  // A child terminal: the task it holds, under the child's Herdr name; holding none, what Herdr says
+  // A child terminal, keyed and focused by its terminal: the task it holds (a ticket: the ticket,
+  // so two children on one spec stay two items, and the spec is not listed again), under the
+  // child's Herdr name; holding none, what Herdr says
   // of it: its name, its title (when it has a pane, so an agent) as the note. Its state: working is
   // current, blocked (or error) waiting on you, anything else done, idle too: Herdr turns done into
   // idle once you look, and a worker with no task has nothing to stop on.
   const kidName = (k) => k.name || k.program?.name || k.address;
   const kidItem = (k, leader) => {
-    if (atKid.has(k.address)) return { ...itemOf(atKid.get(k.address), leader), name: kidName(k) };
+    const key = `${leader}/${k.address}`;
+    if (atKid.has(k.address)) return { ...itemOf(atKid.get(k.address), leader), key, name: kidName(k), focus: k.address };
     const a = agentAt(k.address), status = a?.status ?? k.status;
-    return { id: k.address, title: kidName(k), state: status === "working" ? "current" : status === "blocked" || status === "error" ? "waiting" : "done",
+    return { key, id: k.address, title: kidName(k), state: status === "working" ? "current" : status === "blocked" || status === "error" ? "waiting" : "done",
       at: null, gone: false, who: "worker", note: a?.title || null, focus: k.address, spec: null, decisions: [], active: 0 };
   };
   const out = [...groups].map(([leader, roots]) => {
-    const tree = kids.get(leader) ?? [], taken = new Set(tree.map((k) => atKid.get(k.address)));
+    const tree = kids.get(leader) ?? [], taken = new Set(tree.filter((k) => atKid.has(k.address)).map((k) => rootOf(atKid.get(k.address))));
     // The children first, as they started; then the rest by first claim (arrival), unclaimed ones by creation.
     const all = [...tree.map((k) => kidItem(k, leader)), ...[...roots].filter((r) => !taken.has(r)).map((r) => itemOf(r, leader))
       .sort((x, y) => x.claimed - y.claimed || x.created_at - y.created_at)];
