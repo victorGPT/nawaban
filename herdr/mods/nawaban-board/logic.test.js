@@ -307,13 +307,16 @@ const roubao = [{ address: "t23", name: null, parent: null, status: "idle", stat
   kid("t4r", "gh-256", "working"), kid("t4n", "gh-239", "done"), kid("t4p", "gh-238r", "idle")];
 
 test("a leader terminal's children are its items, by Herdr name, in start order, none in the last row", () => {
-  const terminals = [...roubao, { ...kid("t4s", "ended", "done"), state: "finished" }];
+  const terminals = [...roubao, { ...kid("t4s", "ended", "done"), state: "finished" }, kid("t4u", "gh-260", "blocked")];
   const v = leaders([agent("t23", "idle", "claude", "leader agent"), agent("t1z", "idle", "claude", "4")], [], { terminals });
+  // holding no task, a child Herdr says is idle has finished: Herdr turns done into idle once you look
   assert.deepEqual(v.groups.map((g) => [g.leader, g.name, g.self, g.dispatched,
-    g.items.map((i) => [i.number, i.title, i.state, i.who, i.focus])]), [["t23", "leader agent", 0, 3, [
-    [1, "gh-239", "done", "worker", "t4n"], [2, "gh-238r", "stopped", "worker", "t4p"], [3, "gh-256", "current", "worker", "t4r"]]]]);
+    g.items.map((i) => [i.number, i.title, i.state, i.who, i.focus])]), [["t23", "leader agent", 0, 4, [
+    [1, "gh-239", "done", "worker", "t4n"], [2, "gh-238r", "done", "worker", "t4p"], [3, "gh-256", "current", "worker", "t4r"],
+    [4, "gh-260", "waiting", "worker", "t4u"]]]]); // blocked: it waits on you
+  assert.equal(itemLabel(v.groups[0].items[3], NOW, "zh"), "等你");
   assert.deepEqual(v.idle, { count: 1, names: ["claude"] }); // t1z: neither the leader nor its children
-  assert.deepEqual(v.keys, ["t23/t4n", "t23/t4p", "t23/t4r"]);
+  assert.deepEqual(v.keys, ["t23/t4n", "t23/t4p", "t23/t4r", "t23/t4u"]);
   // a terminal with no children and no task stays in the last row, under its Herdr name when it has one
   const named = leaders([agent("t1z", "idle", "claude", "4")], [], { terminals: [{ address: "t1z", name: "kb", parent: null, state: "live" }] });
   assert.deepEqual([named.groups, named.idle], [[], { count: 1, names: ["kb"] }]);
@@ -324,11 +327,12 @@ test("a child holding a nawaban task shows the task and its note; the leader's o
     task("OWN", { status: "in_progress", session: "L", terminal: "t23", claimed_at: 5, progress: "拆票" }),
     task("GH", { status: "in_progress", session: "W", leader: "L", terminal: "t4n", claimed_at: 9, progress: "第 2 步" }),
     task("QUEUED", { leader: "L", created_at: 3 }), // dispatched, not started: only the board knows its leader
+    task("IDLE", { status: "in_progress", session: "W2", leader: "L", terminal: "t4p", claimed_at: 7, active_at: 50 }),
     task("ELSE", { status: "in_progress", session: "M", claimed_at: 1 })], { terminals: roubao });
   assert.deepEqual(v.groups.map((g) => [g.leader, g.name, g.self, g.dispatched]), [["t23", "leader agent", 1, 4], ["M", "M", 1, 0]]);
   assert.deepEqual(v.groups[0].items.map((i) => [i.number, i.title, i.name, i.state, i.who, i.note, i.focus]), [
     [1, "GH", "gh-239", "current", "worker", "第 2 步", "t4n"], // t4n is Herdr-done: the task is still held
-    [2, "gh-238r", undefined, "stopped", "worker", null, "t4p"],
+    [2, "IDLE", "gh-238r", "stopped", "worker", null, "t4p"], // idle, holding an open task: stopped
     [3, "gh-256", undefined, "current", "worker", null, "t4r"],
     [4, "OWN", undefined, "current", "self", "拆票", "t23"],
     [5, "QUEUED", undefined, "todo", "worker", null, null]]);

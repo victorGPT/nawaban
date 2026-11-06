@@ -238,14 +238,16 @@ export default class NawabanBoard extends View {
 
   // One item: a dot on the rail, its number, title (a spec: its segments and done/total) and state;
   // under a held one, who is on it (a child terminal: its Herdr name), its latest note (two lines) and 去窗口 → while its window is
-  // there. Resting on an item with a note shows the whole note.
+  // there. Resting on an item with a note shows the whole note. A child terminal waiting on you
+  // (waiting) is drawn as stopped is, in the color that means "needs you".
   item(x, first, last, now, keyboard, t, w) {
-    const held = x.state === "current" || x.state === "stopped", on = x.key === this.sel;
+    const amber = x.state === "stopped" || x.state === "waiting";
+    const held = x.state === "current" || amber, on = x.key === this.sel;
     const railColor = x.state === "done" ? t.muted : t.border;
     const ring = (c) => div().size(12).flex_none().rounded_full().border_2().border_color(c).bg(t.canvas);
     const dot = x.state === "done" ? div().size(8).flex_none().rounded_full().bg(t.muted)
       : x.state === "todo" ? div().size(8).flex_none().rounded_full().border_2().border_color(t.dim).bg(t.canvas)
-      : x.state === "stopped" ? ring(t.blocked)
+      : amber ? ring(t.blocked)
       : ring(t.working).flex().items_center().justify_center()
         .child(div().size(4).rounded_full().bg(t.working).loop("opacity", { from: 1, to: 0.25, period: 1600 }));
     const rail = v_flex().w(18).flex_none().items_center()
@@ -253,7 +255,7 @@ export default class NawabanBoard extends View {
       .child(dot)
       .child(div().w(2).flex_1().min_h(4).when(!last, (el) => el.bg(railColor)));
     const segColor = { done: t.muted, current: t.working, stopped: t.blocked, todo: t.border };
-    const stateColor = x.state === "current" ? t.working : x.state === "stopped" ? t.blocked : t.dim;
+    const stateColor = x.state === "current" ? t.working : amber ? t.blocked : t.dim;
     const said = x.gone ? (x.note ? `${w.gone} · ${x.note}` : w.gone) : x.note;
     const body = v_flex().flex_1().min_w(0)
       .child(h_flex().h(26).gap(6).items_center().text_size(12.5)

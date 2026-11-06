@@ -156,13 +156,14 @@ export function leadersView(args) {
       active: Math.max(...all.map((t) => t.active_at)) };
   };
   // A child terminal: the task it holds, under the child's Herdr name; holding none, what Herdr says
-  // of it: its name, its title (when it has a pane, so an agent) as the note.
-  // ponytail: Herdr's states as an item's: working is current, done done, any other stopped.
+  // of it: its name, its title (when it has a pane, so an agent) as the note. Its state: working is
+  // current, blocked (or error) waiting on you, anything else done, idle too: Herdr turns done into
+  // idle once you look, and a worker with no task has nothing to stop on.
   const kidName = (k) => k.name || k.program?.name || k.address;
   const kidItem = (k, leader) => {
     if (atKid.has(k.address)) return { ...itemOf(atKid.get(k.address), leader), name: kidName(k) };
     const a = agentAt(k.address), status = a?.status ?? k.status;
-    return { id: k.address, title: kidName(k), state: status === "working" ? "current" : status === "done" ? "done" : "stopped",
+    return { id: k.address, title: kidName(k), state: status === "working" ? "current" : status === "blocked" || status === "error" ? "waiting" : "done",
       at: null, gone: false, who: "worker", note: a?.title || null, focus: k.address, spec: null, decisions: [], active: 0 };
   };
   const out = [...groups].map(([leader, roots]) => {
@@ -175,7 +176,7 @@ export function leadersView(args) {
     const last = all.flatMap((x) => x.decisions).sort((x, y) => y.at - x.at)[0];
     return { leader, name: named(leader), self: items.length - dispatched, dispatched,
       decision: last ? { at: last.at, verdict: last.verdict.split("\n")[0] } : null, items,
-      stopped: items.some((i) => i.state === "stopped"), active: Math.max(...all.map((x) => x.active)) };
+      stopped: items.some((i) => i.state === "stopped" || i.state === "waiting"), active: Math.max(...all.map((x) => x.active)) };
   }).sort((x, y) => y.stopped - x.stopped || y.active - x.active).map(({ stopped, active, ...g }) => g);
   // Every window of the space that is neither a card, a leader or its child, nor the terminal of an
   // open task, named with what Herdr says it is doing unless idle: a window working without a task still shows.
@@ -226,7 +227,7 @@ export function itemLabel({ state, at }, now, lang) {
   return `${label} ${ago === 0 ? time : ago === 1 ? `${w.yesterday} ${time}` : `${decisionDate(at)} ${time}`}`;
 }
 
-const ITEM_STATE = { done: "done", current: "working", stopped: "stopped", todo: "todo" };
+const ITEM_STATE = { done: "done", current: "working", stopped: "stopped", todo: "todo", waiting: "waiting" };
 const pad = (n) => String(n).padStart(2, "0");
 
 // A decision's day, "11-05", local time.

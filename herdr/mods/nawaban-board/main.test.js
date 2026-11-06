@@ -33,7 +33,7 @@ const agents = [agent("t1", "working", "入职"), agent("t2", "working", "w"), a
 // Herdr's tree: t6 started two workers with `hc run`; they have no pane, so no AgentInfo.
 const kid = (address, name, status) => ({ address, name, parent: "t6", status, state: "live" });
 const terminals = [...agents.map((a) => ({ address: a.address, name: null, parent: null, status: a.status, state: "live" })),
-  kid("t7", "gh-239", "working"), kid("t8", "gh-256", "done")];
+  kid("t7", "gh-239", "working"), kid("t8", "gh-256", "done"), kid("t9", "gh-260", "blocked")];
 const board = { columns: [
   { key: "in_progress", tasks: [
     open("CUR", { status: "in_progress", session: "L", leader: "L", terminal: "t1", claimed_at: now - 2400,
@@ -73,8 +73,8 @@ test("the panel draws every item state, at 420 and 380 px, in Chinese and Englis
   const v = leadersView({ agents, terminals, space: "here", board, now, lang: "zh" });
   const items = v.groups.flatMap((g) => g.items);
   // a leader terminal's group: a child holding a task, under its Herdr name, and one holding none
-  assert.deepEqual(v.groups.find((g) => g.leader === "t6")?.items.map((i) => [i.title, i.name]), [["GH 的标题", "gh-239"], ["gh-256", undefined]]);
-  assert.deepEqual(new Set(items.map((i) => i.state)), new Set(["done", "current", "stopped", "todo"]));
+  assert.deepEqual(v.groups.find((g) => g.leader === "t6")?.items.map((i) => [i.title, i.name]), [["GH 的标题", "gh-239"], ["gh-256", undefined], ["gh-260", undefined]]);
+  assert.deepEqual(new Set(items.map((i) => i.state)), new Set(["done", "current", "stopped", "todo", "waiting"]));
   assert.ok(items.some((i) => i.gone) && items.some((i) => i.spec) && v.groups.some((g) => g.decision));
   assert.ok(v.waiting.length && v.idle.count);
   const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
