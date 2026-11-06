@@ -99,8 +99,8 @@ _Avoid_: assign, start, lock.
 _Current identifiers_: CLI `claim`, `claim --take`, `claim --release`.
 
 **Leader**(leader)
-The session the user talks to about a piece of work. It does tasks itself and dispatches others to worker sessions; a task's leader is the author of its latest `dispatch:` note, else the session holding it, else the session that last claimed it.
-leader 是用户就一摊工作直接对话的那个会话。它自己做一些任务，也把别的任务派给 worker 会话；一个任务的 leader 是它最新一条 `dispatch:` note 的作者，没有这条 note 时就是持有它的会话，没人持有时是最后认领它的会话。
+The session the user talks to about a piece of work. It does tasks itself and starts worker sessions. In Herdr a leader is a terminal with child terminals (`parent` in `terminals()`, the tree in Herdr's sidebar), and its workers are those children, whatever tracker they work from. On the board, a task's leader is the author of its latest `dispatch:` note, else the session holding it, else the session that last claimed it; the panel uses that only for tasks no window holds yet.
+leader 是用户就一摊工作直接对话的那个会话。它自己做一些任务，也开 worker 会话。在 Herdr 里，leader 是有子终端的终端（`terminals()` 的 `parent`，即 Herdr 侧边栏里的树），它的 worker 就是这些子终端，不管它们用哪个 tracker。在看板上，一个任务的 leader 是它最新一条 `dispatch:` note 的作者，没有时是持有它的会话，没人持有时是最后认领它的会话；面板只对还没有窗口在做的任务用这条。
 _Avoid_: 总经理, lead agent, dispatcher, coordinator.
 _Current identifiers_: note `dispatch: <worker name>` (agent-center also writes `coord: dispatch {…}`).
 

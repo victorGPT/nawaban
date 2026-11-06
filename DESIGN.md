@@ -72,7 +72,7 @@ The panel is a Herdr mod at the side of the terminals, 420 px wide by default. I
 The approved structure is the line view (2026-11-06), which replaces the window table of mix B+C. The sketch is `.impeccable/mocks/decision/rail-dark.html`, published at https://claude.ai/artifact/XMsBBXzSZE74ANhUVKwL3A.
 
 - **The unit is the task, not the worker.** A worker is temporary; its task stays on the board with its blockers and its notes. A worker shows only as the state of the task it holds, and as the note it last wrote.
-- **Groups are leaders.** A task's leader is the author of its latest `dispatch:` note, else the session holding it (GLOSSARY: Leader).
+- **Groups are leaders, as Herdr's terminal tree shows them** (2026-11-06). A leader is a terminal with child terminals; its workers are those children, in the order they were started, named as Herdr names them (`gh-239`). A worker shows its Herdr state and title, plus the task it holds and its note when it holds a nawaban task. This works for projects tracked on GitHub too. The board's `dispatch:` notes add only tasks dispatched but not yet in a window (GLOSSARY: Leader).
 - **Numbers are arrival order, not a plan.** Work arrives in no fixed order, so a leader's items are numbered by when each was first claimed. A task added today comes last. Only inside a spec does order come from blocked-by.
 
 From top to bottom:

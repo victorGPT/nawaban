@@ -7,7 +7,7 @@
 // working there does.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, HoverCard } from "gpui-base";
-import { spaces, focused, agents, run, exec, theme, home, nextCommand, watchFolder } from "herdr";
+import { spaces, focused, agents, terminals, run, exec, theme, home, nextCommand, watchFolder } from "herdr";
 import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, leadersView, itemLabel, decisionDate,
   WINDOW_WORDS } from "./logic.js";
 
@@ -135,7 +135,7 @@ export default class NawabanBoard extends View {
     this.sig = sig;
     const t = theme(), w = WINDOW_WORDS[this.lang];
     const now = Math.floor(Date.now() / 1000);
-    const v = leadersView({ agents: all, space, board: this.board, now, lang: this.lang,
+    const v = leadersView({ agents: all, terminals: terminals(), space, board: this.board, now, lang: this.lang,
       projects: this.projectsOut, project: this.project });
     this.keys = v.keys;
     this.focusOf = new Map([...v.waiting, ...v.groups.flatMap((g) => g.items)].map((x) => [x.key, x.focus]));
@@ -237,15 +237,17 @@ export default class NawabanBoard extends View {
   }
 
   // One item: a dot on the rail, its number, title (a spec: its segments and done/total) and state;
-  // under a held one, who is on it, its latest note (two lines) and 去窗口 → while its window is
-  // there. Resting on an item with a note shows the whole note.
+  // under a held one, who is on it (a child terminal: its Herdr name), its latest note (two lines) and 去窗口 → while its window is
+  // there. Resting on an item with a note shows the whole note. A child terminal waiting on you
+  // (waiting) is drawn as stopped is, in the color that means "needs you".
   item(x, first, last, now, keyboard, t, w) {
-    const held = x.state === "current" || x.state === "stopped", on = x.key === this.sel;
+    const amber = x.state === "stopped" || x.state === "waiting";
+    const held = x.state === "current" || amber, on = x.key === this.sel;
     const railColor = x.state === "done" ? t.muted : t.border;
     const ring = (c) => div().size(12).flex_none().rounded_full().border_2().border_color(c).bg(t.canvas);
     const dot = x.state === "done" ? div().size(8).flex_none().rounded_full().bg(t.muted)
       : x.state === "todo" ? div().size(8).flex_none().rounded_full().border_2().border_color(t.dim).bg(t.canvas)
-      : x.state === "stopped" ? ring(t.blocked)
+      : amber ? ring(t.blocked)
       : ring(t.working).flex().items_center().justify_center()
         .child(div().size(4).rounded_full().bg(t.working).loop("opacity", { from: 1, to: 0.25, period: 1600 }));
     const rail = v_flex().w(18).flex_none().items_center()
@@ -253,7 +255,7 @@ export default class NawabanBoard extends View {
       .child(dot)
       .child(div().w(2).flex_1().min_h(4).when(!last, (el) => el.bg(railColor)));
     const segColor = { done: t.muted, current: t.working, stopped: t.blocked, todo: t.border };
-    const stateColor = x.state === "current" ? t.working : x.state === "stopped" ? t.blocked : t.dim;
+    const stateColor = x.state === "current" ? t.working : amber ? t.blocked : t.dim;
     const said = x.gone ? (x.note ? `${w.gone} · ${x.note}` : w.gone) : x.note;
     const body = v_flex().flex_1().min_w(0)
       .child(h_flex().h(26).gap(6).items_center().text_size(12.5)
@@ -267,7 +269,7 @@ export default class NawabanBoard extends View {
         .child(div().flex_none().text_size(11).text_color(stateColor).child(itemLabel(x, now, this.lang))))
       .when(held, (el) => el.child(h_flex().gap(10).pb(8).items_end().text_size(12)
         .child(div().flex_1().min_w(0).max_h(36).overflow_hidden().line_height("18px").text_color(t.muted)
-          .child([x.who && w.who[x.who], said?.replace(/\s+/g, " ").trim()].filter(Boolean).join(" · ")))
+          .child([x.name ?? (x.who && w.who[x.who]), said?.replace(/\s+/g, " ").trim()].filter(Boolean).join(" · ")))
         .when(x.focus != null, (el) => el.child(div().flex_none().text_color(t.foreground).child(w.go)))));
     const row = h_flex().id(`nawaban-item-${x.key}`).flex_none().px(16).gap(8).items_stretch().min_h(30)
       .when(on, (el) => el.bg(keyboard ? t.selected : t.hover))

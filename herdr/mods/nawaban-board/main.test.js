@@ -29,14 +29,19 @@ const open = (id, x) => ({ id, title: `${id} 的标题`, status: "open", parent:
   claimed_at: null, created_at: 0, active_at: now - 600, progress: null, blocked_by: [], waiting: null, decision: null, ...x });
 const note = (body) => ({ body, at: now - 600 });
 const agents = [agent("t1", "working", "入职"), agent("t2", "working", "w"), agent("t3", "idle", "问"),
-  agent("t4", "idle", "闲聊"), agent("t5", "working", "部署")];
+  agent("t4", "idle", "闲聊"), agent("t5", "working", "部署"), agent("t6", "idle", "leader agent")];
+// Herdr's tree: t6 started two workers with `hc run`; they have no pane, so no AgentInfo.
+const kid = (address, name, status) => ({ address, name, parent: "t6", status, state: "live" });
+const terminals = [...agents.map((a) => ({ address: a.address, name: null, parent: null, status: a.status, state: "live" })),
+  kid("t7", "gh-239", "working"), kid("t8", "gh-256", "done"), kid("t9", "gh-260", "blocked")];
 const board = { columns: [
   { key: "in_progress", tasks: [
     open("CUR", { status: "in_progress", session: "L", leader: "L", terminal: "t1", claimed_at: now - 2400,
       progress: note("verify：测试通过"), decision: { at: now - 900, verdict: "先只读\n第二行不显示" } }),
     open("GONE", { status: "in_progress", session: "W", leader: "L", terminal: "closed", claimed_at: now - 2000, progress: note("handoff") }),
     open("S-02", { status: "in_progress", parent: "S", session: "W2", leader: "L", terminal: "t2", claimed_at: now - 1800, progress: note("第 3 张") }),
-    open("Q", { status: "in_progress", session: "M", leader: "M", terminal: "t3", claimed_at: now - 1200, waiting: "放行吗？" })] },
+    open("Q", { status: "in_progress", session: "M", leader: "M", terminal: "t3", claimed_at: now - 1200, waiting: "放行吗？" }),
+    open("GH", { status: "in_progress", session: "K", leader: "K", terminal: "t7", claimed_at: now - 300, progress: note("第 2 步") })] },
   { key: "open", tasks: [open("TODO", { leader: "L", created_at: 4 }), open("S", { title: "报表迁到新底座" }),
     open("S-03", { parent: "S", leader: "L", blocked_by: ["S-02"] })] },
   { key: "done", tasks: [
@@ -49,7 +54,7 @@ const stubs = {
   "gpui-kit": { View: class {}, div: make("div"), svg: make("svg") },
   "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el },
   herdr: { spaces: () => [{ id: "here", active: true, name: "nawaban", folder: "/x" }], focused: () => ({ space: "here", cwd: "/x" }),
-    agents: () => agents, theme: () => new Proxy({}, { get: () => "#808080" }), home: () => "/h",
+    agents: () => agents, terminals: () => terminals, theme: () => new Proxy({}, { get: () => "#808080" }), home: () => "/h",
     run: async () => {}, exec: async () => ({ code: 1 }), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}) },
 };
 globalThis.__nawabanStubs = stubs;
@@ -65,9 +70,11 @@ const dts = [`${homedir()}/.config/herdr-app/gpui-kit.d.ts`, new URL("./gpui-kit
 
 test("the panel draws every item state, at 420 and 380 px, in Chinese and English, with Herdr's API only", () => {
   // the fixture covers what the panel can show
-  const v = leadersView({ agents, space: "here", board, now, lang: "zh" });
+  const v = leadersView({ agents, terminals, space: "here", board, now, lang: "zh" });
   const items = v.groups.flatMap((g) => g.items);
-  assert.deepEqual(new Set(items.map((i) => i.state)), new Set(["done", "current", "stopped", "todo"]));
+  // a leader terminal's group: a child holding a task, under its Herdr name, and one holding none
+  assert.deepEqual(v.groups.find((g) => g.leader === "t6")?.items.map((i) => [i.title, i.name]), [["GH 的标题", "gh-239"], ["gh-256", undefined], ["gh-260", undefined]]);
+  assert.deepEqual(new Set(items.map((i) => i.state)), new Set(["done", "current", "stopped", "todo", "waiting"]));
   assert.ok(items.some((i) => i.gone) && items.some((i) => i.spec) && v.groups.some((g) => g.decision));
   assert.ok(v.waiting.length && v.idle.count);
   const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
