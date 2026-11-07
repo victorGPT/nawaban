@@ -22,6 +22,25 @@
     ]
   },
   {
+    "number": 292, "title": "身材放宽（示例）", "state": "OPEN", "stateReason": "",
+    "createdAt": "2026-11-06T08:00:00Z", "updatedAt": "2026-11-07T09:00:00Z", "closedAt": null,
+    "labels": [], "body": "示例正文。",
+    "comments": [
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T09:00:00Z", "body": "决定（roubao-e8）：先上试用。"},
+      {"author": {"login": "owner"}, "createdAt": "2026-11-07T08:00:00Z", "body": "决定（owner 2026-11-07，经 roubao-e8 转达）：审过，可以合。\n\n细节略。"},
+      {"author": {"login": "owner"}, "createdAt": "2026-11-07T09:00:00Z", "body": "## 进展：等合并。"}
+    ]
+  },
+  {
+    "number": 301, "title": "首卡提速（示例）", "state": "OPEN", "stateReason": "",
+    "createdAt": "2026-11-06T07:00:00Z", "updatedAt": "2026-11-06T10:00:00Z", "closedAt": null,
+    "labels": [], "body": "示例正文。",
+    "comments": [
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T09:00:00Z", "body": "**进展**：首卡压到目标内。"},
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T10:00:00Z", "body": "决定(roubao-e8): 合并标准见正文。"}
+    ]
+  },
+  {
     "number": 239, "title": "evals: 两臂正面比（#236-C）", "state": "OPEN", "stateReason": "",
     "createdAt": "2026-11-05T10:00:00Z", "updatedAt": "2026-11-05T12:00:00Z", "closedAt": null,
     "labels": [{"name": "needs-info"}], "body": "属于 #236。被 #237、#238 挡住。",

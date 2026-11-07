@@ -493,6 +493,8 @@ GH_RECENT = 48 * 3600  # closed issues stay this long
 _GH_FIELDS = "number,title,state,stateReason,closedAt,createdAt,updatedAt,labels,body,comments"
 _GH_PARENT_TITLE = re.compile(r"[(（]#(\d+)-[A-Za-z]+[)）]")  # (#236-B)
 _GH_PARENT_BODY = re.compile(r"(?:属于|Part of|Parent:)\s*#(\d+)")
+# `决定：`, `## 进展：`, `**进展**：`, `决定（roubao-e8）：`: optional heading/bold, the word, an optional (who), a colon.
+_GH_PREFIX = r"\s*(?:#{{1,6}}\s*)?\**{}\**\s*([（(][^）)\n]*[）)])?\**\s*[：:]\**\s*"
 _GH_TERMINAL = re.compile(r"\bhc (t\w+)")  # 认领：gh-275（hc t52）
 _GH_NEXT = re.compile(r"下一步：\s*([^。\n]+)")  # the sentence after it
 
@@ -530,17 +532,21 @@ def github_board_data(root: Path) -> dict:
     def at(iso: str) -> int:
         return int(_dt.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp())
 
-    def prefixed(comments: list[dict], prefix: str) -> list[tuple[str, int]]:
-        """(body without the prefix, time) of each comment opening with prefix, oldest first."""
-        return [(c["body"][len(prefix):].strip(), at(c["createdAt"])) for c in comments
-                if c["body"].startswith(prefix)]
+    def prefixed(comments: list[dict], word: str) -> list[tuple[str, int]]:
+        """(body without the prefix, its `（who）` kept, time) of each comment opening with word, oldest first."""
+        out = []
+        for c in comments:
+            m = re.match(_GH_PREFIX.format(word), c["body"])
+            if m:
+                out.append(((m.group(1) or "") + c["body"][m.end():].strip(), at(c["createdAt"])))
+        return out
 
     tasks = []
     for i in _gh_issues(root):
         if i.get("stateReason") == "NOT_PLANNED":
             continue
         cs = i["comments"]
-        claims, notes, decisions = (prefixed(cs, p) for p in ("认领：", "进展：", "决定："))
+        claims, notes, decisions = (prefixed(cs, p) for p in ("认领", "进展", "决定"))
         status = "done" if i["state"] == "CLOSED" else "in_progress" if claims else "open"
         parent = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i["body"])
         terminal = _GH_TERMINAL.search(claims[-1][0]) if claims else None

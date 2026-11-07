@@ -32,7 +32,7 @@ def board(tmp_path, monkeypatch, capsys):
 def test_closed_is_done_claimed_is_in_progress_else_open_and_not_planned_is_left_out(board):
     tasks = board()
     assert {i: t["column"] for i, t in tasks.items()} == {
-        "#275": "in_progress", "#307": "in_progress", "#239": "open", "#294": "open",
+        "#275": "in_progress", "#307": "in_progress", "#239": "open", "#294": "open", "#292": "open", "#301": "open",
         "#237": "done", "#296": "done"}
     assert tasks["#275"]["title"] == "角色方向分不清（示例）"
     assert tasks["#275"]["status"] == "in_progress"
@@ -102,6 +102,14 @@ def test_progress_decision_and_terminal_come_from_the_latest_prefixed_comments(b
     assert t["claimed_at"] == ts("2026-11-06T14:37:48Z")
     assert (t["created_at"], t["active_at"]) == (ts("2026-11-06T14:28:01Z"), ts("2026-11-06T18:59:18Z"))
     assert (t["open_blockers"], t["blocked_by"], t["project"]) == (0, [], "roubao")
+
+
+def test_a_prefix_may_carry_markdown_and_a_who_which_stays_in_the_body(board):
+    tasks = board()
+    assert tasks["#292"]["decision"]["verdict"] == "（owner 2026-11-07，经 roubao-e8 转达）审过，可以合。"
+    assert tasks["#292"]["progress"]["body"] == "等合并。"  # ## 进展：
+    assert tasks["#301"]["progress"]["body"] == "首卡压到目标内。"  # **进展**：
+    assert tasks["#301"]["decision"]["verdict"] == "(roubao-e8)合并标准见正文。"
 
 
 def test_an_issue_without_prefixed_comments_has_none_of_them(board):
