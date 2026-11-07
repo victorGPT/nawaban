@@ -1,0 +1,58 @@
+[
+  {
+    "number": 275, "title": "角色方向分不清（示例）", "state": "OPEN", "stateReason": "",
+    "createdAt": "2026-11-06T14:28:01Z", "updatedAt": "2026-11-06T18:59:18Z", "closedAt": null,
+    "labels": [], "body": "示例正文。",
+    "comments": [
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T14:37:48Z", "body": "认领：gh-275（hc t52）"},
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T14:37:50Z", "body": "进展：第 0 步做完，下一步：出题、预登记。\n\n细节略。"},
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T14:41:53Z", "body": "决定：先预登记，理由：只看一次。\n\n细节略。"},
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T17:58:12Z", "body": "进展：调完，下一步：等 owner 定停还是照跑。\n\n细节略。"},
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T17:58:43Z", "body": "决定：改动不合 → 停在这里，理由：打平。\n\n- 细节略。"},
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T18:59:18Z", "body": "进展：人标写回。\n核查略。"}
+    ]
+  },
+  {
+    "number": 307, "title": "关系摸底（示例）", "state": "OPEN", "stateReason": "",
+    "createdAt": "2026-11-07T01:00:00Z", "updatedAt": "2026-11-07T03:00:00Z", "closedAt": null,
+    "labels": [{"name": "needs-info"}], "body": "示例正文。",
+    "comments": [
+      {"author": {"login": "owner"}, "createdAt": "2026-11-07T01:10:00Z", "body": "认领：rel（示例会话）"},
+      {"author": {"login": "owner"}, "createdAt": "2026-11-07T02:00:00Z", "body": "进展：摸底做完。下一步：等 owner 对设计 B 拍板；另开小卡。\n\n报告略。"}
+    ]
+  },
+  {
+    "number": 239, "title": "evals: 两臂正面比（#236-C）", "state": "OPEN", "stateReason": "",
+    "createdAt": "2026-11-05T10:00:00Z", "updatedAt": "2026-11-05T12:00:00Z", "closedAt": null,
+    "labels": [{"name": "needs-info"}], "body": "属于 #236。被 #237、#238 挡住。",
+    "comments": []
+  },
+  {
+    "number": 294, "title": "增量抽取（示例）", "state": "OPEN", "stateReason": "",
+    "createdAt": "2026-11-05T09:00:00Z", "updatedAt": "2026-11-05T09:00:00Z", "closedAt": null,
+    "labels": [], "body": "Parent: #289\n\n示例正文。",
+    "comments": []
+  },
+  {
+    "number": 237, "title": "feat(api): 抽取后处理(#236-A)", "state": "CLOSED", "stateReason": "COMPLETED",
+    "createdAt": "2026-11-05T08:00:00Z", "updatedAt": "2026-11-06T20:00:00Z", "closedAt": "2026-11-06T20:00:00Z",
+    "labels": [], "body": "示例正文。",
+    "comments": [
+      {"author": {"login": "owner"}, "createdAt": "2026-11-05T09:00:00Z", "body": "决定：按示例口径做。"}
+    ]
+  },
+  {
+    "number": 296, "title": "合规豁免（示例）", "state": "CLOSED", "stateReason": "COMPLETED",
+    "createdAt": "2026-11-06T09:00:00Z", "updatedAt": "2026-11-06T21:00:00Z", "closedAt": "2026-11-06T21:00:00Z",
+    "labels": [], "body": "Part of #293\n\n示例正文。",
+    "comments": [
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T09:30:00Z", "body": "认领：示例会话（hc t12）"}
+    ]
+  },
+  {
+    "number": 299, "title": "重复的测试失败（示例）", "state": "CLOSED", "stateReason": "NOT_PLANNED",
+    "createdAt": "2026-11-06T10:00:00Z", "updatedAt": "2026-11-06T11:00:00Z", "closedAt": "2026-11-06T11:00:00Z",
+    "labels": [], "body": "和 #297 重复。",
+    "comments": []
+  }
+]

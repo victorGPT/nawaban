@@ -487,6 +487,88 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
     return {"columns": [{"key": k, "tasks": v} for k, v in columns.items()]}
 
 
+# ── json board from GitHub issues (spec NAWABAN-INDEX, Data mapping) ──
+
+GH_RECENT = 48 * 3600  # closed issues stay this long
+_GH_FIELDS = "number,title,state,stateReason,closedAt,createdAt,updatedAt,labels,body,comments"
+_GH_PARENT_TITLE = re.compile(r"[(（]#(\d+)-[A-Za-z]+[)）]")  # (#236-B)
+_GH_PARENT_BODY = re.compile(r"(?:属于|Part of|Parent:)\s*#(\d+)")
+_GH_TERMINAL = re.compile(r"\bhc (t\w+)")  # 认领：gh-275（hc t52）
+_GH_NEXT = re.compile(r"下一步：\s*([^。\n]+)")  # the sentence after it
+
+
+def github_root(cwd: Path | None = None) -> Path | None:
+    """The repository cwd is in, when its docs/agents/issue-tracker.md's first heading names GitHub."""
+    root = _repo_root((cwd or Path.cwd()).resolve())
+    try:
+        lines = (root / "docs" / "agents" / "issue-tracker.md").read_text().splitlines() if root else []
+    except OSError:
+        return None
+    heading = next((ln for ln in lines if ln.startswith("#")), "")
+    return root if "GitHub" in heading else None
+
+
+def _gh_issues(root: Path) -> list[dict]:
+    """Open issues plus those closed in the last GH_RECENT seconds, as `gh issue list --json` gives them."""
+    import json
+    since = _dt.datetime.fromtimestamp(time.time() - GH_RECENT, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    out: list[dict] = []
+    for state in (["--state", "open"], ["--state", "closed", "--search", f"closed:>={since}"]):
+        try:
+            r = subprocess.run(["gh", "issue", "list", *state, "--limit", "1000", "--json", _GH_FIELDS],
+                               cwd=root, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as e:
+            raise Refused(f"gh 不可用:{e}") from e
+        if r.returncode != 0:
+            raise Refused(f"gh 失败:{r.stderr.strip()}")
+        out += json.loads(r.stdout)
+    return out
+
+
+def github_board_data(root: Path) -> dict:
+    """The same columns as board_data, read from the repository's GitHub issues."""
+    def at(iso: str) -> int:
+        return int(_dt.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp())
+
+    def prefixed(comments: list[dict], prefix: str) -> list[tuple[str, int]]:
+        """(body without the prefix, time) of each comment opening with prefix, oldest first."""
+        return [(c["body"][len(prefix):].strip(), at(c["createdAt"])) for c in comments
+                if c["body"].startswith(prefix)]
+
+    tasks = []
+    for i in _gh_issues(root):
+        if i.get("stateReason") == "NOT_PLANNED":
+            continue
+        cs = i["comments"]
+        claims, notes, decisions = (prefixed(cs, p) for p in ("认领：", "进展：", "决定："))
+        status = "done" if i["state"] == "CLOSED" else "in_progress" if claims else "open"
+        parent = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i["body"])
+        terminal = _GH_TERMINAL.search(claims[-1][0]) if claims else None
+        task = {
+            "id": f"#{i['number']}", "title": i["title"], "status": status, "project": root.name,
+            "parent": f"#{parent.group(1)}" if parent else None,
+            # The claimant holds an open issue, as a session holds a board task.
+            "session": claims[-1][0].split("\n", 1)[0] if claims and status != "done" else None,
+            "created_at": at(i["createdAt"]),
+            "active_at": max([at(i["updatedAt"])] + [at(c["createdAt"]) for c in cs]),
+            "open_blockers": 0, "terminal": terminal.group(1) if terminal else None, "leader": None,
+            "claimed_at": claims[0][1] if claims else None}
+        if status == "done":
+            task["done_at"] = at(i["closedAt"])
+        else:
+            task["progress"] = {"body": notes[-1][0], "at": notes[-1][1]} if notes else None
+            task["blocked_by"] = []
+            nxt = _GH_NEXT.search(notes[-1][0]) if notes else None
+            task["waiting"] = ((nxt.group(1) if nxt else "等你")
+                               if any(lb["name"] == "needs-info" for lb in i["labels"]) else None)
+            task["decision"] = {"at": decisions[-1][1], "verdict": _verdict(decisions[-1][0])} if decisions else None
+        tasks.append(task)
+    columns: dict[str, list] = {key: [] for key in COLUMNS}
+    for t in sorted(tasks, key=lambda t: -t["active_at"]):
+        columns[t["status"]].append(t)
+    return {"columns": [{"key": k, "tasks": v} for k, v in columns.items()]}
+
+
 def task_detail(path: Path | str, task_id: str) -> dict:
     with closing(open_readonly(path)) as con:
         t = con.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
@@ -520,7 +602,8 @@ def json_out(path: Path, a) -> int:
         if a.what == "projects":
             out = projects_data(path)
         elif a.what == "board":
-            out = board_data(path, a.project)
+            gh = github_root()  # a GitHub-tracked repository has no board: --project is moot there
+            out = github_board_data(gh) if gh else board_data(path, a.project)
         else:
             out = task_detail(path, a.id)
     except Refused as e:
