@@ -658,6 +658,27 @@ def test_json_board_an_open_task_s_decision_is_its_latest_verdict(run, monkeypat
     assert "decision" not in tasks["DONE"]
 
 
+def test_json_board_decisions_are_every_one_of_the_last_48_hours_and_the_user_s_are_the_owner_s(run, monkeypatch):
+    now, hour = 10_000_000, 3600
+    run("create", "A", "--title", "a", "--body", "", "--project", "p")
+    run("create", "DONE", "--title", "done", "--body", "", "--project", "p")
+    run("create", "ELSE", "--title", "else", "--body", "", "--project", "q")
+    _at(monkeypatch, now - 49 * hour)
+    run("event", "A", "--kind", "decision", "--body", "Verdict: too old")
+    _at(monkeypatch, now - 47 * hour)
+    run("event", "A", "--kind", "decision", "--body", "Question: q\nVerdict: by the agent")
+    _at(monkeypatch, now - 2 * hour)
+    run("event", "A", "--kind", "decision", "--body", "用 A · 否:B", "--by", "user")
+    run("event", "DONE", "--kind", "decision", "--body", "Verdict: shipped", "--by", "user")
+    run("event", "ELSE", "--kind", "decision", "--body", "Verdict: elsewhere")
+    run("close", "DONE", "--done")
+    _at(monkeypatch, now)
+    assert _json(run, "board", "--project", "p")[1]["decisions"] == [
+        {"task": "DONE", "at": now - 2 * hour, "verdict": "shipped", "owner": True},
+        {"task": "A", "at": now - 2 * hour, "verdict": "用 A · 否:B", "owner": True},
+        {"task": "A", "at": now - 47 * hour, "verdict": "by the agent", "owner": False}]
+
+
 def test_json_board_progress_skips_coord_bookkeeping_notes(run):
     run("create", "X", "--title", "x", "--body", "")
     run("create", "ONLY", "--title", "only", "--body", "")

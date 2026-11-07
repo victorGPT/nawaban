@@ -33,7 +33,7 @@ def test_closed_is_done_claimed_is_in_progress_else_open_and_not_planned_is_left
     tasks = board()
     assert {i: t["column"] for i, t in tasks.items()} == {
         "#275": "in_progress", "#307": "in_progress", "#239": "open", "#294": "open", "#292": "open", "#301": "open",
-        "#237": "done", "#296": "done"}
+        "#264": "open", "#237": "done", "#296": "done", "#306": "done"}
     assert tasks["#275"]["title"] == "角色方向分不清（示例）"
     assert tasks["#275"]["status"] == "in_progress"
 
@@ -108,7 +108,7 @@ def test_a_prefix_may_carry_markdown_and_a_who_which_stays_in_the_body(board):
     tasks = board()
     assert tasks["#292"]["decision"]["verdict"] == "（owner 2026-11-07，经 roubao-e8 转达）审过，可以合。"
     assert tasks["#292"]["progress"]["body"] == "等合并。"  # ## 进展：
-    assert tasks["#301"]["progress"]["body"] == "首卡压到目标内。"  # **进展**：
+    assert tasks["#301"]["progress"]["body"] == "首卡压到目标内。下一步：投机路径也重排。"  # **进展**：
     assert tasks["#301"]["decision"]["verdict"] == "(roubao-e8)合并标准见正文。"
 
 
@@ -130,3 +130,26 @@ def test_a_closed_issue_is_done_at_its_close(board):
     assert t["done_at"] == ts("2026-11-06T21:00:00Z")
     assert t["terminal"] == "t12" and t["session"] is None
     assert "progress" not in t and "waiting" not in t  # like the board: only open tasks carry these
+
+
+def _decisions(monkeypatch, capsys, now="2026-11-07T12:00:00Z"):
+    monkeypatch.setattr(cli.time, "time", lambda: ts(now))
+    assert cli.main(["json", "board"]) == 0
+    return json.loads(capsys.readouterr().out)["decisions"]
+
+
+def test_decisions_are_every_prefixed_one_of_the_last_48_hours_open_or_closed(board, monkeypatch, capsys):
+    d = _decisions(monkeypatch, capsys)
+    assert [(x["task"], x["at"]) for x in d] == [  # newest first; #237's 11-05 09:00 is too old
+        ("#306", ts("2026-11-07T09:30:00Z")), ("#292", ts("2026-11-07T08:00:00Z")),
+        ("#275", ts("2026-11-06T17:58:43Z")), ("#275", ts("2026-11-06T14:41:53Z")),
+        ("#301", ts("2026-11-06T10:00:00Z")), ("#292", ts("2026-11-06T09:00:00Z"))]
+    assert d[0]["verdict"] == "ADR 0033 是否采纳 → 采纳，吴某 11-07 拍板。"
+    assert {x["owner"] for x in d} == {None}  # no NAWABAN_OWNER_NAMES: who decided is unknown
+
+
+def test_an_owner_decision_says_拍板_or_names_an_owner_alias(board, monkeypatch, capsys):
+    monkeypatch.setenv("NAWABAN_OWNER_NAMES", "owner, 吴献忠")
+    d = _decisions(monkeypatch, capsys)
+    assert [x["task"] for x in d if x["owner"]] == ["#306", "#292"]  # 拍板; （owner 2026-11-07…）
+    assert all(x["owner"] is False for x in d if x["task"] in ("#275", "#301"))

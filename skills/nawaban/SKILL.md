@@ -56,6 +56,10 @@ nawaban block <ID> <blocker ID>
 - `nawaban list --parent <SPEC-ID>`: every task of a spec, one line each: `<id>  <status>  <project>  <title>`. `nawaban list --project <name>` filters by project.
 - `nawaban json projects`, `nawaban json board [--project <name>]`, `nawaban json task <ID>`: the JSON the Herdr panel reads, on stdout, read-only. An unknown id or a missing board prints `{"error": ...}` on stdout and exits 1.
 
+## Index: read it first
+
+As a leader, run `nawaban index` when you start and again after your context is compacted, before you rebuild what is going on from memory. It prints, from the same data as `json board` (the repository's GitHub issues when its `docs/agents/issue-tracker.md` names GitHub, else the board; `--project <name>` on the board), an md index on stdout: what waits on the user (等你), what has had no activity for 24 hours and on whom it stopped (停了), what moves (在推), each with the spec it belongs to, its latest progress and its next step, or the decision that came after that step; the user's decisions of the last 48 hours (on GitHub, a `决定：` that says `拍板` or names one of the comma-separated `NAWABAN_OWNER_NAMES`; without them, every decision); what nobody has touched; and how many closed. It writes nothing.
+
 ## Frontier
 
 ```
