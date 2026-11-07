@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from nawaban import cli  # noqa: E402
 
-VERBS = {"init", "create", "block", "claim", "close", "event", "show", "list", "backup", "json"}
+VERBS = {"init", "create", "block", "claim", "close", "event", "show", "list", "backup", "json", "index"}
 
 
 @pytest.fixture(autouse=True)

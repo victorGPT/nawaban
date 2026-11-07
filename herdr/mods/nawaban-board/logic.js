@@ -82,6 +82,9 @@ const namer = (terminals) => {
 // `terminals` is Herdr's terminals(): every core terminal with its `name`, `parent` and `status`.
 export function leadersView(args) {
   const github = args.board?.tracker === "github";
+  // The terminals the issues' claims name (`认领：… hc t5n`), before a gh-<n> name fills in the rest.
+  const claimedAt = new Map(github ? args.board.columns.flatMap((c) => c.tasks ?? []).filter((t) => t.terminal)
+    .sort((x, y) => (y.status === "done") - (x.status === "done")).map((t) => [t.terminal, t.id]) : []); // an open one over a closed one
   if (github) args = { ...args, board: matchIssues(args.board, args.terminals ?? []) };
   const { waiting, otherWaiting } = windowsView(args);
   const terminals = args.terminals ?? [], nameOf = namer(terminals);
@@ -171,7 +174,8 @@ export function leadersView(args) {
   const kidName = (k) => k.name || k.program?.name || k.address;
   const kidItem = (k, leader) => {
     const key = `${leader}/${k.address}`, a = agentAt(k.address), status = a?.status ?? k.status;
-    const n = github && /^gh-(\d+)/.exec(k.name ?? ""), issue = n && byId.get(`#${n[1]}`); // by name only, not a claim's terminal
+    const n = github && /^gh-(\d+)/.exec(k.name ?? "");
+    const issue = github && (byId.get(claimedAt.get(k.address)) ?? (n && byId.get(`#${n[1]}`)));
     if (issue) return { ...issueItem(issue, status, args.now), key, name: kidName(k), focus: k.address };
     if (atKid.has(k.address)) return { ...itemOf(atKid.get(k.address), leader), key, name: kidName(k), focus: k.address };
     return { key, id: k.address, title: kidName(k), name: kidName(k), state: status === "working" ? "current" : status === "blocked" || status === "error" ? "waiting" : "done",
@@ -219,14 +223,15 @@ const specOrder = (tickets) => {
 
 const DAY = 86400;
 
-// A GitHub board's issues, each in the live window named for it: `gh-275`, `gh-238r` (`hc run --name`)
-// is #275, #238. The name wins over the claim's `hc t…`, which outlives its window.
+// A GitHub board's issues, each in its window: the live terminal its claim names (`hc t5n`), else the
+// live window named for it: `gh-275`, `gh-238r` (`hc run --name`) is #275, #238.
 const matchIssues = (board, terminals) => {
-  const at = new Map(terminals.filter((k) => k.state === "live").flatMap((k) => {
+  const live = terminals.filter((k) => k.state === "live"), alive = new Set(live.map((k) => k.address));
+  const at = new Map(live.flatMap((k) => {
     const m = /^gh-(\d+)/.exec(k.name ?? "");
     return m ? [[`#${m[1]}`, k.address]] : [];
   }));
-  return { ...board, columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => ({ ...t, terminal: at.get(t.id) ?? t.terminal })) })) };
+  return { ...board, columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => ({ ...t, terminal: alive.has(t.terminal) ? t.terminal : at.get(t.id) ?? t.terminal })) })) };
 };
 
 // An issue as its window's item, in GitHub's terms: closed is done (and folds); open, waiting on you

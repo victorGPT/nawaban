@@ -36,8 +36,24 @@
     "createdAt": "2026-11-06T07:00:00Z", "updatedAt": "2026-11-06T10:00:00Z", "closedAt": null,
     "labels": [], "body": "示例正文。",
     "comments": [
-      {"author": {"login": "owner"}, "createdAt": "2026-11-06T09:00:00Z", "body": "**进展**：首卡压到目标内。"},
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T09:00:00Z", "body": "**进展**：首卡压到目标内。下一步：投机路径也重排。"},
       {"author": {"login": "owner"}, "createdAt": "2026-11-06T10:00:00Z", "body": "决定(roubao-e8): 合并标准见正文。"}
+    ]
+  },
+  {
+    "number": 264, "title": "web：推荐卡片标题显示 content_id（示例）", "state": "OPEN", "stateReason": "",
+    "createdAt": "2026-11-05T08:00:00Z", "updatedAt": "2026-11-06T08:00:00Z", "closedAt": null,
+    "labels": [], "body": "示例正文。",
+    "comments": [
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T08:00:00Z", "body": "进展：后端在 #266。@yuebutong 请看新字段 https://example.com/pr/1 。"}
+    ]
+  },
+  {
+    "number": 306, "title": "ADR 0033 采纳（示例）", "state": "CLOSED", "stateReason": "COMPLETED",
+    "createdAt": "2026-11-06T12:00:00Z", "updatedAt": "2026-11-07T10:00:00Z", "closedAt": "2026-11-07T10:00:00Z",
+    "labels": [], "body": "示例正文。",
+    "comments": [
+      {"author": {"login": "owner"}, "createdAt": "2026-11-07T09:30:00Z", "body": "决定：ADR 0033 是否采纳 → 采纳，吴某 11-07 拍板。\n\n理由略。"}
     ]
   },
   {

@@ -375,6 +375,7 @@ def backup(path: Path, keep_days: int = 14) -> Path:
 COLUMNS = ("open", "in_progress", "done")
 DONE_LIMIT = 12  # the done column shows only the latest few
 DONE_RECENT = 24 * 3600  # ...plus every task done this recently
+DECISIONS_RECENT = 48 * 3600  # `decisions`: every decision this recent, open task or closed
 
 
 def _ref(r: sqlite3.Row) -> dict:
@@ -455,6 +456,11 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
             "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
             " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
             " WHERE task=e.task AND kind='decision')")}
+        decided = [{"task": r["task"], "at": r["at"], "verdict": _verdict(r["body"]), "owner": r["author"] == "user"}
+                  for r in con.execute(
+            "SELECT e.* FROM events e JOIN tasks t ON t.id=e.task WHERE e.kind='decision' AND e.at>=:since"
+            " AND t.status!='cancelled'" + (" AND COALESCE(t.project,'')=:project" if project is not None else "")
+            + " ORDER BY e.at DESC, e.id DESC", args | {"since": time.time() - DECISIONS_RECENT})]
         triage = {r["task"]: r["body"] for r in _triage_notes(con)}
         terminals = {r["id"]: held_terminal(con, r["id"], r["session"])
                      for r in rows if r["status"] == "open" and r["session"]}
@@ -484,7 +490,7 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
         if status == "done":
             task["done_at"] = r["done_at"]
         columns[status].append(task)
-    return {"columns": [{"key": k, "tasks": v} for k, v in columns.items()]}
+    return {"columns": [{"key": k, "tasks": v} for k, v in columns.items()], "decisions": decided}
 
 
 # ── json board from GitHub issues (spec NAWABAN-INDEX, Data mapping) ──
@@ -496,7 +502,7 @@ _GH_PARENT_BODY = re.compile(r"(?:属于|Part of|Parent:)\s*#(\d+)")
 # `决定：`, `## 进展：`, `**进展**：`, `决定（roubao-e8）：`: optional heading/bold, the word, an optional (who), a colon.
 _GH_PREFIX = r"\s*(?:#{{1,6}}\s*)?\**{}\**\s*([（(][^）)\n]*[）)])?\**\s*[：:]\**\s*"
 _GH_TERMINAL = re.compile(r"\bhc (t\w+)")  # 认领：gh-275（hc t52）
-_GH_NEXT = re.compile(r"下一步：\s*([^。\n]+)")  # the sentence after it
+_GH_NEXT = re.compile(r"下一步[：:]\s*([^。\n]+)")  # the sentence after it
 
 
 def github_root(cwd: Path | None = None) -> Path | None:
@@ -541,12 +547,18 @@ def github_board_data(root: Path) -> dict:
                 out.append(((m.group(1) or "") + c["body"][m.end():].strip(), at(c["createdAt"])))
         return out
 
-    tasks = []
+    # An owner decision says 拍板 or names an owner.
+    names = [n.strip() for n in os.environ.get("NAWABAN_OWNER_NAMES", "").split(",") if n.strip()]
+    since = time.time() - DECISIONS_RECENT
+    tasks, recent = [], []
     for i in _gh_issues(root):
         if i.get("stateReason") == "NOT_PLANNED":
             continue
         cs = i["comments"]
         claims, notes, decisions = (prefixed(cs, p) for p in ("认领", "进展", "决定"))
+        recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
+                    "owner": any(w in body for w in ["拍板", *names])}
+                   for body, t in decisions if t >= since]
         status = "done" if i["state"] == "CLOSED" else "in_progress" if claims else "open"
         parent = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i["body"])
         terminal = _GH_TERMINAL.search(claims[-1][0]) if claims else None
@@ -572,7 +584,8 @@ def github_board_data(root: Path) -> dict:
     columns: dict[str, list] = {key: [] for key in COLUMNS}
     for t in sorted(tasks, key=lambda t: -t["active_at"]):
         columns[t["status"]].append(t)
-    return {"tracker": "github", "columns": [{"key": k, "tasks": v} for k, v in columns.items()]}
+    return {"tracker": "github", "columns": [{"key": k, "tasks": v} for k, v in columns.items()],
+            "decisions": sorted(recent, key=lambda d: -d["at"])}
 
 
 def task_detail(path: Path | str, task_id: str) -> dict:
@@ -598,6 +611,12 @@ def task_detail(path: Path | str, task_id: str) -> dict:
         }
 
 
+def any_board(path: Path, project: str | None) -> tuple[dict, str]:
+    """json board's data and its name: the repository's GitHub issues when it is GitHub-tracked, else the board."""
+    gh = github_root()  # a GitHub-tracked repository has no board: --project is moot there
+    return (github_board_data(gh), gh.name) if gh else (board_data(path, project), project or "看板")
+
+
 def json_out(path: Path, a) -> int:
     """The board as JSON on stdout; an error is {"error": ...} with exit 1."""
     import json
@@ -608,8 +627,7 @@ def json_out(path: Path, a) -> int:
         if a.what == "projects":
             out = projects_data(path)
         elif a.what == "board":
-            gh = github_root()  # a GitHub-tracked repository has no board: --project is moot there
-            out = github_board_data(gh) if gh else board_data(path, a.project)
+            out = any_board(path, a.project)[0]
         else:
             out = task_detail(path, a.id)
     except Refused as e:
@@ -617,6 +635,89 @@ def json_out(path: Path, a) -> int:
         return 1
     print(json.dumps(out, ensure_ascii=False))
     return 0
+
+
+# ── index: the json board as md for a leader (spec NAWABAN-INDEX, format E) ──
+
+STALE = 24 * 3600  # 在推 → 停了 past this long without activity
+_BOOKKEEPING = re.compile(r"\s*(?:triage|wayfinder):")  # board notes that are labels, not progress
+_MENTION = re.compile(r"(?<![\w.])@([\w-]+)")
+_NEXT_SPLIT = re.compile(r"[，,]?\s*下一步[：:]")
+
+
+def _ago(now: float, at: int) -> str:
+    m = int(now - at) // 60
+    return f"{m} 分钟" if m < 60 else f"{m // 60} 小时" if m < 48 * 60 else f"{m // 1440} 天"
+
+
+def _short(text: str, n: int) -> str:
+    """One line: links as (链接), no ** or `, whitespace collapsed, cut at n characters."""
+    text = re.sub(r"\s+", " ", re.sub(r"\*\*|`", "", re.sub(r"https?://\S+", "(链接)", text))).strip()
+    return text if len(text) <= n else text[:n] + "…"
+
+
+def index_text(data: dict, name: str) -> str:
+    now = time.time()
+    tasks = [t for c in data["columns"] for t in c["tasks"]]
+    by_id = {t["id"]: t for t in tasks}
+    live = [t for t in tasks if t["status"] != "done"]
+
+    def progress(t):
+        p = t.get("progress")
+        return p if p and not _BOOKKEEPING.match(p["body"]) else None
+
+    def state(t):
+        if t.get("waiting") is not None:
+            return "等你"
+        if progress(t) or t["claimed_at"] or t["session"]:
+            return "停了" if now - t["active_at"] > STALE else "在推"
+        return "没动"
+
+    def belongs(t):
+        if not t["parent"]:
+            return ""
+        p = by_id.get(t["parent"])  # GitHub lists a closed parent only for 48 hours
+        return f" · 属于 {t['parent']}" + (f" {_short(re.sub(r'^\w+:\s*', '', p['title']), 16)}" if p else "")
+
+    groups = {k: sorted((t for t in live if state(t) == k), key=lambda t: t["active_at"])
+              for k in ("等你", "停了", "在推")}
+    moving = {t["parent"] for g in groups.values() for t in g}
+    idle = sorted((t for t in live if state(t) == "没动" and t["id"] not in moving), key=lambda t: -t["created_at"])
+    out = [f"{name} 进行中的事 · {_dt.datetime.fromtimestamp(now):%m-%d %H:%M} 生成",
+           " · ".join(f"{k} {len(g)}" for k, g in groups.items()) + f" · 没动 {len(idle)}", ""]
+    for k, g in groups.items():
+        if not g:
+            continue
+        out.append(f"## {k}")
+        for t in g:
+            p, d = progress(t), t.get("decision")
+            if k == "停了":
+                mention = _MENTION.search(p["body"]) if p else None
+                who = f"@{mention.group(1)}" if mention else "没写"  # 你 is 等你, sorted above
+                out.append(f"- {t['id']} {_short(t['title'], 34)}{belongs(t)}"
+                           f"（{_ago(now, t['active_at'])}没动静 · 停在：{who}）")
+            else:
+                out.append(f"- {t['id']} {_short(t['title'], 34)}{belongs(t)}")
+            if p:
+                out.append(f"  进展 {_ago(now, p['at'])}前：{_short(_NEXT_SPLIT.split(p['body'])[0], 70)}")
+            nxt = _GH_NEXT.search(p["body"]) if p else None
+            if t.get("waiting"):
+                if t["waiting"] != "等你":
+                    out.append(f"  下一步：{_short(t['waiting'], 90)}")
+            elif nxt and not (d and d["at"] > p["at"]):  # a later decision overtakes the 下一步
+                out.append(f"  下一步：{_short(nxt.group(1), 90)}")
+            elif d:
+                out.append(f"  最近决定 {_ago(now, d['at'])}前：{_short(d['verdict'], 80)}")
+        out.append("")
+    decided = data.get("decisions", [])
+    own = [d for d in decided if d["owner"]]
+    out.append(f"## 48 小时内你拍的板 {len(own)}（agent 自己定的另有 {len(decided) - len(own)} 条，在各任务里）")
+    out += [f"- {_ago(now, d['at'])}前 {d['task']} {_short(d['verdict'], 70)}" for d in own]
+    out += ["", f"## 没动 {len(idle)}（开着，从没认领也没写进展）"]
+    out += [f"- {t['id']} {_short(t['title'], 40)}{belongs(t)}" for t in idle]
+    # ponytail: the board lists done tasks only as json board keeps them (12 + those of 24 h), so this may undercount there
+    closed = sum(1 for t in tasks if t["status"] == "done" and now - t["done_at"] < 48 * 3600)
+    return "\n".join(out + ["", f"48 小时内关了 {closed} 个。"])
 
 
 # ── entry ─────────────────────────────────────────────────────────
@@ -664,6 +765,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("what", choices=("projects", "board", "task", "db"))
     p.add_argument("id", nargs="?", default="", help="task:任务 id")
     p.add_argument("--project", help="board:只看这个项目")
+    p = sub.add_parser("index", help="等你 / 停了 / 在推的 md 索引(读 json board 同一份数据,只打到 stdout)")
+    p.add_argument("--project", help="只看这个项目")
     return ap
 
 
@@ -676,6 +779,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if a.verb == "json":
             return json_out(path, a)
+        if a.verb == "index":
+            print(index_text(*any_board(path, a.project)))
+            return 0
         con = open_board(path)
         try:
             if a.verb == "backup":
