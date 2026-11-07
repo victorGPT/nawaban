@@ -101,13 +101,15 @@ export default class NawabanBoard extends View {
         this.db = this.dbs.get(cwd);
         if (this.db) this.watch(this.db, cx);
         const project = this.projects.get(cwd);
-        // A GitHub board is reused for GITHUB_MS, whatever asked for the read; a failed read counts too.
-        const gh = this.github.get(cwd);
-        let board = gh && Date.now() - gh.at < GITHUB_MS ? gh.board : null;
+        // A GitHub board is reused for GITHUB_MS from when its read started, whatever asked for the
+        // read; a failed read counts too. ponytail: keyed by folder, so two folders of one repository
+        // read GitHub apart; key by the git common dir if that doubles the reads.
+        const gh = this.github.get(cwd), started = Date.now();
+        let board = gh && started - gh.at < GITHUB_MS ? gh.board : null;
         if (!board) {
-          if (gh) gh.at = Date.now();
+          if (gh) gh.at = started;
           board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], cwd);
-          if (board.tracker === "github") this.github.set(cwd, { board, at: Date.now() });
+          if (board.tracker === "github") this.github.set(cwd, { board, at: started });
         }
         if (folder() !== cwd) return; // the space changed meanwhile: the next refresh reads it
         Object.assign(this, { project, projectsOut: projects, board, error: null });

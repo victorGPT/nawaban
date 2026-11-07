@@ -131,7 +131,7 @@ export function leadersView(args) {
   const atKid = new Map(); // a child terminal -> the open task it holds (a ticket, not its spec)
   for (const t of tasks) {
     const leader = groupOf(t);
-    if (leader == null || !inGroup(t) || (github && parentOf.has(t.terminal))) continue; // a child shows its issue itself
+    if (leader == null || !inGroup(t) || (github && parentOf.has(t.terminal))) continue; // a child shows its issue by its name
     if (!groups.has(leader)) groups.set(leader, new Set());
     groups.get(leader).add(rootOf(t));
     if (t.status !== "done" && t.session != null && parentOf.has(t.terminal)) atKid.set(t.terminal, t);
@@ -171,7 +171,7 @@ export function leadersView(args) {
   const kidName = (k) => k.name || k.program?.name || k.address;
   const kidItem = (k, leader) => {
     const key = `${leader}/${k.address}`, a = agentAt(k.address), status = a?.status ?? k.status;
-    const issue = github && tasks.find((t) => t.terminal === k.address);
+    const n = github && /^gh-(\d+)/.exec(k.name ?? ""), issue = n && byId.get(`#${n[1]}`); // by name only, not a claim's terminal
     if (issue) return { ...issueItem(issue, status, args.now), key, name: kidName(k), focus: k.address };
     if (atKid.has(k.address)) return { ...itemOf(atKid.get(k.address), leader), key, name: kidName(k), focus: k.address };
     return { key, id: k.address, title: kidName(k), name: kidName(k), state: status === "working" ? "current" : status === "blocked" || status === "error" ? "waiting" : "done",

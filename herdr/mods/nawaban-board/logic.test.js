@@ -373,7 +373,7 @@ const ghIssues = [
   issue(236, { title: "spec: 第 2 轮" }),
   issue(239, { status: "done", done_at: NOW - 3600 }),
   issue(292, { active_at: NOW - 3600, waiting: "等吴献忠审 ADR 0030" }),
-  issue(307, { status: "in_progress", session: "rel（claude-code 84cb7b76）", claimed_at: NOW - 7200 }), // in no window
+  issue(307, { status: "in_progress", session: "rel（claude-code 84cb7b76）", terminal: "t4f", claimed_at: NOW - 7200 }), // its claim names t4f, not named gh-307
   issue(237, { status: "done", done_at: NOW - 7200 })];
 const ghView = (extra = {}) => leaders([agent("t23", "working", "claude", "leader agent")], ghIssues, { terminals: ghTree, board: github(...ghIssues), ...extra });
 
