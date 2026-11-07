@@ -651,8 +651,8 @@ def _ago(now: float, at: int) -> str:
 
 
 def _short(text: str, n: int) -> str:
-    """One line: links as (链接), no ** or `, whitespace collapsed, cut at n characters."""
-    text = re.sub(r"\s+", " ", re.sub(r"\*\*|`", "", re.sub(r"https?://\S+", "(链接)", text))).strip()
+    """One line: links (up to whitespace or CJK/full-width) as (链接), no ** or `, whitespace collapsed, cut at n characters."""
+    text = re.sub(r"\s+", " ", re.sub(r"\*\*|`", "", re.sub(r"https?://[^\s\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+", "(链接)", text))).strip()
     return text if len(text) <= n else text[:n] + "…"
 
 
@@ -716,7 +716,7 @@ def index_text(data: dict, name: str) -> str:
     out += ["", f"## 没动 {len(idle)}（开着，从没认领也没写进展）"]
     out += [f"- {t['id']} {_short(t['title'], 40)}{belongs(t)}" for t in idle]
     # ponytail: the board lists done tasks only as json board keeps them (12 + those of 24 h), so this may undercount there
-    closed = sum(1 for t in tasks if t["status"] == "done" and now - t["done_at"] < 48 * 3600)
+    closed = sum(1 for t in tasks if t["status"] == "done" and now - (t["done_at"] or 0) < 48 * 3600)
     return "\n".join(out + ["", f"48 小时内关了 {closed} 个。"])
 
 

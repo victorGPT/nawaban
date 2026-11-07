@@ -372,7 +372,7 @@ const ghIssues = [
   issue(238, { status: "in_progress", session: "1dfeb4dd", claimed_at: NOW - 9000, active_at: NOW - 2 * 3600, progress: "等判官放行", parent: "#236" }),
   issue(236, { title: "spec: 第 2 轮" }),
   issue(239, { status: "done", done_at: NOW - 3600 }),
-  issue(292, { active_at: NOW - 3600, waiting: "等吴献忠审 ADR 0030" }),
+  issue(292, { active_at: NOW - 3600, waiting: "等负责人审 ADR 0030" }),
   issue(307, { status: "in_progress", session: "rel（claude-code 84cb7b76）", terminal: "t4g", claimed_at: NOW - 7200, active_at: NOW - 3 * 3600 }), // 认领：… hc t4g
   issue(237, { status: "done", done_at: NOW - 7200 })];
 const ghView = (extra = {}) => leaders([agent("t23", "working", "claude", "leader agent")], ghIssues, { terminals: ghTree, board: github(...ghIssues), ...extra });
@@ -413,7 +413,7 @@ test("on a GitHub board the closed issues of a group fold into one 已关 row, l
 
 test("on a GitHub board a needs-info issue is a card that goes to its gh-<n> child; an issue in no Herdr window is in no group", () => {
   const v = ghView();
-  assert.deepEqual(v.waiting.map((c) => [c.name, c.question, c.doing, c.focus]), [["gh-292", "等吴献忠审 ADR 0030", "issue 292", "t4e"]]);
+  assert.deepEqual(v.waiting.map((c) => [c.name, c.question, c.doing, c.focus]), [["gh-292", "等负责人审 ADR 0030", "issue 292", "t4e"]]);
   assert.deepEqual(v.groups.map((g) => g.leader), ["t23"]); // not one group per claimant (#307, #275's stale t52)
   assert.deepEqual([v.groups[0].self, v.groups[0].dispatched], [0, 7]);
 });

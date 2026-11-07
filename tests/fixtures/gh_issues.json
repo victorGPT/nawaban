@@ -45,7 +45,7 @@
     "createdAt": "2026-11-05T08:00:00Z", "updatedAt": "2026-11-06T08:00:00Z", "closedAt": null,
     "labels": [], "body": "示例正文。",
     "comments": [
-      {"author": {"login": "owner"}, "createdAt": "2026-11-06T08:00:00Z", "body": "进展：后端在 #266。@yuebutong 请看新字段 https://example.com/pr/1 。"}
+      {"author": {"login": "owner"}, "createdAt": "2026-11-06T08:00:00Z", "body": "进展：后端在 #266。@someone 请看新字段 https://example.com/pr/1 。"}
     ]
   },
   {
@@ -53,7 +53,7 @@
     "createdAt": "2026-11-06T12:00:00Z", "updatedAt": "2026-11-07T10:00:00Z", "closedAt": "2026-11-07T10:00:00Z",
     "labels": [], "body": "示例正文。",
     "comments": [
-      {"author": {"login": "owner"}, "createdAt": "2026-11-07T09:30:00Z", "body": "决定：ADR 0033 是否采纳 → 采纳，吴某 11-07 拍板。\n\n理由略。"}
+      {"author": {"login": "owner"}, "createdAt": "2026-11-07T09:30:00Z", "body": "决定：ADR 0033 是否采纳 → 采纳，负责人 11-07 拍板。\n\n理由略。"}
     ]
   },
   {

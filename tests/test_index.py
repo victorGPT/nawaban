@@ -65,8 +65,8 @@ roubao 进行中的事 · 11-07 12:00 生成
   下一步：等 owner 对设计 B 拍板；另开小卡
 
 ## 停了
-- #264 web：推荐卡片标题显示 content_id（示例）（28 小时没动静 · 停在：@yuebutong）
-  进展 28 小时前：后端在 #266。@yuebutong 请看新字段 (链接) 。
+- #264 web：推荐卡片标题显示 content_id（示例）（28 小时没动静 · 停在：@someone）
+  进展 28 小时前：后端在 #266。@someone 请看新字段 (链接) 。
 - #301 首卡提速（示例）（26 小时没动静 · 停在：没写）
   进展 27 小时前：首卡压到目标内。
   最近决定 26 小时前：(roubao-e8)合并标准见正文。
@@ -80,7 +80,7 @@ roubao 进行中的事 · 11-07 12:00 生成
   最近决定 4 小时前：（owner 2026-11-07，经 roubao-e8 转达）审过，可以合。
 
 ## 48 小时内你拍的板 2（agent 自己定的另有 4 条，在各任务里）
-- 2 小时前 #306 ADR 0033 是否采纳 → 采纳，吴某 11-07 拍板。
+- 2 小时前 #306 ADR 0033 是否采纳 → 采纳，负责人 11-07 拍板。
 - 4 小时前 #292 （owner 2026-11-07，经 roubao-e8 转达）审过，可以合。
 
 ## 没动 1（开着，从没认领也没写进展）
@@ -91,7 +91,7 @@ roubao 进行中的事 · 11-07 12:00 生成
 
 
 def test_github_golden(github, monkeypatch):
-    monkeypatch.setenv("NAWABAN_OWNER_NAMES", "owner,吴献忠")
+    monkeypatch.setenv("NAWABAN_OWNER_NAMES", "owner,负责人")
     assert github() == GITHUB_GOLDEN
 
 
@@ -171,3 +171,18 @@ def test_board_golden_and_no_file_is_written(run, monkeypatch, tmp_path):
     before = files()
     assert run("index", "--project", "p") == BOARD_GOLDEN
     assert files() == before
+
+
+def test_a_done_task_without_a_done_event_counts_as_not_recently_closed(run, tmp_path):
+    run("create", "OLD", "--title", "老任务", "--body", "", "--project", "p")
+    import sqlite3
+    with sqlite3.connect(tmp_path / "proj" / ".nawaban" / "board.db") as con:  # an old task: done, no →done event
+        con.execute("UPDATE tasks SET status='done' WHERE id='OLD'")
+    assert run("index", "--project", "p").endswith("48 小时内关了 0 个。\n")
+
+
+def test_a_link_stops_before_the_cjk_text_after_it(run):
+    run("create", "L", "--title", "带链接", "--body", "", "--project", "p")
+    run("claim", "L")
+    run("event", "L", "--kind", "note", "--body", "详见 https://github.com/o/r/pull/300（PR #300 的评论）")
+    assert "进展 0 分钟前：详见 (链接)（PR #300 的评论）" in run("index", "--project", "p")
