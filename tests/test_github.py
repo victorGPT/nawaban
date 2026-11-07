@@ -145,7 +145,8 @@ def test_decisions_are_every_prefixed_one_of_the_last_48_hours_open_or_closed(bo
         ("#275", ts("2026-11-06T17:58:43Z")), ("#275", ts("2026-11-06T14:41:53Z")),
         ("#301", ts("2026-11-06T10:00:00Z")), ("#292", ts("2026-11-06T09:00:00Z"))]
     assert d[0]["verdict"] == "ADR 0033 是否采纳 → 采纳，吴某 11-07 拍板。"
-    assert {x["owner"] for x in d} == {None}  # no NAWABAN_OWNER_NAMES: who decided is unknown
+    assert [x["task"] for x in d if x["owner"]] == ["#306"]  # no NAWABAN_OWNER_NAMES: only 拍板 says owner
+    assert all(x["owner"] is False for x in d[1:])
 
 
 def test_an_owner_decision_says_拍板_or_names_an_owner_alias(board, monkeypatch, capsys):

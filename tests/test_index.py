@@ -95,9 +95,8 @@ def test_github_golden(github, monkeypatch):
     assert github() == GITHUB_GOLDEN
 
 
-def test_without_owner_names_the_decisions_section_shows_every_decision(github):
-    out = github()
-    assert "## 48 小时内的决定 6\n- 2 小时前 #306 " in out and "你拍的板" not in out
+def test_without_owner_names_only_a_decision_that_says_拍板_is_the_owner_s(github):
+    assert "## 48 小时内你拍的板 1（agent 自己定的另有 5 条，在各任务里）\n- 2 小时前 #306 ADR 0033" in github()
 
 
 @pytest.fixture

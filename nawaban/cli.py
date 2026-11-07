@@ -547,7 +547,7 @@ def github_board_data(root: Path) -> dict:
                 out.append(((m.group(1) or "") + c["body"][m.end():].strip(), at(c["createdAt"])))
         return out
 
-    # An owner decision says 拍板 or names an owner; with no names given, who decided is unknown (None).
+    # An owner decision says 拍板 or names an owner.
     names = [n.strip() for n in os.environ.get("NAWABAN_OWNER_NAMES", "").split(",") if n.strip()]
     since = time.time() - DECISIONS_RECENT
     tasks, recent = [], []
@@ -557,7 +557,7 @@ def github_board_data(root: Path) -> dict:
         cs = i["comments"]
         claims, notes, decisions = (prefixed(cs, p) for p in ("认领", "进展", "决定"))
         recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
-                    "owner": any(w in body for w in ["拍板", *names]) if names else None}
+                    "owner": any(w in body for w in ["拍板", *names])}
                    for body, t in decisions if t >= since]
         status = "done" if i["state"] == "CLOSED" else "in_progress" if claims else "open"
         parent = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i["body"])
@@ -711,10 +711,7 @@ def index_text(data: dict, name: str) -> str:
         out.append("")
     decided = data.get("decisions", [])
     own = [d for d in decided if d["owner"]]
-    if any(d["owner"] is None for d in decided):  # GitHub without NAWABAN_OWNER_NAMES: who decided is unknown
-        own, out = decided, out + [f"## 48 小时内的决定 {len(decided)}"]
-    else:
-        out.append(f"## 48 小时内你拍的板 {len(own)}（agent 自己定的另有 {len(decided) - len(own)} 条，在各任务里）")
+    out.append(f"## 48 小时内你拍的板 {len(own)}（agent 自己定的另有 {len(decided) - len(own)} 条，在各任务里）")
     out += [f"- {_ago(now, d['at'])}前 {d['task']} {_short(d['verdict'], 70)}" for d in own]
     out += ["", f"## 没动 {len(idle)}（开着，从没认领也没写进展）"]
     out += [f"- {t['id']} {_short(t['title'], 40)}{belongs(t)}" for t in idle]

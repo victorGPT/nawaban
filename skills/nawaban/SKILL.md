@@ -58,7 +58,7 @@ nawaban block <ID> <blocker ID>
 
 ## Index: read it first
 
-As a leader, run `nawaban index` when you start and again after your context is compacted, before you rebuild what is going on from memory. It prints, from the same data as `json board` (the repository's GitHub issues when its `docs/agents/issue-tracker.md` names GitHub, else the board; `--project <name>` on the board), an md index on stdout: what waits on the user (等你), what has had no activity for 24 hours and on whom it stopped (停了), what moves (在推), each with the spec it belongs to, its latest progress and its next step, or the decision that came after that step; the user's decisions of the last 48 hours (on GitHub, a `决定：` that says `拍板` or names one of the comma-separated `NAWABAN_OWNER_NAMES`; without them, every decision); what nobody has touched; and how many closed. It writes nothing.
+As a leader, run `nawaban index` when you start and again after your context is compacted, before you rebuild what is going on from memory. It prints, from the same data as `json board` (the repository's GitHub issues when its `docs/agents/issue-tracker.md` names GitHub, else the board; `--project <name>` on the board), an md index on stdout: what waits on the user (等你), what has had no activity for 24 hours and on whom it stopped (停了), what moves (在推), each with the spec it belongs to, its latest progress and its next step, or the decision that came after that step; the user's decisions of the last 48 hours (on GitHub, a `决定：` that says `拍板` or names one of the comma-separated `NAWABAN_OWNER_NAMES`); what nobody has touched; and how many closed. It writes nothing.
 
 ## Frontier
 
