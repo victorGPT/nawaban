@@ -85,7 +85,8 @@ def test_a_repository_tracked_on_the_board_never_asks_gh(tmp_path, monkeypatch, 
     assert cli.main(["--db", str(db), "init"]) == 0
     capsys.readouterr()
     assert cli.main(["--db", str(db), "json", "board"]) == 0
-    assert all(c["tasks"] == [] for c in json.loads(capsys.readouterr().out)["columns"])
+    out = json.loads(capsys.readouterr().out)
+    assert all(c["tasks"] == [] for c in out["columns"]) and "tracker" not in out
 
 
 def ts(iso):
@@ -130,3 +131,10 @@ def test_a_closed_issue_is_done_at_its_close(board):
     assert t["done_at"] == ts("2026-11-06T21:00:00Z")
     assert t["terminal"] == "t12" and t["session"] is None
     assert "progress" not in t and "waiting" not in t  # like the board: only open tasks carry these
+
+
+def test_the_board_says_it_comes_from_github_even_with_no_issues(board, monkeypatch, capsys):
+    # the panel reads GitHub at most once a minute; it tells such a board by this, not by its ids
+    monkeypatch.setattr(cli, "_gh_issues", lambda root: [])
+    assert cli.main(["json", "board"]) == 0
+    assert json.loads(capsys.readouterr().out)["tracker"] == "github"

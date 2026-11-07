@@ -572,7 +572,7 @@ def github_board_data(root: Path) -> dict:
     columns: dict[str, list] = {key: [] for key in COLUMNS}
     for t in sorted(tasks, key=lambda t: -t["active_at"]):
         columns[t["status"]].append(t)
-    return {"columns": [{"key": k, "tasks": v} for k, v in columns.items()]}
+    return {"tracker": "github", "columns": [{"key": k, "tasks": v} for k, v in columns.items()]}
 
 
 def task_detail(path: Path | str, task_id: str) -> dict:

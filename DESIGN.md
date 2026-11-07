@@ -73,13 +73,14 @@ The approved structure is the line view (2026-11-06), which replaces the window 
 
 - **The unit is the task, not the worker.** A worker is temporary; its task stays on the board with its blockers and its notes. A worker shows only as the state of the task it holds, and as the note it last wrote.
 - **Groups are leaders, as Herdr's terminal tree shows them** (2026-11-06). A leader is a terminal with child terminals; its workers are those children, in the order they were started, named as Herdr names them (`gh-239`). A worker shows its Herdr state and title, plus the task it holds and its note when it holds a nawaban task. This works for projects tracked on GitHub too. The board's `dispatch:` notes add only tasks dispatched but not yet in a window (GLOSSARY: Leader).
+- **On a GitHub project the unit is the issue** (2026-11-07). `json board` reads the issues there (`"tracker": "github"`). A child named `gh-<n>…` (`gh-275`, `gh-238r`) is issue #n: it shows the issue's title, its Herdr name in small text on the right, and GitHub's state, not Herdr's: an open issue is never 完成. An issue in no child window is in no group; a claim comment names no leader.
 - **Numbers are arrival order, not a plan.** Work arrives in no fixed order, so a leader's items are numbered by when each was first claimed. A task added today comes last. Only inside a spec does order come from blocked-by.
 
 From top to bottom:
 
 1. **Header.** The project name. On the right: how many windows, and how many items are waiting in other projects.
 2. **Waiting.** A large headline, "N 个窗口在等你", then one card per waiting window. Unchanged from mix B+C.
-3. **Leaders.** One group per leader with an open task: its own tasks and the ones it dispatched, numbered by arrival. A spec is one item with its own progress segments. Done items stay, ticked, for 24 hours. A 1 px `border` line separates groups.
+3. **Leaders.** One group per leader with an open task: its own tasks and the ones it dispatched, numbered by arrival. A spec is one item with its own progress segments. Done items stay, ticked, for 24 hours. On a GitHub project a group's closed issues fold into one dim "已关 n 个" row under its items; a click opens it. A 1 px `border` line separates groups.
 4. **没认领.** Every window of the space that is neither a card nor holding a task collapses into one last row, with its count and names, the Herdr state after a working or done one: "没认领 3 · 部署（在干）、闲聊、13（完成）". A window working with no task still shows.
 
 When nothing is waiting, the headline and the cards disappear, and the leaders move to the top.
@@ -91,7 +92,7 @@ When nothing is waiting, the headline and the cards disappear, and the leaders m
   - `blocked` (amber): waiting on you, or stopped.
   - `working` (blue): an item someone is on now.
   - `muted`: done items and the rail beside them.
-  - `dim` and `border`: items not started, and the rail ahead.
+  - `dim` and `border`: items not started, the rail ahead, and an issue 在推.
 - **Amber is reserved.** Amber is the only loud colour, and it appears only on windows that need the owner. Nothing decorative is amber.
 
 ## Typography
@@ -111,7 +112,7 @@ When nothing is waiting, the headline and the cards disappear, and the leaders m
   - 16 px side edge.
   - Cards sit 12 px in from the panel edge, with 8 px between them.
   - Items are 30 px high; a current one grows by its note.
-- **Item grid.** An 18 px rail column, the number and title, a spec's segments and done/total, and the state on the right. Who does it (自己 or worker) opens the note line, not a column. The title is cut off with an ellipsis; extra width goes to it.
+- **Item grid.** An 18 px rail column, the number and title, a spec's segments and done/total, a child terminal's Herdr name (11 px, dim, when it differs from the title), and the state on the right. Who does it (自己 or worker) opens the note line, not a column. The title is cut off with an ellipsis; extra width goes to it.
 - **Order.** Groups: a leader with a stopped item first, then the rest by when they last moved. Items: by when each was first claimed; not yet claimed ones after, by creation. Inside a spec: blocked-by order, ties by the board's order.
 - **Width.** From 360 to 720 px. Below 400 px, the progress segments are dropped.
 
@@ -136,7 +137,9 @@ When nothing is waiting, the headline and the cards disappear, and the leaders m
   - current (held): a `working` ring with a breathing inner dot, "在干 40 分钟";
   - stopped (held, its window gone or idle): a `blocked` ring, "停了 2 小时";
   - not started: a hollow `dim` dot, "还没动".
-- **Note.** Under a current or stopped item only: who is on it, 自己 or worker, then the latest note it wrote ("自己 · verify：3814 个测试通过"), at most two lines, skipping `coord:` notes, which are bookkeeping. "去窗口 →" sits at its right, in `foreground`, when the window is still there. A stopped item whose window is gone says so and has no button. Resting the pointer on the item opens a HoverCard with the whole note.
+  - On a GitHub project, a child's issue: closed, done; open, current while its window works; else 在推, a `dim` ring and dim label with no duration, while the issue had a comment or edit in the last 24 hours; else stopped since then ("停了 1 天"); `needs-info`, waiting on you, with a card. 在推 is not amber: the issue moves, nobody needs the owner.
+- **Note.** Under a current, 在推, stopped or waiting item only: who is on it, 自己 or worker, then the latest note it wrote ("自己 · verify：3814 个测试通过"), at most two lines, skipping `coord:` notes, which are bookkeeping. A child terminal, already named on the right, has no who; an issue's note is its latest `进展：` comment. "去窗口 →" sits at its right, in `foreground`, when the window is still there; with nothing to say there is no note line, and "去窗口 →" ends the title row. A stopped item whose window is gone says so and has no button. Resting the pointer on the item opens a HoverCard with the whole note.
+- **已关 row.** A GitHub group's closed issues: a 12 px chevron in the rail column (Herdr's `chevron-right`, `chevron-down` when open), then "已关 n 个" in dim 12 px, 26 px high. Clicking it shows the closed items under it (gpui-base `Collapsible`), done-styled, numbered after the open ones. They are not in the ↑ ↓ order.
 - **Row behaviour.** Clicking an item with a window focuses it, the same as a card. ↑ and ↓ move through cards and items together, and Enter goes to the selected one.
 
 ## Do's and Don'ts

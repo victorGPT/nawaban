@@ -338,7 +338,7 @@ test("each child terminal is its own item, keyed by its terminal, though two hol
   { terminals: roubao.map((k) => ({ ...k, status: "working" })) });
   assert.deepEqual(v.groups[0].items.map((i) => [i.key, i.title, i.name, i.note, i.focus]), [
     ["t23/t4n", "S-2", "gh-239", "二", "t4n"],
-    ["t23/t4p", "gh-238r", undefined, null, "t4p"],
+    ["t23/t4p", "gh-238r", "gh-238r", null, "t4p"],
     ["t23/t4r", "S-1", "gh-256", "一", "t4r"]]);
 });
 
@@ -353,7 +353,65 @@ test("a child holding a nawaban task shows the task and its note; the leader's o
   assert.deepEqual(v.groups[0].items.map((i) => [i.number, i.title, i.name, i.state, i.who, i.note, i.focus]), [
     [1, "GH", "gh-239", "current", "worker", "第 2 步", "t4n"], // t4n is Herdr-done: the task is still held
     [2, "IDLE", "gh-238r", "stopped", "worker", null, "t4p"], // idle, holding an open task: stopped
-    [3, "gh-256", undefined, "current", "worker", null, "t4r"],
+    [3, "gh-256", "gh-256", "current", "worker", null, "t4r"],
     [4, "OWN", undefined, "current", "self", "拆票", "t23"],
     [5, "QUEUED", undefined, "todo", "worker", null, null]]);
+});
+
+// `nawaban json board` in a GitHub-tracked repository (NAWABAN-INDEX-01): issues as tasks `#<n>`,
+// no leader, the claim's first line as session. Workers are named `gh-<n>…` by `hc run --name`.
+// As in roubao on 2026-11-07.
+const issue = (n, x = {}) => ({ ...task(`#${n}`, { title: `issue ${n}`, ...x }), ...(x.waiting && { waiting: x.waiting }) });
+const github = (...tasks) => ({ tracker: "github", ...boardOf(...tasks) });
+const ghTree = [{ address: "t23", name: null, parent: null, status: "working", state: "live" },
+  kid("t4a", "gh-275", "working"), kid("t4b", "gh-264", "done"), kid("t4c", "gh-238r", "idle"), kid("t4d", "gh-239", "done"),
+  kid("t4e", "gh-292", "idle"), kid("t4f", "speed", "done")];
+const ghIssues = [
+  issue(275, { status: "in_progress", session: "gh-275（hc t52）", terminal: "t52", claimed_at: NOW - 3600, active_at: NOW - 600, progress: "第 2 步" }),
+  issue(264, { active_at: NOW - 26 * 3600 }), // open, nobody claimed it, quiet for a day
+  issue(238, { status: "in_progress", session: "1dfeb4dd", claimed_at: NOW - 9000, active_at: NOW - 2 * 3600, progress: "等判官放行", parent: "#236" }),
+  issue(236, { title: "spec: 第 2 轮" }),
+  issue(239, { status: "done", done_at: NOW - 3600 }),
+  issue(292, { active_at: NOW - 3600, waiting: "等吴献忠审 ADR 0030" }),
+  issue(307, { status: "in_progress", session: "rel（claude-code 84cb7b76）", claimed_at: NOW - 7200 }), // in no window
+  issue(237, { status: "done", done_at: NOW - 7200 })];
+const ghView = (extra = {}) => leaders([agent("t23", "working", "claude", "leader agent")], ghIssues, { terminals: ghTree, board: github(...ghIssues), ...extra });
+
+test("on a GitHub board, a child named gh-<n> is issue #<n>: its title, the child's name beside it, its 进展 as the note", () => {
+  const g = ghView().groups[0];
+  assert.deepEqual([g.leader, g.name], ["t23", "leader agent"]);
+  const at = (focus) => [...g.items, ...g.closed].find((i) => i.focus === focus);
+  assert.deepEqual([at("t4a").title, at("t4a").name, at("t4a").note], ["issue 275", "gh-275", "第 2 步"]);
+  assert.equal(at("t4c").title, "issue 238"); // gh-238r: the number is enough; the issue itself, not its spec #236
+  assert.deepEqual([at("t4f").title, at("t4f").name, at("t4f").state], ["speed", "speed", "done"]); // no number: as before
+  // on the nawaban board a gh- name means nothing
+  const plain = leaders([agent("t23", "working", "claude", "leader agent")], [task("#275", { title: "x" })], { terminals: ghTree });
+  assert.equal(plain.groups[0].items[0].title, "gh-275");
+});
+
+test("on a GitHub board an issue's state is GitHub's: closed is 完成, open is 在干 while its window works, else 在推 within 24 hours of its last activity, else 停了", () => {
+  const items = ghView().groups[0].items;
+  assert.deepEqual(items.map((i) => [i.focus, i.state, itemLabel(i, NOW, "zh")]), [
+    ["t4a", "current", "在干 1 小时"], // since its claim
+    ["t4b", "stopped", "停了 1 天"], // Herdr says done, but #264 is open
+    ["t4c", "pushing", "在推"], // Herdr says idle; the issue moved 2 hours ago
+    ["t4e", "waiting", "等你"], // needs-info
+    ["t4f", "done", "完成"]]);
+  assert.equal(itemLabel(items[2], NOW, "en"), "Moving");
+});
+
+test("on a GitHub board the closed issues of a group fold into one 已关 row, left out of the arrow keys", () => {
+  const v = ghView();
+  assert.deepEqual(v.groups[0].closed.map((i) => [i.number, i.title, i.state, i.at, i.focus]), [[6, "issue 239", "done", NOW - 3600, "t4d"]]);
+  assert.equal(WINDOW_WORDS.zh.closed(1), "已关 1 个");
+  assert.equal(WINDOW_WORDS.en.closed(2), "2 closed");
+  assert.deepEqual(v.keys, ["card:0", "t23/t4a", "t23/t4b", "t23/t4c", "t23/t4e", "t23/t4f"]);
+  assert.deepEqual(ghView({ board: github() }).groups[0].closed, []); // nothing to match: nothing folded
+});
+
+test("on a GitHub board a needs-info issue is a card that goes to its gh-<n> child; an issue in no Herdr window is in no group", () => {
+  const v = ghView();
+  assert.deepEqual(v.waiting.map((c) => [c.name, c.question, c.doing, c.focus]), [["gh-292", "等吴献忠审 ADR 0030", "issue 292", "t4e"]]);
+  assert.deepEqual(v.groups.map((g) => g.leader), ["t23"]); // not one group per claimant (#307, #275's stale t52)
+  assert.deepEqual([v.groups[0].self, v.groups[0].dispatched], [0, 6]);
 });
