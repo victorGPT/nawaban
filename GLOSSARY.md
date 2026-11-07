@@ -138,6 +138,12 @@ The one SQLite file that holds every task and event.
 _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`.
 
+**Index**(索引)
+The md text a leader reads when it starts or after its context is compacted: the open work grouped as waiting on the user, stopped (no activity for 24 hours, with on whom) and moving, each with its spec, latest progress and next step; the user's decisions of the last 48 hours; the untouched; and a count of the closed. It is printed from `json board`'s data each time and never stored.
+索引是 leader 开工或上下文压缩后读的那份 md 文本：开着的事按等你、停了（24 小时没动静，写明停在谁身上）、在推分组，每件带所属的 spec、最新进展和下一步；48 小时内用户拍的板；没动的；关掉的个数。每次从 `json board` 的数据现打，从不存。
+_Avoid_: wiki, summary file, status report.
+_Current identifiers_: CLI `index`; `NAWABAN_OWNER_NAMES`.
+
 **Herdr panel**(Herdr 面板)
 A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each leader and its workers are doing. Claiming, closing and dispatching stay with agents and the CLI.
 Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按 leader 列出当前 space 所在项目里每个 leader 和它的 worker 在做什么。认领、关闭、派活仍由 agent 通过 CLI 完成。

@@ -6,13 +6,14 @@
 // ~/nawaban; it runs in the space's folder without --db, so it finds the same board an agent
 // working there does.
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, Popover, HoverCard } from "gpui-base";
+import { v_flex, h_flex, Popover, HoverCard, Collapsible } from "gpui-base";
 import { spaces, focused, agents, terminals, run, exec, theme, home, nextCommand, watchFolder } from "herdr";
 import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, leadersView, itemLabel, decisionDate,
   WINDOW_WORDS } from "./logic.js";
 
 const POLL_MS = 5000;      // re-read the board this often when it cannot be watched
 const FALLBACK_MS = 60000; // and this often when it is, in case a change was missed
+const GITHUB_MS = 60000;   // a GitHub board (`tracker: "github"`) is read from GitHub at most this often
 const NARROW_W = 400;      // a narrower panel drops a spec's progress segments
 const ICON = (name) => `mods/nawaban-board/${name}.svg`;
 const CHROME = (name) => `mods/workspace-chrome/${name}.svg`; // Herdr's shipped icons
@@ -46,6 +47,8 @@ export default class NawabanBoard extends View {
     this.projects = new Map();  // folder -> its project (null: none), resolved once per folder
     this.dbs = new Map();       // folder -> the board file its CLI reads (null: unknown)
     this.watched = new Set();   // board files being watched
+    this.github = new Map();    // folder -> its last GitHub board and when it was read
+    this.unfolded = new Set();  // leaders whose 已关 row is open
     this.keys = [];             // the cards and items Enter can go to, in the order shown
     this.focusOf = new Map();   // their key -> the terminal they go to
     this.sel = null;            // the selected one's key (a card and an item can share a terminal)
@@ -98,7 +101,16 @@ export default class NawabanBoard extends View {
         this.db = this.dbs.get(cwd);
         if (this.db) this.watch(this.db, cx);
         const project = this.projects.get(cwd);
-        const board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], cwd);
+        // A GitHub board is reused for GITHUB_MS from when its read started, whatever asked for the
+        // read; a failed read counts too. ponytail: keyed by folder, so two folders of one repository
+        // read GitHub apart; key by the git common dir if that doubles the reads.
+        const gh = this.github.get(cwd), started = Date.now();
+        let board = gh && started - gh.at < GITHUB_MS ? gh.board : null;
+        if (!board) {
+          if (gh) gh.at = started;
+          board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], cwd);
+          if (board.tracker === "github") this.github.set(cwd, { board, at: started });
+        }
         if (folder() !== cwd) return; // the space changed meanwhile: the next refresh reads it
         Object.assign(this, { project, projectsOut: projects, board, error: null });
       } catch (e) {
@@ -233,21 +245,38 @@ export default class NawabanBoard extends View {
           .child(div().flex_none().text_color(t.muted).child(`${decisionDate(g.decision.at)} ${w.decided}`))
           .child(div().flex_1().min_w(0).truncate().child(`：${g.decision.verdict}`))
         : div().h(8))
-      .children(g.items.map((x, i) => this.item(x, i === 0, i === g.items.length - 1, now, keyboard, t, w)));
+      .children(g.items.map((x, i) => this.item(x, i === 0, i === g.items.length - 1, now, keyboard, t, w)))
+      .when(g.closed.length > 0, (el) => el.child(this.closed(g, now, keyboard, t, w)));
   }
 
-  // One item: a dot on the rail, its number, title (a spec: its segments and done/total) and state;
-  // under a held one, who is on it (a child terminal: its Herdr name), its latest note (two lines) and 去窗口 → while its window is
-  // there. Resting on an item with a note shows the whole note. A child terminal waiting on you
-  // (waiting) is drawn as stopped is, in the color that means "needs you".
+  // A group's closed issues, one dim "已关 n 个" row; a click shows them, as items, under it.
+  closed(g, now, keyboard, t, w) {
+    const open = this.unfolded.has(g.leader);
+    return Collapsible.new().flex().flex_col().open(open)
+      .child(h_flex().id(`nawaban-closed-${g.leader}`).h(26).px(16).gap(8).items_center().cursor_pointer()
+        .text_size(12).text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .on_click((_e, cx) => { open ? this.unfolded.delete(g.leader) : this.unfolded.add(g.leader); cx.notify(); })
+        .child(h_flex().w(18).flex_none().justify_center().child(svg(CHROME(open ? "chevron-down" : "chevron-right")).size(12)))
+        .child(div().flex_1().min_w(0).truncate().child(w.closed(g.closed.length))))
+      .content(v_flex().children(g.closed.map((x, i) => this.item(x, i === 0, i === g.closed.length - 1, now, keyboard, t, w))));
+  }
+
+  // One item: a dot on the rail, its number, title (a spec: its segments and done/total), a child
+  // terminal's Herdr name in small dim text, and its state; under a held one, who is on it (自己 or
+  // worker; a child terminal, named already, skips it), its latest note (two lines) and 去窗口 →
+  // while its window is there. With no such line, 去窗口 → ends the title row. Resting on an item
+  // with a note shows the whole note. A child terminal waiting on you (waiting) is drawn as stopped
+  // is, in the color that means "needs you"; an issue still moving with no window on it (pushing),
+  // as a quiet grey ring.
   item(x, first, last, now, keyboard, t, w) {
     const amber = x.state === "stopped" || x.state === "waiting";
-    const held = x.state === "current" || amber, on = x.key === this.sel;
+    const held = x.state === "current" || x.state === "pushing" || amber, on = x.key === this.sel;
     const railColor = x.state === "done" ? t.muted : t.border;
     const ring = (c) => div().size(12).flex_none().rounded_full().border_2().border_color(c).bg(t.canvas);
     const dot = x.state === "done" ? div().size(8).flex_none().rounded_full().bg(t.muted)
       : x.state === "todo" ? div().size(8).flex_none().rounded_full().border_2().border_color(t.dim).bg(t.canvas)
       : amber ? ring(t.blocked)
+      : x.state === "pushing" ? ring(t.dim)
       : ring(t.working).flex().items_center().justify_center()
         .child(div().size(4).rounded_full().bg(t.working).loop("opacity", { from: 1, to: 0.25, period: 1600 }));
     const rail = v_flex().w(18).flex_none().items_center()
@@ -257,6 +286,8 @@ export default class NawabanBoard extends View {
     const segColor = { done: t.muted, current: t.working, stopped: t.blocked, todo: t.border };
     const stateColor = x.state === "current" ? t.working : amber ? t.blocked : t.dim;
     const said = x.gone ? (x.note ? `${w.gone} · ${x.note}` : w.gone) : x.note;
+    const line = !held ? null : [x.name == null && x.who && w.who[x.who], said?.replace(/\s+/g, " ").trim()].filter(Boolean).join(" · ");
+    const go = held && x.focus != null;
     const body = v_flex().flex_1().min_w(0)
       .child(h_flex().h(26).gap(6).items_center().text_size(12.5)
         .child(div().flex_none().text_size(11).text_color(t.dim).child(String(x.number)))
@@ -266,11 +297,12 @@ export default class NawabanBoard extends View {
           .when(!this.narrow, (el) => el.child(h_flex().flex_none().gap(3).items_center()
             .children(x.spec.segments.map((s) => div().w(14).h(3).rounded(1).bg(segColor[s])))))
           .child(div().flex_none().text_size(11).text_color(t.dim).child(`${x.spec.done}/${x.spec.total}`)))
-        .child(div().flex_none().text_size(11).text_color(stateColor).child(itemLabel(x, now, this.lang))))
-      .when(held, (el) => el.child(h_flex().gap(10).pb(8).items_end().text_size(12)
-        .child(div().flex_1().min_w(0).max_h(36).overflow_hidden().line_height("18px").text_color(t.muted)
-          .child([x.name ?? (x.who && w.who[x.who]), said?.replace(/\s+/g, " ").trim()].filter(Boolean).join(" · ")))
-        .when(x.focus != null, (el) => el.child(div().flex_none().text_color(t.foreground).child(w.go)))));
+        .when(x.name != null && x.name !== x.title, (el) => el.child(div().flex_none().max_w(96).truncate().text_size(11).text_color(t.dim).child(x.name)))
+        .child(div().flex_none().text_size(11).text_color(stateColor).child(itemLabel(x, now, this.lang)))
+        .when(go && !line, (el) => el.child(div().flex_none().text_size(12).text_color(t.foreground).child(w.go))))
+      .when(Boolean(line), (el) => el.child(h_flex().gap(10).pb(8).items_end().text_size(12)
+        .child(div().flex_1().min_w(0).max_h(36).overflow_hidden().line_height("18px").text_color(t.muted).child(line))
+        .when(go, (el) => el.child(div().flex_none().text_color(t.foreground).child(w.go)))));
     const row = h_flex().id(`nawaban-item-${x.key}`).flex_none().px(16).gap(8).items_stretch().min_h(30)
       .when(on, (el) => el.bg(keyboard ? t.selected : t.hover))
       .when(x.focus != null, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover))

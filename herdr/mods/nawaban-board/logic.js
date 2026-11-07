@@ -52,7 +52,7 @@ export function windowsView({ agents, space, board, now, lang, projects, project
   // that window, which its button focuses. Unknown to Herdr: named by its ID, with no button.
   const strays = open.filter((t) => t.waiting != null && !here.some((a) => a.address === t.terminal))
     .map((t) => {
-      const away = agents.find((a) => a.address === t.terminal);
+      const away = agents.find((a) => a.address === t.terminal) ?? terminals.find((k) => k.state === "live" && k.address === t.terminal);
       return { name: away ? nameOf(away) : t.id, question: t.waiting, doing: t.title, state: "waiting",
         label: words.waiting, duration: span(now - t.active_at, lang, true), focus: away?.address ?? null, seq: 0, since: t.active_at };
     });
@@ -81,6 +81,11 @@ const namer = (terminals) => {
 // in place of its rows one group per leader (GLOSSARY: Leader), as Herdr's terminal tree shows it.
 // `terminals` is Herdr's terminals(): every core terminal with its `name`, `parent` and `status`.
 export function leadersView(args) {
+  const github = args.board?.tracker === "github";
+  // The terminals the issues' claims name (`认领：… hc t5n`), before a gh-<n> name fills in the rest.
+  const claimedAt = new Map(github ? args.board.columns.flatMap((c) => c.tasks ?? []).filter((t) => t.terminal)
+    .sort((x, y) => (y.status === "done") - (x.status === "done")).map((t) => [t.terminal, t.id]) : []); // an open one over a closed one
+  if (github) args = { ...args, board: matchIssues(args.board, args.terminals ?? []) };
   const { waiting, otherWaiting } = windowsView(args);
   const terminals = args.terminals ?? [], nameOf = namer(terminals);
   const tasks = (args.board?.columns ?? []).flatMap((c) => c.tasks ?? []);
@@ -120,6 +125,7 @@ export function leadersView(args) {
   const groupOf = (t) => {
     if (parentOf.has(t.terminal)) return parentOf.get(t.terminal);
     if (kids.has(t.terminal)) return t.terminal;
+    if (github) return null; // a claim's text names no leader: an issue in no Herdr window is in no group
     const leader = sessionKey(t.leader ?? t.session);
     const home = tasks.find((x) => leader != null && sessionKey(x.session) === leader && kids.has(x.terminal))?.terminal;
     return home ?? leader;
@@ -128,7 +134,7 @@ export function leadersView(args) {
   const atKid = new Map(); // a child terminal -> the open task it holds (a ticket, not its spec)
   for (const t of tasks) {
     const leader = groupOf(t);
-    if (leader == null || !inGroup(t)) continue;
+    if (leader == null || !inGroup(t) || (github && parentOf.has(t.terminal))) continue; // a child shows its issue by its name
     if (!groups.has(leader)) groups.set(leader, new Set());
     groups.get(leader).add(rootOf(t));
     if (t.status !== "done" && t.session != null && parentOf.has(t.terminal)) atKid.set(t.terminal, t);
@@ -167,10 +173,12 @@ export function leadersView(args) {
   // idle once you look, and a worker with no task has nothing to stop on.
   const kidName = (k) => k.name || k.program?.name || k.address;
   const kidItem = (k, leader) => {
-    const key = `${leader}/${k.address}`;
+    const key = `${leader}/${k.address}`, a = agentAt(k.address), status = a?.status ?? k.status;
+    const n = github && /^gh-(\d+)/.exec(k.name ?? "");
+    const issue = github && (byId.get(claimedAt.get(k.address)) ?? (n && byId.get(`#${n[1]}`)));
+    if (issue) return { ...issueItem(issue, status, args.now), key, name: kidName(k), focus: k.address };
     if (atKid.has(k.address)) return { ...itemOf(atKid.get(k.address), leader), key, name: kidName(k), focus: k.address };
-    const a = agentAt(k.address), status = a?.status ?? k.status;
-    return { key, id: k.address, title: kidName(k), state: status === "working" ? "current" : status === "blocked" || status === "error" ? "waiting" : "done",
+    return { key, id: k.address, title: kidName(k), name: kidName(k), state: status === "working" ? "current" : status === "blocked" || status === "error" ? "waiting" : "done",
       at: null, gone: false, who: "worker", note: a?.title || null, focus: k.address, spec: null, decisions: [], active: 0 };
   };
   const out = [...groups].map(([leader, roots]) => {
@@ -178,11 +186,14 @@ export function leadersView(args) {
     // The children first, as they started; then the rest by first claim (arrival), unclaimed ones by creation.
     const all = [...tree.map((k) => kidItem(k, leader)), ...[...roots].filter((r) => !taken.has(r)).map((r) => itemOf(r, leader))
       .sort((x, y) => x.claimed - y.claimed || x.created_at - y.created_at)];
-    const items = all.map(({ claimed, created_at, decisions, active, ...x }, i) => ({ key: `${leader}/${x.id}`, number: i + 1, ...x }));
-    const dispatched = items.filter((i) => i.who === "worker").length;
+    // A closed issue folds into the group's 已关 row, numbered after the rest.
+    const numbered = [...all.filter((x) => !x.closed), ...all.filter((x) => x.closed)]
+      .map(({ claimed, created_at, decisions, active, ...x }, i) => ({ key: `${leader}/${x.id}`, number: i + 1, ...x }));
+    const items = numbered.filter((x) => !x.closed), closed = numbered.filter((x) => x.closed);
+    const dispatched = numbered.filter((i) => i.who === "worker").length;
     const last = all.flatMap((x) => x.decisions).sort((x, y) => y.at - x.at)[0];
-    return { leader, name: named(leader), self: items.length - dispatched, dispatched,
-      decision: last ? { at: last.at, verdict: last.verdict.split("\n")[0] } : null, items,
+    return { leader, name: named(leader), self: numbered.length - dispatched, dispatched,
+      decision: last ? { at: last.at, verdict: last.verdict.split("\n")[0] } : null, items, closed,
       stopped: items.some((i) => i.state === "stopped" || i.state === "waiting"), active: Math.max(...all.map((x) => x.active)) };
   }).sort((x, y) => y.stopped - x.stopped || y.active - x.active).map(({ stopped, active, ...g }) => g);
   // Every window of the space that is neither a card, a leader or its child, nor the terminal of an
@@ -212,6 +223,28 @@ const specOrder = (tickets) => {
 
 const DAY = 86400;
 
+// A GitHub board's issues, each in its window: the live terminal its claim names (`hc t5n`), else the
+// live window named for it: `gh-275`, `gh-238r` (`hc run --name`) is #275, #238.
+const matchIssues = (board, terminals) => {
+  const live = terminals.filter((k) => k.state === "live"), alive = new Set(live.map((k) => k.address));
+  const at = new Map(live.flatMap((k) => {
+    const m = /^gh-(\d+)/.exec(k.name ?? "");
+    return m ? [[`#${m[1]}`, k.address]] : [];
+  }));
+  return { ...board, columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => ({ ...t, terminal: alive.has(t.terminal) ? t.terminal : at.get(t.id) ?? t.terminal })) })) };
+};
+
+// An issue as its window's item, in GitHub's terms: closed is done (and folds); open, waiting on you
+// (needs-info, or Herdr says blocked), current while its window works, else pushing while the issue
+// moved (any comment or edit) in the last 24 hours, else stopped since then.
+const issueItem = (t, status, now) => {
+  const state = t.status === "done" ? "done" : t.waiting != null || status === "blocked" || status === "error" ? "waiting"
+    : status === "working" ? "current" : now - t.active_at < DAY ? "pushing" : "stopped";
+  return { id: t.id, title: t.title, state, at: state === "done" ? t.done_at : state === "current" ? t.claimed_at : state === "stopped" ? t.active_at : null,
+    gone: false, who: "worker", note: t.progress?.body ?? null, spec: null, decisions: t.decision ? [t.decision] : [],
+    active: t.active_at, closed: state === "done" };
+};
+
 // A session as a leader's key: agent-center authors its notes `ac:<session>`, the same session.
 const sessionKey = (s) => s?.replace(/^[a-z]+:(?=[0-9a-f]{8})/, "") ?? null;
 
@@ -234,7 +267,7 @@ export function itemLabel({ state, at }, now, lang) {
   return `${label} ${ago === 0 ? time : ago === 1 ? `${w.yesterday} ${time}` : `${decisionDate(at)} ${time}`}`;
 }
 
-const ITEM_STATE = { done: "done", current: "working", stopped: "stopped", todo: "todo", waiting: "waiting" };
+const ITEM_STATE = { done: "done", current: "working", pushing: "pushing", stopped: "stopped", todo: "todo", waiting: "waiting" };
 const pad = (n) => String(n).padStart(2, "0");
 
 // A decision's day, "11-05", local time.
@@ -242,14 +275,14 @@ export const decisionDate = (at) => { const d = new Date(at * 1000); return `${p
 
 // The panel's words; WINDOW_WORDS[lang][state] is a state's label.
 export const WINDOW_WORDS = {
-  zh: { waiting: "等你", stopped: "停了", done: "完成", working: "在干", idle: "空闲", todo: "还没动", yesterday: "昨天", confirm: "在等你确认",
+  zh: { waiting: "等你", pushing: "在推", closed: (n) => `已关 ${n} 个`, stopped: "停了", done: "完成", working: "在干", idle: "空闲", todo: "还没动", yesterday: "昨天", confirm: "在等你确认",
     windows: (n) => `${n} 个窗口`, elsewhere: (n) => (n ? `其他项目 ${n} 个等你` : "其他项目没有等你的"),
     headline: (n) => `${n} 个窗口在等你`, waited: (d) => `等了 ${d}`, go: "去窗口 →",
     counts: (own, sent) => `自己 ${own} · 派出 ${sent}`, decided: "定", who: { self: "自己", worker: "worker" },
     gone: "窗口已关，任务还拿着没交还",
     withState: (name, state) => `${name}（${state}）`, idleRow: (n, names) => `没认领 ${n} · ${names.join("、")}`,
     none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言" },
-  en: { waiting: "Waiting", stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
+  en: { waiting: "Waiting", pushing: "Moving", closed: (n) => `${n} closed`, stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
     headline: (n) => `${n} window${n === 1 ? "" : "s"} waiting on you`, waited: (d) => `waiting ${d}`, go: "Go to window →",
     counts: (own, sent) => `own ${own} · sent ${sent}`, decided: "decided", who: { self: "self", worker: "worker" },

@@ -50,12 +50,21 @@ const board = { columns: [
     { id: "S-01", title: "S-01", status: "done", parent: "S", session: null, leader: "L", terminal: null, claimed_at: now - 5000,
       created_at: 0, active_at: now - 3000, done_at: now - 3000 }] }] };
 
+// The same space on a GitHub-tracked project: t6's children are issues by their gh-<n> names.
+const issue = (n, x) => open(`#${n}`, { title: `issue ${n}`, ...x });
+const ghBoard = { tracker: "github", columns: [
+  { key: "in_progress", tasks: [issue(239, { status: "in_progress", session: "gh-239", claimed_at: now - 600, progress: note("第 2 步") })] },
+  { key: "open", tasks: [issue(256, { active_at: now - 3600 })] },
+  { key: "done", tasks: [{ id: "#260", title: "issue 260", status: "done", parent: null, session: null, leader: null, terminal: null,
+    claimed_at: null, created_at: 0, active_at: now - 600, done_at: now - 600 }] }] };
+let execImpl = async () => ({ code: 1 });
+
 const stubs = {
   "gpui-kit": { View: class {}, div: make("div"), svg: make("svg") },
-  "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el },
+  "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el, Collapsible: el },
   herdr: { spaces: () => [{ id: "here", active: true, name: "nawaban", folder: "/x" }], focused: () => ({ space: "here", cwd: "/x" }),
     agents: () => agents, terminals: () => terminals, theme: () => new Proxy({}, { get: () => "#808080" }), home: () => "/h",
-    run: async () => {}, exec: async () => ({ code: 1 }), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}) },
+    run: async () => {}, exec: (...a) => execImpl(...a), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}) },
 };
 globalThis.__nawabanStubs = stubs;
 registerHooks({
@@ -73,7 +82,7 @@ test("the panel draws every item state, at 420 and 380 px, in Chinese and Englis
   const v = leadersView({ agents, terminals, space: "here", board, now, lang: "zh" });
   const items = v.groups.flatMap((g) => g.items);
   // a leader terminal's group: a child holding a task, under its Herdr name, and one holding none
-  assert.deepEqual(v.groups.find((g) => g.leader === "t6")?.items.map((i) => [i.title, i.name]), [["GH 的标题", "gh-239"], ["gh-256", undefined], ["gh-260", undefined]]);
+  assert.deepEqual(v.groups.find((g) => g.leader === "t6")?.items.map((i) => [i.title, i.name]), [["GH 的标题", "gh-239"], ["gh-256", "gh-256"], ["gh-260", "gh-260"]]);
   assert.deepEqual(new Set(items.map((i) => i.state)), new Set(["done", "current", "stopped", "todo", "waiting"]));
   assert.ok(items.some((i) => i.gone) && items.some((i) => i.spec) && v.groups.some((g) => g.decision));
   assert.ok(v.waiting.length && v.idle.count);
@@ -90,6 +99,57 @@ test("the panel draws every item state, at 420 and 380 px, in Chinese and Englis
     }
   }
   assert.ok(called.has("loop") && called.has("on_click"), "the items' branches were drawn");
+});
+
+test("on a GitHub board the panel draws issue titles, 在推, and the 已关 row folded and open", () => {
+  const v = leadersView({ agents, terminals, space: "here", board: ghBoard, now, lang: "zh" });
+  const g = v.groups.find((x) => x.leader === "t6");
+  assert.deepEqual(g.items.map((i) => [i.title, i.name, i.state]), [["issue 239", "gh-239", "current"], ["issue 256", "gh-256", "pushing"]]);
+  assert.deepEqual(g.closed.map((i) => [i.title, i.state]), [["issue 260", "done"]]);
+  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+  for (const unfold of [false, true]) {
+    const view = new NawabanBoard();
+    view.init({}, cx);
+    Object.assign(view, { lang: "zh", board: ghBoard });
+    if (unfold) view.unfolded.add("t6");
+    view.render(cx);
+  }
+  assert.ok(called.has("content") && called.has("open"));
+});
+
+test("a GitHub board is read from GitHub at most once a minute, whatever asks for it", async () => {
+  const reads = [];
+  execImpl = async (_cmd, args = []) => {
+    if (args[1] !== "json") return { code: 1, stdout: "" };
+    reads.push(args[2]);
+    return { code: 0, stdout: JSON.stringify(args[2] === "board" ? ghBoard : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
+  };
+  const realNow = Date.now;
+  let clock = realNow();
+  Date.now = () => clock;
+  try {
+    const quiet = { spawn() {}, notify() {} };
+    const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+    const settle = () => new Promise((r) => setImmediate(r));
+    const boards = () => reads.filter((x) => x === "board").length;
+    const view = new NawabanBoard();
+    view.init({}, cx);
+    await settle();
+    assert.equal(boards(), 1);
+    assert.equal(view.board.tracker, "github");
+    clock += 30000; // a window changed state, the board file changed: the last board serves
+    view.refresh(cx);
+    await settle();
+    assert.equal(boards(), 1);
+    assert.equal(reads.filter((x) => x === "projects").length, 2); // the local board still is read
+    clock += 31000;
+    view.refresh(cx);
+    await settle();
+    assert.equal(boards(), 2);
+  } finally {
+    Date.now = realNow;
+    execImpl = async () => ({ code: 1 });
+  }
 });
 
 test("every element method the panel calls is in gpui-kit.d.ts", { skip: !dts && "no gpui-kit.d.ts on this machine" }, () => {
