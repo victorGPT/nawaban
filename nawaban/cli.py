@@ -502,7 +502,7 @@ _GH_PARENT_BODY = re.compile(r"(?:属于|Part of|Parent:)\s*#(\d+)")
 # `决定：`, `## 进展：`, `**进展**：`, `决定（roubao-e8）：`: optional heading/bold, the word, an optional (who), a colon.
 _GH_PREFIX = r"\s*(?:#{{1,6}}\s*)?\**{}\**\s*([（(][^）)\n]*[）)])?\**\s*[：:]\**\s*"
 _GH_TERMINAL = re.compile(r"\bhc (t\w+)")  # 认领：gh-275（hc t52）
-_GH_NEXT = re.compile(r"下一步：\s*([^。\n]+)")  # the sentence after it
+_GH_NEXT = re.compile(r"下一步[：:]\s*([^。\n]+)")  # the sentence after it
 
 
 def github_root(cwd: Path | None = None) -> Path | None:
