@@ -520,13 +520,33 @@ def _gh_issues(root: Path) -> list[dict]:
     """Open issues plus those closed in the last GH_RECENT seconds, as `gh issue list --json` gives them."""
     import json
     since = _dt.datetime.fromtimestamp(time.time() - GH_RECENT, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    out: list[dict] = []
-    for state in (["--state", "open"], ["--state", "closed", "--search", f"closed:>={since}"]):
+    def gh(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
         try:
-            r = subprocess.run(["gh", "issue", "list", *state, "--limit", "1000", "--json", _GH_FIELDS],
-                               cwd=root, capture_output=True, text=True, timeout=30)
+            return subprocess.run(["gh", *args], cwd=root, capture_output=True, text=True, timeout=30, env=env)
         except (OSError, subprocess.SubprocessError) as e:
             raise Refused(f"gh 不可用:{e}") from e
+
+    def others() -> list[str]:
+        """The logged-in gh accounts that are not active: sessions share one gh, the last to switch wins."""
+        r = gh("auth", "status", "--json", "hosts")
+        try:
+            return [a["login"] for a in json.loads(r.stdout)["hosts"]["github.com"] if not a.get("active")]
+        except (ValueError, KeyError, TypeError):
+            return []
+
+    out: list[dict] = []
+    env = None
+    for state in (["--state", "open"], ["--state", "closed", "--search", f"closed:>={since}"]):
+        args = ("issue", "list", *state, "--limit", "1000", "--json", _GH_FIELDS)
+        r = gh(*args, env=env)
+        if r.returncode != 0 and env is None and "Could not resolve to a Repository" in r.stderr:
+            for login in others():
+                env = os.environ | {"GH_TOKEN": gh("auth", "token", "--user", login).stdout.strip()}
+                if (retry := gh(*args, env=env)).returncode == 0:
+                    r = retry
+                    break
+            else:
+                env = None
         if r.returncode != 0:
             raise Refused(f"gh 失败:{r.stderr.strip()}")
         out += json.loads(r.stdout)

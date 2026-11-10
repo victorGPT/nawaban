@@ -182,3 +182,20 @@ def test_等_or_待_elsewhere_does_not_hide_a_拍板(board, monkeypatch, capsys,
              "comments": [{"author": {"login": "owner"}, "createdAt": "2026-11-07T10:00:00Z", "body": "决定：" + body}]}
     monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
     assert [x["owner"] for x in _decisions(monkeypatch, capsys)] == [True]
+
+
+def test_a_repository_the_active_gh_account_cannot_see_is_read_with_another_logged_in_account(monkeypatch):
+    # several sessions share one gh: whichever switched last is active, and it may not see this repository
+    hosts = {"hosts": {"github.com": [{"login": "me", "active": True}, {"login": "work", "active": False}]}}
+
+    def run(args, **kw):
+        token = (kw.get("env") or {}).get("GH_TOKEN")
+        if args[1:3] == ["auth", "status"]:
+            return subprocess.CompletedProcess(args, 0, json.dumps(hosts), "")
+        if args[1:3] == ["auth", "token"]:
+            return subprocess.CompletedProcess(args, 0, f"tok-{args[-1]}\n", "")
+        if token == "tok-work":
+            return subprocess.CompletedProcess(args, 0, '[{"number": 1}]', "")
+        return subprocess.CompletedProcess(args, 1, "", "GraphQL: Could not resolve to a Repository with the name 'o/r'.")
+    monkeypatch.setattr(cli.subprocess, "run", run)
+    assert cli._gh_issues(Path(".")) == [{"number": 1}, {"number": 1}]
