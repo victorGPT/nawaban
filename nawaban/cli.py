@@ -549,6 +549,8 @@ def github_board_data(root: Path) -> dict:
 
     # An owner decision says 拍板 or names an owner.
     names = [n.strip() for n in os.environ.get("NAWABAN_OWNER_NAMES", "").split(",") if n.strip()]
+    # 「等负责人拍板」「待拍板」 ask for a decision: 等/待, at most a name (an owner's, or up to 4 characters), then 拍板
+    waiting = re.compile(r"[等待]\s*(?:%s)?\s*拍板" % "|".join([*map(re.escape, names), r"\w{1,4}?"]))
     since = time.time() - DECISIONS_RECENT
     tasks, recent = [], []
     for i in _gh_issues(root):
@@ -557,7 +559,7 @@ def github_board_data(root: Path) -> dict:
         cs = i["comments"]
         claims, notes, decisions = (prefixed(cs, p) for p in ("认领", "进展", "决定"))
         recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
-                    "owner": any(w in body for w in ["拍板", *names])}
+                    "owner": any(w in waiting.sub("", body) for w in ["拍板", *names])}
                    for body, t in decisions if t >= since]
         status = "done" if i["state"] == "CLOSED" else "in_progress" if claims else "open"
         parent = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i["body"])
