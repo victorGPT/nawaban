@@ -172,3 +172,13 @@ def test_a_decision_that_waits_for_拍板_is_not_the_owners(board, monkeypatch, 
     monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
     monkeypatch.setenv("NAWABAN_OWNER_NAMES", "负责人")
     assert [x["owner"] for x in _decisions(monkeypatch, capsys)] == [False]
+
+
+@pytest.mark.parametrize("body", ["原待定项由负责人拍板为 A", "期待值按 A（负责人拍板）", "A 等同于 B 负责人拍板",
+                                  "等了两天负责人拍板选 A", "负责人拍板：等 CI 绿再合", "等 CI 绿后再合，负责人拍板"])
+def test_等_or_待_elsewhere_does_not_hide_a_拍板(board, monkeypatch, capsys, body):
+    issue = {"number": 1, "title": "示例", "state": "OPEN", "stateReason": None, "labels": [], "body": "",
+             "createdAt": "2026-11-07T08:00:00Z", "updatedAt": "2026-11-07T10:00:00Z", "closedAt": None,
+             "comments": [{"author": {"login": "owner"}, "createdAt": "2026-11-07T10:00:00Z", "body": "决定：" + body}]}
+    monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
+    assert [x["owner"] for x in _decisions(monkeypatch, capsys)] == [True]
