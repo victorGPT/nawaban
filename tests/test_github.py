@@ -162,3 +162,13 @@ def test_an_owner_decision_says_拍板_or_names_an_owner_alias(board, monkeypatc
     d = _decisions(monkeypatch, capsys)
     assert [x["task"] for x in d if x["owner"]] == ["#306", "#292"]  # 拍板; （owner 2026-11-07…）
     assert all(x["owner"] is False for x in d if x["task"] in ("#275", "#301"))
+
+
+def test_a_decision_that_waits_for_拍板_is_not_the_owners(board, monkeypatch, capsys):
+    issue = {"number": 331, "title": "示例", "state": "OPEN", "stateReason": None, "labels": [], "body": "",
+             "createdAt": "2026-11-07T08:00:00Z", "updatedAt": "2026-11-07T10:00:00Z", "closedAt": None,
+             "comments": [{"author": {"login": "owner"}, "createdAt": "2026-11-07T10:00:00Z",
+                           "body": "决定：学生词 → 默认先拦，理由：和 #274 冲突，等负责人拍板（PR #332）。"}]}
+    monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
+    monkeypatch.setenv("NAWABAN_OWNER_NAMES", "负责人")
+    assert [x["owner"] for x in _decisions(monkeypatch, capsys)] == [False]

@@ -500,6 +500,7 @@ _GH_FIELDS = "number,title,state,stateReason,closedAt,createdAt,updatedAt,labels
 _GH_PARENT_TITLE = re.compile(r"[(（]#(\d+)-[A-Za-z]+[)）]")  # (#236-B)
 _GH_PARENT_BODY = re.compile(r"(?:属于|Part of|Parent:)\s*#(\d+)")
 # `决定：`, `## 进展：`, `**进展**：`, `决定（roubao-e8）：`: optional heading/bold, the word, an optional (who), a colon.
+_GH_WAITING = re.compile(r"[等待][^，。；,;\n]{0,12}拍板")  # 「等负责人拍板」 asks for a decision, it is not one
 _GH_PREFIX = r"\s*(?:#{{1,6}}\s*)?\**{}\**\s*([（(][^）)\n]*[）)])?\**\s*[：:]\**\s*"
 _GH_TERMINAL = re.compile(r"\bhc (t\w+)")  # 认领：gh-275（hc t52）
 _GH_NEXT = re.compile(r"下一步[：:]\s*([^。\n]+)")  # the sentence after it
@@ -557,7 +558,7 @@ def github_board_data(root: Path) -> dict:
         cs = i["comments"]
         claims, notes, decisions = (prefixed(cs, p) for p in ("认领", "进展", "决定"))
         recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
-                    "owner": any(w in body for w in ["拍板", *names])}
+                    "owner": any(w in _GH_WAITING.sub("", body) for w in ["拍板", *names])}
                    for body, t in decisions if t >= since]
         status = "done" if i["state"] == "CLOSED" else "in_progress" if claims else "open"
         parent = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i["body"])
