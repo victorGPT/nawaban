@@ -1,6 +1,6 @@
 [
   {
-    "number": 275, "title": "角色方向分不清（示例）", "state": "OPEN", "stateReason": "",
+    "number": 275, "url": "https://github.com/example/roubao/issues/275", "title": "角色方向分不清（示例）", "state": "OPEN", "stateReason": "",
     "createdAt": "2026-11-06T14:28:01Z", "updatedAt": "2026-11-06T18:59:18Z", "closedAt": null,
     "labels": [], "body": "示例正文。",
     "comments": [
@@ -13,7 +13,7 @@
     ]
   },
   {
-    "number": 307, "title": "关系摸底（示例）", "state": "OPEN", "stateReason": "",
+    "number": 307, "url": "https://github.com/example/roubao/issues/307", "title": "关系摸底（示例）", "state": "OPEN", "stateReason": "",
     "createdAt": "2026-11-07T01:00:00Z", "updatedAt": "2026-11-07T03:00:00Z", "closedAt": null,
     "labels": [{"name": "needs-info"}], "body": "示例正文。",
     "comments": [
@@ -22,7 +22,7 @@
     ]
   },
   {
-    "number": 292, "title": "身材放宽（示例）", "state": "OPEN", "stateReason": "",
+    "number": 292, "url": "https://github.com/example/roubao/issues/292", "title": "身材放宽（示例）", "state": "OPEN", "stateReason": "",
     "createdAt": "2026-11-06T08:00:00Z", "updatedAt": "2026-11-07T09:00:00Z", "closedAt": null,
     "labels": [], "body": "示例正文。",
     "comments": [
@@ -32,7 +32,7 @@
     ]
   },
   {
-    "number": 301, "title": "首卡提速（示例）", "state": "OPEN", "stateReason": "",
+    "number": 301, "url": "https://github.com/example/roubao/issues/301", "title": "首卡提速（示例）", "state": "OPEN", "stateReason": "",
     "createdAt": "2026-11-06T07:00:00Z", "updatedAt": "2026-11-06T10:00:00Z", "closedAt": null,
     "labels": [], "body": "示例正文。",
     "comments": [
@@ -41,7 +41,7 @@
     ]
   },
   {
-    "number": 264, "title": "web：推荐卡片标题显示 content_id（示例）", "state": "OPEN", "stateReason": "",
+    "number": 264, "url": "https://github.com/example/roubao/issues/264", "title": "web：推荐卡片标题显示 content_id（示例）", "state": "OPEN", "stateReason": "",
     "createdAt": "2026-11-05T08:00:00Z", "updatedAt": "2026-11-06T08:00:00Z", "closedAt": null,
     "labels": [], "body": "示例正文。",
     "comments": [
@@ -49,7 +49,7 @@
     ]
   },
   {
-    "number": 306, "title": "ADR 0033 采纳（示例）", "state": "CLOSED", "stateReason": "COMPLETED",
+    "number": 306, "url": "https://github.com/example/roubao/issues/306", "title": "ADR 0033 采纳（示例）", "state": "CLOSED", "stateReason": "COMPLETED",
     "createdAt": "2026-11-06T12:00:00Z", "updatedAt": "2026-11-07T10:00:00Z", "closedAt": "2026-11-07T10:00:00Z",
     "labels": [], "body": "示例正文。",
     "comments": [
@@ -57,19 +57,19 @@
     ]
   },
   {
-    "number": 239, "title": "evals: 两臂正面比（#236-C）", "state": "OPEN", "stateReason": "",
+    "number": 239, "url": "https://github.com/example/roubao/issues/239", "title": "evals: 两臂正面比（#236-C）", "state": "OPEN", "stateReason": "",
     "createdAt": "2026-11-05T10:00:00Z", "updatedAt": "2026-11-05T12:00:00Z", "closedAt": null,
     "labels": [{"name": "needs-info"}], "body": "属于 #236。被 #237、#238 挡住。",
     "comments": []
   },
   {
-    "number": 294, "title": "增量抽取（示例）", "state": "OPEN", "stateReason": "",
+    "number": 294, "url": "https://github.com/example/roubao/issues/294", "title": "增量抽取（示例）", "state": "OPEN", "stateReason": "",
     "createdAt": "2026-11-05T09:00:00Z", "updatedAt": "2026-11-05T09:00:00Z", "closedAt": null,
     "labels": [], "body": "Parent: #289\n\n示例正文。",
     "comments": []
   },
   {
-    "number": 237, "title": "feat(api): 抽取后处理(#236-A)", "state": "CLOSED", "stateReason": "COMPLETED",
+    "number": 237, "url": "https://github.com/example/roubao/issues/237", "title": "feat(api): 抽取后处理(#236-A)", "state": "CLOSED", "stateReason": "COMPLETED",
     "createdAt": "2026-11-05T08:00:00Z", "updatedAt": "2026-11-06T20:00:00Z", "closedAt": "2026-11-06T20:00:00Z",
     "labels": [], "body": "示例正文。",
     "comments": [
@@ -77,7 +77,7 @@
     ]
   },
   {
-    "number": 296, "title": "合规豁免（示例）", "state": "CLOSED", "stateReason": "COMPLETED",
+    "number": 296, "url": "https://github.com/example/roubao/issues/296", "title": "合规豁免（示例）", "state": "CLOSED", "stateReason": "COMPLETED",
     "createdAt": "2026-11-06T09:00:00Z", "updatedAt": "2026-11-06T21:00:00Z", "closedAt": "2026-11-06T21:00:00Z",
     "labels": [], "body": "Part of #293\n\n示例正文。",
     "comments": [
@@ -85,7 +85,7 @@
     ]
   },
   {
-    "number": 299, "title": "重复的测试失败（示例）", "state": "CLOSED", "stateReason": "NOT_PLANNED",
+    "number": 299, "url": "https://github.com/example/roubao/issues/299", "title": "重复的测试失败（示例）", "state": "CLOSED", "stateReason": "NOT_PLANNED",
     "createdAt": "2026-11-06T10:00:00Z", "updatedAt": "2026-11-06T11:00:00Z", "closedAt": "2026-11-06T11:00:00Z",
     "labels": [], "body": "和 #297 重复。",
     "comments": []

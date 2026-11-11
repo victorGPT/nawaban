@@ -38,6 +38,10 @@ def test_closed_is_done_claimed_is_in_progress_else_open_and_not_planned_is_left
     assert tasks["#275"]["status"] == "in_progress"
 
 
+def test_an_issue_links_to_its_github_page(board):
+    assert board()["#292"]["url"] == "https://github.com/example/roubao/issues/292"
+
+
 def test_parent_comes_from_the_title_or_the_body(board):
     tasks = board()
     assert tasks["#239"]["parent"] == "#236"  # title （#236-C） and body 属于 #236

@@ -38,6 +38,8 @@ async function nawaban(args, cwd) {
 }
 
 const goTo = (terminal) => run("agent.focus", { terminal });
+// A card or row goes to its window; with none, an issue opens on GitHub in the browser.
+const go = (x) => (x.focus != null ? goTo(x.focus) : x.url ? exec("open", [x.url]).catch(() => null) : null);
 
 export default class NawabanBoard extends View {
   init(_props, cx) {
@@ -50,7 +52,7 @@ export default class NawabanBoard extends View {
     this.github = new Map();    // folder -> its last GitHub board and when it was read
     this.unfolded = new Set();  // leaders whose 已关 row is open
     this.keys = [];             // the cards and items Enter can go to, in the order shown
-    this.focusOf = new Map();   // their key -> the terminal they go to
+    this.focusOf = new Map();   // their key -> the card or row, which go() follows
     this.sel = null;            // the selected one's key (a card and an item can share a terminal)
     try { this.lang = localStorage.getItem("lang"); } catch { this.lang = null; }
     if (this.lang !== "zh" && this.lang !== "en") {
@@ -79,7 +81,7 @@ export default class NawabanBoard extends View {
   act(cmd) {
     if (cmd === "focus") return this.h.focus();
     if (cmd === "back") { this.sel = null; return; }
-    if (cmd === "open") { const f = this.focusOf.get(this.sel); if (f) goTo(f); return; }
+    if (cmd === "open") { const x = this.focusOf.get(this.sel); if (x) go(x); return; }
     if (cmd === "down" || cmd === "up") this.sel = moveSelection(this.keys, this.sel, cmd === "down" ? 1 : -1);
   }
 
@@ -150,7 +152,7 @@ export default class NawabanBoard extends View {
     const v = leadersView({ agents: all, terminals: terminals(), space, board: this.board, now, lang: this.lang,
       projects: this.projectsOut, project: this.project });
     this.keys = v.keys;
-    this.focusOf = new Map([...v.waiting, ...v.groups.flatMap((g) => g.items)].map((x) => [x.key, x.focus]));
+    this.focusOf = new Map([...v.waiting, ...v.groups.flatMap((g) => g.items)].map((x) => [x.key, x]));
     const keyboard = this.h.is_focused();
     const note = this.error ? `${w.error}: ${this.error}` : !this.board ? w.loading
       : !v.waiting.length && !v.groups.length && !mine.length ? w.none : null;
@@ -219,11 +221,11 @@ export default class NawabanBoard extends View {
   // most), then what it is working on and "去窗口 →". The whole card is the button; a waiting task
   // in no window of this space has nothing to go to, so no button. The selection is outlined.
   card(x, i, keyboard, t, w) {
-    const can = x.focus != null, on = can && x.key === this.sel;
+    const can = x.focus != null || Boolean(x.url), on = can && x.key === this.sel;
     return v_flex().id(`nawaban-card-${i}`).flex_none().p(12).rounded(8).bg(t.blocked + "26")
       .border_1().border_color(on ? (keyboard ? t.accent : t.blocked) : t.blocked + "00")
       .when(can, (el) => el.cursor_pointer().hover((s) => s.bg(t.blocked + "33"))
-        .on_click((_e, cx) => { this.sel = x.key; goTo(x.focus); cx.notify(); }))
+        .on_click((_e, cx) => { this.sel = x.key; go(x); cx.notify(); }))
       .child(h_flex().gap(8).items_center()
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(x.name))
         .when(x.duration != null, (el) => el.child(div().flex_none().text_size(12.5).text_color(t.blocked).child(w.waited(x.duration)))))
@@ -231,7 +233,7 @@ export default class NawabanBoard extends View {
       .child(h_flex().mt(10).gap(10).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(t.dim).child(x.doing))
         .when(can, (el) => el.child(div().flex_none().px(10).py(5).rounded(6).bg(t.blocked)
-          .text_size(12.5).font_semibold().text_color(t.canvas).child(w.go))));
+          .text_size(12.5).font_semibold().text_color(t.canvas).child(x.focus != null ? w.go : w.issue))));
   }
 
   // A leader: its window's name and 自己 n · 派出 m, its latest decision, then its items on a rail.
@@ -287,7 +289,7 @@ export default class NawabanBoard extends View {
     const stateColor = x.state === "current" ? t.working : amber ? t.blocked : t.dim;
     const said = x.gone ? (x.note ? `${w.gone} · ${x.note}` : w.gone) : x.note;
     const line = !held ? null : [x.name == null && x.who && w.who[x.who], said?.replace(/\s+/g, " ").trim()].filter(Boolean).join(" · ");
-    const go = held && x.focus != null;
+    const there = held && x.focus != null;
     const body = v_flex().flex_1().min_w(0)
       .child(h_flex().h(26).gap(6).items_center().text_size(12.5)
         .child(div().flex_none().text_size(11).text_color(t.dim).child(String(x.number)))
@@ -299,14 +301,14 @@ export default class NawabanBoard extends View {
           .child(div().flex_none().text_size(11).text_color(t.dim).child(`${x.spec.done}/${x.spec.total}`)))
         .when(x.name != null && x.name !== x.title, (el) => el.child(div().flex_none().max_w(96).truncate().text_size(11).text_color(t.dim).child(x.name)))
         .child(div().flex_none().text_size(11).text_color(stateColor).child(itemLabel(x, now, this.lang)))
-        .when(go && !line, (el) => el.child(div().flex_none().text_size(12).text_color(t.foreground).child(w.go))))
+        .when(there && !line, (el) => el.child(div().flex_none().text_size(12).text_color(t.foreground).child(w.go))))
       .when(Boolean(line), (el) => el.child(h_flex().gap(10).pb(8).items_end().text_size(12)
         .child(div().flex_1().min_w(0).max_h(36).overflow_hidden().line_height("18px").text_color(t.muted).child(line))
-        .when(go, (el) => el.child(div().flex_none().text_color(t.foreground).child(w.go)))));
+        .when(there, (el) => el.child(div().flex_none().text_color(t.foreground).child(w.go)))));
     const row = h_flex().id(`nawaban-item-${x.key}`).flex_none().px(16).gap(8).items_stretch().min_h(30)
       .when(on, (el) => el.bg(keyboard ? t.selected : t.hover))
-      .when(x.focus != null, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover))
-        .on_click((_e, cx) => { this.sel = x.key; goTo(x.focus); cx.notify(); }))
+      .when(x.focus != null || Boolean(x.url), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => { this.sel = x.key; go(x); cx.notify(); }))
       .child(rail).child(body);
     if (!x.note) return row;
     return HoverCard.new(`nawaban-note-${x.key}`).anchor("bottom_left").trigger(row)

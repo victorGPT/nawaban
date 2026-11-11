@@ -496,7 +496,7 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
 # ── json board from GitHub issues (spec NAWABAN-INDEX, Data mapping) ──
 
 GH_RECENT = 48 * 3600  # closed issues stay this long
-_GH_FIELDS = "number,title,state,stateReason,closedAt,createdAt,updatedAt,labels,body,comments"
+_GH_FIELDS = "number,url,title,state,stateReason,closedAt,createdAt,updatedAt,labels,body,comments"
 _GH_PARENT_TITLE = re.compile(r"[(（]#(\d+)-[A-Za-z]+[)）]")  # (#236-B)
 _GH_PARENT_BODY = re.compile(r"(?:属于|Part of|Parent:)\s*#(\d+)")
 # `决定：`, `## 进展：`, `**进展**：`, `决定（roubao-e8）：`: optional heading/bold, the word, an optional (who), a colon.
@@ -592,7 +592,7 @@ def github_board_data(root: Path) -> dict:
             "created_at": at(i["createdAt"]),
             "active_at": max([at(i["updatedAt"])] + [at(c["createdAt"]) for c in cs]),
             "open_blockers": 0, "terminal": terminal.group(1) if terminal else None, "leader": None,
-            "claimed_at": claims[0][1] if claims else None}
+            "claimed_at": claims[0][1] if claims else None, "url": i.get("url")}
         if status == "done":
             task["done_at"] = at(i["closedAt"])
         else:

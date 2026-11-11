@@ -46,7 +46,7 @@ export function windowsView({ agents, space, board, now, lang, projects, project
     const since = blocked ? null : task?.active_at ?? null;
     return { name: nameOf(a), ...(state === "waiting" && { question: asking?.waiting ?? words.confirm }),
       doing: blocked ? a.title : task?.title ?? a.title, state, label: words[state], duration: since == null ? null : span(now - since, lang, !!asking),
-      focus: a.address, seq: a.seq, since };
+      focus: a.address, ...(task?.url && { url: task.url }), seq: a.seq, since };
   });
   // A waiting task in no window of this space still asks. Its terminal in another space: named by
   // that window, which its button focuses. Unknown to Herdr: named by its ID, with no button.
@@ -54,7 +54,7 @@ export function windowsView({ agents, space, board, now, lang, projects, project
     .map((t) => {
       const away = agents.find((a) => a.address === t.terminal) ?? terminals.find((k) => k.state === "live" && k.address === t.terminal);
       return { name: away ? nameOf(away) : t.id, question: t.waiting, doing: t.title, state: "waiting",
-        label: words.waiting, duration: span(now - t.active_at, lang, true), focus: away?.address ?? null, seq: 0, since: t.active_at };
+        label: words.waiting, duration: span(now - t.active_at, lang, true), focus: away?.address ?? null, url: t.url ?? null, seq: 0, since: t.active_at };
     });
   const out = ({ seq, since, ...w }) => w;
   // Longest-waiting first; the blocked windows, whose wait has no length, after them.
@@ -205,7 +205,7 @@ export function leadersView(args) {
   const idle = { count: free.length, names: free };
   // Selection keys, unique where terminals are not: a card and an item, or two items, can share one.
   const cards = waiting.map((c, i) => ({ key: `card:${i}`, ...c }));
-  const keys = [...cards, ...out.flatMap((g) => g.items)].filter((x) => x.focus != null).map((x) => x.key);
+  const keys = [...cards, ...out.flatMap((g) => g.items)].filter((x) => x.focus != null || x.url).map((x) => x.key);
   return { waiting: cards, groups: out, idle, otherWaiting, keys };
 }
 
@@ -241,7 +241,7 @@ const issueItem = (t, status, now) => {
   const state = t.status === "done" ? "done" : t.waiting != null || status === "blocked" || status === "error" ? "waiting"
     : status === "working" ? "current" : now - t.active_at < DAY ? "pushing" : "stopped";
   return { id: t.id, title: t.title, state, at: state === "done" ? t.done_at : state === "current" ? t.claimed_at : state === "stopped" ? t.active_at : null,
-    gone: false, who: "worker", note: t.progress?.body ?? null, spec: null, decisions: t.decision ? [t.decision] : [],
+    gone: false, who: "worker", note: t.progress?.body ?? null, spec: null, decisions: t.decision ? [t.decision] : [], url: t.url ?? null,
     active: t.active_at, closed: state === "done" };
 };
 
@@ -277,14 +277,14 @@ export const decisionDate = (at) => { const d = new Date(at * 1000); return `${p
 export const WINDOW_WORDS = {
   zh: { waiting: "等你", pushing: "在推", closed: (n) => `已关 ${n} 个`, stopped: "停了", done: "完成", working: "在干", idle: "空闲", todo: "还没动", yesterday: "昨天", confirm: "在等你确认",
     windows: (n) => `${n} 个窗口`, elsewhere: (n) => (n ? `其他项目 ${n} 个等你` : "其他项目没有等你的"),
-    headline: (n) => `${n} 个窗口在等你`, waited: (d) => `等了 ${d}`, go: "去窗口 →",
+    headline: (n) => `${n} 个窗口在等你`, waited: (d) => `等了 ${d}`, go: "去窗口 →", issue: "去 GitHub 看 →",
     counts: (own, sent) => `自己 ${own} · 派出 ${sent}`, decided: "定", who: { self: "自己", worker: "worker" },
     gone: "窗口已关，任务还拿着没交还",
     withState: (name, state) => `${name}（${state}）`, idleRow: (n, names) => `没认领 ${n} · ${names.join("、")}`,
     none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言" },
   en: { waiting: "Waiting", pushing: "Moving", closed: (n) => `${n} closed`, stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
-    headline: (n) => `${n} window${n === 1 ? "" : "s"} waiting on you`, waited: (d) => `waiting ${d}`, go: "Go to window →",
+    headline: (n) => `${n} window${n === 1 ? "" : "s"} waiting on you`, waited: (d) => `waiting ${d}`, go: "Go to window →", issue: "Open on GitHub →",
     counts: (own, sent) => `own ${own} · sent ${sent}`, decided: "decided", who: { self: "self", worker: "worker" },
     gone: "Window closed, task still held",
     withState: (name, state) => `${name} (${state.toLowerCase()})`, idleRow: (n, names) => `No task ${n} · ${names.join(", ")}`,
