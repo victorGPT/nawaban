@@ -361,7 +361,7 @@ test("a child holding a nawaban task shows the task and its note; the leader's o
 // `nawaban json board` in a GitHub-tracked repository (NAWABAN-INDEX-01): issues as tasks `#<n>`,
 // no leader, the claim's first line as session. Workers are named `gh-<n>…` by `hc run --name`.
 // As in roubao on 2026-11-07.
-const issue = (n, x = {}) => ({ ...task(`#${n}`, { title: `issue ${n}`, ...x }), ...(x.waiting && { waiting: x.waiting }) });
+const issue = (n, x = {}) => ({ ...task(`#${n}`, { title: `issue ${n}`, ...x }), ...(x.waiting && { waiting: x.waiting }), url: `https://github.com/o/r/issues/${n}` });
 const github = (...tasks) => ({ tracker: "github", ...boardOf(...tasks) });
 const ghTree = [{ address: "t23", name: null, parent: null, status: "working", state: "live" },
   kid("t4a", "gh-275", "working"), kid("t4b", "gh-264", "done"), kid("t4c", "gh-238r", "idle"), kid("t4d", "gh-239", "done"),
@@ -416,6 +416,15 @@ test("on a GitHub board a needs-info issue is a card that goes to its gh-<n> chi
   assert.deepEqual(v.waiting.map((c) => [c.name, c.question, c.doing, c.focus]), [["gh-292", "等负责人审 ADR 0030", "issue 292", "t4e"]]);
   assert.deepEqual(v.groups.map((g) => g.leader), ["t23"]); // not one group per claimant (#307, #275's stale t52)
   assert.deepEqual([v.groups[0].self, v.groups[0].dispatched], [0, 7]);
+});
+
+test("on a GitHub board a needs-info issue in no window is a card that opens the issue in the browser", () => {
+  const lost = issue(355, { waiting: "等你定" });
+  const v = leaders([agent("t23", "working", "claude", "leader agent")], [...ghIssues, lost], { terminals: ghTree, board: github(...ghIssues, lost) });
+  assert.deepEqual(v.waiting.map((c) => [c.doing, c.focus, c.url]), [
+    ["issue 355", null, "https://github.com/o/r/issues/355"], ["issue 292", "t4e", "https://github.com/o/r/issues/292"]]); // longest waiting first
+  assert.ok(v.keys.includes("card:0")); // Enter opens it
+  assert.equal(ghView().groups[0].items.find((i) => i.focus === "t4a").url, "https://github.com/o/r/issues/275");
 });
 
 test("on a GitHub board a claim's terminal comes before a gh-<n> name", () => {
