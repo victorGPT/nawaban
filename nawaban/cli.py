@@ -496,7 +496,9 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
 # ── json board from GitHub issues (spec NAWABAN-INDEX, Data mapping) ──
 
 GH_RECENT = 48 * 3600  # closed issues stay this long
-_GH_FIELDS = "number,url,title,state,stateReason,closedAt,createdAt,updatedAt,labels,body,comments"
+OBJECTIVE_RECENT = 24 * 3600  # an objective lists its tasks' 进展/决定/已决 of this long
+PENDING_DUE = 8 * 3600  # a pending decision whose default action carries out the recommendation falls due after this
+_GH_FIELDS = "number,url,title,state,stateReason,closedAt,createdAt,updatedAt,labels,body,comments,parent"
 _GH_PARENT_TITLE = re.compile(r"[(（]#(\d+)-[A-Za-z]+[)）]")  # (#236-B)
 _GH_PARENT_BODY = re.compile(r"(?:属于|Part of|Parent:)\s*#(\d+)")
 # `决定：`, `## 进展：`, `**进展**：`, `决定（roubao-e8）：`: optional heading/bold, the word, an optional (who), a colon.
@@ -516,10 +518,9 @@ def github_root(cwd: Path | None = None) -> Path | None:
     return root if "GitHub" in heading else None
 
 
-def _gh_issues(root: Path) -> list[dict]:
-    """Open issues plus those closed in the last GH_RECENT seconds, as `gh issue list --json` gives them."""
+def _gh_json(root: Path, *args: str):
+    """`gh *args` parsed, read with another logged-in account when the active one cannot see the repository."""
     import json
-    since = _dt.datetime.fromtimestamp(time.time() - GH_RECENT, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     def gh(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
         try:
             return subprocess.run(["gh", *args], cwd=root, capture_output=True, text=True, timeout=30, env=env)
@@ -534,23 +535,31 @@ def _gh_issues(root: Path) -> list[dict]:
         except (ValueError, KeyError, TypeError):
             return []
 
-    out: list[dict] = []
-    env = None
-    for state in (["--state", "open"], ["--state", "closed", "--search", f"closed:>={since}"]):
-        args = ("issue", "list", *state, "--limit", "1000", "--json", _GH_FIELDS)
-        r = gh(*args, env=env)
-        if r.returncode != 0 and env is None and "Could not resolve to a Repository" in r.stderr:
-            for login in others():
-                env = os.environ | {"GH_TOKEN": gh("auth", "token", "--user", login).stdout.strip()}
-                if (retry := gh(*args, env=env)).returncode == 0:
-                    r = retry
-                    break
-            else:
-                env = None
-        if r.returncode != 0:
-            raise Refused(f"gh 失败:{r.stderr.strip()}")
-        out += json.loads(r.stdout)
-    return out
+    r = gh(*args)
+    if r.returncode != 0 and "Could not resolve to a Repository" in r.stderr:
+        for login in others():
+            env = os.environ | {"GH_TOKEN": gh("auth", "token", "--user", login).stdout.strip()}
+            if (retry := gh(*args, env=env)).returncode == 0:
+                r = retry
+                break
+    if r.returncode != 0:
+        raise Refused(f"gh 失败:{r.stderr.strip()}")
+    return json.loads(r.stdout)
+
+
+def _gh_issues(root: Path) -> list[dict]:
+    """Open issues plus those closed in the last GH_RECENT seconds, as `gh issue list --json` gives them."""
+    since = _dt.datetime.fromtimestamp(time.time() - GH_RECENT, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return [i for state in (["--state", "open"], ["--state", "closed", "--search", f"closed:>={since}"])
+            for i in _gh_json(root, "issue", "list", *state, "--limit", "1000", "--json", _GH_FIELDS)]
+
+
+def _gh_issue(root: Path, number: int) -> dict | None:
+    """One issue by number, for a parent outside _gh_issues' window; None when gh cannot give it."""
+    try:
+        return _gh_json(root, "issue", "view", str(number), "--json", "number,url,title,state,body,parent")
+    except (Refused, ValueError):
+        return None
 
 
 def github_board_data(root: Path) -> dict:
@@ -571,22 +580,70 @@ def github_board_data(root: Path) -> dict:
     names = [n.strip() for n in os.environ.get("NAWABAN_OWNER_NAMES", "").split(",") if n.strip()]
     # 「等负责人拍板」「待拍板」 ask for a decision: 等/待, at most a name (an owner's, or up to 4 characters), then 拍板
     waiting = re.compile(r"[等待]\s*(?:%s)?\s*拍板" % "|".join([*map(re.escape, names), r"\w{1,4}?"]))
+
+    def parent_of(i: dict) -> int | None:
+        """GitHub's own parent first, else (#N-X) in the title, else 属于 #N / Parent: #N in the body."""
+        m = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i.get("body") or "")
+        return i["parent"]["number"] if i.get("parent") else int(m.group(1)) if m else None
+
+    def goal(i: dict) -> dict | None:
+        """{intent, metric} when the body's first two lines open with 意图： and 度量：."""
+        lines = [ln for ln in (i.get("body") or "").splitlines() if ln.strip()][:2]
+        ms = [re.match(_GH_PREFIX.format(w), ln) for w, ln in zip(("意图", "度量"), lines)]
+        if len(ms) == 2 and all(ms):
+            return {"intent": lines[0][ms[0].end():].strip(), "metric": lines[1][ms[1].end():].strip()}
+        return None
+
+    def pending(i: dict) -> dict | None:
+        """The latest 待决：/需要你定： line followed by no 已决： line, in the body (raised at its creation) or a comment."""
+        found = None
+        for text, when in [(i.get("body") or "", i["createdAt"]), *((c["body"], c["createdAt"]) for c in i["comments"])]:
+            for ln in text.splitlines():
+                if prefixed([{"body": ln, "createdAt": when}], "(?:待决|需要你定)"):
+                    found = (text, at(when))
+                elif prefixed([{"body": ln, "createdAt": when}], "已决"):
+                    found = None
+        if not found:
+            return None
+        m = re.search(r"【默认动作】[：:]?\s*([^\n]*)", found[0])
+        action = m.group(1).strip() if m else None
+        return {"brief": found[0], "at": found[1], "default_action": action,
+                "due": bool(action and "按推荐执行" in action and time.time() - found[1] >= PENDING_DUE)}
+
+    issues = [i for i in _gh_issues(root) if i.get("stateReason") != "NOT_PLANNED"]
+    known: dict[int, dict | None] = {i["number"]: i for i in issues}
+
+    def objective_of(n: int | None) -> int | None:
+        """The first objective up the parent chain from n, itself included; a parent gh did not list is fetched."""
+        seen = set()
+        while n is not None and n not in seen:
+            seen.add(n)
+            if n not in known:
+                known[n] = _gh_issue(root, n)
+            if known[n] is None:
+                return None
+            if goal(known[n]):
+                return n
+            n = parent_of(known[n])
+        return None
+
     since = time.time() - DECISIONS_RECENT
-    tasks, recent = [], []
-    for i in _gh_issues(root):
-        if i.get("stateReason") == "NOT_PLANNED":
-            continue
+    tasks, recent, lately = [], [], []
+    for i in issues:
         cs = i["comments"]
         claims, notes, decisions = (prefixed(cs, p) for p in ("认领", "进展", "决定"))
         recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
                     "owner": any(w in waiting.sub("", body) for w in ["拍板", *names])}
                    for body, t in decisions if t >= since]
         status = "done" if i["state"] == "CLOSED" else "in_progress" if claims else "open"
-        parent = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i["body"])
+        parent, objective = parent_of(i), objective_of(i["number"])
+        lately += [(objective, {"task": f"#{i['number']}", "at": t, "line": body.split("\n", 1)[0]})
+                   for w in ("进展", "决定", "已决") for body, t in prefixed(cs, w)
+                   if objective and t >= time.time() - OBJECTIVE_RECENT]
         terminal = _GH_TERMINAL.search(claims[-1][0]) if claims else None
         task = {
             "id": f"#{i['number']}", "title": i["title"], "status": status, "project": root.name,
-            "parent": f"#{parent.group(1)}" if parent else None,
+            "parent": f"#{parent}" if parent else None, "objective": f"#{objective}" if objective else None,
             # The claimant holds an open issue, as a session holds a board task.
             "session": claims[-1][0].split("\n", 1)[0] if claims and status != "done" else None,
             "created_at": at(i["createdAt"]),
@@ -602,12 +659,16 @@ def github_board_data(root: Path) -> dict:
             task["waiting"] = ((nxt.group(1) if nxt else "等你")
                                if any(lb["name"] == "needs-info" for lb in i["labels"]) else None)
             task["decision"] = {"at": decisions[-1][1], "verdict": _verdict(decisions[-1][0])} if decisions else None
+            task["pending"] = pending(i)
         tasks.append(task)
     columns: dict[str, list] = {key: [] for key in COLUMNS}
     for t in sorted(tasks, key=lambda t: -t["active_at"]):
         columns[t["status"]].append(t)
     return {"tracker": "github", "columns": [{"key": k, "tasks": v} for k, v in columns.items()],
-            "decisions": sorted(recent, key=lambda d: -d["at"])}
+            "decisions": sorted(recent, key=lambda d: -d["at"]),
+            "objectives": [{"id": f"#{n}", "title": i["title"], **goal(i), "url": i.get("url"),
+                            "recent": sorted((x for o, x in lately if o == n), key=lambda x: x["at"])}
+                           for n, i in known.items() if i and goal(i)]}
 
 
 def task_detail(path: Path | str, task_id: str) -> dict:
