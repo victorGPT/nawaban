@@ -20,7 +20,6 @@ def board(tmp_path, monkeypatch, capsys):
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     monkeypatch.chdir(repo)
     monkeypatch.setattr(cli, "_gh_issues", lambda root: FIXTURE)
-    monkeypatch.setattr(cli, "_gh_issue", lambda root, n: None)  # parents outside the fixture are not found
 
     def board():
         code = cli.main(["json", "board"])
@@ -204,7 +203,7 @@ def test_a_repository_the_active_gh_account_cannot_see_is_read_with_another_logg
     assert cli._gh_issues(Path(".")) == [{"number": 1}, {"number": 1}]
 
 
-# ── objectives and pending decisions (spec NAWABAN-PENDING) ──
+# ── pending decisions (spec NAWABAN-PENDING) ──
 
 def _issue(n, body="", comments=(), parent=None, title="示例", created="2026-11-07T00:00:00Z", state="OPEN"):
     return {"number": n, "url": f"https://github.com/example/roubao/issues/{n}", "title": title, "state": state,
@@ -214,65 +213,34 @@ def _issue(n, body="", comments=(), parent=None, title="示例", created="2026-1
             "comments": [{"author": {"login": "owner"}, "createdAt": at, "body": b} for at, b in comments]}
 
 
-def _board(monkeypatch, capsys, issues, now="2026-11-07T12:00:00Z", more=()):
-    """json board over issues; more are those gh issue view finds (closed, older than the window)."""
+def _board(monkeypatch, capsys, issues, now="2026-11-07T12:00:00Z"):
     monkeypatch.setattr(cli, "_gh_issues", lambda root: issues)
-    asked = []
-    monkeypatch.setattr(cli, "_gh_issue", lambda root, n: asked.append(n) or {i["number"]: i for i in more}.get(n))
     monkeypatch.setattr(cli.time, "time", lambda: ts(now))
     assert cli.main(["json", "board"]) == 0
     out = json.loads(capsys.readouterr().out)
     out["tasks"] = {t["id"]: t for c in out["columns"] for t in c["tasks"]}
-    out["asked"] = asked
     return out
 
 
-OBJ = "意图：排期 1.1 第 3 条，留住新用户\n度量：次日留存，目标 40%，现值 31%（11-06）\n\n细节。"
-
-
-def test_an_objective_opens_with_an_intent_line_and_a_metric_line(board, monkeypatch, capsys):
-    out = _board(monkeypatch, capsys, [_issue(1, OBJ, title="留存"), _issue(2, "度量：x\n意图：y"),
-                                       _issue(3, "## 意图：a\n**度量**：b")])
-    assert [(o["id"], o["title"], o["intent"], o["metric"], o["url"]) for o in out["objectives"]] == [
-        ("#1", "留存", "排期 1.1 第 3 条，留住新用户", "次日留存，目标 40%，现值 31%（11-06）",
-         "https://github.com/example/roubao/issues/1"),
-        ("#3", "示例", "a", "b", "https://github.com/example/roubao/issues/3")]
-
-
-def test_a_task_belongs_to_the_first_objective_up_its_parent_chain(board, monkeypatch, capsys):
-    out = _board(monkeypatch, capsys, [_issue(1, OBJ), _issue(2, "属于 #1"), _issue(3, parent=2), _issue(4, "x"),
-                                       _issue(5, "Parent: #9")],
-                 more=[_issue(9, "属于 #8", state="CLOSED"), _issue(8, OBJ, state="CLOSED")])
-    assert {i: t["objective"] for i, t in out["tasks"].items()} == {
-        "#1": "#1", "#2": "#1", "#3": "#1", "#4": None, "#5": "#8"}
-    assert out["asked"] == [9, 8]  # a parent outside the window is fetched once
-    assert [o["id"] for o in out["objectives"]] == ["#1"]  # #8 is closed: it holds #5, but gets no card
-
-
 def test_a_native_parent_comes_before_属于(board, monkeypatch, capsys):
-    out = _board(monkeypatch, capsys, [_issue(1, OBJ), _issue(2, OBJ), _issue(3, "属于 #2", parent=1)])
-    assert (out["tasks"]["#3"]["parent"], out["tasks"]["#3"]["objective"]) == ("#1", "#1")
+    out = _board(monkeypatch, capsys, [_issue(1), _issue(2), _issue(3, "属于 #2", parent=1)])
+    assert out["tasks"]["#3"]["parent"] == "#1"
 
 
-def test_a_parent_chain_that_loops_ends_with_no_objective(board, monkeypatch, capsys):
-    out = _board(monkeypatch, capsys, [_issue(1, "属于 #2"), _issue(2, parent=3), _issue(3, "属于 #1")])
-    assert [t["objective"] for t in out["tasks"].values()] == [None] * 3
-
-
-BRIEF = "进展：测完了。\n\n**待决**：上线 A 还是 B\n【推荐】A\n【默认动作】11-07 08:00 按推荐执行\n【选项】A / B"
+BRIEF = "进展：测完了。\n\n**待决**：上线 A 还是 B\n【推荐】A\n【选项】A / B"
 
 
 def test_a_pending_decision_is_a_待决_line_anywhere_in_a_comment(board, monkeypatch, capsys):
     out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", BRIEF)])])
     assert out["tasks"]["#1"]["pending"] == {
-        "brief": BRIEF, "at": ts("2026-11-07T01:00:00Z"), "default_action": "11-07 08:00 按推荐执行", "due": True, "snoozed_until": None}
+        "brief": BRIEF, "at": ts("2026-11-07T01:00:00Z"),
+        "progress": [{"body": "测完了。\n\n**待决**：上线 A 还是 B\n【推荐】A\n【选项】A / B", "at": ts("2026-11-07T01:00:00Z")}]}
 
 
 def test_a_pending_decision_in_the_body_is_raised_when_the_issue_was(board, monkeypatch, capsys):
-    body = "背景。\n需要你定：要不要拆\n【默认动作】可以搁置"
+    body = "背景。\n需要你定：要不要拆"
     out = _board(monkeypatch, capsys, [_issue(1, body, created="2026-11-06T00:00:00Z")])
-    assert out["tasks"]["#1"]["pending"] == {
-        "brief": body, "at": ts("2026-11-06T00:00:00Z"), "default_action": "可以搁置", "due": False, "snoozed_until": None}
+    assert out["tasks"]["#1"]["pending"] == {"brief": body, "at": ts("2026-11-06T00:00:00Z"), "progress": []}
 
 
 def test_already_resolved_ends_a_pending_decision_and_决定_does_not(board, monkeypatch, capsys):
@@ -281,43 +249,15 @@ def test_already_resolved_ends_a_pending_decision_and_决定_does_not(board, mon
         _issue(2, "待决：x", comments=[("2026-11-07T02:00:00Z", "决定：选 A")]),
         _issue(3, comments=[("2026-11-07T01:00:00Z", "已决：旧的"), ("2026-11-07T02:00:00Z", "待决：新的")])])
     assert [t["pending"] is None for t in out["tasks"].values()] == [True, False, False]
-    assert out["tasks"]["#2"]["pending"]["default_action"] is None
 
 
-@pytest.mark.parametrize("hours,due", [(7.9, False), (8, True)])
-def test_carrying_out_the_recommendation_falls_due_8_hours_after_it_was_raised(board, monkeypatch, capsys, hours, due):
-    raised = ts("2026-11-07T01:00:00Z")
-    now = cli._dt.datetime.fromtimestamp(raised + hours * 3600, cli._dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", BRIEF)])], now=now)
-    assert out["tasks"]["#1"]["pending"]["due"] is due
+def test_a_closed_issue_holds_no_pending_decision(board, monkeypatch, capsys):
+    out = _board(monkeypatch, capsys, [_issue(1, "待决：x", state="CLOSED")])
+    assert "pending" not in out["tasks"]["#1"]
 
 
-def test_an_objective_lists_the_first_lines_of_its_last_24_hours(board, monkeypatch, capsys):
-    out = _board(monkeypatch, capsys, [
-        _issue(1, OBJ, comments=[("2026-11-07T11:00:00Z", "进展：留存到 33%。\n细节")]),
-        _issue(2, "属于 #1", comments=[("2026-11-06T11:59:59Z", "决定：太早"), ("2026-11-06T12:00:00Z", "## 决定：刚好"),
-                                      ("2026-11-07T03:00:00Z", "认领：gh-2"), ("2026-11-07T04:00:00Z", "已决：选 A\n原话")]),
-        _issue(3, comments=[("2026-11-07T05:00:00Z", "进展：无目标")])])
-    assert out["objectives"][0]["recent"] == [
-        {"task": "#2", "at": ts("2026-11-06T12:00:00Z"), "line": "刚好"},
-        {"task": "#2", "at": ts("2026-11-07T04:00:00Z"), "line": "选 A"},
-        {"task": "#1", "at": ts("2026-11-07T11:00:00Z"), "line": "留存到 33%。"}]
-
-
-def _local(*a) -> int:
-    return int(cli._dt.datetime(*a).timestamp())
-
-
-@pytest.mark.parametrize("action,until", [
-    ("搁置到 11-08 09:00", _local(2026, 11, 8, 9, 0)),
-    ("搁置到 2026-11-09 18:30，到时再问", _local(2026, 11, 9, 18, 30)),
-    ("搁置到 01-05 09:00", _local(2027, 1, 5, 9, 0)),  # a year-less date before the brief is next year's
-    ("搁置到 11-07 08:00", _local(2026, 11, 7, 8, 0)),  # just before the brief (a slip): awake now, not hidden a year
-    ("搁置到下周", None),  # no time it can read: pending as usual
-    ("可以搁置", None),
-    ("11-07 08:00 按推荐执行", None),
-])
-def test_搁置到_a_time_snoozes_a_pending_decision_until_then(board, monkeypatch, capsys, action, until):
-    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", f"待决：x\n【默认动作】{action}")])])
-    p = out["tasks"]["#1"]["pending"]
-    assert p["snoozed_until"] == until
+def test_a_pending_decision_carries_its_issues_last_three_进展_oldest_first(board, monkeypatch, capsys):
+    notes = [(f"2026-11-0{d}T00:00:00Z", f"进展：第 {d} 步") for d in range(1, 6)]
+    out = _board(monkeypatch, capsys, [_issue(1, "待决：x", comments=notes)])
+    assert out["tasks"]["#1"]["pending"]["progress"] == [
+        {"body": f"第 {d} 步", "at": ts(f"2026-11-0{d}T00:00:00Z")} for d in (3, 4, 5)]
