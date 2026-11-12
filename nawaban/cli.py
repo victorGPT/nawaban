@@ -562,6 +562,23 @@ def _gh_issue(root: Path, number: int) -> dict | None:
         return None
 
 
+_SNOOZE = re.compile(r"搁置到\s*(?:(\d{4})-)?(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})")
+
+
+def _snoozed_until(action: str, raised: int) -> int | None:
+    """搁置到 [YYYY-]MM-DD HH:MM as local epoch seconds; a year-less date before `raised` is next year's."""
+    m = _SNOOZE.search(action)
+    if not m:
+        return None
+    y, mo, d, h, mi = (int(g) if g else None for g in m.groups())
+    year = y or _dt.datetime.fromtimestamp(raised).year
+    try:
+        until = int(_dt.datetime(year, mo, d, h, mi).timestamp())
+        return int(_dt.datetime(year + 1, mo, d, h, mi).timestamp()) if not y and until < raised else until
+    except ValueError:
+        return None
+
+
 def github_board_data(root: Path) -> dict:
     """The same columns as board_data, read from the repository's GitHub issues."""
     def at(iso: str) -> int:
@@ -608,7 +625,8 @@ def github_board_data(root: Path) -> dict:
         m = re.search(r"【默认动作】[：:]?\s*([^\n]*)", found[0])
         action = m.group(1).strip() if m else None
         return {"brief": found[0], "at": found[1], "default_action": action,
-                "due": bool(action and "按推荐执行" in action and time.time() - found[1] >= PENDING_DUE)}
+                "due": bool(action and "按推荐执行" in action and time.time() - found[1] >= PENDING_DUE),
+                "snoozed_until": _snoozed_until(action or "", found[1])}
 
     issues = [i for i in _gh_issues(root) if i.get("stateReason") != "NOT_PLANNED"]
     known: dict[int, dict | None] = {i["number"]: i for i in issues}
@@ -749,14 +767,20 @@ def _top(data: dict, now: float) -> list[str]:
     if "objectives" not in data:
         return []
     objectives = {o["id"]: o for o in data["objectives"]}
-    pending = sorted((t for c in data["columns"] for t in c["tasks"] if t.get("pending")),
-                     key=lambda t: (t["pending"]["at"], int(t["id"][1:])))
+    every = sorted((t for c in data["columns"] for t in c["tasks"] if t.get("pending")),
+                   key=lambda t: (t["pending"]["at"], int(t["id"][1:])))
+    asleep = [t for t in every if (t["pending"].get("snoozed_until") or 0) > now]
+    pending = [t for t in every if t not in asleep]
     out = [f"## 待决 {len(pending)}"]
     for t in pending:
         p, o, r = t["pending"], objectives.get(t.get("objective")), _RECOMMEND.search(t["pending"]["brief"])
         out.append(f"- {t['id']} {_short(t['title'], 200)} · 意图：{o['intent'] if o else _UNWRITTEN}"
                    f" · 推荐：{r.group(1).strip() if r and r.group(1).strip() else _UNWRITTEN}"
                    f" · 默认动作：{p['default_action'] or _UNWRITTEN}" + ("（已到期）" if p["due"] else ""))
+    if asleep:
+        out.append(f"## 搁置 {len(asleep)}")
+        out += [f"- {t['id']} {_short(t['title'], 200)} · 到 "
+                f"{_dt.datetime.fromtimestamp(t['pending']['snoozed_until']):%m-%d %H:%M}" for t in asleep]
     out.append("")
     for o in objectives.values():
         out += [f"## 目标 {o['id']} {o['title']}", f"意图：{o['intent']}", f"度量：{o['metric']}"]

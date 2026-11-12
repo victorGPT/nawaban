@@ -263,3 +263,15 @@ def test_index_on_github_never_says_等你(github):
 def test_brief_on_the_board_is_refused(run, capsys, tmp_path):
     assert cli.main(["--db", str(tmp_path / "proj" / ".nawaban" / "board.db"), "brief"]) == 1
     assert "GitHub" in capsys.readouterr().err
+
+
+def test_a_snoozed_decision_is_out_of_待决_until_it_wakes(github, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_gh_issues", lambda root: [
+        _issue(1, "待决：x\n【默认动作】搁置到 2026-11-20 09:00", title="还睡着"),
+        _issue(2, "待决：y\n【默认动作】搁置到 2026-11-01 09:00", title="醒了")])
+    monkeypatch.setattr(cli, "_gh_issue", lambda root, n: None)
+    monkeypatch.setattr(cli.time, "time", lambda: cli._dt.datetime(2026, 11, 7, 12, 0).timestamp())
+    assert cli.main(["brief"]) == 0
+    assert capsys.readouterr().out.split("\n\n")[0].splitlines() == [
+        "## 待决 1", "- #2 醒了 · 意图：没写 · 推荐：没写 · 默认动作：搁置到 2026-11-01 09:00",
+        "## 搁置 1", "- #1 还睡着 · 到 11-20 09:00"]

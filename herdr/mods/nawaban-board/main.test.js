@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { leadersView } from "./logic.js";
+import { leadersView, objectivesView } from "./logic.js";
 
 const called = new Set();
 let onSize = null;
@@ -113,12 +113,13 @@ test("on a GitHub board the panel draws issue titles, 在推, and the 已关 row
   const recent = Array.from({ length: 7 }, (_, i) => ({ task: "#239", at: now - i, line: `进展：第 ${i} 步` }));
   const pending = { brief: "待决：发吗？\n【推荐】A。\n【默认动作】按推荐执行", at: now - 3600, default_action: "按推荐执行", due: true };
   const withObjectives = { ...ghBoard, objectives: [{ id: "#600", title: "上线", intent: "排期 1.1", metric: "0 起", url: "u", recent }],
-    columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: c.tasks.map((x) => ({ ...x, objective: "#600", pending })) }) };
+    columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: c.tasks.map((x, i) => ({ ...x, objective: "#600", pending: i ? pending : { ...pending, snoozed_until: now + 86400 } })) }) };
+  assert.equal(objectivesView(withObjectives).snoozed.length, 1);
   for (const unfold of [false, true]) {
     for (const board of [ghBoard, withObjectives]) {
       const view = new NawabanBoard();
       view.init({}, cx);
-      Object.assign(view, { lang: "zh", board, windowsOpen: unfold, openPending: unfold ? "#256" : null });
+      Object.assign(view, { lang: "zh", board, windowsOpen: unfold, snoozedOpen: unfold, openPending: unfold ? "#256" : null });
       if (unfold) { view.unfolded.add("t6"); view.openObjectives.add("#600"); }
       view.render(cx);
     }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, leadersView, itemLabel, decisionDate, WINDOW_WORDS,
+import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, leadersView, itemLabel, decisionDate, WINDOW_WORDS, unseen, markSeen,
   objectivesView, briefRows, toggleOne, RECENT_SHOWN } from "./logic.js";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
@@ -497,4 +497,24 @@ test("on a GitHub board with objectives the window groups are still there, below
   const v = leaders([agent("t23", "working", "claude", "leader agent")], tasks, { terminals: [ghTree[0], kid("t4c", "gh-239", "working")], board });
   assert.deepEqual(v.groups[0].items.map((i) => i.title), ["held"]);
   assert.equal(objectivesView(board).pending[0].id, "#239");
+});
+
+// Ticket NAWABAN-PENDING-05: 搁置到 <time> folds a pending decision until then; one not opened since it (re)appeared is marked.
+const snooze = (id, at, until) => pend(id, at, { pending: { ...pend(id, at).pending, snoozed_until: until } });
+
+test("a snoozed pending decision is out of 待决 and in 搁置 until it wakes, then back, shown since its wake time", () => {
+  const v = objectivesView(objBoard([snooze("#1", 100, 5000), snooze("#2", 200, 900), pend("#3", 300)]), 1000);
+  assert.deepEqual(v.pending.map((p) => [p.id, p.shownAt]), [["#2", 900], ["#3", 300]]);
+  assert.deepEqual(v.snoozed.map((p) => [p.id, p.until]), [["#1", 5000]]);
+  const at = new Date(2026, 10, 20, 9, 5).getTime() / 1000;
+  assert.equal(WINDOW_WORDS.zh.until(at), "到 11-20 09:05"); // as nawaban brief writes it
+});
+
+test("a pending decision is unseen until its brief is opened, and again once it is raised anew or wakes", () => {
+  const p = { id: "#3", shownAt: 300 };
+  assert.equal(unseen(p, {}), true);
+  const seen = markSeen({}, p, [p]);
+  assert.equal(unseen(p, seen), false);
+  assert.equal(unseen({ ...p, shownAt: 400 }, seen), true); // a newer 待决：, or it woke
+  assert.deepEqual(markSeen({ "#3": 300, "#99": 1 }, p, [p]), { "#3": 300 }); // gone ones are dropped
 });
