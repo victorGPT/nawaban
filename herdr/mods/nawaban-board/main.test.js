@@ -64,7 +64,7 @@ const stubs = {
   "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el, Collapsible: el },
   herdr: { spaces: () => [{ id: "here", active: true, name: "nawaban", folder: "/x" }], focused: () => ({ space: "here", cwd: "/x" }),
     agents: () => agents, terminals: () => terminals, theme: () => new Proxy({}, { get: () => "#808080" }), home: () => "/h",
-    run: async () => {}, exec: (...a) => execImpl(...a), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}) },
+    run: async () => {}, exec: (...a) => execImpl(...a), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}), props: () => null, closeOverlay: () => null },
 };
 globalThis.__nawabanStubs = stubs;
 registerHooks({

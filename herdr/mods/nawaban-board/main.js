@@ -7,7 +7,7 @@
 // working there does.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, HoverCard, Collapsible } from "gpui-base";
-import { spaces, focused, agents, terminals, run, exec, theme, home, nextCommand, watchFolder } from "herdr";
+import { spaces, focused, agents, terminals, run, exec, theme, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
 import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, leadersView, itemLabel, decisionDate,
   WINDOW_WORDS, objectivesView, briefRows, toggleOne } from "./logic.js";
 
@@ -257,7 +257,8 @@ export default class NawabanBoard extends View {
           .child(open ? w.foldLess : w.foldMore(g.folded.length))));
   }
 
-  // The project, then how many windows and what waits in other projects; the language menu.
+  // The project, then how many windows and what waits in other projects; the language menu; opened
+  // as a window (any layout, `mod.open:nawaban-board`), a ✕ that closes it.
   header(t, w, windows, elsewhere) {
     const name = this.project ?? spaces().find((s) => s.active)?.name ?? "";
     const more = Popover.new("nawaban-more-menu").anchor("top_right").open(Boolean(this.moreOpen))
@@ -276,7 +277,12 @@ export default class NawabanBoard extends View {
     return h_flex().h(44).flex_none().pl(16).pr(8).gap(8).items_center()
       .child(div().flex_1().min_w(0).truncate().font_semibold().child(name))
       .child(div().flex_none().text_size(11).text_color(t.dim).child(`${w.windows(windows)} · ${w.elsewhere(elsewhere)}`))
-      .child(more);
+      .child(more)
+      .when(Boolean(props()?.overlay), (el) => el.child(h_flex().id("nawaban-close").size(24).flex_none().items_center()
+        .justify_center().rounded(6).cursor_pointer().text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click(() => closeOverlay(props().overlay))
+        .child("✕")));
   }
 
   // A popup list of choices, the picked one checked; `title` is a dim heading over it.

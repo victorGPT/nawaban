@@ -73,9 +73,17 @@ The [Herdr](https://herdr.dev) app can show the board as a read-only panel besid
    herdr-app check ~/.config/herdr-app/mods/nawaban-board
    ```
 
-   The mod has `"place": "none"`, so it shows only where a layout puts it.
+   The mod has `"place": "none"`: it is not docked anywhere by itself. It opens in any layout as a window (`mod.open:nawaban-board`), which you can drag, that remembers where you dropped it and comes back on the next start until you close it with its ✕. Bind that in the `global` section of `~/.config/herdr-app/keys.json`:
 
-2. Add the panel to a layout you own. Herdr's shipped layouts are read-only; clone one first if needed: `herdr-app do layout.clone '{"name":"main","as":"my-layout"}'`. In `~/.config/herdr-app/layouts/<layout>.json`, find the row that holds the terminals (in clones of `main` it is the row with id `work-body`) and add this block as its last child, so it sits on the right:
+   ```json
+   "global": {
+     "cmd-shift-j": "mod.open:nawaban-board"
+   }
+   ```
+
+   To dock it in a layout instead, do steps 2 and 3; that layout's binding wins over the global one.
+
+2. Optional: dock the panel to a layout you own. Herdr's shipped layouts are read-only; clone one first if needed: `herdr-app do layout.clone '{"name":"main","as":"my-layout"}'`. In `~/.config/herdr-app/layouts/<layout>.json`, find the row that holds the terminals (in clones of `main` it is the row with id `work-body`) and add this block as its last child, so it sits on the right:
 
    ```json
    {
