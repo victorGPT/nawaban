@@ -261,3 +261,9 @@ def test_a_pending_decision_carries_its_issues_last_three_进展_oldest_first(bo
     out = _board(monkeypatch, capsys, [_issue(1, "待决：x", comments=notes)])
     assert out["tasks"]["#1"]["pending"]["progress"] == [
         {"body": f"第 {d} 步", "at": ts(f"2026-11-0{d}T00:00:00Z")} for d in (3, 4, 5)]
+
+
+def test_a_进展_posted_the_same_second_as_the_pending_decision_still_counts(board, monkeypatch, capsys):
+    s = "2026-11-07T01:00:00Z"
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[(s, "进展：独立验收通过"), (s, "进展：准备上线\n待决：选 A 还是 B")])])
+    assert [n["body"] for n in out["tasks"]["#1"]["pending"]["progress"]] == ["独立验收通过"]

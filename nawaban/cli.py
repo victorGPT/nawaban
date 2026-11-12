@@ -577,20 +577,21 @@ def github_board_data(root: Path) -> dict:
         m = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i.get("body") or "")
         return i["parent"]["number"] if i.get("parent") else int(m.group(1)) if m else None
 
-    def pending(i: dict, notes: list[tuple[str, int]]) -> dict | None:
+    def pending(i: dict) -> dict | None:
         """The latest 待决：/需要你定： line followed by no 已决： line, in the body (raised at its creation) or a comment;
-        with the issue's last PENDING_NOTES 进展."""
+        with the issue's last PENDING_NOTES 进展, the comment holding it left out since its text is there already."""
         found = None
-        for text, when in [(i.get("body") or "", i["createdAt"]), *((c["body"], c["createdAt"]) for c in i["comments"])]:
-            for ln in text.splitlines():
-                if prefixed([{"body": ln, "createdAt": when}], "(?:待决|需要你定)"):
-                    found = (text, at(when))
-                elif prefixed([{"body": ln, "createdAt": when}], "已决"):
+        for c in [{"body": i.get("body") or "", "createdAt": i["createdAt"]}, *i["comments"]]:
+            for ln in c["body"].splitlines():
+                if prefixed([{"body": ln, "createdAt": c["createdAt"]}], "(?:待决|需要你定)"):
+                    found = c
+                elif prefixed([{"body": ln, "createdAt": c["createdAt"]}], "已决"):
                     found = None
         if not found:
             return None
-        return {"brief": found[0], "at": found[1],
-                "progress": [{"body": b, "at": t} for b, t in [n for n in notes if n[1] != found[1]][-PENDING_NOTES:]]}  # not its own comment again
+        notes = prefixed([c for c in i["comments"] if c is not found], "进展")
+        return {"brief": found["body"], "at": at(found["createdAt"]),
+                "progress": [{"body": b, "at": t} for b, t in notes[-PENDING_NOTES:]]}
 
     since = time.time() - DECISIONS_RECENT
     tasks, recent = [], []
@@ -621,7 +622,7 @@ def github_board_data(root: Path) -> dict:
             task["blocked_by"] = []
             task["waiting"] = None  # GLOSSARY: on GitHub a pending decision takes needs-info's place
             task["decision"] = {"at": decisions[-1][1], "verdict": _verdict(decisions[-1][0])} if decisions else None
-            task["pending"] = pending(i, notes)
+            task["pending"] = pending(i)
         tasks.append(task)
     columns: dict[str, list] = {key: [] for key in COLUMNS}
     for t in sorted(tasks, key=lambda t: -t["active_at"]):
