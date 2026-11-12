@@ -590,7 +590,7 @@ def github_board_data(root: Path) -> dict:
         if not found:
             return None
         return {"brief": found[0], "at": found[1],
-                "progress": [{"body": b, "at": t} for b, t in notes[-PENDING_NOTES:]]}
+                "progress": [{"body": b, "at": t} for b, t in [n for n in notes if n[1] != found[1]][-PENDING_NOTES:]]}  # not its own comment again
 
     since = time.time() - DECISIONS_RECENT
     tasks, recent = [], []

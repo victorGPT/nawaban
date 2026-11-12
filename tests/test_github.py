@@ -234,7 +234,7 @@ def test_a_pending_decision_is_a_待决_line_anywhere_in_a_comment(board, monkey
     out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", BRIEF)])])
     assert out["tasks"]["#1"]["pending"] == {
         "brief": BRIEF, "at": ts("2026-11-07T01:00:00Z"),
-        "progress": [{"body": "测完了。\n\n**待决**：上线 A 还是 B\n【推荐】A\n【选项】A / B", "at": ts("2026-11-07T01:00:00Z")}]}
+        "progress": []}  # the 进展 holding it is its text already, not repeated
 
 
 def test_a_pending_decision_in_the_body_is_raised_when_the_issue_was(board, monkeypatch, capsys):

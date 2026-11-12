@@ -202,12 +202,13 @@ export default class NawabanBoard extends View {
   pendingTop(el, pending, windows, v, t, w) {
     const count = v.waiting.length + v.groups.length + (v.idle.count > 0 ? 1 : 0);
     return el
-      .child(div().flex_none().px(16).pt(14).pb(6).text_size(12).font_semibold().text_color(t.muted).child(w.pending(pending.length)))
-      .child(v_flex().flex_none().px(8).gap(4).children(pending.map((p) => h_flex().id(`nawaban-pending-${p.id}`).flex_none()
-        .px(8).py(8).gap(8).items_center().rounded(8).bg(t.blocked + "1a").cursor_pointer().hover((s) => s.bg(t.blocked + "26"))
-        .on_click(() => { if (p.url) exec("open", [p.url]).catch(() => null); })
-        .child(div().flex_none().text_size(12).font_semibold().text_color(t.blocked).child(p.id))
-        .child(div().flex_1().min_w(0).truncate().font_semibold().child(p.title)))))
+      .when(pending.length > 0, (el) => el
+        .child(div().flex_none().px(16).pt(14).pb(6).text_size(12).font_semibold().text_color(t.muted).child(w.pending(pending.length)))
+        .child(v_flex().flex_none().px(8).gap(4).children(pending.map((p) => h_flex().id(`nawaban-pending-${p.id}`).flex_none()
+          .px(8).py(8).gap(8).items_center().rounded(8).bg(t.blocked + "1a").cursor_pointer().hover((s) => s.bg(t.blocked + "26"))
+          .on_click(() => { if (p.url) exec("open", [p.url]).catch(() => null); })
+          .child(div().flex_none().text_size(12).font_semibold().text_color(t.blocked).child(p.id))
+          .child(div().flex_1().min_w(0).truncate().font_semibold().child(p.title))))))
       .child(Collapsible.new().flex().flex_col().open(Boolean(this.windowsOpen))
         .child(h_flex().id("nawaban-windows").h(28).mt(10).px(16).gap(8).items_center().cursor_pointer()
           .text_size(12).text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))
