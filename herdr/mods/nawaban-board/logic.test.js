@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, leadersView, itemLabel, decisionDate, WINDOW_WORDS } from "./logic.js";
+import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, leadersView, itemLabel, decisionDate, WINDOW_WORDS,
+  objectivesView, briefRows, toggleOne, RECENT_SHOWN } from "./logic.js";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
   const projects = { projects: [{ name: "nawaban" }, { name: "roubao" }] };
@@ -432,4 +433,67 @@ test("on a GitHub board a claim's terminal comes before a gh-<n> name", () => {
   const tasks = [issue(238, { title: "named" }), issue(301, { status: "in_progress", session: "x", terminal: "t4c", claimed_at: NOW - 60, title: "claimed" })];
   const v = leaders([agent("t23", "working", "claude", "leader agent")], tasks, { terminals: tree, board: github(...tasks) });
   assert.deepEqual(v.groups[0].items.map((i) => [i.title, i.name, i.focus]), [["claimed", "gh-238r", "t4c"]]);
+});
+
+// A GitHub board with objectives (`json board`, NAWABAN-PENDING-02): pending decisions on open issues.
+const pend = (id, at, x) => ({ id, title: `issue ${id}`, status: "open", parent: null, objective: null, url: `https://gh/${id.slice(1)}`,
+  active_at: at, pending: { brief: `待决：${id} 定不定？\n【推荐】A。理由很长\n【默认动作】11-13 09:00 按推荐执行`, at, default_action: "11-13 09:00 按推荐执行", due: false }, ...x });
+const objBoard = (tasks, objectives = []) => ({ tracker: "github", objectives,
+  columns: [{ key: "open", tasks: tasks.filter((t) => t.status !== "done") }, { key: "done", tasks: tasks.filter((t) => t.status === "done") }] });
+
+test("pending decisions run oldest first, by issue number, with the first sentence of 【推荐】 and the objective's intent; a due one says so", () => {
+  const goal = { id: "#600", title: "上线不出事", intent: "排期 1.1 第 2 条", metric: "事故 0（11-12 现值 1）", url: "u", recent: [] };
+  const v = objectivesView(objBoard([
+    pend("#7", 300, { objective: "#600" }),
+    pend("#12", 100, { pending: { brief: "需要你定：要不要？推荐：y", at: 100, default_action: null, due: false } }),
+    pend("#3", 200, { pending: { ...pend("#3", 200).pending, due: true } }),
+    pend("#2", 200), // raised at the same time: by issue number, as text
+    { id: "#9", title: "无待决", status: "open", objective: null, pending: null },
+    pend("#5", 50, { status: "done" }), // a closed issue holds no pending decision
+  ], [goal]));
+  assert.deepEqual(v.pending.map((p) => [p.id, p.recommend, p.intent, p.due]), [
+    ["#12", null, null, false], ["#2", "A", null, false], ["#3", "A", null, true], ["#7", "A", "排期 1.1 第 2 条", false]]);
+  assert.equal(v.pending[3].url, "https://gh/7");
+  assert.ok(v.pending.every((p) => !/^D\d/.test(p.id)), "issue numbers, never D1-style numbering");
+});
+
+test("a brief splits into rows at its 【label】s, the label in its own column; text before the first label is a row with no label", () => {
+  assert.deepEqual(briefRows("待决：定不定？\n【意图】排期 1.1\n【来龙去脉】\n1 因为 A\n2 所以 B\n【推荐】A"), [
+    ["", "待决：定不定？"], ["意图", "排期 1.1"], ["来龙去脉", "1 因为 A\n2 所以 B"], ["推荐", "A"]]);
+  assert.deepEqual(briefRows("需要你定：要不要？"), [["", "需要你定：要不要？"]]);
+});
+
+test("one pending decision opens at a time: opening another closes the first, opening it again closes it", () => {
+  assert.equal(toggleOne(null, "#3"), "#3");
+  assert.equal(toggleOne("#3", "#7"), "#7");
+  assert.equal(toggleOne("#7", "#7"), null);
+});
+
+test("an objective card lists its last 24 hours newest first and folds past five lines", () => {
+  const recent = Array.from({ length: 7 }, (_, i) => ({ task: `#${i + 1}`, at: i, line: `进展：第 ${i + 1} 步` }));
+  const goal = { id: "#600", title: "上线不出事", intent: "排期 1.1 第 2 条", metric: "事故 0", url: "u", recent };
+  const [o] = objectivesView(objBoard([], [goal])).objectives;
+  assert.equal(RECENT_SHOWN, 5);
+  assert.deepEqual(o.shown.map((r) => r.task), ["#7", "#6", "#5", "#4", "#3"]);
+  assert.deepEqual(o.folded.map((r) => r.task), ["#2", "#1"]);
+  const [few] = objectivesView(objBoard([], [{ ...goal, recent: recent.slice(0, 5) }])).objectives;
+  assert.equal(few.folded.length, 0);
+});
+
+test("the footer counts the open issues no objective holds; with no objectives that is every open issue", () => {
+  const none = objectivesView(objBoard([pend("#1", 1), pend("#2", 2), pend("#3", 3, { status: "done" })]));
+  assert.deepEqual([none.objectives.length, none.unattached], [0, 2]);
+  assert.equal(WINDOW_WORDS.zh.unattached(2), "2 个 issue 挂不上目标");
+  const some = objectivesView(objBoard([pend("#1", 1, { objective: "#600" }), { id: "#600", title: "目标", status: "open", objective: "#600" }, pend("#2", 2)],
+    [{ id: "#600", title: "目标", intent: "i", metric: "m", recent: [] }]));
+  assert.equal(some.unattached, 1);
+});
+
+test("on a GitHub board with objectives the window groups are still there, below them", () => {
+  const tasks = [{ ...issue(239, { status: "in_progress", session: "x", terminal: "t4c", claimed_at: NOW - 60, title: "held" }),
+    objective: "#600", pending: pend("#239", 1).pending }];
+  const board = { ...github(...tasks), objectives: [{ id: "#600", title: "目标", intent: "i", metric: "m", recent: [] }] };
+  const v = leaders([agent("t23", "working", "claude", "leader agent")], tasks, { terminals: [ghTree[0], kid("t4c", "gh-239", "working")], board });
+  assert.deepEqual(v.groups[0].items.map((i) => i.title), ["held"]);
+  assert.equal(objectivesView(board).pending[0].id, "#239");
 });
