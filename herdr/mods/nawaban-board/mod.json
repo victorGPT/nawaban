@@ -1,1 +1,2 @@
-{ "place": "none", "title": "nawaban", "focusable": true }
+{ "place": "none", "title": "nawaban", "focusable": true,
+  "overlay": { "kind": "window", "key": "nawaban", "keep": true, "width": 440, "height": 0.85 } }
