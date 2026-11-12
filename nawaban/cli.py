@@ -752,7 +752,7 @@ def _top(data: dict, now: float) -> list[str]:
     out = [f"## 待决 {len(pending)}"]
     for t in pending:
         p, o, r = t["pending"], goals.get(t.get("objective")), _RECOMMEND.search(t["pending"]["brief"])
-        out.append(f"- {t['id']} {_short(t['title'], 34)} · 意图：{o['intent'] if o else '没写'}"
+        out.append(f"- {t['id']} {_short(t['title'], 200)} · 意图：{o['intent'] if o else '没写'}"
                    f" · 推荐：{r.group(1).strip() if r and r.group(1).strip() else '没写'}"
                    f" · 默认动作：{p['default_action'] or '没写'}" + ("（已到期）" if p["due"] else ""))
     out.append("")
