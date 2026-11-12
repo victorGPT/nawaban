@@ -239,6 +239,16 @@ def test_brief_lists_pending_decisions_oldest_first_then_each_objective_then_the
     assert briefed("brief") == BRIEF_GOLDEN
 
 
+def test_a_brief_written_the_old_way_recommends_from_推荐_and_ties_go_by_issue_number(github, monkeypatch, capsys):
+    # the same briefs as logic.test.js's, so brief and panel read them word for word alike
+    monkeypatch.setattr(cli, "_gh_issues", lambda root: [
+        _issue(10, "需要你定：要不要？推荐：拆。理由", title="乙"), _issue(9, "需要你定：x\n推荐：留着！好", title="甲")])
+    monkeypatch.setattr(cli, "_gh_issue", lambda root, n: None)
+    assert cli.main(["brief"]) == 0
+    assert capsys.readouterr().out.splitlines()[1:3] == [
+        "- #9 甲 · 意图：没写 · 推荐：留着 · 默认动作：没写", "- #10 乙 · 意图：没写 · 推荐：拆 · 默认动作：没写"]
+
+
 def test_index_opens_with_the_briefs_待决_and_目标_sections_verbatim(briefed):
     top = BRIEF_GOLDEN.split("\n挂不上")[0]
     _, rest = briefed("index").split("\n\n", 1)  # after the title and counts lines

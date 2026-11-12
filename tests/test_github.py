@@ -124,11 +124,9 @@ def test_an_issue_without_prefixed_comments_has_none_of_them(board):
     assert t["active_at"] == ts("2026-11-05T12:00:00Z")
 
 
-def test_needs_info_waits_on_the_latest_progress_next_step_else_on_you(board):
+def test_on_github_needs_info_waits_on_nobody_a_pending_decision_takes_its_place(board):
     tasks = board()
-    assert tasks["#307"]["waiting"] == "等 owner 对设计 B 拍板；另开小卡"
-    assert tasks["#239"]["waiting"] == "等你"  # labelled, no 进展：
-    assert tasks["#275"]["waiting"] is None  # its 下一步：等 owner… says nothing without the label
+    assert [t["id"] for t in tasks.values() if t.get("waiting") is not None] == []  # #307, #239 carry needs-info
 
 
 def test_a_closed_issue_is_done_at_its_close(board):
@@ -248,7 +246,7 @@ def test_a_task_belongs_to_the_first_objective_up_its_parent_chain(board, monkey
     assert {i: t["objective"] for i, t in out["tasks"].items()} == {
         "#1": "#1", "#2": "#1", "#3": "#1", "#4": None, "#5": "#8"}
     assert out["asked"] == [9, 8]  # a parent outside the window is fetched once
-    assert [o["id"] for o in out["objectives"]] == ["#1", "#8"]
+    assert [o["id"] for o in out["objectives"]] == ["#1"]  # #8 is closed: it holds #5, but gets no card
 
 
 def test_a_native_parent_comes_before_属于(board, monkeypatch, capsys):

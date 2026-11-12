@@ -586,7 +586,7 @@ def github_board_data(root: Path) -> dict:
         m = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i.get("body") or "")
         return i["parent"]["number"] if i.get("parent") else int(m.group(1)) if m else None
 
-    def goal(i: dict) -> dict | None:
+    def as_objective(i: dict) -> dict | None:
         """{intent, metric} when the body's first two lines open with 意图： and 度量：."""
         lines = [ln for ln in (i.get("body") or "").splitlines() if ln.strip()][:2]
         ms = [re.match(_GH_PREFIX.format(w), ln) for w, ln in zip(("意图", "度量"), lines)]
@@ -612,6 +612,7 @@ def github_board_data(root: Path) -> dict:
 
     issues = [i for i in _gh_issues(root) if i.get("stateReason") != "NOT_PLANNED"]
     known: dict[int, dict | None] = {i["number"]: i for i in issues}
+    parsed = {n: as_objective(i) for n, i in known.items()}  # each issue's {intent, metric}, parsed once
 
     def objective_of(n: int | None) -> int | None:
         """The first objective up the parent chain from n, itself included; a parent gh did not list is fetched."""
@@ -620,14 +621,15 @@ def github_board_data(root: Path) -> dict:
             seen.add(n)
             if n not in known:
                 known[n] = _gh_issue(root, n)
+                parsed[n] = known[n] and as_objective(known[n])
             if known[n] is None:
                 return None
-            if goal(known[n]):
+            if parsed[n]:
                 return n
             n = parent_of(known[n])
         return None
 
-    since = time.time() - DECISIONS_RECENT
+    since, lately_since = time.time() - DECISIONS_RECENT, time.time() - OBJECTIVE_RECENT
     tasks, recent, lately = [], [], []
     for i in issues:
         cs = i["comments"]
@@ -639,7 +641,7 @@ def github_board_data(root: Path) -> dict:
         parent, objective = parent_of(i), objective_of(i["number"])
         lately += [(objective, {"task": f"#{i['number']}", "at": t, "line": body.split("\n", 1)[0]})
                    for w in ("进展", "决定", "已决") for body, t in prefixed(cs, w)
-                   if objective and t >= time.time() - OBJECTIVE_RECENT]
+                   if objective and t >= lately_since]
         terminal = _GH_TERMINAL.search(claims[-1][0]) if claims else None
         task = {
             "id": f"#{i['number']}", "title": i["title"], "status": status, "project": root.name,
@@ -655,9 +657,7 @@ def github_board_data(root: Path) -> dict:
         else:
             task["progress"] = {"body": notes[-1][0], "at": notes[-1][1]} if notes else None
             task["blocked_by"] = []
-            nxt = _GH_NEXT.search(notes[-1][0]) if notes else None
-            task["waiting"] = ((nxt.group(1) if nxt else "等你")
-                               if any(lb["name"] == "needs-info" for lb in i["labels"]) else None)
+            task["waiting"] = None  # GLOSSARY: on GitHub a pending decision takes needs-info's place
             task["decision"] = {"at": decisions[-1][1], "verdict": _verdict(decisions[-1][0])} if decisions else None
             task["pending"] = pending(i)
         tasks.append(task)
@@ -666,9 +666,10 @@ def github_board_data(root: Path) -> dict:
         columns[t["status"]].append(t)
     return {"tracker": "github", "columns": [{"key": k, "tasks": v} for k, v in columns.items()],
             "decisions": sorted(recent, key=lambda d: -d["at"]),
-            "objectives": [{"id": f"#{n}", "title": i["title"], **goal(i), "url": i.get("url"),
+            # a closed objective still holds its tasks, but gets no card
+            "objectives": [{"id": f"#{n}", "title": i["title"], **parsed[n], "url": i.get("url"),
                             "recent": sorted((x for o, x in lately if o == n), key=lambda x: x["at"])}
-                           for n, i in known.items() if i and goal(i)]}
+                           for n, i in known.items() if i and parsed[n] and i.get("state") == "OPEN"]}
 
 
 def task_detail(path: Path | str, task_id: str) -> dict:
@@ -739,24 +740,25 @@ def _short(text: str, n: int) -> str:
     return text if len(text) <= n else text[:n] + "…"
 
 
-_RECOMMEND = re.compile(r"【推荐】[：:]?\s*([^。！？\n]*)")  # its first sentence
+_RECOMMEND = re.compile(r"(?:【推荐】|推荐)[：:]?\s*([^。！？\n]*)")  # its first sentence; 推荐： in a brief written the old way
+_UNWRITTEN = "没写"
 
 
 def _top(data: dict, now: float) -> list[str]:
     """待决 and 目标, the same lines in brief and index; none on the board, which has neither."""
     if "objectives" not in data:
         return []
-    goals = {o["id"]: o for o in data["objectives"]}
+    objectives = {o["id"]: o for o in data["objectives"]}
     pending = sorted((t for c in data["columns"] for t in c["tasks"] if t.get("pending")),
-                     key=lambda t: (t["pending"]["at"], t["id"]))
+                     key=lambda t: (t["pending"]["at"], int(t["id"][1:])))
     out = [f"## 待决 {len(pending)}"]
     for t in pending:
-        p, o, r = t["pending"], goals.get(t.get("objective")), _RECOMMEND.search(t["pending"]["brief"])
-        out.append(f"- {t['id']} {_short(t['title'], 200)} · 意图：{o['intent'] if o else '没写'}"
-                   f" · 推荐：{r.group(1).strip() if r and r.group(1).strip() else '没写'}"
-                   f" · 默认动作：{p['default_action'] or '没写'}" + ("（已到期）" if p["due"] else ""))
+        p, o, r = t["pending"], objectives.get(t.get("objective")), _RECOMMEND.search(t["pending"]["brief"])
+        out.append(f"- {t['id']} {_short(t['title'], 200)} · 意图：{o['intent'] if o else _UNWRITTEN}"
+                   f" · 推荐：{r.group(1).strip() if r and r.group(1).strip() else _UNWRITTEN}"
+                   f" · 默认动作：{p['default_action'] or _UNWRITTEN}" + ("（已到期）" if p["due"] else ""))
     out.append("")
-    for o in goals.values():
+    for o in objectives.values():
         out += [f"## 目标 {o['id']} {o['title']}", f"意图：{o['intent']}", f"度量：{o['metric']}"]
         out += [f"- {_ago(now, r['at'])}前 {r['task']} {_short(r['line'], 70)}" for r in o["recent"]] or ["近 24 小时没有进展。"]
         out.append("")

@@ -52,7 +52,7 @@ export default class NawabanBoard extends View {
     this.github = new Map();    // folder -> its last GitHub board and when it was read
     this.unfolded = new Set();  // leaders whose 已关 row is open
     this.openPending = null;    // the pending decision whose brief is open (GitHub board)
-    this.openGoals = new Set(); // objectives whose folded lines are open
+    this.openObjectives = new Set(); // objectives whose folded lines are open
     this.windowsOpen = false;   // a GitHub board's window groups, folded under its objectives
     this.keys = [];             // the cards and items Enter can go to, in the order shown
     this.focusOf = new Map();   // their key -> the card or row, which go() follows
@@ -190,12 +190,12 @@ export default class NawabanBoard extends View {
       .child(v_flex().id("nawaban-body").flex_1().min_h(0).overflow_y_scrollbar().pb(16)
         .when(Boolean(note), (el) => el.child(div().flex_none().px(16).pb(8).text_size(12.5).text_color(t.muted).child(note)))
         .when(!github, windows)
-        .when(github, (el) => this.top(el, objectivesView(this.board), windows, v, t, w)));
+        .when(github, (el) => this.objectivesTop(el, objectivesView(this.board), windows, v, t, w)));
   }
 
   // A GitHub board's top: 待决 N, a row per pending decision (a click opens its brief in place, one
   // at a time); a card per objective; the window groups folded; the open issues no objective holds.
-  top(el, o, windows, v, t, w) {
+  objectivesTop(el, o, windows, v, t, w) {
     const count = v.waiting.length + v.groups.length + (v.idle.count > 0 ? 1 : 0);
     const head = (text) => div().flex_none().px(16).pt(14).pb(6).text_size(12).font_semibold().text_color(t.muted).child(text);
     return el
@@ -225,7 +225,7 @@ export default class NawabanBoard extends View {
         .child(div().flex_none().text_size(12).font_semibold().text_color(t.blocked).child(p.id))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(p.title))
         .when(p.due, (el) => el.child(div().flex_none().text_size(12).text_color(t.blocked).child(w.due))))
-      .when(Boolean(sub), (el) => el.child(div().mt(2).text_size(12.5).text_color(t.muted).truncate().child(sub)))
+      .child(div().mt(2).text_size(12.5).text_color(t.muted).truncate().child(sub))
       .when(open, (el) => el
         .child(v_flex().mt(8).gap(6).text_size(12.5).line_height("19px").children(briefRows(p.brief).map(([k, text]) => h_flex().gap(10).items_start()
           .child(div().w(64).flex_none().text_color(t.dim).child(k))
@@ -238,7 +238,7 @@ export default class NawabanBoard extends View {
   // An objective: its title, intent and metric, then its last 24 hours' first lines, newest first;
   // past RECENT_SHOWN a "还有 n 行" row unfolds the rest.
   objective(g, t, w) {
-    const open = this.openGoals.has(g.id);
+    const open = this.openObjectives.has(g.id);
     const line = (r) => h_flex().gap(8).items_start().text_size(12.5)
       .child(div().flex_none().text_size(12).text_color(t.dim).child(r.task))
       .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(r.line));
@@ -251,9 +251,9 @@ export default class NawabanBoard extends View {
       .when(g.shown.length > 0, (el) => el.child(v_flex().mt(8).gap(3).children(g.shown.map(line))))
       .when(g.folded.length > 0, (el) => el
         .when(open, (el) => el.child(v_flex().mt(3).gap(3).children(g.folded.map(line))))
-        .child(div().id(`nawaban-goal-more-${g.id}`).mt(4).text_size(12).text_color(t.dim).cursor_pointer()
+        .child(div().id(`nawaban-objective-more-${g.id}`).mt(4).text_size(12).text_color(t.dim).cursor_pointer()
           .hover((s) => s.text_color(t.foreground))
-          .on_click((_e, cx) => { open ? this.openGoals.delete(g.id) : this.openGoals.add(g.id); cx.notify(); })
+          .on_click((_e, cx) => { open ? this.openObjectives.delete(g.id) : this.openObjectives.add(g.id); cx.notify(); })
           .child(open ? w.foldLess : w.foldMore(g.folded.length))));
   }
 

@@ -86,7 +86,9 @@ export function leadersView(args) {
   const claimedAt = new Map(github ? args.board.columns.flatMap((c) => c.tasks ?? []).filter((t) => t.terminal)
     .sort((x, y) => (y.status === "done") - (x.status === "done")).map((t) => [t.terminal, t.id]) : []); // an open one over a closed one
   if (github) args = { ...args, board: matchIssues(args.board, args.terminals ?? []) };
-  const { waiting, otherWaiting } = windowsView(args);
+  // On a GitHub board a pending decision waits on you in a card's place (GLOSSARY: Pending decision).
+  const { waiting: asking, otherWaiting } = windowsView(args);
+  const waiting = github ? [] : asking;
   const terminals = args.terminals ?? [], nameOf = namer(terminals);
   const tasks = (args.board?.columns ?? []).flatMap((c) => c.tasks ?? []);
   const agentAt = (terminal) => args.agents.find((a) => a.address === terminal);
@@ -228,23 +230,23 @@ const DAY = 86400;
 // first sentence of its brief's 【推荐】 and its objective's intent; a card per objective, its last
 // 24 hours newest first, past RECENT_SHOWN lines folded; and how many open issues no objective holds.
 // ponytail: the same order and text as `nawaban brief` by agreement, not by sharing code (python CLI).
+export const RECENT_SHOWN = 5;
+
 export function objectivesView(board) {
   const open = (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? []);
-  const goals = new Map((board?.objectives ?? []).map((o) => [o.id, o]));
-  const pending = open.filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)).map((t) => ({
+  const byObjective = new Map((board?.objectives ?? []).map((o) => [o.id, o]));
+  const pending = open.filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || x.id.slice(1) - y.id.slice(1)).map((t) => ({
     id: t.id, title: t.title, url: t.url ?? null, brief: t.pending.brief, due: Boolean(t.pending.due),
-    recommend: /【推荐】[：:]?\s*([^。！？\n]*)/.exec(t.pending.brief)?.[1].trim() || null,
-    intent: goals.get(t.objective)?.intent ?? null }));
-  const objectives = [...goals.values()].map((o) => {
+    // 推荐： alone in a brief written the old way
+    recommend: /(?:【推荐】|推荐)[：:]?\s*([^。！？\n]*)/.exec(t.pending.brief)?.[1].trim() || null,
+    intent: byObjective.get(t.objective)?.intent ?? null }));
+  const objectives = [...byObjective.values()].map((o) => {
     const recent = [...(o.recent ?? [])].reverse();
     return { id: o.id, title: o.title, intent: o.intent, metric: o.metric, url: o.url ?? null,
       shown: recent.slice(0, RECENT_SHOWN), folded: recent.slice(RECENT_SHOWN) };
   });
   return { pending, objectives, unattached: open.filter((t) => !t.objective).length };
 }
-
-export const RECENT_SHOWN = 5;
-
 
 // A decision brief as [label, text] rows, one per 【label】 line, the lines under it joined to it;
 // text before the first label is a row with the label "".

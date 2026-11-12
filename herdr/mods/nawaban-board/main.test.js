@@ -110,14 +110,14 @@ test("on a GitHub board the panel draws issue titles, 在推, and the 已关 row
   // with pending decisions and an objective of seven lines: closed and open, the windows folded and not
   const recent = Array.from({ length: 7 }, (_, i) => ({ task: "#239", at: now - i, line: `进展：第 ${i} 步` }));
   const pending = { brief: "待决：发吗？\n【推荐】A。\n【默认动作】按推荐执行", at: now - 3600, default_action: "按推荐执行", due: true };
-  const withGoals = { ...ghBoard, objectives: [{ id: "#600", title: "上线", intent: "排期 1.1", metric: "0 起", url: "u", recent }],
+  const withObjectives = { ...ghBoard, objectives: [{ id: "#600", title: "上线", intent: "排期 1.1", metric: "0 起", url: "u", recent }],
     columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: c.tasks.map((x) => ({ ...x, objective: "#600", pending })) }) };
   for (const unfold of [false, true]) {
-    for (const board of [ghBoard, withGoals]) {
+    for (const board of [ghBoard, withObjectives]) {
       const view = new NawabanBoard();
       view.init({}, cx);
       Object.assign(view, { lang: "zh", board, windowsOpen: unfold, openPending: unfold ? "#256" : null });
-      if (unfold) { view.unfolded.add("t6"); view.openGoals.add("#600"); }
+      if (unfold) { view.unfolded.add("t6"); view.openObjectives.add("#600"); }
       view.render(cx);
     }
   }

@@ -136,7 +136,7 @@ _Current identifiers_: `events.kind` = `link`; CLI `event --kind link`.
 A GitHub issue that names one outcome the user wants and how its progress is measured, by an intent and a metric at the top of its body. Objectives are one level deep: an objective has no parent objective.
 目标是一张 GitHub issue，正文开头写明用户要的一个结果，以及用什么衡量进度：意图和度量。目标只有一层，不嵌套。
 _Avoid_: goal, OKR, epic, milestone.
-_Current identifiers_: issue body lines `意图：` and `度量：`.
+_Current identifiers_: issue body lines `意图：` and `度量：`; `json board` `objectives`, task `objective`.
 
 **Intent**(意图)
 The line of an objective that says which item of the roadmap it serves, with that item's number.
@@ -154,13 +154,13 @@ _Current identifiers_: issue body line `度量：`.
 The body of a pending decision: what the user needs to decide this without asking anyone, including why it came up, the options, the recommendation and the default action.
 决策简报是待决的正文：用户不用追问就能拍板所需的全部内容，包括来龙去脉、选项、推荐和默认动作。
 _Avoid_: ask, question, proposal.
-_Current identifiers_: none yet.
+_Current identifiers_: `json board` `pending.brief`.
 
 **Pending decision**(待决)
 An open issue in which the latest line starting `待决：` is followed by no line starting `已决：`. A line starting `需要你定：` counts as `待决：`. The lines may be in the body or in any comment. It is derived from the issue's text, never from a label. An issue holds at most one pending decision at a time.
 待决是一张开着的 issue：最新一个以 `待决：` 开头的行之后，没有以 `已决：` 开头的行。旧写法 `需要你定：` 也算待决。这些行可以在正文里，也可以在评论里。由数据推出，不看标签。一张 issue 同时只挂一件待决。
 _Avoid_: waiting on you (local board only), needs-info, blocked, D1-style numbering.
-_Current identifiers_: line prefixes `待决：`, `需要你定：`; CLI `brief`.
+_Current identifiers_: line prefixes `待决：`, `需要你定：`; CLI `brief`; `json board` task `pending`.
 
 **Resolution**(已决)
 The line that ends a pending decision, recording the user's words or the outcome. Only a resolution ends one; a `决定：` line is still recorded but does not.
@@ -172,7 +172,7 @@ _Current identifiers_: line prefix `已决：`.
 What happens to a pending decision if the user does not answer: either the recommendation is carried out at a stated time, or the decision can be left waiting. Only the first kind falls due, 8 hours after the decision was raised.
 默认动作是用户不回答时这件待决怎么办：到写明的时间按推荐执行，或者可以搁置。只有写"按推荐执行"的，过 8 小时才算到期。
 _Avoid_: timeout, auto-approve, fallback.
-_Current identifiers_: brief field `【默认动作】`.
+_Current identifiers_: brief field `【默认动作】`; `json board` `pending.default_action`, `pending.due`.
 
 ### Board and data
 

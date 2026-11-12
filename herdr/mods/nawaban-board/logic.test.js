@@ -408,23 +408,18 @@ test("on a GitHub board the closed issues of a group fold into one 已关 row, l
   assert.deepEqual(v.groups[0].closed.map((i) => [i.number, i.title, i.state, i.at, i.focus]), [[7, "issue 239", "done", NOW - 3600, "t4d"]]);
   assert.equal(WINDOW_WORDS.zh.closed(1), "已关 1 个");
   assert.equal(WINDOW_WORDS.en.closed(2), "2 closed");
-  assert.deepEqual(v.keys, ["card:0", "t23/t4a", "t23/t4b", "t23/t4c", "t23/t4e", "t23/t4f", "t23/t4g"]);
+  assert.deepEqual(v.keys, ["t23/t4a", "t23/t4b", "t23/t4c", "t23/t4e", "t23/t4f", "t23/t4g"]);
   assert.deepEqual(ghView({ board: github() }).groups[0].closed, []); // nothing to match: nothing folded
 });
 
-test("on a GitHub board a needs-info issue is a card that goes to its gh-<n> child; an issue in no Herdr window is in no group", () => {
+test("on a GitHub board nothing is a waiting card, a pending decision takes its place; an issue in no Herdr window is in no group", () => {
   const v = ghView();
-  assert.deepEqual(v.waiting.map((c) => [c.name, c.question, c.doing, c.focus]), [["gh-292", "等负责人审 ADR 0030", "issue 292", "t4e"]]);
+  assert.deepEqual(v.waiting, []);
   assert.deepEqual(v.groups.map((g) => g.leader), ["t23"]); // not one group per claimant (#307, #275's stale t52)
   assert.deepEqual([v.groups[0].self, v.groups[0].dispatched], [0, 7]);
 });
 
-test("on a GitHub board a needs-info issue in no window is a card that opens the issue in the browser", () => {
-  const lost = issue(355, { waiting: "等你定" });
-  const v = leaders([agent("t23", "working", "claude", "leader agent")], [...ghIssues, lost], { terminals: ghTree, board: github(...ghIssues, lost) });
-  assert.deepEqual(v.waiting.map((c) => [c.doing, c.focus, c.url]), [
-    ["issue 355", null, "https://github.com/o/r/issues/355"], ["issue 292", "t4e", "https://github.com/o/r/issues/292"]]); // longest waiting first
-  assert.ok(v.keys.includes("card:0")); // Enter opens it
+test("on a GitHub board an issue's item carries its URL", () => {
   assert.equal(ghView().groups[0].items.find((i) => i.focus === "t4a").url, "https://github.com/o/r/issues/275");
 });
 
@@ -442,7 +437,7 @@ const objBoard = (tasks, objectives = []) => ({ tracker: "github", objectives,
   columns: [{ key: "open", tasks: tasks.filter((t) => t.status !== "done") }, { key: "done", tasks: tasks.filter((t) => t.status === "done") }] });
 
 test("pending decisions run oldest first, by issue number, with the first sentence of 【推荐】 and the objective's intent; a due one says so", () => {
-  const goal = { id: "#600", title: "上线不出事", intent: "排期 1.1 第 2 条", metric: "事故 0（11-12 现值 1）", url: "u", recent: [] };
+  const obj = { id: "#600", title: "上线不出事", intent: "排期 1.1 第 2 条", metric: "事故 0（11-12 现值 1）", url: "u", recent: [] };
   const v = objectivesView(objBoard([
     pend("#7", 300, { objective: "#600" }),
     pend("#12", 100, { pending: { brief: "需要你定：要不要？推荐：y", at: 100, default_action: null, due: false } }),
@@ -450,11 +445,17 @@ test("pending decisions run oldest first, by issue number, with the first senten
     pend("#2", 200), // raised at the same time: by issue number, as text
     { id: "#9", title: "无待决", status: "open", objective: null, pending: null },
     pend("#5", 50, { status: "done" }), // a closed issue holds no pending decision
-  ], [goal]));
+  ], [obj]));
   assert.deepEqual(v.pending.map((p) => [p.id, p.recommend, p.intent, p.due]), [
-    ["#12", null, null, false], ["#2", "A", null, false], ["#3", "A", null, true], ["#7", "A", "排期 1.1 第 2 条", false]]);
+    ["#12", "y", null, false], ["#2", "A", null, false], ["#3", "A", null, true], ["#7", "A", "排期 1.1 第 2 条", false]]);
   assert.equal(v.pending[3].url, "https://gh/7");
   assert.ok(v.pending.every((p) => !/^D\d/.test(p.id)), "issue numbers, never D1-style numbering");
+});
+
+test("a brief written the old way recommends from 推荐：, and ties go by issue number, as nawaban brief reads them", () => {
+  const old = (id, brief) => pend(id, 100, { pending: { brief, at: 100, default_action: null, due: false } });
+  const v = objectivesView(objBoard([old("#10", "需要你定：要不要？推荐：拆。理由"), old("#9", "需要你定：x\n推荐：留着！好")]));
+  assert.deepEqual(v.pending.map((p) => [p.id, p.recommend]), [["#9", "留着"], ["#10", "拆"]]); // tests/test_index.py, the same briefs
 });
 
 test("a brief splits into rows at its 【label】s, the label in its own column; text before the first label is a row with no label", () => {
@@ -471,12 +472,12 @@ test("one pending decision opens at a time: opening another closes the first, op
 
 test("an objective card lists its last 24 hours newest first and folds past five lines", () => {
   const recent = Array.from({ length: 7 }, (_, i) => ({ task: `#${i + 1}`, at: i, line: `进展：第 ${i + 1} 步` }));
-  const goal = { id: "#600", title: "上线不出事", intent: "排期 1.1 第 2 条", metric: "事故 0", url: "u", recent };
-  const [o] = objectivesView(objBoard([], [goal])).objectives;
+  const obj = { id: "#600", title: "上线不出事", intent: "排期 1.1 第 2 条", metric: "事故 0", url: "u", recent };
+  const [o] = objectivesView(objBoard([], [obj])).objectives;
   assert.equal(RECENT_SHOWN, 5);
   assert.deepEqual(o.shown.map((r) => r.task), ["#7", "#6", "#5", "#4", "#3"]);
   assert.deepEqual(o.folded.map((r) => r.task), ["#2", "#1"]);
-  const [few] = objectivesView(objBoard([], [{ ...goal, recent: recent.slice(0, 5) }])).objectives;
+  const [few] = objectivesView(objBoard([], [{ ...obj, recent: recent.slice(0, 5) }])).objectives;
   assert.equal(few.folded.length, 0);
 });
 
