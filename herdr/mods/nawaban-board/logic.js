@@ -232,11 +232,17 @@ const DAY = 86400;
 // ponytail: the same order and text as `nawaban brief` by agreement, not by sharing code (python CLI).
 export const RECENT_SHOWN = 5;
 
-export function objectivesView(board) {
+// One snoozed (搁置到 <time>, `pending.snoozed_until` later than `now`, epoch seconds) is in `snoozed`
+// instead; a woken one is back, shown since its wake time (`shownAt`, for the unseen dot).
+export function objectivesView(board, now = Date.now() / 1000) {
   const open = (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? []);
   const byObjective = new Map((board?.objectives ?? []).map((o) => [o.id, o]));
-  const pending = open.filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || x.id.slice(1) - y.id.slice(1)).map((t) => ({
+  const all = open.filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || x.id.slice(1) - y.id.slice(1));
+  const asleep = (t) => (t.pending.snoozed_until ?? 0) > now;
+  const snoozed = all.filter(asleep).map((t) => ({ id: t.id, title: t.title, until: t.pending.snoozed_until }));
+  const pending = all.filter((t) => !asleep(t)).map((t) => ({
     id: t.id, title: t.title, url: t.url ?? null, brief: t.pending.brief, due: Boolean(t.pending.due),
+    shownAt: Math.max(t.pending.at, t.pending.snoozed_until ?? 0),
     // 推荐： alone in a brief written the old way
     recommend: /(?:【推荐】|推荐)[：:]?\s*([^。！？\n]*)/.exec(t.pending.brief)?.[1].trim() || null,
     intent: byObjective.get(t.objective)?.intent ?? null }));
@@ -245,8 +251,17 @@ export function objectivesView(board) {
     return { id: o.id, title: o.title, intent: o.intent, metric: o.metric, url: o.url ?? null,
       shown: recent.slice(0, RECENT_SHOWN), folded: recent.slice(RECENT_SHOWN) };
   });
-  return { pending, objectives, unattached: open.filter((t) => !t.objective).length };
+  return { pending, snoozed, objectives, unattached: open.filter((t) => !t.objective).length };
 }
+
+// `seen` maps an issue to the shownAt it had when its brief was last opened (kept in localStorage).
+// MM-DD HH:MM in local time, as nawaban brief writes a wake time.
+const wakeStamp = (s) => { const d = new Date(s * 1000), p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+export const unseen = (p, seen) => !((seen?.[p.id] ?? -Infinity) >= p.shownAt);
+// `seen` after opening p, keeping only the decisions still pending.
+export const markSeen = (seen, p, pending) => Object.fromEntries(
+  pending.map((q) => [q.id, q.id === p.id ? p.shownAt : seen?.[q.id]]).filter(([, at]) => at !== undefined));
 
 // A decision brief as [label, text] rows, one per 【label】 line, the lines under it joined to it;
 // text before the first label is a row with the label "".
@@ -323,7 +338,7 @@ export const WINDOW_WORDS = {
     gone: "窗口已关，任务还拿着没交还",
     withState: (name, state) => `${name}（${state}）`, idleRow: (n, names) => `没认领 ${n} · ${names.join("、")}`,
     none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言",
-    pending: (n) => `待决 ${n}`, recommend: "推荐：", intent: "意图：", metric: "度量：", due: "已到期", foldMore: (n) => `还有 ${n} 行`, foldLess: "收起", unwritten: "没写",
+    pending: (n) => `待决 ${n}`, snoozed: (n) => `搁置 ${n}`, until: (s) => `到 ${wakeStamp(s)}`, recommend: "推荐：", intent: "意图：", metric: "度量：", due: "已到期", foldMore: (n) => `还有 ${n} 行`, foldLess: "收起", unwritten: "没写",
     unattached: (n) => `${n} 个 issue 挂不上目标`, windowsFold: (n) => `窗口分组 ${n}` },
   en: { waiting: "Waiting", pushing: "Moving", closed: (n) => `${n} closed`, stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
@@ -332,7 +347,7 @@ export const WINDOW_WORDS = {
     gone: "Window closed, task still held",
     withState: (name, state) => `${name} (${state.toLowerCase()})`, idleRow: (n, names) => `No task ${n} · ${names.join(", ")}`,
     none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language",
-    pending: (n) => `Pending ${n}`, recommend: "Recommended: ", intent: "Intent: ", metric: "Metric: ", due: "Due", foldMore: (n) => `${n} more`, foldLess: "Show less", unwritten: "not written",
+    pending: (n) => `Pending ${n}`, snoozed: (n) => `Snoozed ${n}`, until: (s) => `until ${wakeStamp(s)}`, recommend: "Recommended: ", intent: "Intent: ", metric: "Metric: ", due: "Due", foldMore: (n) => `${n} more`, foldLess: "Show less", unwritten: "not written",
     unattached: (n) => `${n} issue${n === 1 ? "" : "s"} under no objective`, windowsFold: (n) => `Window groups ${n}` },
 };
 

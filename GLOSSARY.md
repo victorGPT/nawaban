@@ -169,10 +169,10 @@ _Avoid_: decided, answered, removing a label.
 _Current identifiers_: line prefix `已决：`.
 
 **Default action**(默认动作)
-What happens to a pending decision if the user does not answer: either the recommendation is carried out at a stated time, or the decision can be left waiting. Only the first kind falls due, 8 hours after the decision was raised.
-默认动作是用户不回答时这件待决怎么办：到写明的时间按推荐执行，或者可以搁置。只有写"按推荐执行"的，过 8 小时才算到期。
-_Avoid_: timeout, auto-approve, fallback.
-_Current identifiers_: brief field `【默认动作】`; `json board` `pending.default_action`, `pending.due`.
+What happens to a pending decision if the user does not answer: either the recommendation is carried out at a stated time, or the decision is snoozed until a stated time and then is pending again. Only the first kind falls due, 8 hours after the decision was raised. A newer pending decision on the same issue replaces a snoozed one at once.
+默认动作是用户不回答时这件待决怎么办：到写明的时间按推荐执行，或者搁置到写明的时间，到点再回到待决。只有写"按推荐执行"的，过 8 小时才算到期。同一张 issue 有新的待决，搁置的那件立刻被它取代。
+_Avoid_: timeout, auto-approve, fallback; "可以搁置" with no time.
+_Current identifiers_: brief field `【默认动作】` ("<time> 按推荐执行" or "搁置到 <MM-DD HH:MM>"); `json board` `pending.default_action`, `pending.due`, `pending.snoozed_until`.
 
 ### Board and data
 

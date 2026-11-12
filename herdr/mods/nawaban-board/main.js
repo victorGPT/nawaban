@@ -9,7 +9,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, HoverCard, Collapsible } from "gpui-base";
 import { spaces, focused, agents, terminals, run, exec, theme, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
 import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, leadersView, itemLabel, decisionDate,
-  WINDOW_WORDS, objectivesView, briefRows, toggleOne } from "./logic.js";
+  WINDOW_WORDS, objectivesView, briefRows, toggleOne, unseen, markSeen } from "./logic.js";
 
 const POLL_MS = 5000;      // re-read the board this often when it cannot be watched
 const FALLBACK_MS = 60000; // and this often when it is, in case a change was missed
@@ -58,6 +58,8 @@ export default class NawabanBoard extends View {
     this.github = new Map();    // folder -> its last GitHub board and when it was read
     this.unfolded = new Set();  // leaders whose 已关 row is open
     this.openPending = null;    // the pending decision whose brief is open (GitHub board)
+    this.snoozedOpen = false;   // the 搁置 N fold
+    try { this.seen = JSON.parse(localStorage.getItem("seen")) ?? {}; } catch { this.seen = {}; } // issue → shownAt last opened
     this.openObjectives = new Set(); // objectives whose folded lines are open
     this.windowsOpen = false;   // a GitHub board's window groups, folded under its objectives
     this.keys = [];             // the cards and items Enter can go to, in the order shown
@@ -207,7 +209,17 @@ export default class NawabanBoard extends View {
     const head = (text) => div().flex_none().px(16).pt(14).pb(6).text_size(12).font_semibold().text_color(t.muted).child(text);
     return el
       .when(o.pending.length > 0, (el) => el.child(head(w.pending(o.pending.length)))
-        .child(v_flex().flex_none().px(8).gap(4).children(o.pending.map((p) => this.pendingRow(p, t, w)))))
+        .child(v_flex().flex_none().px(8).gap(4).children(o.pending.map((p) => this.pendingRow(p, o.pending, t, w)))))
+      .when(o.snoozed.length > 0, (el) => el.child(Collapsible.new().flex().flex_col().open(this.snoozedOpen)
+        .child(h_flex().id("nawaban-snoozed").h(28).px(16).gap(8).items_center().cursor_pointer()
+          .text_size(12).text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))
+          .on_click((_e, cx) => { this.snoozedOpen = !this.snoozedOpen; cx.notify(); })
+          .child(h_flex().w(18).flex_none().justify_center().child(svg(CHROME(this.snoozedOpen ? "chevron-down" : "chevron-right")).size(12)))
+          .child(div().flex_1().min_w(0).truncate().child(w.snoozed(o.snoozed.length))))
+        .content(v_flex().px(16).gap(2).children(o.snoozed.map((p) => h_flex().gap(8).items_center().text_size(12.5).text_color(t.muted)
+          .child(div().flex_none().text_size(12).child(p.id))
+          .child(div().flex_1().min_w(0).truncate().child(p.title))
+          .child(div().flex_none().text_size(12).text_color(t.dim).child(w.until(p.until))))))))
       .children(o.objectives.map((g) => this.objective(g, t, w)))
       .child(Collapsible.new().flex().flex_col().open(Boolean(this.windowsOpen))
         .child(h_flex().id("nawaban-windows").h(28).mt(10).px(16).gap(8).items_center().cursor_pointer()
@@ -222,13 +234,19 @@ export default class NawabanBoard extends View {
 
   // A pending decision: its issue number, title and 已到期 when due; under it 意图：… · 推荐：…, as `nawaban brief` writes it. Open,
   // its brief follows, a row per 【label】 with the label in its own column, then 去 GitHub 看 →.
-  pendingRow(p, t, w) {
+  pendingRow(p, pending, t, w) {
     const open = this.openPending === p.id;
     const sub = `${w.intent}${p.intent ?? w.unwritten} · ${w.recommend}${p.recommend ?? w.unwritten}`;
     return v_flex().id(`nawaban-pending-${p.id}`).flex_none().px(8).py(8).rounded(8).bg(t.blocked + "1a").cursor_pointer()
       .hover((s) => s.bg(t.blocked + "26"))
-      .on_click((_e, cx) => { this.openPending = toggleOne(this.openPending, p.id); cx.notify(); })
+      .on_click((_e, cx) => {
+        this.openPending = toggleOne(this.openPending, p.id);
+        this.seen = markSeen(this.seen, p, pending);
+        try { localStorage.setItem("seen", JSON.stringify(this.seen)); } catch { /* the dot comes back next start */ }
+        cx.notify();
+      })
       .child(h_flex().gap(8).items_center()
+        .when(unseen(p, this.seen), (el) => el.child(div().flex_none().size(6).rounded(3).bg(t.blocked)))
         .child(div().flex_none().text_size(12).font_semibold().text_color(t.blocked).child(p.id))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(p.title))
         .when(p.due, (el) => el.child(div().flex_none().text_size(12).text_color(t.blocked).child(w.due))))
