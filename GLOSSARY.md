@@ -69,8 +69,8 @@ _Avoid_: in_progress as a stored status, doing.
 _Current identifiers_: `in_progress` in `show`, `list` and board responses.
 
 **Waiting on you**(等你)
-An open task whose latest `triage:` note is `triage: needs-info — 等你：<question>`: the agent needs the user to answer or act. It is derived, never stored; its session keeps holding it, and a later `triage:` note such as `triage: ready-for-agent` ends the wait. The Herdr panel shows these first, as cards, each with its question.
-等你是最新一条 `triage:` 备注为 `triage: needs-info — 等你：<问题>` 的未关闭任务：agent 需要用户回答或动手。由数据推导，不单独存储；会话继续持有它，之后再记一条 `triage:` 备注（如 `triage: ready-for-agent`）就不再等。Herdr 面板把它们做成卡片放在最上面，并显示那句问题。
+An open task whose latest `triage:` note is `triage: needs-info — 等你：<question>`: the agent needs the user to answer or act. It is derived, never stored; its session keeps holding it, and a later `triage:` note such as `triage: ready-for-agent` ends the wait. The Herdr panel shows these first, as cards, each with its question. It applies only when the board is the local nawaban board; when work is tracked on GitHub, a pending decision takes its place.
+等你是最新一条 `triage:` 备注为 `triage: needs-info — 等你：<问题>` 的未关闭任务：agent 需要用户回答或动手。由数据推导，不单独存储；会话继续持有它，之后再记一条 `triage:` 备注（如 `triage: ready-for-agent`）就不再等。Herdr 面板把它们做成卡片放在最上面，并显示那句问题。它只用于 nawaban 本地看板模式；在 GitHub 上记账时改用待决。
 _Avoid_: needs-info as a status, a stored question.
 _Current identifiers_: `waiting` on open tasks in `json board` (the question, or null); panel window state `waiting`.
 
@@ -130,6 +130,50 @@ An event pointing at evidence: a pull request URL, an artifact path or an ADR nu
 _Avoid_: ref, merge_sha field.
 _Current identifiers_: `events.kind` = `link`; CLI `event --kind link`.
 
+### Objectives and decisions
+
+**Objective**(目标)
+A GitHub issue that names one outcome the user wants and how its progress is measured, by an intent and a metric at the top of its body. Objectives are one level deep: an objective has no parent objective.
+目标是一张 GitHub issue，正文开头写明用户要的一个结果，以及用什么衡量进度：意图和度量。目标只有一层，不嵌套。
+_Avoid_: goal, OKR, epic, milestone.
+_Current identifiers_: issue body lines `意图：` and `度量：`; `json board` `objectives`, task `objective`.
+
+**Intent**(意图)
+The line of an objective that says which item of the roadmap it serves, with that item's number.
+意图是目标里说明它服务于排期中哪一件事的那一行，带条目号。
+_Avoid_: purpose, why, motivation.
+_Current identifiers_: issue body line `意图：`.
+
+**Metric**(度量)
+The line of an objective that defines how progress is measured: the measure, what it means in plain words, the target value, and the current value with its date. When the value changes, the line is rewritten.
+度量是目标里定义如何衡量进度的那一行：指标定义、人话换算、目标值，以及现值和日期。现值变了就改写这一行。
+_Avoid_: KPI, reading, score.
+_Current identifiers_: issue body line `度量：`.
+
+**Decision brief**(决策简报)
+The body of a pending decision: what the user needs to decide this without asking anyone, including why it came up, the options, the recommendation and the default action.
+决策简报是待决的正文：用户不用追问就能拍板所需的全部内容，包括来龙去脉、选项、推荐和默认动作。
+_Avoid_: ask, question, proposal.
+_Current identifiers_: `json board` `pending.brief`.
+
+**Pending decision**(待决)
+An open issue in which the latest line starting `待决：` is followed by no line starting `已决：`. A line starting `需要你定：` counts as `待决：`. The lines may be in the body or in any comment. It is derived from the issue's text, never from a label. An issue holds at most one pending decision at a time.
+待决是一张开着的 issue：最新一个以 `待决：` 开头的行之后，没有以 `已决：` 开头的行。旧写法 `需要你定：` 也算待决。这些行可以在正文里，也可以在评论里。由数据推出，不看标签。一张 issue 同时只挂一件待决。
+_Avoid_: waiting on you (local board only), needs-info, blocked, D1-style numbering.
+_Current identifiers_: line prefixes `待决：`, `需要你定：`; CLI `brief`; `json board` task `pending`.
+
+**Resolution**(已决)
+The line that ends a pending decision, recording the user's words or the outcome. Only a resolution ends one; a `决定：` line is still recorded but does not.
+已决是结掉待决的那一行，记下用户原话或结论。只有它能结案；`决定：` 照常记账，但不结案。
+_Avoid_: decided, answered, removing a label.
+_Current identifiers_: line prefix `已决：`.
+
+**Default action**(默认动作)
+What happens to a pending decision if the user does not answer: either the recommendation is carried out at a stated time, or the decision can be left waiting. Only the first kind falls due, 8 hours after the decision was raised.
+默认动作是用户不回答时这件待决怎么办：到写明的时间按推荐执行，或者可以搁置。只有写"按推荐执行"的，过 8 小时才算到期。
+_Avoid_: timeout, auto-approve, fallback.
+_Current identifiers_: brief field `【默认动作】`; `json board` `pending.default_action`, `pending.due`.
+
 ### Board and data
 
 **Board**(看板)
@@ -139,14 +183,14 @@ _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`.
 
 **Index**(索引)
-The md text a leader reads when it starts or after its context is compacted: the open work grouped as waiting on the user, stopped (no activity for 24 hours, with on whom) and moving, each with its spec, latest progress and next step; the user's decisions of the last 48 hours; the untouched; and a count of the closed. It is printed from `json board`'s data each time and never stored.
-索引是 leader 开工或上下文压缩后读的那份 md 文本：开着的事按等你、停了（24 小时没动静，写明停在谁身上）、在推分组，每件带所属的 spec、最新进展和下一步；48 小时内用户拍的板；没动的；关掉的个数。每次从 `json board` 的数据现打，从不存。
+The md text a leader reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), stopped (no activity for 24 hours, with on whom) and moving, each with its spec, latest progress and next step; the user's decisions of the last 48 hours; the untouched; and a count of the closed. At the top come two sections, pending decisions and objectives; the other sections follow unchanged. It is printed from `json board`'s data each time and never stored.
+索引是 leader 开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、停了（24 小时没动静，写明停在谁身上）、在推分组，每件带所属的 spec、最新进展和下一步；48 小时内用户拍的板；没动的；关掉的个数。最上面加"待决"和"目标"两段，原有各段保留。每次从 `json board` 的数据现打，从不存。
 _Avoid_: wiki, summary file, status report.
 _Current identifiers_: CLI `index`; `NAWABAN_OWNER_NAMES`.
 
 **Herdr panel**(Herdr 面板)
-A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each leader and its workers are doing. Claiming, closing and dispatching stay with agents and the CLI.
-Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按 leader 列出当前 space 所在项目里每个 leader 和它的 worker 在做什么。认领、关闭、派活仍由 agent 通过 CLI 完成。
+A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each leader and its workers are doing. At the top come two sections, pending decisions and objectives; the other sections follow unchanged. Claiming, closing and dispatching stay with agents and the CLI.
+Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按 leader 列出当前 space 所在项目里每个 leader 和它的 worker 在做什么。最上面加"待决"和"目标"两段，原有各段保留。认领、关闭、派活仍由 agent 通过 CLI 完成。
 _Avoid_: sidebar, shepherdr, board tab.
 _Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `cmd-shift-j`.
 

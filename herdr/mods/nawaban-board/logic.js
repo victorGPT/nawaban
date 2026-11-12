@@ -86,7 +86,9 @@ export function leadersView(args) {
   const claimedAt = new Map(github ? args.board.columns.flatMap((c) => c.tasks ?? []).filter((t) => t.terminal)
     .sort((x, y) => (y.status === "done") - (x.status === "done")).map((t) => [t.terminal, t.id]) : []); // an open one over a closed one
   if (github) args = { ...args, board: matchIssues(args.board, args.terminals ?? []) };
-  const { waiting, otherWaiting } = windowsView(args);
+  // On a GitHub board a pending decision waits on you in a card's place (GLOSSARY: Pending decision).
+  const { waiting: asking, otherWaiting } = windowsView(args);
+  const waiting = github ? [] : asking;
   const terminals = args.terminals ?? [], nameOf = namer(terminals);
   const tasks = (args.board?.columns ?? []).flatMap((c) => c.tasks ?? []);
   const agentAt = (terminal) => args.agents.find((a) => a.address === terminal);
@@ -223,6 +225,45 @@ const specOrder = (tickets) => {
 
 const DAY = 86400;
 
+// A GitHub board's top (GLOSSARY: Pending decision, Objective), from `json board`'s `objectives` and
+// open issues' `pending`: the pending decisions oldest first, each by its issue number, with the
+// first sentence of its brief's 【推荐】 and its objective's intent; a card per objective, its last
+// 24 hours newest first, past RECENT_SHOWN lines folded; and how many open issues no objective holds.
+// ponytail: the same order and text as `nawaban brief` by agreement, not by sharing code (python CLI).
+export const RECENT_SHOWN = 5;
+
+export function objectivesView(board) {
+  const open = (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? []);
+  const byObjective = new Map((board?.objectives ?? []).map((o) => [o.id, o]));
+  const pending = open.filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || x.id.slice(1) - y.id.slice(1)).map((t) => ({
+    id: t.id, title: t.title, url: t.url ?? null, brief: t.pending.brief, due: Boolean(t.pending.due),
+    // 推荐： alone in a brief written the old way
+    recommend: /(?:【推荐】|推荐)[：:]?\s*([^。！？\n]*)/.exec(t.pending.brief)?.[1].trim() || null,
+    intent: byObjective.get(t.objective)?.intent ?? null }));
+  const objectives = [...byObjective.values()].map((o) => {
+    const recent = [...(o.recent ?? [])].reverse();
+    return { id: o.id, title: o.title, intent: o.intent, metric: o.metric, url: o.url ?? null,
+      shown: recent.slice(0, RECENT_SHOWN), folded: recent.slice(RECENT_SHOWN) };
+  });
+  return { pending, objectives, unattached: open.filter((t) => !t.objective).length };
+}
+
+// A decision brief as [label, text] rows, one per 【label】 line, the lines under it joined to it;
+// text before the first label is a row with the label "".
+export function briefRows(brief) {
+  const rows = [];
+  for (const line of String(brief ?? "").split("\n")) {
+    const m = /^\s*【(.+?)】[：:]?\s*(.*)$/.exec(line);
+    if (m) rows.push([m[1], m[2]]);
+    else if (rows.length) rows[rows.length - 1][1] += `\n${line}`;
+    else rows.push(["", line]);
+  }
+  return rows.map(([k, v]) => [k, v.trim()]).filter(([k, v]) => k || v);
+}
+
+// The one pending decision open after a click on `id`: it, or none when it was the open one.
+export const toggleOne = (open, id) => (open === id ? null : id);
+
 // A GitHub board's issues, each in its window: the live terminal its claim names (`hc t5n`), else the
 // live window named for it: `gh-275`, `gh-238r` (`hc run --name`) is #275, #238.
 const matchIssues = (board, terminals) => {
@@ -281,14 +322,18 @@ export const WINDOW_WORDS = {
     counts: (own, sent) => `自己 ${own} · 派出 ${sent}`, decided: "定", who: { self: "自己", worker: "worker" },
     gone: "窗口已关，任务还拿着没交还",
     withState: (name, state) => `${name}（${state}）`, idleRow: (n, names) => `没认领 ${n} · ${names.join("、")}`,
-    none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言" },
+    none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言",
+    pending: (n) => `待决 ${n}`, recommend: "推荐：", intent: "意图：", metric: "度量：", due: "已到期", foldMore: (n) => `还有 ${n} 行`, foldLess: "收起", unwritten: "没写",
+    unattached: (n) => `${n} 个 issue 挂不上目标`, windowsFold: (n) => `窗口分组 ${n}` },
   en: { waiting: "Waiting", pushing: "Moving", closed: (n) => `${n} closed`, stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
     headline: (n) => `${n} window${n === 1 ? "" : "s"} waiting on you`, waited: (d) => `waiting ${d}`, go: "Go to window →", issue: "Open on GitHub →",
     counts: (own, sent) => `own ${own} · sent ${sent}`, decided: "decided", who: { self: "self", worker: "worker" },
     gone: "Window closed, task still held",
     withState: (name, state) => `${name} (${state.toLowerCase()})`, idleRow: (n, names) => `No task ${n} · ${names.join(", ")}`,
-    none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language" },
+    none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language",
+    pending: (n) => `Pending ${n}`, recommend: "Recommended: ", intent: "Intent: ", metric: "Metric: ", due: "Due", foldMore: (n) => `${n} more`, foldLess: "Show less", unwritten: "not written",
+    unattached: (n) => `${n} issue${n === 1 ? "" : "s"} under no objective`, windowsFold: (n) => `Window groups ${n}` },
 };
 
 // The key the up (-1) or down (+1) arrow selects from `key`, through the cards and rows in the
