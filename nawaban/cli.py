@@ -566,7 +566,8 @@ _SNOOZE = re.compile(r"搁置到\s*(?:(\d{4})-)?(\d{1,2})-(\d{1,2})\s+(\d{1,2}):
 
 
 def _snoozed_until(action: str, raised: int) -> int | None:
-    """搁置到 [YYYY-]MM-DD HH:MM as local epoch seconds; a year-less date before `raised` is next year's."""
+    """搁置到 [YYYY-]MM-DD HH:MM as local epoch seconds; a year-less date over half a year before `raised` is
+    next year's (12-28 → 01-05), a nearer past one stays this year's and is awake at once, not hidden a year."""
     m = _SNOOZE.search(action)
     if not m:
         return None
@@ -574,7 +575,7 @@ def _snoozed_until(action: str, raised: int) -> int | None:
     year = y or _dt.datetime.fromtimestamp(raised).year
     try:
         until = int(_dt.datetime(year, mo, d, h, mi).timestamp())
-        return int(_dt.datetime(year + 1, mo, d, h, mi).timestamp()) if not y and until < raised else until
+        return int(_dt.datetime(year + 1, mo, d, h, mi).timestamp()) if not y and until < raised - 183 * 86400 else until
     except ValueError:
         return None
 

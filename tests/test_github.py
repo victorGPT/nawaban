@@ -312,6 +312,7 @@ def _local(*a) -> int:
     ("搁置到 11-08 09:00", _local(2026, 11, 8, 9, 0)),
     ("搁置到 2026-11-09 18:30，到时再问", _local(2026, 11, 9, 18, 30)),
     ("搁置到 01-05 09:00", _local(2027, 1, 5, 9, 0)),  # a year-less date before the brief is next year's
+    ("搁置到 11-07 08:00", _local(2026, 11, 7, 8, 0)),  # just before the brief (a slip): awake now, not hidden a year
     ("搁置到下周", None),  # no time it can read: pending as usual
     ("可以搁置", None),
     ("11-07 08:00 按推荐执行", None),
