@@ -58,11 +58,13 @@ const ghBoard = { tracker: "github", columns: [
   { key: "done", tasks: [{ id: "#260", title: "issue 260", status: "done", parent: null, session: null, leader: null, terminal: null,
     claimed_at: null, created_at: 0, active_at: now - 600, done_at: now - 600 }] }] };
 let execImpl = async () => ({ code: 1 });
+const here = { spaces: () => [{ id: "here", active: true, name: "nawaban", folder: "/x" }], focused: () => ({ space: "here", cwd: "/x" }) };
+let where = here;
 
 const stubs = {
   "gpui-kit": { View: class {}, div: make("div"), svg: make("svg") },
   "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el, Collapsible: el },
-  herdr: { spaces: () => [{ id: "here", active: true, name: "nawaban", folder: "/x" }], focused: () => ({ space: "here", cwd: "/x" }),
+  herdr: { spaces: () => where.spaces(), focused: () => where.focused(),
     agents: () => agents, terminals: () => terminals, theme: () => new Proxy({}, { get: () => "#808080" }), home: () => "/h",
     run: async () => {}, exec: (...a) => execImpl(...a), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}), props: () => null, closeOverlay: () => null },
 };
@@ -155,6 +157,33 @@ test("a GitHub board is read from GitHub at most once a minute, whatever asks fo
     assert.equal(boards(), 2);
   } finally {
     Date.now = realNow;
+    execImpl = async () => ({ code: 1 });
+  }
+});
+
+test("a space on another machine is read there: the CLI under that machine's home, in the space's folder", async () => {
+  const calls = [];
+  execImpl = async (cmd, args = [], opts = {}) => {
+    calls.push({ cmd, args, opts });
+    const verb = args[args.indexOf("json") + 1];
+    return { code: 0, stdout: JSON.stringify(verb === "board" ? ghBoard : { projects: [] }) };
+  };
+  where = { spaces: () => [{ id: "mbp/1", active: true, name: "roubao", folder: "/Users/v/roubao", machine: "mbp" }],
+    focused: () => ({ space: "mbp/1", cwd: "/Users/v/roubao" }) };
+  try {
+    const quiet = { spawn() {}, notify() {} };
+    const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+    const view = new NawabanBoard();
+    view.init({}, cx);
+    await new Promise((r) => setImmediate(r));
+    const cli = calls.filter((c) => c.args.includes("json"));
+    assert.ok(cli.length >= 2 && cli.every((c) => c.cmd === "sh" && c.args[1].includes('$HOME/nawaban/nawaban/cli.py')));
+    assert.ok(calls.filter((c) => c.cmd !== "defaults" && !(c.cmd === "sh" && c.args[1].includes("LANG")))
+      .every((c) => c.opts.on === "mbp" && c.opts.cwd === "/Users/v/roubao"));
+    assert.ok(!cli.some((c) => c.args.includes("db")), "a remote board is polled, not watched");
+    assert.equal(view.board.tracker, "github");
+  } finally {
+    where = here;
     execImpl = async () => ({ code: 1 });
   }
 });
