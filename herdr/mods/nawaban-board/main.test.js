@@ -193,3 +193,18 @@ test("every element method the panel calls is in gpui-kit.d.ts", { skip: !dts &&
   const missing = [...called].filter((name) => !new RegExp(`\\b${name}\\??\\s*(\\(|<|:\\s*\\()`).test(dts));
   assert.deepEqual(missing, []);
 });
+
+test("the seen map read back is per project, and one that is not an object is dropped", () => {
+  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+  const had = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  try {
+    for (const [stored, want] of [["5", {}], ["[1]", {}], ["null", {}], ['{"roubao":{"#3":300}}', { roubao: { "#3": 300 } }]]) {
+      Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (k) => (k === "seen" ? stored : null), setItem() {} } });
+      const view = new NawabanBoard();
+      view.init({}, cx);
+      assert.deepEqual(view.seen, want, stored);
+    }
+  } finally {
+    if (had) Object.defineProperty(globalThis, "localStorage", had); else delete globalThis.localStorage;
+  }
+});
