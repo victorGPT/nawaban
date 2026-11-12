@@ -231,9 +231,9 @@ const DAY = 86400;
 export function objectivesView(board) {
   const open = (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? []);
   const goals = new Map((board?.objectives ?? []).map((o) => [o.id, o]));
-  const pending = open.filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at).map((t) => ({
+  const pending = open.filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)).map((t) => ({
     id: t.id, title: t.title, url: t.url ?? null, brief: t.pending.brief, due: Boolean(t.pending.due),
-    recommend: firstSentence(briefRows(t.pending.brief).find(([k]) => k === "推荐")?.[1]),
+    recommend: /【推荐】[：:]?\s*([^。！？\n]*)/.exec(t.pending.brief)?.[1].trim() || null,
     intent: goals.get(t.objective)?.intent ?? null }));
   const objectives = [...goals.values()].map((o) => {
     const recent = [...(o.recent ?? [])].reverse();
@@ -245,7 +245,6 @@ export function objectivesView(board) {
 
 export const RECENT_SHOWN = 5;
 
-const firstSentence = (s) => s?.split(/[。！？\n]/)[0].trim() || null;
 
 // A decision brief as [label, text] rows, one per 【label】 line, the lines under it joined to it;
 // text before the first label is a row with the label "".
@@ -322,7 +321,7 @@ export const WINDOW_WORDS = {
     gone: "窗口已关，任务还拿着没交还",
     withState: (name, state) => `${name}（${state}）`, idleRow: (n, names) => `没认领 ${n} · ${names.join("、")}`,
     none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言",
-    pending: (n) => `待决 ${n}`, recommend: "推荐", intent: "意图", metric: "度量", due: "已到期", foldMore: (n) => `还有 ${n} 行`, foldLess: "收起",
+    pending: (n) => `待决 ${n}`, recommend: "推荐：", intent: "意图：", metric: "度量：", due: "已到期", foldMore: (n) => `还有 ${n} 行`, foldLess: "收起", unwritten: "没写",
     unattached: (n) => `${n} 个 issue 挂不上目标`, windowsFold: (n) => `窗口分组 ${n}` },
   en: { waiting: "Waiting", pushing: "Moving", closed: (n) => `${n} closed`, stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
@@ -331,7 +330,7 @@ export const WINDOW_WORDS = {
     gone: "Window closed, task still held",
     withState: (name, state) => `${name} (${state.toLowerCase()})`, idleRow: (n, names) => `No task ${n} · ${names.join(", ")}`,
     none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language",
-    pending: (n) => `Pending ${n}`, recommend: "Recommended", intent: "Intent", metric: "Metric", due: "Due", foldMore: (n) => `${n} more`, foldLess: "Show less",
+    pending: (n) => `Pending ${n}`, recommend: "Recommended: ", intent: "Intent: ", metric: "Metric: ", due: "Due", foldMore: (n) => `${n} more`, foldLess: "Show less", unwritten: "not written",
     unattached: (n) => `${n} issue${n === 1 ? "" : "s"} under no objective`, windowsFold: (n) => `Window groups ${n}` },
 };
 

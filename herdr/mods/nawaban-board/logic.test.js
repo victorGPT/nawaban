@@ -447,12 +447,13 @@ test("pending decisions run oldest first, by issue number, with the first senten
     pend("#7", 300, { objective: "#600" }),
     pend("#12", 100, { pending: { brief: "需要你定：要不要？推荐：y", at: 100, default_action: null, due: false } }),
     pend("#3", 200, { pending: { ...pend("#3", 200).pending, due: true } }),
+    pend("#2", 200), // raised at the same time: by issue number, as text
     { id: "#9", title: "无待决", status: "open", objective: null, pending: null },
     pend("#5", 50, { status: "done" }), // a closed issue holds no pending decision
   ], [goal]));
   assert.deepEqual(v.pending.map((p) => [p.id, p.recommend, p.intent, p.due]), [
-    ["#12", null, null, false], ["#3", "A", null, true], ["#7", "A", "排期 1.1 第 2 条", false]]);
-  assert.equal(v.pending[2].url, "https://gh/7");
+    ["#12", null, null, false], ["#2", "A", null, false], ["#3", "A", null, true], ["#7", "A", "排期 1.1 第 2 条", false]]);
+  assert.equal(v.pending[3].url, "https://gh/7");
   assert.ok(v.pending.every((p) => !/^D\d/.test(p.id)), "issue numbers, never D1-style numbering");
 });
 

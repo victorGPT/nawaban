@@ -213,11 +213,11 @@ export default class NawabanBoard extends View {
       .child(div().flex_none().px(16).pt(10).text_size(12).text_color(t.dim).child(w.unattached(o.unattached)));
   }
 
-  // A pending decision: its issue number, title and 已到期 when due; under it 推荐 … · 意图 …. Open,
+  // A pending decision: its issue number, title and 已到期 when due; under it 意图：… · 推荐：…, as `nawaban brief` writes it. Open,
   // its brief follows, a row per 【label】 with the label in its own column, then 去 GitHub 看 →.
   pendingRow(p, t, w) {
     const open = this.openPending === p.id;
-    const sub = [p.recommend && `${w.recommend} ${p.recommend}`, p.intent && `${w.intent} ${p.intent}`].filter(Boolean).join(" · ");
+    const sub = `${w.intent}${p.intent ?? w.unwritten} · ${w.recommend}${p.recommend ?? w.unwritten}`;
     return v_flex().id(`nawaban-pending-${p.id}`).flex_none().px(8).py(8).rounded(8).bg(t.blocked + "1a").cursor_pointer()
       .hover((s) => s.bg(t.blocked + "26"))
       .on_click((_e, cx) => { this.openPending = toggleOne(this.openPending, p.id); cx.notify(); })
@@ -246,8 +246,8 @@ export default class NawabanBoard extends View {
       .child(h_flex().gap(8).items_center()
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(g.title))
         .child(div().flex_none().text_size(12).text_color(t.dim).child(g.id)))
-      .child(div().mt(4).text_size(12.5).text_color(t.muted).child(`${w.intent} ${g.intent}`))
-      .child(div().mt(2).text_size(12.5).text_color(t.foreground).child(`${w.metric} ${g.metric}`))
+      .child(div().mt(4).text_size(12.5).text_color(t.muted).child(`${w.intent}${g.intent}`))
+      .child(div().mt(2).text_size(12.5).text_color(t.foreground).child(`${w.metric}${g.metric}`))
       .when(g.shown.length > 0, (el) => el.child(v_flex().mt(8).gap(3).children(g.shown.map(line))))
       .when(g.folded.length > 0, (el) => el
         .when(open, (el) => el.child(v_flex().mt(3).gap(3).children(g.folded.map(line))))
