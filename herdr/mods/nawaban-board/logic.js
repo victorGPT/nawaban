@@ -225,59 +225,11 @@ const specOrder = (tickets) => {
 
 const DAY = 86400;
 
-// A GitHub board's top (GLOSSARY: Pending decision, Objective), from `json board`'s `objectives` and
-// open issues' `pending`: the pending decisions oldest first, each by its issue number, with the
-// first sentence of its brief's 【推荐】 and its objective's intent; a card per objective, its last
-// 24 hours newest first, past RECENT_SHOWN lines folded; and how many open issues no objective holds.
-// ponytail: the same order and text as `nawaban brief` by agreement, not by sharing code (python CLI).
-export const RECENT_SHOWN = 5;
-
-// One snoozed (搁置到 <time>, `pending.snoozed_until` later than `now`, epoch seconds) is in `snoozed`
-// instead; a woken one is back, shown since its wake time (`shownAt`, for the unseen dot).
-export function objectivesView(board, now = Date.now() / 1000) {
-  const open = (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? []);
-  const byObjective = new Map((board?.objectives ?? []).map((o) => [o.id, o]));
-  const all = open.filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || x.id.slice(1) - y.id.slice(1));
-  const asleep = (t) => (t.pending.snoozed_until ?? 0) > now;
-  const snoozed = all.filter(asleep).map((t) => ({ id: t.id, title: t.title, until: t.pending.snoozed_until }));
-  const pending = all.filter((t) => !asleep(t)).map((t) => ({
-    id: t.id, title: t.title, url: t.url ?? null, brief: t.pending.brief, due: Boolean(t.pending.due),
-    shownAt: Math.max(t.pending.at, t.pending.snoozed_until ?? 0),
-    // 推荐： alone in a brief written the old way
-    recommend: /(?:【推荐】|推荐)[：:]?\s*([^。！？\n]*)/.exec(t.pending.brief)?.[1].trim() || null,
-    intent: byObjective.get(t.objective)?.intent ?? null }));
-  const objectives = [...byObjective.values()].map((o) => {
-    const recent = [...(o.recent ?? [])].reverse();
-    return { id: o.id, title: o.title, intent: o.intent, metric: o.metric, url: o.url ?? null,
-      shown: recent.slice(0, RECENT_SHOWN), folded: recent.slice(RECENT_SHOWN) };
-  });
-  return { pending, snoozed, objectives, unattached: open.filter((t) => !t.objective).length };
-}
-
-// `seen` maps an issue to the shownAt it had when its brief was last opened (kept in localStorage).
-// MM-DD HH:MM in local time, as nawaban brief writes a wake time.
-const wakeStamp = (s) => { const d = new Date(s * 1000), p = (n) => String(n).padStart(2, "0");
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-export const unseen = (p, seen) => !((seen?.[p.id] ?? -Infinity) >= p.shownAt);
-// `seen` after opening p, keeping only the decisions still pending.
-export const markSeen = (seen, p, pending) => Object.fromEntries(
-  pending.map((q) => [q.id, q.id === p.id ? p.shownAt : seen?.[q.id]]).filter(([, at]) => at !== undefined));
-
-// A decision brief as [label, text] rows, one per 【label】 line, the lines under it joined to it;
-// text before the first label is a row with the label "".
-export function briefRows(brief) {
-  const rows = [];
-  for (const line of String(brief ?? "").split("\n")) {
-    const m = /^\s*【(.+?)】[：:]?\s*(.*)$/.exec(line);
-    if (m) rows.push([m[1], m[2]]);
-    else if (rows.length) rows[rows.length - 1][1] += `\n${line}`;
-    else rows.push(["", line]);
-  }
-  return rows.map(([k, v]) => [k, v.trim()]).filter(([k, v]) => k || v);
-}
-
-// The one pending decision open after a click on `id`: it, or none when it was the open one.
-export const toggleOne = (open, id) => (open === id ? null : id);
+// A GitHub board's top (GLOSSARY: Pending decision): the open issues holding a pending decision,
+// oldest first, a tie by issue number, as `nawaban brief` lists them.
+export const pendingView = (board) => (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? [])
+  .filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || x.id.slice(1) - y.id.slice(1))
+  .map((t) => ({ id: t.id, title: t.title, url: t.url ?? null }));
 
 // A GitHub board's issues, each in its window: the live terminal its claim names (`hc t5n`), else the
 // live window named for it: `gh-275`, `gh-238r` (`hc run --name`) is #275, #238.
@@ -338,8 +290,7 @@ export const WINDOW_WORDS = {
     gone: "窗口已关，任务还拿着没交还",
     withState: (name, state) => `${name}（${state}）`, idleRow: (n, names) => `没认领 ${n} · ${names.join("、")}`,
     none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言",
-    pending: (n) => `待决 ${n}`, snoozed: (n) => `搁置 ${n}`, until: (s) => `到 ${wakeStamp(s)}`, recommend: "推荐：", intent: "意图：", metric: "度量：", due: "已到期", foldMore: (n) => `还有 ${n} 行`, foldLess: "收起", unwritten: "没写",
-    unattached: (n) => `${n} 个 issue 挂不上目标`, windowsFold: (n) => `窗口分组 ${n}` },
+    pending: (n) => `待决 ${n}`, windowsFold: (n) => `窗口分组 ${n}` },
   en: { waiting: "Waiting", pushing: "Moving", closed: (n) => `${n} closed`, stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
     headline: (n) => `${n} window${n === 1 ? "" : "s"} waiting on you`, waited: (d) => `waiting ${d}`, go: "Go to window →", issue: "Open on GitHub →",
@@ -347,8 +298,7 @@ export const WINDOW_WORDS = {
     gone: "Window closed, task still held",
     withState: (name, state) => `${name} (${state.toLowerCase()})`, idleRow: (n, names) => `No task ${n} · ${names.join(", ")}`,
     none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language",
-    pending: (n) => `Pending ${n}`, snoozed: (n) => `Snoozed ${n}`, until: (s) => `until ${wakeStamp(s)}`, recommend: "Recommended: ", intent: "Intent: ", metric: "Metric: ", due: "Due", foldMore: (n) => `${n} more`, foldLess: "Show less", unwritten: "not written",
-    unattached: (n) => `${n} issue${n === 1 ? "" : "s"} under no objective`, windowsFold: (n) => `Window groups ${n}` },
+    pending: (n) => `Pending ${n}`, windowsFold: (n) => `Window groups ${n}` },
 };
 
 // The key the up (-1) or down (+1) arrow selects from `key`, through the cards and rows in the

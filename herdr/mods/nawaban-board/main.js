@@ -9,7 +9,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, HoverCard, Collapsible } from "gpui-base";
 import { spaces, focused, agents, terminals, run, exec, theme, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
 import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, leadersView, itemLabel, decisionDate,
-  WINDOW_WORDS, objectivesView, briefRows, toggleOne, unseen, markSeen } from "./logic.js";
+  WINDOW_WORDS, pendingView } from "./logic.js";
 
 const POLL_MS = 5000;      // re-read the board this often when it cannot be watched
 const FALLBACK_MS = 60000; // and this often when it is, in case a change was missed
@@ -57,13 +57,7 @@ export default class NawabanBoard extends View {
     this.watched = new Set();   // board files being watched
     this.github = new Map();    // folder -> its last GitHub board and when it was read
     this.unfolded = new Set();  // leaders whose 已关 row is open
-    this.openPending = null;    // the pending decision whose brief is open (GitHub board)
-    this.snoozedOpen = false;   // the 搁置 N fold
-    // project → issue → shownAt last opened; issue numbers repeat across repositories
-    try { this.seen = JSON.parse(localStorage.getItem("seen")); } catch { this.seen = null; }
-    if (typeof this.seen !== "object" || this.seen === null || Array.isArray(this.seen)) this.seen = {};
-    this.openObjectives = new Set(); // objectives whose folded lines are open
-    this.windowsOpen = false;   // a GitHub board's window groups, folded under its objectives
+    this.windowsOpen = false;   // a GitHub board's window groups, folded under its pending decisions
     this.keys = [];             // the cards and items Enter can go to, in the order shown
     this.focusOf = new Map();   // their key -> the card or row, which go() follows
     this.sel = null;            // the selected one's key (a card and an item can share a terminal)
@@ -180,7 +174,7 @@ export default class NawabanBoard extends View {
       .when(v.idle.count > 0, (el) => el.when(v.groups.length > 0, (el) => el.child(sep()))
         .child(div().flex_none().px(16).pt(12).text_size(12).text_color(t.dim).truncate()
           .child(w.idleRow(v.idle.count, v.idle.names))));
-    // A GitHub board: pending decisions and objectives on top, the windows folded under them.
+    // A GitHub board: pending decisions on top, the windows folded under them.
     const github = this.board?.tracker === "github";
     if (github && !this.windowsOpen) this.keys = [];
 
@@ -201,87 +195,26 @@ export default class NawabanBoard extends View {
       .child(v_flex().id("nawaban-body").flex_1().min_h(0).overflow_y_scrollbar().pb(16)
         .when(Boolean(note), (el) => el.child(div().flex_none().px(16).pb(8).text_size(12.5).text_color(t.muted).child(note)))
         .when(!github, windows)
-        .when(github, (el) => this.objectivesTop(el, objectivesView(this.board), windows, v, t, w)));
+        .when(github, (el) => this.pendingTop(el, pendingView(this.board), windows, v, t, w)));
   }
 
-  // A GitHub board's top: 待决 N, a row per pending decision (a click opens its brief in place, one
-  // at a time); a card per objective; the window groups folded; the open issues no objective holds.
-  objectivesTop(el, o, windows, v, t, w) {
+  // A GitHub board's top: 待决 N, a row per pending decision (a click opens its issue on GitHub); the window groups folded.
+  pendingTop(el, pending, windows, v, t, w) {
     const count = v.waiting.length + v.groups.length + (v.idle.count > 0 ? 1 : 0);
-    const head = (text) => div().flex_none().px(16).pt(14).pb(6).text_size(12).font_semibold().text_color(t.muted).child(text);
     return el
-      .when(o.pending.length > 0, (el) => el.child(head(w.pending(o.pending.length)))
-        .child(v_flex().flex_none().px(8).gap(4).children(o.pending.map((p) => this.pendingRow(p, o.pending, t, w)))))
-      .when(o.snoozed.length > 0, (el) => el.child(Collapsible.new().flex().flex_col().open(this.snoozedOpen)
-        .child(h_flex().id("nawaban-snoozed").h(28).px(16).gap(8).items_center().cursor_pointer()
-          .text_size(12).text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .on_click((_e, cx) => { this.snoozedOpen = !this.snoozedOpen; cx.notify(); })
-          .child(h_flex().w(18).flex_none().justify_center().child(svg(CHROME(this.snoozedOpen ? "chevron-down" : "chevron-right")).size(12)))
-          .child(div().flex_1().min_w(0).truncate().child(w.snoozed(o.snoozed.length))))
-        .content(v_flex().px(16).gap(2).children(o.snoozed.map((p) => h_flex().gap(8).items_center().text_size(12.5).text_color(t.muted)
-          .child(div().flex_none().text_size(12).child(p.id))
-          .child(div().flex_1().min_w(0).truncate().child(p.title))
-          .child(div().flex_none().text_size(12).text_color(t.dim).child(w.until(p.until))))))))
-      .children(o.objectives.map((g) => this.objective(g, t, w)))
+      .child(div().flex_none().px(16).pt(14).pb(6).text_size(12).font_semibold().text_color(t.muted).child(w.pending(pending.length)))
+      .child(v_flex().flex_none().px(8).gap(4).children(pending.map((p) => h_flex().id(`nawaban-pending-${p.id}`).flex_none()
+        .px(8).py(8).gap(8).items_center().rounded(8).bg(t.blocked + "1a").cursor_pointer().hover((s) => s.bg(t.blocked + "26"))
+        .on_click(() => { if (p.url) exec("open", [p.url]).catch(() => null); })
+        .child(div().flex_none().text_size(12).font_semibold().text_color(t.blocked).child(p.id))
+        .child(div().flex_1().min_w(0).truncate().font_semibold().child(p.title)))))
       .child(Collapsible.new().flex().flex_col().open(Boolean(this.windowsOpen))
         .child(h_flex().id("nawaban-windows").h(28).mt(10).px(16).gap(8).items_center().cursor_pointer()
           .text_size(12).text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))
           .on_click((_e, cx) => { this.windowsOpen = !this.windowsOpen; cx.notify(); })
           .child(h_flex().w(18).flex_none().justify_center().child(svg(CHROME(this.windowsOpen ? "chevron-down" : "chevron-right")).size(12)))
           .child(div().flex_1().min_w(0).truncate().child(w.windowsFold(count))))
-        .content(windows(v_flex())))
-      .child(div().flex_none().h(1).mx(16).mt(12).bg(t.border))
-      .child(div().flex_none().px(16).pt(10).text_size(12).text_color(t.dim).child(w.unattached(o.unattached)));
-  }
-
-  // A pending decision: its issue number, title and 已到期 when due; under it 意图：… · 推荐：…, as `nawaban brief` writes it. Open,
-  // its brief follows, a row per 【label】 with the label in its own column, then 去 GitHub 看 →.
-  pendingRow(p, pending, t, w) {
-    const open = this.openPending === p.id;
-    const sub = `${w.intent}${p.intent ?? w.unwritten} · ${w.recommend}${p.recommend ?? w.unwritten}`;
-    return v_flex().id(`nawaban-pending-${p.id}`).flex_none().px(8).py(8).rounded(8).bg(t.blocked + "1a").cursor_pointer()
-      .hover((s) => s.bg(t.blocked + "26"))
-      .on_click((_e, cx) => {
-        this.openPending = toggleOne(this.openPending, p.id);
-        this.seen[this.project ?? ""] = markSeen(this.seen[this.project ?? ""], p, pending);
-        try { localStorage.setItem("seen", JSON.stringify(this.seen)); } catch { /* the dot comes back next start */ }
-        cx.notify();
-      })
-      .child(h_flex().gap(8).items_center()
-        .when(unseen(p, this.seen[this.project ?? ""]), (el) => el.child(div().flex_none().size(6).rounded(3).bg(t.blocked)))
-        .child(div().flex_none().text_size(12).font_semibold().text_color(t.blocked).child(p.id))
-        .child(div().flex_1().min_w(0).truncate().font_semibold().child(p.title))
-        .when(p.due, (el) => el.child(div().flex_none().text_size(12).text_color(t.blocked).child(w.due))))
-      .child(div().mt(2).text_size(12.5).text_color(t.muted).truncate().child(sub))
-      .when(open, (el) => el
-        .child(v_flex().mt(8).gap(6).text_size(12.5).line_height("19px").children(briefRows(p.brief).map(([k, text]) => h_flex().gap(10).items_start()
-          .child(div().w(64).flex_none().text_color(t.dim).child(k))
-          .child(div().flex_1().min_w(0).child(text)))))
-        .when(Boolean(p.url), (el) => el.child(div().id(`nawaban-pending-gh-${p.id}`).mt(8).text_size(12.5).font_semibold().text_color(t.foreground)
-          .on_click((_e, cx) => { exec("open", [p.url]).catch(() => null); cx.stop_propagation(); })
-          .child(w.issue))));
-  }
-
-  // An objective: its title, intent and metric, then its last 24 hours' first lines, newest first;
-  // past RECENT_SHOWN a "还有 n 行" row unfolds the rest.
-  objective(g, t, w) {
-    const open = this.openObjectives.has(g.id);
-    const line = (r) => h_flex().gap(8).items_start().text_size(12.5)
-      .child(div().flex_none().text_size(12).text_color(t.dim).child(r.task))
-      .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(r.line));
-    return v_flex().flex_none().mx(8).mt(10).p(10).rounded(8).border_1().border_color(t.border)
-      .child(h_flex().gap(8).items_center()
-        .child(div().flex_1().min_w(0).truncate().font_semibold().child(g.title))
-        .child(div().flex_none().text_size(12).text_color(t.dim).child(g.id)))
-      .child(div().mt(4).text_size(12.5).text_color(t.muted).child(`${w.intent}${g.intent}`))
-      .child(div().mt(2).text_size(12.5).text_color(t.foreground).child(`${w.metric}${g.metric}`))
-      .when(g.shown.length > 0, (el) => el.child(v_flex().mt(8).gap(3).children(g.shown.map(line))))
-      .when(g.folded.length > 0, (el) => el
-        .when(open, (el) => el.child(v_flex().mt(3).gap(3).children(g.folded.map(line))))
-        .child(div().id(`nawaban-objective-more-${g.id}`).mt(4).text_size(12).text_color(t.dim).cursor_pointer()
-          .hover((s) => s.text_color(t.foreground))
-          .on_click((_e, cx) => { open ? this.openObjectives.delete(g.id) : this.openObjectives.add(g.id); cx.notify(); })
-          .child(open ? w.foldLess : w.foldMore(g.folded.length))));
+        .content(windows(v_flex())));
   }
 
   // The project, then how many windows and what waits in other projects; the language menu; opened
