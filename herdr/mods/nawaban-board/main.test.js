@@ -6,10 +6,12 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { leadersView, objectivesView } from "./logic.js";
+import { leadersView, pendingView } from "./logic.js";
 
 const called = new Set();
 let onSize = null;
+let lastId = null;
+const clicks = new Map(); // an element's id -> its click handler
 // An element: any method records its name and returns the element. `when` and `hover` run their
 // builder, as gpui does, so the branches they add are drawn too.
 const el = new Proxy({}, {
@@ -18,6 +20,8 @@ const el = new Proxy({}, {
     if (name === "when") return args[0] ? args[1](el) : el;
     if (name === "hover") args[0](el);
     if (name === "on_size_change") onSize = args[0];
+    if (name === "id") lastId = args[0];
+    if (name === "on_click") clicks.set(lastId, args[0]);
     return el;
   },
 });
@@ -109,20 +113,26 @@ test("on a GitHub board the panel draws issue titles, 在推, and the 已关 row
   assert.deepEqual(g.items.map((i) => [i.title, i.name, i.state]), [["issue 239", "gh-239", "current"], ["issue 256", "gh-256", "pushing"]]);
   assert.deepEqual(g.closed.map((i) => [i.title, i.state]), [["issue 260", "done"]]);
   const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
-  // with pending decisions and an objective of seven lines: closed and open, the windows folded and not
-  const recent = Array.from({ length: 7 }, (_, i) => ({ task: "#239", at: now - i, line: `进展：第 ${i} 步` }));
-  const pending = { brief: "待决：发吗？\n【推荐】A。\n【默认动作】按推荐执行", at: now - 3600, default_action: "按推荐执行", due: true };
-  const withObjectives = { ...ghBoard, objectives: [{ id: "#600", title: "上线", intent: "排期 1.1", metric: "0 起", url: "u", recent }],
-    columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: c.tasks.map((x, i) => ({ ...x, objective: "#600", pending: i ? pending : { ...pending, snoozed_until: now + 86400 } })) }) };
-  assert.equal(objectivesView(withObjectives).snoozed.length, 1);
-  for (const unfold of [false, true]) {
-    for (const board of [ghBoard, withObjectives]) {
-      const view = new NawabanBoard();
-      view.init({}, cx);
-      Object.assign(view, { lang: "zh", board, windowsOpen: unfold, snoozedOpen: unfold, openPending: unfold ? "#256" : null });
-      if (unfold) { view.unfolded.add("t6"); view.openObjectives.add("#600"); }
-      view.render(cx);
+  // with pending decisions: the windows folded and not; a click on one opens its issue
+  const pending = { brief: "待决：发吗？", at: now - 3600, progress: [] };
+  const withPending = { ...ghBoard, columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: c.tasks.map((x) => ({ ...x, url: "https://gh/256", pending })) }) };
+  assert.deepEqual(pendingView(withPending).map((p) => p.id), ["#256"]);
+  const opened = [];
+  execImpl = async (cmd, args) => { opened.push([cmd, ...args]); return { code: 0 }; };
+  try {
+    for (const unfold of [false, true]) {
+      for (const board of [ghBoard, withPending]) {
+        const view = new NawabanBoard();
+        view.init({}, cx);
+        Object.assign(view, { lang: "zh", board, windowsOpen: unfold });
+        if (unfold) view.unfolded.add("t6");
+        view.render(cx);
+      }
     }
+    clicks.get("nawaban-pending-#256")();
+    assert.deepEqual(opened, [["open", "https://gh/256"]]);
+  } finally {
+    execImpl = async () => ({ code: 1 });
   }
   assert.ok(called.has("content") && called.has("open"));
 });
@@ -192,19 +202,4 @@ test("a space on another machine is read there: the CLI under that machine's hom
 test("every element method the panel calls is in gpui-kit.d.ts", { skip: !dts && "no gpui-kit.d.ts on this machine" }, () => {
   const missing = [...called].filter((name) => !new RegExp(`\\b${name}\\??\\s*(\\(|<|:\\s*\\()`).test(dts));
   assert.deepEqual(missing, []);
-});
-
-test("the seen map read back is per project, and one that is not an object is dropped", () => {
-  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
-  const had = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
-  try {
-    for (const [stored, want] of [["5", {}], ["[1]", {}], ["null", {}], ['{"roubao":{"#3":300}}', { roubao: { "#3": 300 } }]]) {
-      Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (k) => (k === "seen" ? stored : null), setItem() {} } });
-      const view = new NawabanBoard();
-      view.init({}, cx);
-      assert.deepEqual(view.seen, want, stored);
-    }
-  } finally {
-    if (had) Object.defineProperty(globalThis, "localStorage", had); else delete globalThis.localStorage;
-  }
 });

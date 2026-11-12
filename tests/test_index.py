@@ -188,44 +188,55 @@ def test_a_link_stops_before_the_cjk_text_after_it(run):
     assert "进展 0 分钟前：详见 (链接)（PR #300 的评论）" in run("index", "--project", "p")
 
 
-# ── brief, and index's 待决 and 目标 sections (spec NAWABAN-PENDING) ──
+# ── brief, and index's 待决 section (spec NAWABAN-PENDING) ──
 
-from test_github import OBJ, _issue  # noqa: E402
+from test_github import _issue  # noqa: E402
 
 BRIEF_ISSUES = [
-    _issue(1, OBJ, title="留存", comments=[("2026-11-07T11:00:00Z", "进展：留存到 33%。\n细节")]),
-    _issue(2, "属于 #1", title="上线方案", comments=[(
-        "2026-11-07T03:00:00Z", "待决：上线 A 还是 B\n【推荐】A，先灰度。理由略\n【默认动作】11-07 08:00 按推荐执行")]),
-    _issue(3, "需要你定：要不要拆\n【默认动作】可以搁置", title="拆分", created="2026-11-06T20:00:00Z", parent=1),
-    _issue(4, "x", title="散活", comments=[("2026-11-07T05:00:00Z", "待决：选哪个")]),
-    _issue(5, "y", title="另一件散活"),
-    _issue(6, "意图：排期 1.1 第 5 条\n度量：首卡耗时，目标 2 秒，现值 3 秒（11-05）", title="提速"),
+    _issue(2, "x", title="上线方案", comments=[
+        ("2026-11-07T01:00:00Z", "进展：第 1 步"), ("2026-11-07T02:00:00Z", "进展：第 2 步"),
+        ("2026-11-07T03:00:00Z", "待决：上线 A 还是 B\n【推荐】A，先灰度。理由略"),
+        ("2026-11-07T04:00:00Z", "进展：第 3 步"), ("2026-11-07T05:00:00Z", "## 进展：第 4 步\n  细节   在这\n\n还有"),
+        ("2026-11-07T06:00:00Z", "决定：先不拆"), ("2026-11-07T07:00:00Z", "进展：第 5 步")]),
+    _issue(10, "需要你定：要不要拆？推荐：拆", title="乙", created="2026-11-06T20:00:00Z"),
+    _issue(9, "背景。\n\n待决：留着还是删\n", title="甲", created="2026-11-06T20:00:00Z"),
+    _issue(5, "y", title="没待决"),
+    _issue(4, "待决：关了的", title="已关", state="CLOSED"),
 ]
 
 BRIEF_GOLDEN = """\
 ## 待决 3
-- #3 拆分 · 意图：排期 1.1 第 3 条，留住新用户 · 推荐：没写 · 默认动作：可以搁置
-- #2 上线方案 · 意图：排期 1.1 第 3 条，留住新用户 · 推荐：A，先灰度 · 默认动作：11-07 08:00 按推荐执行（已到期）
-- #4 散活 · 意图：没写 · 推荐：没写 · 默认动作：没写
 
-## 目标 #1 留存
-意图：排期 1.1 第 3 条，留住新用户
-度量：次日留存，目标 40%，现值 31%（11-06）
-- 1 小时前 #1 留存到 33%。
+### #9 甲 · 11-06 20:00 提出
+https://github.com/example/roubao/issues/9
+原文：
+背景。
 
-## 目标 #6 提速
-意图：排期 1.1 第 5 条
-度量：首卡耗时，目标 2 秒，现值 3 秒（11-05）
-近 24 小时没有进展。
+待决：留着还是删
 
-挂不上目标的开着的 issue 2 个。
+近期进展：没有
+
+### #10 乙 · 11-06 20:00 提出
+https://github.com/example/roubao/issues/10
+原文：
+需要你定：要不要拆？推荐：拆
+近期进展：没有
+
+### #2 上线方案 · 11-07 03:00 提出
+https://github.com/example/roubao/issues/2
+原文：
+待决：上线 A 还是 B
+【推荐】A，先灰度。理由略
+近期进展：
+- 11-07 04:00 第 3 步
+- 11-07 05:00 第 4 步 细节 在这 还有
+- 11-07 07:00 第 5 步
 """
 
 
 @pytest.fixture
 def briefed(github, monkeypatch, capsys):
     monkeypatch.setattr(cli, "_gh_issues", lambda root: BRIEF_ISSUES)
-    monkeypatch.setattr(cli, "_gh_issue", lambda root, n: None)
 
     def run(verb):
         code = cli.main([verb])
@@ -235,25 +246,13 @@ def briefed(github, monkeypatch, capsys):
     return run
 
 
-def test_brief_lists_pending_decisions_oldest_first_then_each_objective_then_the_unattached(briefed):
+def test_brief_gives_each_pending_decision_oldest_first_its_text_its_issue_and_its_last_进展(briefed):
     assert briefed("brief") == BRIEF_GOLDEN
 
 
-def test_a_brief_written_the_old_way_recommends_from_推荐_and_ties_go_by_issue_number(github, monkeypatch, capsys):
-    # the same briefs as logic.test.js's, so brief and panel read them word for word alike
-    monkeypatch.setattr(cli, "_gh_issues", lambda root: [
-        _issue(10, "需要你定：要不要？推荐：拆。理由", title="乙"), _issue(9, "需要你定：x\n推荐：留着！好", title="甲")])
-    monkeypatch.setattr(cli, "_gh_issue", lambda root, n: None)
-    assert cli.main(["brief"]) == 0
-    assert capsys.readouterr().out.splitlines()[1:3] == [
-        "- #9 甲 · 意图：没写 · 推荐：留着 · 默认动作：没写", "- #10 乙 · 意图：没写 · 推荐：拆 · 默认动作：没写"]
-
-
-def test_index_opens_with_the_briefs_待决_and_目标_sections_verbatim(briefed):
-    top = BRIEF_GOLDEN.split("\n挂不上")[0]
+def test_index_opens_with_the_pending_decisions_by_issue_number(briefed):
     _, rest = briefed("index").split("\n\n", 1)  # after the title and counts lines
-    assert rest.startswith(top)
-    assert "\n## 没动 " in rest[len(top):]  # the old sections follow
+    assert rest.startswith("## 待决 3\n- #9 甲\n- #10 乙\n- #2 上线方案\n\n## ")
 
 
 def test_index_on_github_never_says_等你(github):
@@ -263,15 +262,3 @@ def test_index_on_github_never_says_等你(github):
 def test_brief_on_the_board_is_refused(run, capsys, tmp_path):
     assert cli.main(["--db", str(tmp_path / "proj" / ".nawaban" / "board.db"), "brief"]) == 1
     assert "GitHub" in capsys.readouterr().err
-
-
-def test_a_snoozed_decision_is_out_of_待决_until_it_wakes(github, monkeypatch, capsys):
-    monkeypatch.setattr(cli, "_gh_issues", lambda root: [
-        _issue(1, "待决：x\n【默认动作】搁置到 2026-11-20 09:00", title="还睡着"),
-        _issue(2, "待决：y\n【默认动作】搁置到 2026-11-01 09:00", title="醒了")])
-    monkeypatch.setattr(cli, "_gh_issue", lambda root, n: None)
-    monkeypatch.setattr(cli.time, "time", lambda: cli._dt.datetime(2026, 11, 7, 12, 0).timestamp())
-    assert cli.main(["brief"]) == 0
-    assert capsys.readouterr().out.split("\n\n")[0].splitlines() == [
-        "## 待决 1", "- #2 醒了 · 意图：没写 · 推荐：没写 · 默认动作：搁置到 2026-11-01 09:00",
-        "## 搁置 1", "- #1 还睡着 · 到 11-20 09:00"]
