@@ -59,7 +59,9 @@ export default class NawabanBoard extends View {
     this.unfolded = new Set();  // leaders whose 已关 row is open
     this.openPending = null;    // the pending decision whose brief is open (GitHub board)
     this.snoozedOpen = false;   // the 搁置 N fold
-    try { this.seen = JSON.parse(localStorage.getItem("seen")) ?? {}; } catch { this.seen = {}; } // issue → shownAt last opened
+    // project → issue → shownAt last opened; issue numbers repeat across repositories
+    try { this.seen = JSON.parse(localStorage.getItem("seen")); } catch { this.seen = null; }
+    if (typeof this.seen !== "object" || this.seen === null || Array.isArray(this.seen)) this.seen = {};
     this.openObjectives = new Set(); // objectives whose folded lines are open
     this.windowsOpen = false;   // a GitHub board's window groups, folded under its objectives
     this.keys = [];             // the cards and items Enter can go to, in the order shown
@@ -241,12 +243,12 @@ export default class NawabanBoard extends View {
       .hover((s) => s.bg(t.blocked + "26"))
       .on_click((_e, cx) => {
         this.openPending = toggleOne(this.openPending, p.id);
-        this.seen = markSeen(this.seen, p, pending);
+        this.seen[this.project ?? ""] = markSeen(this.seen[this.project ?? ""], p, pending);
         try { localStorage.setItem("seen", JSON.stringify(this.seen)); } catch { /* the dot comes back next start */ }
         cx.notify();
       })
       .child(h_flex().gap(8).items_center()
-        .when(unseen(p, this.seen), (el) => el.child(div().flex_none().size(6).rounded(3).bg(t.blocked)))
+        .when(unseen(p, this.seen[this.project ?? ""]), (el) => el.child(div().flex_none().size(6).rounded(3).bg(t.blocked)))
         .child(div().flex_none().text_size(12).font_semibold().text_color(t.blocked).child(p.id))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(p.title))
         .when(p.due, (el) => el.child(div().flex_none().text_size(12).text_color(t.blocked).child(w.due))))
