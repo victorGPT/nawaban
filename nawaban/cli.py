@@ -739,8 +739,41 @@ def _short(text: str, n: int) -> str:
     return text if len(text) <= n else text[:n] + "…"
 
 
+_RECOMMEND = re.compile(r"【推荐】[：:]?\s*([^。！？\n]*)")  # its first sentence
+
+
+def _top(data: dict, now: float) -> list[str]:
+    """待决 and 目标, the same lines in brief and index; none on the board, which has neither."""
+    if "objectives" not in data:
+        return []
+    goals = {o["id"]: o for o in data["objectives"]}
+    pending = sorted((t for c in data["columns"] for t in c["tasks"] if t.get("pending")),
+                     key=lambda t: (t["pending"]["at"], t["id"]))
+    out = [f"## 待决 {len(pending)}"]
+    for t in pending:
+        p, o, r = t["pending"], goals.get(t.get("objective")), _RECOMMEND.search(t["pending"]["brief"])
+        out.append(f"- {t['id']} {_short(t['title'], 34)} · 意图：{o['intent'] if o else '没写'}"
+                   f" · 推荐：{r.group(1).strip() if r and r.group(1).strip() else '没写'}"
+                   f" · 默认动作：{p['default_action'] or '没写'}" + ("（已到期）" if p["due"] else ""))
+    out.append("")
+    for o in goals.values():
+        out += [f"## 目标 {o['id']} {o['title']}", f"意图：{o['intent']}", f"度量：{o['metric']}"]
+        out += [f"- {_ago(now, r['at'])}前 {r['task']} {_short(r['line'], 70)}" for r in o["recent"]] or ["近 24 小时没有进展。"]
+        out.append("")
+    return out
+
+
+def brief_text(data: dict) -> str:
+    """What a leader pastes to the user: 待决, each 目标, and how many open issues hang on no objective."""
+    if data.get("tracker") != "github":
+        raise Refused("brief 只用于 GitHub 记账的仓库(docs/agents/issue-tracker.md 写明 GitHub)")
+    loose = sum(1 for c in data["columns"] for t in c["tasks"] if t["status"] != "done" and not t.get("objective"))
+    return "\n".join(_top(data, time.time()) + [f"挂不上目标的开着的 issue {loose} 个。"])
+
+
 def index_text(data: dict, name: str) -> str:
     now = time.time()
+    github = data.get("tracker") == "github"  # needs-info no longer waits there: 待决 does, from the text
     tasks = [t for c in data["columns"] for t in c["tasks"]]
     by_id = {t["id"]: t for t in tasks}
     live = [t for t in tasks if t["status"] != "done"]
@@ -750,7 +783,7 @@ def index_text(data: dict, name: str) -> str:
         return p if p and not _BOOKKEEPING.match(p["body"]) else None
 
     def state(t):
-        if t.get("waiting") is not None:
+        if t.get("waiting") is not None and not github:
             return "等你"
         if progress(t) or t["claimed_at"] or t["session"]:
             return "停了" if now - t["active_at"] > STALE else "在推"
@@ -763,11 +796,11 @@ def index_text(data: dict, name: str) -> str:
         return f" · 属于 {t['parent']}" + (f" {_short(re.sub(r'^\w+:\s*', '', p['title']), 16)}" if p else "")
 
     groups = {k: sorted((t for t in live if state(t) == k), key=lambda t: t["active_at"])
-              for k in ("等你", "停了", "在推")}
+              for k in (("停了", "在推") if github else ("等你", "停了", "在推"))}
     moving = {t["parent"] for g in groups.values() for t in g}
     idle = sorted((t for t in live if state(t) == "没动" and t["id"] not in moving), key=lambda t: -t["created_at"])
     out = [f"{name} 进行中的事 · {_dt.datetime.fromtimestamp(now):%m-%d %H:%M} 生成",
-           " · ".join(f"{k} {len(g)}" for k, g in groups.items()) + f" · 没动 {len(idle)}", ""]
+           " · ".join(f"{k} {len(g)}" for k, g in groups.items()) + f" · 没动 {len(idle)}", "", *_top(data, now)]
     for k, g in groups.items():
         if not g:
             continue
@@ -784,7 +817,7 @@ def index_text(data: dict, name: str) -> str:
             if p:
                 out.append(f"  进展 {_ago(now, p['at'])}前：{_short(_NEXT_SPLIT.split(p['body'])[0], 70)}")
             nxt = _GH_NEXT.search(p["body"]) if p else None
-            if t.get("waiting"):
+            if t.get("waiting") and not github:
                 if t["waiting"] != "等你":
                     out.append(f"  下一步：{_short(t['waiting'], 90)}")
             elif nxt and not (d and d["at"] > p["at"]):  # a later decision overtakes the 下一步
@@ -848,6 +881,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("what", choices=("projects", "board", "task", "db"))
     p.add_argument("id", nargs="?", default="", help="task:任务 id")
     p.add_argument("--project", help="board:只看这个项目")
+    sub.add_parser("brief", help="GitHub 记账的仓库:待决、各目标、挂不上目标的个数,给人看的文字")
     p = sub.add_parser("index", help="等你 / 停了 / 在推的 md 索引(读 json board 同一份数据,只打到 stdout)")
     p.add_argument("--project", help="只看这个项目")
     return ap
@@ -864,6 +898,9 @@ def main(argv: list[str] | None = None) -> int:
             return json_out(path, a)
         if a.verb == "index":
             print(index_text(*any_board(path, a.project)))
+            return 0
+        if a.verb == "brief":
+            print(brief_text(any_board(path, None)[0]))
             return 0
         con = open_board(path)
         try:

@@ -160,7 +160,7 @@ _Current identifiers_: none yet.
 An open issue in which the latest line starting `待决：` is followed by no line starting `已决：`. A line starting `需要你定：` counts as `待决：`. The lines may be in the body or in any comment. It is derived from the issue's text, never from a label. An issue holds at most one pending decision at a time.
 待决是一张开着的 issue：最新一个以 `待决：` 开头的行之后，没有以 `已决：` 开头的行。旧写法 `需要你定：` 也算待决。这些行可以在正文里，也可以在评论里。由数据推出，不看标签。一张 issue 同时只挂一件待决。
 _Avoid_: waiting on you (local board only), needs-info, blocked, D1-style numbering.
-_Current identifiers_: line prefixes `待决：`, `需要你定：`.
+_Current identifiers_: line prefixes `待决：`, `需要你定：`; CLI `brief`.
 
 **Resolution**(已决)
 The line that ends a pending decision, recording the user's words or the outcome. Only a resolution ends one; a `决定：` line is still recorded but does not.

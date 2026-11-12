@@ -56,13 +56,9 @@ def github(tmp_path, monkeypatch, capsys):
 
 GITHUB_GOLDEN = """\
 roubao 进行中的事 · 11-07 12:00 生成
-等你 2 · 停了 2 · 在推 2 · 没动 1
+停了 2 · 在推 3 · 没动 2
 
-## 等你
-- #239 evals: 两臂正面比（#236-C） · 属于 #236
-- #307 关系摸底（示例）
-  进展 10 小时前：摸底做完。
-  下一步：等 owner 对设计 B 拍板；另开小卡
+## 待决 0
 
 ## 停了
 - #264 web：推荐卡片标题显示 content_id（示例）（28 小时没动静 · 停在：@someone）
@@ -75,6 +71,9 @@ roubao 进行中的事 · 11-07 12:00 生成
 - #275 角色方向分不清（示例）
   进展 17 小时前：人标写回。 核查略。
   最近决定 18 小时前：改动不合 → 停在这里，理由：打平。
+- #307 关系摸底（示例）
+  进展 10 小时前：摸底做完。
+  下一步：等 owner 对设计 B 拍板；另开小卡
 - #292 身材放宽（示例）
   进展 3 小时前：等合并。
   最近决定 4 小时前：（owner 2026-11-07，经 roubao-e8 转达）审过，可以合。
@@ -83,7 +82,8 @@ roubao 进行中的事 · 11-07 12:00 生成
 - 2 小时前 #306 ADR 0033 是否采纳 → 采纳，负责人 11-07 拍板。
 - 4 小时前 #292 （owner 2026-11-07，经 roubao-e8 转达）审过，可以合。
 
-## 没动 1（开着，从没认领也没写进展）
+## 没动 2（开着，从没认领也没写进展）
+- #239 evals: 两臂正面比（#236-C） · 属于 #236
 - #294 增量抽取（示例） · 属于 #289
 
 48 小时内关了 3 个。
@@ -186,3 +186,70 @@ def test_a_link_stops_before_the_cjk_text_after_it(run):
     run("claim", "L")
     run("event", "L", "--kind", "note", "--body", "详见 https://github.com/o/r/pull/300（PR #300 的评论）")
     assert "进展 0 分钟前：详见 (链接)（PR #300 的评论）" in run("index", "--project", "p")
+
+
+# ── brief, and index's 待决 and 目标 sections (spec NAWABAN-PENDING) ──
+
+from test_github import OBJ, _issue  # noqa: E402
+
+BRIEF_ISSUES = [
+    _issue(1, OBJ, title="留存", comments=[("2026-11-07T11:00:00Z", "进展：留存到 33%。\n细节")]),
+    _issue(2, "属于 #1", title="上线方案", comments=[(
+        "2026-11-07T03:00:00Z", "待决：上线 A 还是 B\n【推荐】A，先灰度。理由略\n【默认动作】11-07 08:00 按推荐执行")]),
+    _issue(3, "需要你定：要不要拆\n【默认动作】可以搁置", title="拆分", created="2026-11-06T20:00:00Z", parent=1),
+    _issue(4, "x", title="散活", comments=[("2026-11-07T05:00:00Z", "待决：选哪个")]),
+    _issue(5, "y", title="另一件散活"),
+    _issue(6, "意图：排期 1.1 第 5 条\n度量：首卡耗时，目标 2 秒，现值 3 秒（11-05）", title="提速"),
+]
+
+BRIEF_GOLDEN = """\
+## 待决 3
+- #3 拆分 · 意图：排期 1.1 第 3 条，留住新用户 · 推荐：没写 · 默认动作：可以搁置
+- #2 上线方案 · 意图：排期 1.1 第 3 条，留住新用户 · 推荐：A，先灰度 · 默认动作：11-07 08:00 按推荐执行（已到期）
+- #4 散活 · 意图：没写 · 推荐：没写 · 默认动作：没写
+
+## 目标 #1 留存
+意图：排期 1.1 第 3 条，留住新用户
+度量：次日留存，目标 40%，现值 31%（11-06）
+- 1 小时前 #1 留存到 33%。
+
+## 目标 #6 提速
+意图：排期 1.1 第 5 条
+度量：首卡耗时，目标 2 秒，现值 3 秒（11-05）
+近 24 小时没有进展。
+
+挂不上目标的开着的 issue 2 个。
+"""
+
+
+@pytest.fixture
+def briefed(github, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_gh_issues", lambda root: BRIEF_ISSUES)
+    monkeypatch.setattr(cli, "_gh_issue", lambda root, n: None)
+
+    def run(verb):
+        code = cli.main([verb])
+        out = capsys.readouterr()
+        assert code == 0, out.err
+        return out.out
+    return run
+
+
+def test_brief_lists_pending_decisions_oldest_first_then_each_objective_then_the_unattached(briefed):
+    assert briefed("brief") == BRIEF_GOLDEN
+
+
+def test_index_opens_with_the_briefs_待决_and_目标_sections_verbatim(briefed):
+    top = BRIEF_GOLDEN.split("\n挂不上")[0]
+    _, rest = briefed("index").split("\n\n", 1)  # after the title and counts lines
+    assert rest.startswith(top)
+    assert "\n## 没动 " in rest[len(top):]  # the old sections follow
+
+
+def test_index_on_github_never_says_等你(github):
+    assert "等你" not in github()  # the fixture's needs-info issues once made 等你
+
+
+def test_brief_on_the_board_is_refused(run, capsys, tmp_path):
+    assert cli.main(["--db", str(tmp_path / "proj" / ".nawaban" / "board.db"), "brief"]) == 1
+    assert "GitHub" in capsys.readouterr().err
