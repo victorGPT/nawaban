@@ -19,18 +19,24 @@ const ICON = (name) => `mods/nawaban-board/${name}.svg`;
 const CHROME = (name) => `mods/workspace-chrome/${name}.svg`; // Herdr's shipped icons
 const cli = () => `${home()}/nawaban/nawaban/cli.py`;
 
-// The shown space's folder; home for a remote space (v1 reads this computer's board only).
-function folder() {
+// Where the shown space's board is read: its machine (null: this computer) and folder there. A
+// space on another machine (Herdr.app on one Mac driving another) is read on that machine through
+// herdr-core, so the panel shows that machine's boards. `key` names the place in caches.
+function place() {
   const space = spaces().find((s) => s.active);
-  if (space?.machine) return home();
-  return focused()?.cwd || space?.folder || home();
+  const on = space?.machine ?? null;
+  const cwd = focused()?.cwd || space?.folder || (on ? undefined : home());
+  return { on, cwd, key: `${on ?? ""}|${cwd ?? "~"}` };
 }
 
 // The focused space's id.
 const spaceId = () => focused()?.space ?? spaces().find((s) => s.active)?.id;
 
-async function nawaban(args, cwd) {
-  const r = await exec("python3", [cli(), ...args], { cwd });
+// On another machine the CLI is that machine's ~/nawaban checkout, so $HOME is expanded there.
+async function nawaban(args, at) {
+  const r = at.on
+    ? await exec("sh", ["-c", 'exec python3 "$HOME/nawaban/nawaban/cli.py" "$@"', "sh", ...args], { cwd: at.cwd, on: at.on })
+    : await exec("python3", [cli(), ...args], { cwd: at.cwd });
   let out = null;
   try { out = JSON.parse(r.stdout || "null"); } catch {}
   if (r.code !== 0 || !out || out.error) throw new Error(out?.error || r.stderr?.trim().split("\n").pop() || `exit ${r.code}`);
@@ -90,33 +96,34 @@ export default class NawabanBoard extends View {
 
   refresh(cx) {
     if (this.loading) { this.again = true; return; } // read once more when this one ends
-    const cwd = folder();
+    const at = place(), key = at.key;
     this.loading = true;
     this.readAt = Date.now();
-    this.context = cwd;
+    this.context = key;
     cx.spawn(async (cx) => {
       try {
-        const projects = await nawaban(["json", "projects"], cwd);
-        if (!this.projects.has(cwd)) {
-          const git = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd });
-          // null with a CLI older than `json db`: the panel then polls every POLL_MS.
-          this.dbs.set(cwd, await nawaban(["json", "db"], cwd).then((out) => out.db, () => null));
-          this.projects.set(cwd, projectFor(git.code === 0 ? git.stdout : "", projects));
+        const projects = await nawaban(["json", "projects"], at);
+        if (!this.projects.has(key)) {
+          const git = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: at.cwd, on: at.on });
+          // null with a CLI older than `json db`, or on another machine (its files can't be watched
+          // from here): the panel then polls every POLL_MS.
+          this.dbs.set(key, at.on ? null : await nawaban(["json", "db"], at).then((out) => out.db, () => null));
+          this.projects.set(key, projectFor(git.code === 0 ? git.stdout : "", projects));
         }
-        this.db = this.dbs.get(cwd);
+        this.db = this.dbs.get(key);
         if (this.db) this.watch(this.db, cx);
-        const project = this.projects.get(cwd);
+        const project = this.projects.get(key);
         // A GitHub board is reused for GITHUB_MS from when its read started, whatever asked for the
-        // read; a failed read counts too. ponytail: keyed by folder, so two folders of one repository
+        // read; a failed read counts too. ponytail: keyed by place, so two folders of one repository
         // read GitHub apart; key by the git common dir if that doubles the reads.
-        const gh = this.github.get(cwd), started = Date.now();
+        const gh = this.github.get(key), started = Date.now();
         let board = gh && started - gh.at < GITHUB_MS ? gh.board : null;
         if (!board) {
           if (gh) gh.at = started;
-          board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], cwd);
-          if (board.tracker === "github") this.github.set(cwd, { board, at: started });
+          board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], at);
+          if (board.tracker === "github") this.github.set(key, { board, at: started });
         }
-        if (folder() !== cwd) return; // the space changed meanwhile: the next refresh reads it
+        if (place().key !== key) return; // the space changed meanwhile: the next refresh reads it
         Object.assign(this, { project, projectsOut: projects, board, error: null });
       } catch (e) {
         this.error = String(e?.message ?? e); // keep the last board shown
@@ -148,7 +155,7 @@ export default class NawabanBoard extends View {
     // Read again on a new space, and when a window comes, goes or changes state; not on its
     // title or seq, which change all the time while an agent works.
     const sig = mine.map((a) => `${a.address}:${a.status}`).join(",");
-    if (folder() !== this.context || (this.sig != null && sig !== this.sig)) this.refresh(cx);
+    if (place().key !== this.context || (this.sig != null && sig !== this.sig)) this.refresh(cx);
     this.sig = sig;
     const t = theme(), w = WINDOW_WORDS[this.lang];
     const now = Math.floor(Date.now() / 1000);

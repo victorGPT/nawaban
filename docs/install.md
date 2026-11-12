@@ -83,6 +83,8 @@ The [Herdr](https://herdr.dev) app can show the board as a read-only panel besid
 
    To dock it in a layout instead, do steps 2 and 3; that layout's binding wins over the global one.
 
+   The mod belongs on the computer that runs Herdr.app. When that app drives a space on another machine (Herdr.app on a MacBook Air showing a space that lives on a MacBook Pro), the panel runs `nawaban` on that machine through herdr-core: it reads `~/nawaban/nawaban/cli.py` under that machine's home, in the space's folder, so nawaban must be installed there too. Such a board is re-read every 5 seconds instead of being watched. A layout switch closes the window; open it again with the key.
+
 2. Optional: dock the panel to a layout you own. Herdr's shipped layouts are read-only; clone one first if needed: `herdr-app do layout.clone '{"name":"main","as":"my-layout"}'`. In `~/.config/herdr-app/layouts/<layout>.json`, find the row that holds the terminals (in clones of `main` it is the row with id `work-body`) and add this block as its last child, so it sits on the right:
 
    ```json
