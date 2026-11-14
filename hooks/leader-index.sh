@@ -9,7 +9,10 @@ t = next((t for t in ts if t["address"] == me), {})
 sys.exit(0 if not t.get("parent") or any(c.get("parent") == me for c in ts) else 1)' || exit 0
 echo "nawaban index（现状索引，SessionStart 钩子注入；你是带队会话，先读它再凭记忆补）："
 python3 "$(dirname "$0")/../nawaban/cli.py" index
-rules="${CLAUDE_PROJECT_DIR:-.}/docs/agents/leader.md"
+dir="${CLAUDE_PROJECT_DIR:-.}"
+branch=$(git -C "$dir" branch --show-current 2>/dev/null)
+[ -n "$branch" ] && [ "$branch" != main ] && echo "注意：${dir} 在分支 ${branch}，不在 main，下面读到的规矩可能是旧的；先查是谁切的，收拾后切回 main。"
+rules="$dir/docs/agents/leader.md"
 if [ -f "$rules" ]; then
   echo; echo "带队会话规矩（${rules}，SessionStart 钩子注入）："; cat "$rules"
 fi
