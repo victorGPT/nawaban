@@ -233,14 +233,14 @@ BRIEF = "进展：测完了。\n\n**待决**：上线 A 还是 B\n【推荐】A\
 def test_a_pending_decision_is_a_待决_line_anywhere_in_a_comment(board, monkeypatch, capsys):
     out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", BRIEF)])])
     assert out["tasks"]["#1"]["pending"] == {
-        "brief": BRIEF, "at": ts("2026-11-07T01:00:00Z"),
-        "progress": []}  # the 进展 holding it is its text already, not repeated
+        "brief": "**待决**：上线 A 还是 B\n【推荐】A\n【选项】A / B", "at": ts("2026-11-07T01:00:00Z"),
+        "progress": [{"body": "测完了。", "at": ts("2026-11-07T01:00:00Z")}]}  # what comes before the 待决 line is a 进展
 
 
 def test_a_pending_decision_in_the_body_is_raised_when_the_issue_was(board, monkeypatch, capsys):
     body = "背景。\n需要你定：要不要拆"
     out = _board(monkeypatch, capsys, [_issue(1, body, created="2026-11-06T00:00:00Z")])
-    assert out["tasks"]["#1"]["pending"] == {"brief": body, "at": ts("2026-11-06T00:00:00Z"), "progress": []}
+    assert out["tasks"]["#1"]["pending"] == {"brief": "需要你定：要不要拆", "at": ts("2026-11-06T00:00:00Z"), "progress": []}
 
 
 def test_already_resolved_ends_a_pending_decision_and_决定_does_not(board, monkeypatch, capsys):
@@ -266,4 +266,4 @@ def test_a_pending_decision_carries_its_issues_last_three_进展_oldest_first(bo
 def test_a_进展_posted_the_same_second_as_the_pending_decision_still_counts(board, monkeypatch, capsys):
     s = "2026-11-07T01:00:00Z"
     out = _board(monkeypatch, capsys, [_issue(1, comments=[(s, "进展：独立验收通过"), (s, "进展：准备上线\n待决：选 A 还是 B")])])
-    assert [n["body"] for n in out["tasks"]["#1"]["pending"]["progress"]] == ["独立验收通过"]
+    assert [n["body"] for n in out["tasks"]["#1"]["pending"]["progress"]] == ["独立验收通过", "准备上线"]

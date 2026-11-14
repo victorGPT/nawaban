@@ -578,19 +578,21 @@ def github_board_data(root: Path) -> dict:
         return i["parent"]["number"] if i.get("parent") else int(m.group(1)) if m else None
 
     def pending(i: dict) -> dict | None:
-        """The latest 待决：/需要你定： line followed by no 已决： line, in the body (raised at its creation) or a comment;
-        with the issue's last PENDING_NOTES 进展, the comment holding it left out since its text is there already."""
+        """The latest 待决：/需要你定： line followed by no 已决： line, in the body (raised at its creation) or a comment,
+        its text from that line on; with the issue's last PENDING_NOTES 进展, what precedes the line in its comment one of them."""
         found = None
         for c in [{"body": i.get("body") or "", "createdAt": i["createdAt"]}, *i["comments"]]:
-            for ln in c["body"].splitlines():
+            for k, ln in enumerate(c["body"].splitlines()):
                 if prefixed([{"body": ln, "createdAt": c["createdAt"]}], "(?:待决|需要你定)"):
-                    found = c
+                    found = (c, k)
                 elif prefixed([{"body": ln, "createdAt": c["createdAt"]}], "已决"):
                     found = None
         if not found:
             return None
-        notes = prefixed([c for c in i["comments"] if c is not found], "进展")
-        return {"brief": found["body"], "at": at(found["createdAt"]),
+        c, k = found
+        lines = c["body"].splitlines()
+        notes = prefixed([{**x, "body": "\n".join(lines[:k])} if x is c else x for x in i["comments"]], "进展")
+        return {"brief": "\n".join(lines[k:]), "at": at(c["createdAt"]),
                 "progress": [{"body": b, "at": t} for b, t in notes[-PENDING_NOTES:]]}
 
     since = time.time() - DECISIONS_RECENT
