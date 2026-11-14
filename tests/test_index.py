@@ -210,10 +210,7 @@ BRIEF_GOLDEN = """\
 ### #9 甲 · 11-06 20:00 提出
 https://github.com/example/roubao/issues/9
 原文：
-背景。
-
 待决：留着还是删
-
 近期进展：没有
 
 ### #10 乙 · 11-06 20:00 提出
