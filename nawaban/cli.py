@@ -497,7 +497,7 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
 
 GH_RECENT = 48 * 3600  # closed issues stay this long
 PENDING_NOTES = 3  # a pending decision carries its issue's last this many 进展
-_GH_FIELDS = "number,url,title,state,stateReason,closedAt,createdAt,updatedAt,labels,body,comments,parent"
+_GH_FIELDS = "number,url,title,state,stateReason,closedAt,createdAt,updatedAt,labels,body,comments,parent,assignees"
 _GH_PARENT_TITLE = re.compile(r"[(（]#(\d+)-[A-Za-z]+[)）]")  # (#236-B)
 _GH_PARENT_BODY = re.compile(r"(?:属于|Part of|Parent:)\s*#(\d+)")
 # `决定：`, `## 进展：`, `**进展**：`, `决定（roubao-e8）：`: optional heading/bold, the word, an optional (who), a colon.
@@ -616,6 +616,14 @@ def gh_write(root: Path, a) -> str:
     return f"✓ event {a.id} · {a.kind}"
 
 
+def _canonical(c: dict) -> dict:
+    """A comment as the prefix readers see it: a marked one rewritten from its marker, so edits to its visible text do not count."""
+    ev = read_marker(c["body"])
+    if isinstance(ev, dict) and isinstance(ev.get("body"), str) and GH_WORDS.get(str(ev.get("kind"))):
+        return {**c, "body": f"{GH_WORDS[ev['kind']]}：{ev['body']}"}
+    return {**c, "body": _MARKER.sub("", c["body"])}  # a malformed marker: read the visible text
+
+
 def _at(iso: str) -> int:
     return int(_dt.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp())
 
@@ -633,7 +641,7 @@ def _issue_pending(i: dict) -> dict | None:
     """The latest 待决：/需要你定： line followed by no 已决： line, in the body (raised at its creation) or a comment,
     its text from that line on; with the issue's last PENDING_NOTES 进展, what precedes the line in its comment one of them."""
     found = None
-    i = {**i, "comments": [{**c, "body": _MARKER.sub("", c["body"]).rstrip()} for c in i["comments"]]}
+    i = {**i, "comments": [_canonical(c) for c in i["comments"]]}
     for c in [{"body": i.get("body") or "", "createdAt": i["createdAt"]}, *i["comments"]]:
         for k, ln in enumerate(c["body"].splitlines()):
             if _prefixed([{"body": ln, "createdAt": c["createdAt"]}], "(?:待决|需要你定)"):
@@ -666,7 +674,7 @@ def github_board_data(root: Path) -> dict:
     for i in _gh_issues(root):
         if i.get("stateReason") == "NOT_PLANNED":
             continue
-        cs = [{**c, "body": _MARKER.sub("", c["body"]).rstrip()} for c in i["comments"]]
+        cs = [_canonical(c) for c in i["comments"]]
         claims, notes, decisions = (_prefixed(cs, p) for p in ("认领", "进展", "决定"))
         last = [w for c in cs for w in ("认领", "交还") if _prefixed([c], w)][-1:]
         if last == ["交还"]:
@@ -674,14 +682,20 @@ def github_board_data(root: Path) -> dict:
         recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
                     "owner": any(w in waiting.sub("", body) for w in ["拍板", *names])}
                    for body, t in decisions if t >= since]
-        status = "done" if i["state"] == "CLOSED" else "in_progress" if claims else "open"
+        # 已决 records the owner's own answer
+        recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body), "owner": True}
+                   for body, t in _prefixed(cs, "已决") if t >= since]
+        # An assignee holds an issue, whoever assigned it; the latest claim comment names the session.
+        holders = [a["login"] for a in i.get("assignees") or []]
+        status = "done" if i["state"] == "CLOSED" else "in_progress" if holders else "open"
         parent = parent_of(i)
         terminal = _GH_TERMINAL.search(claims[-1][0]) if claims else None
         task = {
             "id": f"#{i['number']}", "title": i["title"], "status": status, "project": root.name,
             "parent": f"#{parent}" if parent else None,
             # The claimant holds an open issue, as a session holds a board task.
-            "session": claims[-1][0].split("\n", 1)[0] if claims and status != "done" else None,
+            "session": (claims[-1][0].split("\n", 1)[0] if claims else ", ".join(holders))
+                       if status == "in_progress" else None,
             "created_at": _at(i["createdAt"]),
             "active_at": max([_at(i["updatedAt"])] + [_at(c["createdAt"]) for c in cs]),
             "open_blockers": 0, "terminal": terminal.group(1) if terminal else None, "leader": None,
