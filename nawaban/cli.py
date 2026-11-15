@@ -668,9 +668,9 @@ def github_board_data(root: Path) -> dict:
             continue
         cs = [{**c, "body": _MARKER.sub("", c["body"]).rstrip()} for c in i["comments"]]
         claims, notes, decisions = (_prefixed(cs, p) for p in ("认领", "进展", "决定"))
-        released = _prefixed(cs, "交还")
-        if claims and released and released[-1][1] >= claims[-1][1]:
-            claims = []  # the latest claim was handed back
+        last = [w for c in cs for w in ("认领", "交还") if _prefixed([c], w)][-1:]
+        if last == ["交还"]:
+            claims = []  # the latest claim was handed back (comment order, not timestamps)
         recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
                     "owner": any(w in waiting.sub("", body) for w in ["拍板", *names])}
                    for body, t in decisions if t >= since]

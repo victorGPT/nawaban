@@ -120,3 +120,13 @@ def test_claim_without_identity_writes_nothing_remote(gh, monkeypatch):
     code, out = gh.nawaban("claim", "#950")
     assert code == 1 and "身份缺失" in out
     assert gh == []
+
+
+def test_a_claim_after_a_release_in_the_same_second_holds(gh, monkeypatch):
+    for argv in (["claim", "#950"], ["claim", "#950", "--release"], ["claim", "#950"]):
+        assert gh.nawaban(*argv)[0] == 0
+    issue = {"number": 950, "title": "t", "state": "OPEN", "createdAt": "2026-11-15T00:00:00Z",
+             "updatedAt": "2026-11-15T01:00:00Z", "labels": [], "body": "", "comments": gh.issue["comments"]}
+    monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
+    [task] = [t for c in json.loads(gh.nawaban("json", "board")[1])["columns"] for t in c["tasks"]]
+    assert task["status"] == "in_progress"
