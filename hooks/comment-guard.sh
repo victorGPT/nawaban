@@ -5,12 +5,13 @@
 # ponytail: matches the command text. --body-file, `gh api` and other programs slip past; the reader still parses unmarked prefixes, so a miss loses only the marker.
 cli="$(cd "$(dirname "$0")/.." && pwd)/nawaban/cli.py"
 CLI="$cli" python3 -c '
-import json, os, re, sys
+import json, os, re, shlex, sys
 cmd = (json.load(sys.stdin).get("tool_input") or {}).get("command", "")
-if not re.search(r"\bgh\s+issue\s+comment\b", cmd):
+# gh in command position: line start, after ; & | ( or $(, past any VAR=value prefixes; not inside a quoted string
+if not re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*gh\s+issue\s+comment\b", cmd, re.M):
     sys.exit(0)
 if re.search(r"(?:^|[\s\x27\"(=])(?:#{1,6}\s*)?\**(?:认领|进展|待决|已决|决定|需要你定)\**\s*(?:[（(][^）)\n]*[）)])?\**\s*[：:]", cmd, re.M):
-    cli = os.environ["CLI"]
+    cli = shlex.quote(os.environ["CLI"])
     print(f"认领、进展、待决、已决、决定由 nawaban 写，评论会带机读标记。改用：\n"
           f"  python3 {cli} claim \x27#N\x27\n"
           f"  python3 {cli} event \x27#N\x27 --kind note|decision|link|ask|resolve --body \"…\"\n"

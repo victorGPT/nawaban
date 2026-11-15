@@ -94,12 +94,13 @@ def _comment_guard(command):
 def test_a_hand_written_state_comment_is_pointed_at_nawaban():
     for cmd in ('gh issue comment 950 --body "进展：PR 合了"', "gh issue comment 950 -b '认领：s1（hc t3）'",
                 'gh issue comment 950 --body "$(cat <<EOF\n待决：定 A\nEOF\n)"', 'gh issue comment 9 --body="已决：A"',
-                'gh issue comment 9 --body "**决定**：用 B"', 'gh issue comment 9 --body "总结\n决定（e8）：B"'):
+                'gh issue comment 9 --body "**决定**：用 B"', 'cd x && GH_TOKEN=t gh issue comment 9 --body "进展：y"', 'gh issue comment 9 --body "总结\n决定（e8）：B"'):
         r = _comment_guard(cmd)
         assert r.returncode == 2 and "event '#N'" in r.stderr and "cli.py" in r.stderr, cmd
 
 
 def test_other_comments_and_commands_pass():
     for cmd in ('gh issue comment 950 --body "看了，没问题"', 'gh issue view 950', 'echo "进展：x"',
-                'gh issue comment 9 --body "这一步的进展：见上"'):
+                'gh issue comment 9 --body "这一步的进展：见上"',
+                "printf '%s\\n' 'gh issue comment 9 --body 进展：x'"):
         assert _comment_guard(cmd).returncode == 0, cmd
