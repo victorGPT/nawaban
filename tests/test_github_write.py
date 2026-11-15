@@ -97,3 +97,18 @@ def test_ask_and_resolve_are_refused_on_a_local_board(tmp_path, capsys):
     capsys.readouterr()
     assert cli.main(["--db", db, "event", "T", "--kind", "ask", "--body", "x"]) == 1
     assert "GitHub" in capsys.readouterr().err
+
+
+def test_a_body_quoting_a_marker_still_reads_back_its_own_event(gh):
+    body = "示例：<!-- nawaban {} --> 和 <!-- nawaban {bad} -->\n结尾"
+    assert gh.nawaban("event", "#950", "--kind", "note", "--body", body)[0] == 0
+    assert cli.read_marker(posted(gh)[0])["body"] == body
+    assert cli.read_marker("进展：x\n<!-- nawaban {bad} -->") is None
+
+
+def test_claim_without_identity_writes_nothing_remote(gh, monkeypatch):
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    monkeypatch.delenv("NAWABAN_OWNER")
+    code, out = gh.nawaban("claim", "#950")
+    assert code == 1 and "身份缺失" in out
+    assert gh == []

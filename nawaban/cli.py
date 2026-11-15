@@ -562,7 +562,8 @@ def _gh_issues(root: Path) -> list[dict]:
 
 # Each kind's visible prefix is the one people and the older readers already know.
 GH_WORDS = {"claim": "认领", "note": "进展", "decision": "决定", "link": "PR", "ask": "待决", "resolve": "已决"}
-_MARKER = re.compile(r"\n*<!-- nawaban (\{.*?\}) -->", re.S)
+# Only a trailing marker counts: a body quoting one stays text. The dumped JSON holds no raw newline.
+_MARKER = re.compile(r"\n*<!-- nawaban (\{[^\n]*\}) -->\s*\Z")
 _GH_ISSUE = re.compile(r"#(\d+)")
 
 
@@ -575,7 +576,10 @@ def marker(ev: dict) -> str:
 def read_marker(comment: str) -> dict | None:
     import json
     m = _MARKER.search(comment)
-    return json.loads(m.group(1)) if m else None
+    try:
+        return json.loads(m.group(1)) if m else None
+    except ValueError:  # someone else's comment ending in a lookalike
+        return None
 
 
 def gh_post(root: Path, number: str, kind: str, body: str) -> None:
@@ -589,12 +593,13 @@ def gh_post(root: Path, number: str, kind: str, body: str) -> None:
 def gh_write(root: Path, a) -> str:
     """claim / event / close on issue #N of a GitHub-tracked repository."""
     n = _GH_ISSUE.fullmatch(a.id).group(1)
+    who = identity()  # refuse before any remote write
     if a.verb == "claim":
         _gh(root, "issue", "edit", n, "--remove-assignee" if a.release else "--add-assignee", "@me")
         if a.release:
             return f"✓ release {a.id}"
         here = herdr_terminal()
-        gh_post(root, n, "claim", identity() + (f"（hc {here}）" if here else ""))
+        gh_post(root, n, "claim", who + (f"（hc {here}）" if here else ""))
         return f"✓ claim {a.id}" + (f" · terminal {here}" if here else "")
     if a.verb == "close":
         if a.reopen:
