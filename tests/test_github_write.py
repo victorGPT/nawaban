@@ -18,10 +18,16 @@ def gh(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(repo)
     monkeypatch.setenv("HC_TERMINAL_ID", "t9")
     calls = type("Calls", (list,), {})()
-    issue = {"body": "", "createdAt": "2026-11-15T00:00:00Z", "comments": [], "assignees": []}
+    issue = {"state": "OPEN", "body": "", "createdAt": "2026-11-15T00:00:00Z", "comments": [], "assignees": []}
+    labels = {"role": "orchestrator"}  # what `hc get` reports for t9
+    terminals = []  # what `hc ls` lists
     real_run = subprocess.run
 
     def run(args, **kw):
+        if args[0] == "hc":
+            calls.append(args)
+            out = {"run": {"address": "t77"}, "ls": {"terminals": terminals}}.get(args[1], {"labels": labels})
+            return subprocess.CompletedProcess(args, 0, json.dumps(out), "")
         if args[0] != "gh":
             return real_run(args, **kw)
         calls.append(args[1:])
@@ -37,7 +43,7 @@ def gh(tmp_path, monkeypatch, capsys):
         code = cli.main(list(argv))
         out = capsys.readouterr()
         return code, out.out + out.err
-    calls.issue, calls.nawaban = issue, nawaban
+    calls.issue, calls.nawaban, calls.labels, calls.repo, calls.terminals = issue, nawaban, labels, repo, terminals
     return calls
 
 
@@ -101,6 +107,16 @@ def test_a_second_pending_decision_on_one_issue_is_refused_until_resolved(gh):
     assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "再定一件")[0] == 0
 
 
+def test_only_the_orchestrator_records_a_resolution(gh, monkeypatch):
+    gh.labels.clear()  # a worker terminal
+    code, out = gh.nawaban("event", "#950", "--kind", "resolve", "--body", "A")
+    assert code == 1 and "编排者" in out and posted(gh) == []
+    monkeypatch.delenv("HC_TERMINAL_ID")  # a Claude session outside Herdr: no label to show
+    assert gh.nawaban("event", "#950", "--kind", "resolve", "--body", "A")[0] == 1
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")  # a person at a shell
+    assert gh.nawaban("event", "#950", "--kind", "resolve", "--body", "A")[0] == 0
+
+
 def test_ask_and_resolve_are_refused_on_a_local_board(tmp_path, capsys):
     db = str(tmp_path / "b.db")
     cli.main(["--db", db, "init"])
@@ -134,3 +150,59 @@ def test_a_claim_after_a_release_in_the_same_second_holds(gh, monkeypatch):
     monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
     [task] = [t for c in json.loads(gh.nawaban("json", "board")[1])["columns"] for t in c["tasks"]]
     assert task["status"] == "in_progress"
+
+
+def _with_origin(repo):
+    origin = repo.parent / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
+    g = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*g, "commit", "-q", "--allow-empty", "-m", "x"], check=True)
+    subprocess.run([*g, "remote", "add", "origin", str(origin)], check=True)
+    subprocess.run([*g, "push", "-q", "origin", "HEAD:main"], check=True)
+
+
+def test_dispatch_starts_a_worker_in_a_fresh_worktree_and_records_it_on_the_ticket(gh):
+    _with_origin(gh.repo)
+    code, out = gh.nawaban("dispatch", "#950", "--brief", "目标：修 X", "--accept", "pytest 绿")
+    assert code == 0 and "hc t77" in out
+    wt = gh.repo.parent / "roubao-w-950"
+    assert (wt / ".git").exists()
+    run = next(c for c in gh if c[:2] == ["hc", "run"])
+    assert run[run.index("--cwd") + 1] == str(wt)
+    brief = run[-1]
+    assert brief.startswith("/pstack:poteto-mode Issue：#950") and "目标：修 X" in brief and "验收：pytest 绿" in brief
+    assert 'hc send t9 "回报：#950 完成 |' in brief
+    note = cli.read_marker(posted(gh)[0])
+    assert note["kind"] == "note" and "hc t77" in note["body"] and "验收：pytest 绿" in note["body"]
+
+
+def test_dispatch_without_a_live_orchestrator_starts_nothing(gh):
+    gh.labels.clear()
+    code, out = gh.nawaban("dispatch", "#950", "--brief", "b", "--accept", "a")
+    assert code == 1 and "编排者" in out and not any(c[:2] == ["hc", "run"] for c in gh)
+
+
+def test_dispatch_from_outside_herdr_reports_to_the_repositorys_orchestrator(gh, monkeypatch):
+    _with_origin(gh.repo)
+    monkeypatch.delenv("HC_TERMINAL_ID")
+    nested = gh.repo / "vendor" / "lib"
+    subprocess.run(["git", "init", "-q", str(nested)], check=True)
+    gh.terminals += [{"address": "t4", "state": "live", "cwd": str(nested)},  # a repository of its own
+                     {"address": "t5", "state": "live", "cwd": str(gh.repo)}]
+    code, out = gh.nawaban("dispatch", "--name", "nightly-1116", "--brief", "复盘", "--accept", "照 nightly-review.md")
+    assert code == 0 and posted(gh) == []
+    assert 'hc send t5 "回报：nightly-1116 完成' in next(c for c in gh if c[:2] == ["hc", "run"])[-1]
+
+
+def test_dispatch_names_the_running_worker_when_the_ticket_note_fails(gh, monkeypatch):
+    _with_origin(gh.repo)
+    real = cli._gh
+    monkeypatch.setattr(cli, "_gh", lambda root, *a: (_ for _ in ()).throw(cli.Refused("HTTP 503")) if a[:2] == ("issue", "comment") else real(root, *a))
+    code, out = gh.nawaban("dispatch", "#950", "--brief", "b", "--accept", "a")
+    assert code == 1 and "已派给 hc t77" in out and "补记:nawaban event '#950' --kind note" in out
+
+
+def test_dispatch_to_a_closed_issue_starts_nothing(gh):
+    gh.issue["state"] = "CLOSED"
+    assert gh.nawaban("dispatch", "#950", "--brief", "b", "--accept", "a")[0] == 1
+    assert not any(c[:2] == ["hc", "run"] for c in gh)

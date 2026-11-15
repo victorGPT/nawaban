@@ -82,6 +82,8 @@ Every claim, takeover, release and close writes a status event by itself.
 
 ## Dispatch tasks to Herdr workers
 
+In a GitHub-tracked repository, one command per issue: `nawaban dispatch '#N' --brief "<goal, scope>" --accept "<checkable done>"`. It pulls a worktree off `origin/main`, starts the worker there with the report protocol in its brief, and records the terminal and acceptance on the issue; the rest of this section is for a local board.
+
 When the user asks you to dispatch tasks, you are the leader: hold no task yourself and keep task detail on the board, not in your context. Before starting each worker, record `nawaban event <ID> --kind note --body "dispatch: <name>"`: the author of a task's latest `dispatch:` note is its leader, and the Herdr panel groups the task under you by it. Each worker reports back with one line, `'<ID> done'` or `'<ID> blocked: <question>'`, sent with SendMessage to `<leader>`, the name `ListAgents` says other sessions use for you. Progress is `nawaban show <ID>`.
 
 ### In the Herdr app or herdr-core (`HC_TERMINAL_ID` is set)

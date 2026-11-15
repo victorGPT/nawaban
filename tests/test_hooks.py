@@ -104,3 +104,24 @@ def test_other_comments_and_commands_pass():
                 'gh issue comment 9 --body "这一步的进展：见上"',
                 "printf '%s\\n' 'gh issue comment 9 --body 进展：x'"):
         assert _comment_guard(cmd).returncode == 0, cmd
+
+
+def test_declaring_clears_the_old_orchestrator_in_the_same_repository_only(tmp_path):
+    proj = tmp_path / "p"; (proj / "docs/agents" / "sub").mkdir(parents=True)
+    other, inner = tmp_path / "q", proj / "inner"
+    for r in (proj, other, inner):
+        subprocess.run(["git", "init", "-q", str(r)], check=True)
+    bin_ = tmp_path / "bin"; bin_.mkdir()
+    log = tmp_path / "hc.log"
+    ls = {"terminals": [{"address": a, "cwd": c} for a, c in
+                        [("t1", str(proj)), ("t2", str(proj / "docs/agents/sub")), ("t3", str(other)), ("t4", str(inner)), ("t5", str(proj) + "x")]]}
+    (bin_ / "hc").write_text(
+        f'#!/bin/sh\necho "$@" >> {log}\n'
+        f'case "$1" in ls) echo \'{json.dumps(ls)}\';; get) echo \'{{"labels":{{"role":"orchestrator"}}}}\';; esac\n')
+    (bin_ / "hc").chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "HC_TERMINAL_ID": "t1", "CLAUDE_PROJECT_DIR": str(proj)}
+    out = subprocess.run(["sh", str(DECLARE)], input=json.dumps({"prompt": "/nawaban:orchestrator"}),
+                         cwd=tmp_path, env=env, capture_output=True, text=True).stdout
+    calls = log.read_text().splitlines()
+    assert "label t2 role=" in calls and "已摘掉同仓库旧编排者 t2" in out
+    assert not {"label t1 role=", "label t3 role=", "label t4 role=", "label t5 role="} & set(calls)

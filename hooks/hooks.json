@@ -1,5 +1,18 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/leader-index.sh\"",
+            "timeout": 30,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
@@ -7,6 +20,12 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-declare.sh\"",
             "timeout": 30,
+            "onFailure": "continue"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/leader-gap.sh\"",
+            "timeout": 10,
             "onFailure": "continue"
           }
         ]

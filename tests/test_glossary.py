@@ -22,7 +22,7 @@ def test_every_cli_subcommand_is_registered_in_glossary():
             if line.startswith("_Current identifiers_:"):
                 registered.update(re.findall(r"`([^`\n]+)`", line))
     assert commands == {"init", "create", "block", "claim", "close", "event", "show", "list",
-                        "backup", "json", "index", "brief"}
+                        "backup", "json", "index", "brief", "dispatch"}
     missing = sorted(commands - registered)
     assert not missing, "CLI subcommands missing from GLOSSARY.md: " + ", ".join(missing)
 

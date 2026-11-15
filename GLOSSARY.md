@@ -104,6 +104,12 @@ leader 是用户就一摊工作直接对话的那个会话。它自己做一些�
 _Avoid_: 总经理, lead agent, dispatcher, coordinator.
 _Current identifiers_: note `dispatch: <worker name>` (agent-center also writes `coord: dispatch {…}`).
 
+**Dispatch**(派活)
+Starting a worker on one issue of a GitHub-tracked repository with one command: a worktree off `origin/main`, the worker in it, a brief carrying the acceptance and the one report protocol, and a note on the issue naming the worker's terminal and the acceptance. The reports go to the repository's orchestrator, found by its label.
+派活是在 GitHub 记账的仓库里用一条命令给一个 issue 起 worker：从 `origin/main` 拉 worktree，在里面起 worker，派活说明带上验收和唯一的回报格式，issue 上记一条进展写明 worker 的终端和验收。回报发给按标签找到的该仓库编排者。
+_Avoid_: 派单, assign.
+_Current identifiers_: CLI `dispatch`.
+
 ### Events
 
 **Event**(事件)
