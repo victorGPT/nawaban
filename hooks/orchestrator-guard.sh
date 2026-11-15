@@ -1,7 +1,7 @@
 #!/bin/sh
 # PreToolUse hook (Bash): only the owner sets or clears the orchestrator label, by typing /nawaban:orchestrator
 # or `! hc label <t> role=`. A model command that touches the role label is blocked.
-# ponytail: matches the command text, erring toward blocking; a label set through another program slips past, so this is a guardrail, not a sandbox.
+# ponytail: matches the command text, erring toward blocking. It stops an agent labelling itself by accident; deliberate obfuscation ($'..' escapes) or another program slips past. A guardrail, not a sandbox.
 python3 -c '
 import json, re, sys
 cmd = (json.load(sys.stdin).get("tool_input") or {}).get("command", "")
