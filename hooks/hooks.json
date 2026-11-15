@@ -21,6 +21,12 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-guard.sh\"",
             "timeout": 10,
             "onFailure": "continue"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/comment-guard.sh\"",
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }
