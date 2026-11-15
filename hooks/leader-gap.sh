@@ -3,7 +3,9 @@
 # ponytail: silent under 30 min so it does not add a line to every message.
 python3 -c '
 import json, os, sys, time, tempfile
-sid = json.load(sys.stdin).get("session_id", "x")
+d = json.load(sys.stdin)
+if d.get("source") == "poll_event": sys.exit()  # Code Mode background output, not the owner speaking
+sid = d.get("session_id", "x")
 f = os.path.join(tempfile.gettempdir(), f"leader-gap-{sid}")
 now = time.time()
 try: last = float(open(f).read())

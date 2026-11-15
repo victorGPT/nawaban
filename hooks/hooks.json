@@ -1,10 +1,29 @@
 {
   "hooks": {
     "UserPromptSubmit": [
-      {"hooks": [{"type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-declare.sh\"", "timeout": 30}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-declare.sh\"",
+            "timeout": 30,
+            "onFailure": "continue"
+          }
+        ]
+      }
     ],
     "PreToolUse": [
-      {"matcher": "Bash", "hooks": [{"type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-guard.sh\"", "timeout": 10}]}
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-guard.sh\"",
+            "timeout": 10,
+            "onFailure": "continue"
+          }
+        ]
+      }
     ]
   }
 }
