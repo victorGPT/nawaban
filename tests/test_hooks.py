@@ -55,7 +55,7 @@ def _declare(tmp_path, prompt, terminal="t1"):
 
 def test_the_owner_typing_the_command_labels_the_terminal_and_loads_the_rules(tmp_path):
     out, calls = _declare(tmp_path, "/nawaban:orchestrator")
-    assert "label t1 role=orchestrator" in calls and "规矩正文" in out
+    assert "label t1 role=orchestrator" in calls and "已给终端 t1" in out and "规矩正文" in out
 
 
 def test_any_other_prompt_labels_nothing(tmp_path):
