@@ -73,7 +73,7 @@ def _guard(command):
 
 
 def test_the_model_cannot_set_or_clear_the_role_label():
-    for cmd in ("hc label t5 role=orchestrator", "hc label t23 role=", "cd x && hc label --json t5 role=x"):
+    for cmd in ("hc label t5 role=orchestrator", "hc label t23 role=", "cd x && hc label --json t5 role=x", "hc label t1 'role'=orchestrator", "hc label t1 \\\n  role=orchestrator", 'hc label t1 "role=orchestrator"'):
         r = _guard(cmd)
         assert r.returncode == 2 and "手敲" in r.stderr, cmd
 
