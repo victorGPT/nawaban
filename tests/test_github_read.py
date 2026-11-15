@@ -60,6 +60,6 @@ def test_a_resolve_is_the_owners_decision(monkeypatch, capsys):
 
 
 def test_a_malformed_marker_falls_back_to_the_visible_text(monkeypatch, capsys):
-    bad = ['进展：可见\n<!-- nawaban {"kind": "note"} -->', '进展：可见二\n<!-- nawaban [1] -->']
+    bad = ['进展：可见\n<!-- nawaban {"kind": "note"} -->', '进展：可见二\n<!-- nawaban {"kind": "nope", "body": "x"} -->']
     tasks, _ = board(monkeypatch, capsys, [issue(bad)])
     assert tasks["#1"]["progress"]["body"] == "可见二"
