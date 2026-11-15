@@ -18,7 +18,7 @@ def gh(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(repo)
     monkeypatch.setenv("HC_TERMINAL_ID", "t9")
     calls = type("Calls", (list,), {})()
-    issue = {"body": "", "createdAt": "2026-11-15T00:00:00Z", "comments": []}
+    issue = {"body": "", "createdAt": "2026-11-15T00:00:00Z", "comments": [], "assignees": []}
     real_run = subprocess.run
 
     def run(args, **kw):
@@ -27,6 +27,8 @@ def gh(tmp_path, monkeypatch, capsys):
         calls.append(args[1:])
         if args[1:3] == ["issue", "comment"]:  # what was posted becomes a comment
             issue["comments"].append({"body": args[args.index("--body") + 1], "createdAt": "2026-11-15T01:00:00Z"})
+        if args[1:3] == ["issue", "edit"]:
+            issue["assignees"] = [{"login": "me"}] if "--add-assignee" in args else []
         out = json.dumps(issue) if args[1:3] == ["issue", "view"] else ""
         return subprocess.CompletedProcess(args, 0, out, "")
     monkeypatch.setattr(subprocess, "run", run)
@@ -75,7 +77,8 @@ def test_release_unassigns_and_the_board_shows_the_issue_open_again(gh, monkeypa
     assert ["issue", "edit", "950", "--remove-assignee", "@me"] in gh
     assert posted(gh)[-1].startswith("交还：selftest-session")
     issue = {"number": 950, "title": "t", "state": "OPEN", "createdAt": "2026-11-15T00:00:00Z",
-             "updatedAt": "2026-11-15T01:00:00Z", "labels": [], "body": "", "comments": gh.issue["comments"]}
+             "updatedAt": "2026-11-15T01:00:00Z", "labels": [], "body": "", "comments": gh.issue["comments"],
+             "assignees": gh.issue["assignees"]}
     monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
     code, out = gh.nawaban("json", "board")
     [task] = [t for c in json.loads(out)["columns"] for t in c["tasks"]]
@@ -126,7 +129,8 @@ def test_a_claim_after_a_release_in_the_same_second_holds(gh, monkeypatch):
     for argv in (["claim", "#950"], ["claim", "#950", "--release"], ["claim", "#950"]):
         assert gh.nawaban(*argv)[0] == 0
     issue = {"number": 950, "title": "t", "state": "OPEN", "createdAt": "2026-11-15T00:00:00Z",
-             "updatedAt": "2026-11-15T01:00:00Z", "labels": [], "body": "", "comments": gh.issue["comments"]}
+             "updatedAt": "2026-11-15T01:00:00Z", "labels": [], "body": "", "comments": gh.issue["comments"],
+             "assignees": gh.issue["assignees"]}
     monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
     [task] = [t for c in json.loads(gh.nawaban("json", "board")[1])["columns"] for t in c["tasks"]]
     assert task["status"] == "in_progress"
