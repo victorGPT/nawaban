@@ -561,7 +561,7 @@ def _gh_issues(root: Path) -> list[dict]:
 # ── writes to a GitHub-tracked repository (spec NAWABAN-PROTO) ──
 
 # Each kind's visible prefix is the one people and the older readers already know.
-GH_WORDS = {"claim": "认领", "note": "进展", "decision": "决定", "link": "PR", "ask": "待决", "resolve": "已决"}
+GH_WORDS = {"claim": "认领", "release": "交还", "note": "进展", "decision": "决定", "link": "PR", "ask": "待决", "resolve": "已决"}
 # Only a trailing marker counts: a body quoting one stays text. The dumped JSON holds no raw newline.
 _MARKER = re.compile(r"\n*<!-- nawaban (\{[^\n]*\}) -->\s*\Z")
 _GH_ISSUE = re.compile(r"#(\d+)")
@@ -597,6 +597,7 @@ def gh_write(root: Path, a) -> str:
     if a.verb == "claim":
         _gh(root, "issue", "edit", n, "--remove-assignee" if a.release else "--add-assignee", "@me")
         if a.release:
+            gh_post(root, n, "release", who)
             return f"✓ release {a.id}"
         here = herdr_terminal()
         gh_post(root, n, "claim", who + (f"（hc {here}）" if here else ""))
@@ -667,6 +668,9 @@ def github_board_data(root: Path) -> dict:
             continue
         cs = [{**c, "body": _MARKER.sub("", c["body"]).rstrip()} for c in i["comments"]]
         claims, notes, decisions = (_prefixed(cs, p) for p in ("认领", "进展", "决定"))
+        released = _prefixed(cs, "交还")
+        if claims and released and released[-1][1] >= claims[-1][1]:
+            claims = []  # the latest claim was handed back
         recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
                     "owner": any(w in waiting.sub("", body) for w in ["拍板", *names])}
                    for body, t in decisions if t >= since]

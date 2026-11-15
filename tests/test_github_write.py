@@ -69,9 +69,17 @@ def test_claim_assigns_the_issue_and_posts_a_claim_naming_the_terminal(gh):
     assert cli.read_marker(comment)["kind"] == "claim"
 
 
-def test_release_unassigns(gh):
+def test_release_unassigns_and_the_board_shows_the_issue_open_again(gh, monkeypatch):
+    assert gh.nawaban("claim", "#950")[0] == 0
     assert gh.nawaban("claim", "#950", "--release")[0] == 0
     assert ["issue", "edit", "950", "--remove-assignee", "@me"] in gh
+    assert posted(gh)[-1].startswith("交还：selftest-session")
+    issue = {"number": 950, "title": "t", "state": "OPEN", "createdAt": "2026-11-15T00:00:00Z",
+             "updatedAt": "2026-11-15T01:00:00Z", "labels": [], "body": "", "comments": gh.issue["comments"]}
+    monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
+    code, out = gh.nawaban("json", "board")
+    [task] = [t for c in json.loads(out)["columns"] for t in c["tasks"]]
+    assert task["status"] == "open" and task["session"] is None
 
 
 @pytest.mark.parametrize("flag,cmd", [("--done", ["issue", "close", "950", "--reason", "completed"]),
