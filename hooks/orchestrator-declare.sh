@@ -10,4 +10,5 @@ if [ -z "$HC_TERMINAL_ID" ] || ! hc label "$HC_TERMINAL_ID" role=orchestrator >/
   echo "声明失败：这个会话不在 Herdr 里，或 hc label 出错；没有打上编排者标签。"
   exit 0
 fi
+echo "已给终端 ${HC_TERMINAL_ID} 打上编排者标签。"
 exec "$(dirname "$0")/leader-index.sh"
