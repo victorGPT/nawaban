@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-declare.sh", "timeout": 30}]}
+    ],
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-guard.sh", "timeout": 10}]}
+    ]
+  }
+}
