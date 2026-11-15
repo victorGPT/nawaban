@@ -517,8 +517,8 @@ def github_root(cwd: Path | None = None) -> Path | None:
     return root if "GitHub" in heading else None
 
 
-def _gh_json(root: Path, *args: str):
-    """`gh *args` parsed, read with another logged-in account when the active one cannot see the repository."""
+def _gh(root: Path, *args: str) -> str:
+    """`gh *args` output, run as another logged-in account when the active one cannot see the repository."""
     import json
     def gh(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
         try:
@@ -543,7 +543,12 @@ def _gh_json(root: Path, *args: str):
                 break
     if r.returncode != 0:
         raise Refused(f"gh 失败:{r.stderr.strip()}")
-    return json.loads(r.stdout)
+    return r.stdout
+
+
+def _gh_json(root: Path, *args: str):
+    import json
+    return json.loads(_gh(root, *args))
 
 
 def _gh_issues(root: Path) -> list[dict]:
@@ -553,20 +558,93 @@ def _gh_issues(root: Path) -> list[dict]:
             for i in _gh_json(root, "issue", "list", *state, "--limit", "1000", "--json", _GH_FIELDS)]
 
 
+# ── writes to a GitHub-tracked repository (spec NAWABAN-PROTO) ──
+
+# Each kind's visible prefix is the one people and the older readers already know.
+GH_WORDS = {"claim": "认领", "note": "进展", "decision": "决定", "link": "PR", "ask": "待决", "resolve": "已决"}
+_MARKER = re.compile(r"\n*<!-- nawaban (\{.*?\}) -->", re.S)
+_GH_ISSUE = re.compile(r"#(\d+)")
+
+
+def marker(ev: dict) -> str:
+    """The event as an HTML comment; every `-` is escaped so no `--` or `-->` can end it early."""
+    import json
+    return "<!-- nawaban " + json.dumps(ev, ensure_ascii=False).replace("-", "\\u002d") + " -->"
+
+
+def read_marker(comment: str) -> dict | None:
+    import json
+    m = _MARKER.search(comment)
+    return json.loads(m.group(1)) if m else None
+
+
+def gh_post(root: Path, number: str, kind: str, body: str) -> None:
+    """One comment: the prefixed body for people, then the full event for code."""
+    import uuid
+    ev = {"v": 1, "uid": str(uuid.uuid4()), "kind": kind, "author": identity(),
+          "terminal": herdr_terminal(), "at": int(time.time()), "body": body}
+    _gh(root, "issue", "comment", number, "--body", f"{GH_WORDS[kind]}：{body}\n\n{marker(ev)}")
+
+
+def gh_write(root: Path, a) -> str:
+    """claim / event / close on issue #N of a GitHub-tracked repository."""
+    n = _GH_ISSUE.fullmatch(a.id).group(1)
+    if a.verb == "claim":
+        _gh(root, "issue", "edit", n, "--remove-assignee" if a.release else "--add-assignee", "@me")
+        if a.release:
+            return f"✓ release {a.id}"
+        here = herdr_terminal()
+        gh_post(root, n, "claim", identity() + (f"（hc {here}）" if here else ""))
+        return f"✓ claim {a.id}" + (f" · terminal {here}" if here else "")
+    if a.verb == "close":
+        if a.reopen:
+            _gh(root, "issue", "reopen", n)
+        else:
+            _gh(root, "issue", "close", n, "--reason", "completed" if a.done else "not planned")
+        return f"✓ close {a.id} → {'open' if a.reopen else 'done' if a.done else 'cancelled'}"
+    if a.kind == "ask":
+        issue = _gh_json(root, "issue", "view", n, "--json", "body,createdAt,comments")
+        if _issue_pending(issue):
+            raise Refused(f"{a.id} 已有待决,一个 issue 只放一件;先记已决,或开子 issue")
+    gh_post(root, n, a.kind, a.body)
+    return f"✓ event {a.id} · {a.kind}"
+
+
+def _at(iso: str) -> int:
+    return int(_dt.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp())
+
+def _prefixed(comments: list[dict], word: str) -> list[tuple[str, int]]:
+    """(body without the prefix, its `（who）` kept, time) of each comment opening with word, oldest first."""
+    out = []
+    for c in comments:
+        m = re.match(_GH_PREFIX.format(word), c["body"])
+        if m:
+            out.append(((m.group(1) or "") + c["body"][m.end():].strip(), _at(c["createdAt"])))
+    return out
+
+
+def _issue_pending(i: dict) -> dict | None:
+    """The latest 待决：/需要你定： line followed by no 已决： line, in the body (raised at its creation) or a comment,
+    its text from that line on; with the issue's last PENDING_NOTES 进展, what precedes the line in its comment one of them."""
+    found = None
+    i = {**i, "comments": [{**c, "body": _MARKER.sub("", c["body"]).rstrip()} for c in i["comments"]]}
+    for c in [{"body": i.get("body") or "", "createdAt": i["createdAt"]}, *i["comments"]]:
+        for k, ln in enumerate(c["body"].splitlines()):
+            if _prefixed([{"body": ln, "createdAt": c["createdAt"]}], "(?:待决|需要你定)"):
+                found = (c, k)
+            elif _prefixed([{"body": ln, "createdAt": c["createdAt"]}], "已决"):
+                found = None
+    if not found:
+        return None
+    c, k = found
+    lines = c["body"].splitlines()
+    notes = _prefixed([{**x, "body": "\n".join(lines[:k])} if x is c else x for x in i["comments"]], "进展")
+    return {"brief": "\n".join(lines[k:]), "at": _at(c["createdAt"]),
+            "progress": [{"body": b, "at": t} for b, t in notes[-PENDING_NOTES:]]}
+
+
 def github_board_data(root: Path) -> dict:
     """The same columns as board_data, read from the repository's GitHub issues."""
-    def at(iso: str) -> int:
-        return int(_dt.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp())
-
-    def prefixed(comments: list[dict], word: str) -> list[tuple[str, int]]:
-        """(body without the prefix, its `（who）` kept, time) of each comment opening with word, oldest first."""
-        out = []
-        for c in comments:
-            m = re.match(_GH_PREFIX.format(word), c["body"])
-            if m:
-                out.append(((m.group(1) or "") + c["body"][m.end():].strip(), at(c["createdAt"])))
-        return out
-
     # An owner decision says 拍板 or names an owner.
     names = [n.strip() for n in os.environ.get("NAWABAN_OWNER_NAMES", "").split(",") if n.strip()]
     # 「等负责人拍板」「待拍板」 ask for a decision: 等/待, at most a name (an owner's, or up to 4 characters), then 拍板
@@ -577,31 +655,13 @@ def github_board_data(root: Path) -> dict:
         m = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i.get("body") or "")
         return i["parent"]["number"] if i.get("parent") else int(m.group(1)) if m else None
 
-    def pending(i: dict) -> dict | None:
-        """The latest 待决：/需要你定： line followed by no 已决： line, in the body (raised at its creation) or a comment,
-        its text from that line on; with the issue's last PENDING_NOTES 进展, what precedes the line in its comment one of them."""
-        found = None
-        for c in [{"body": i.get("body") or "", "createdAt": i["createdAt"]}, *i["comments"]]:
-            for k, ln in enumerate(c["body"].splitlines()):
-                if prefixed([{"body": ln, "createdAt": c["createdAt"]}], "(?:待决|需要你定)"):
-                    found = (c, k)
-                elif prefixed([{"body": ln, "createdAt": c["createdAt"]}], "已决"):
-                    found = None
-        if not found:
-            return None
-        c, k = found
-        lines = c["body"].splitlines()
-        notes = prefixed([{**x, "body": "\n".join(lines[:k])} if x is c else x for x in i["comments"]], "进展")
-        return {"brief": "\n".join(lines[k:]), "at": at(c["createdAt"]),
-                "progress": [{"body": b, "at": t} for b, t in notes[-PENDING_NOTES:]]}
-
     since = time.time() - DECISIONS_RECENT
     tasks, recent = [], []
     for i in _gh_issues(root):
         if i.get("stateReason") == "NOT_PLANNED":
             continue
-        cs = i["comments"]
-        claims, notes, decisions = (prefixed(cs, p) for p in ("认领", "进展", "决定"))
+        cs = [{**c, "body": _MARKER.sub("", c["body"]).rstrip()} for c in i["comments"]]
+        claims, notes, decisions = (_prefixed(cs, p) for p in ("认领", "进展", "决定"))
         recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
                     "owner": any(w in waiting.sub("", body) for w in ["拍板", *names])}
                    for body, t in decisions if t >= since]
@@ -613,18 +673,18 @@ def github_board_data(root: Path) -> dict:
             "parent": f"#{parent}" if parent else None,
             # The claimant holds an open issue, as a session holds a board task.
             "session": claims[-1][0].split("\n", 1)[0] if claims and status != "done" else None,
-            "created_at": at(i["createdAt"]),
-            "active_at": max([at(i["updatedAt"])] + [at(c["createdAt"]) for c in cs]),
+            "created_at": _at(i["createdAt"]),
+            "active_at": max([_at(i["updatedAt"])] + [_at(c["createdAt"]) for c in cs]),
             "open_blockers": 0, "terminal": terminal.group(1) if terminal else None, "leader": None,
             "claimed_at": claims[0][1] if claims else None, "url": i.get("url")}
         if status == "done":
-            task["done_at"] = at(i["closedAt"])
+            task["done_at"] = _at(i["closedAt"])
         else:
             task["progress"] = {"body": notes[-1][0], "at": notes[-1][1]} if notes else None
             task["blocked_by"] = []
             task["waiting"] = None  # GLOSSARY: on GitHub a pending decision takes needs-info's place
             task["decision"] = {"at": decisions[-1][1], "verdict": _verdict(decisions[-1][0])} if decisions else None
-            task["pending"] = pending(i)
+            task["pending"] = _issue_pending(i)
         tasks.append(task)
     columns: dict[str, list] = {key: [] for key in COLUMNS}
     for t in sorted(tasks, key=lambda t: -t["active_at"]):
@@ -822,9 +882,9 @@ def _parser() -> argparse.ArgumentParser:
     g.add_argument("--done", action="store_true")
     g.add_argument("--cancelled", action="store_true")
     g.add_argument("--reopen", action="store_true")
-    p = sub.add_parser("event", help="记事件:note / decision / link")
+    p = sub.add_parser("event", help="记事件:note / decision / link;GitHub 记账的仓库另有 ask(待决)/ resolve(已决)")
     p.add_argument("id")
-    p.add_argument("--kind", required=True, choices=("note", "decision", "link"))
+    p.add_argument("--kind", required=True, choices=("note", "decision", "link", "ask", "resolve"))
     p.add_argument("--body", required=True)
     p.add_argument("--by", choices=("user",), help="user = 用户拍板")
     p = sub.add_parser("show", help="看一个任务")
@@ -859,6 +919,11 @@ def main(argv: list[str] | None = None) -> int:
         if a.verb == "brief":
             print(brief_text(any_board(path, None)[0]))
             return 0
+        if a.verb in ("claim", "close", "event") and _GH_ISSUE.fullmatch(a.id) and (root := github_root()):
+            print(gh_write(root, a))
+            return 0
+        if getattr(a, "kind", None) in ("ask", "resolve"):
+            raise Refused("ask / resolve 只用于 GitHub 记账的仓库(#N)")
         con = open_board(path)
         try:
             if a.verb == "backup":
