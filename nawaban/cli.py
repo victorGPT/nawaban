@@ -624,20 +624,27 @@ def repo_orchestrator(root: Path) -> str | None:
     return None
 
 
-def dispatch(root: Path, a) -> str:
-    """A worker in its own worktree off origin/main, briefed with the one report protocol; the ticket records where it runs."""
+def dispatch(root: Path, a, con: sqlite3.Connection | None = None) -> str:
+    """A worker in its own worktree off origin/main, briefed with the one report protocol; the ticket records where it runs.
+    con is the local board; None means root is GitHub-tracked and the ticket is issue #N."""
     import json
-    n = _GH_ISSUE.fullmatch(a.id).group(1) if a.id else None
-    if a.id and not n:
-        raise Refused(f"dispatch 只接 #N:{a.id}")
-    if n:
+    n = None
+    if a.id:
         identity()  # refuse before anything starts
-        if _gh_json(root, "issue", "view", n, "--json", "state").get("state") != "OPEN":
-            raise Refused(f"#{n} 不是开着的 issue")
+        if con is not None:
+            if _task(con, a.id)["status"] != "open":
+                raise Refused(f"{a.id} 不是开着的任务")
+        else:
+            m = _GH_ISSUE.fullmatch(a.id)
+            if not m:
+                raise Refused(f"GitHub 记账的仓库只接 #N:{a.id}")
+            n = m.group(1)
+            if _gh_json(root, "issue", "view", n, "--json", "state").get("state") != "OPEN":
+                raise Refused(f"{a.id} 不是开着的 issue")
     orch = repo_orchestrator(root)
     if not orch:
         raise Refused("没有活着的编排者(role=orchestrator)可收回报")
-    name = a.name or f"w-{n}"
+    name = a.name or (f"w-{n}" if n else a.id.lower())
     if not re.fullmatch(r"[a-z0-9_-]{1,32}", name):
         raise Refused(f"--name 只能 1-32 个 a-z 0-9 - _:{name}")
     wt, branch = root.parent / f"{root.name}-{name}", f"wt/{name}"
@@ -645,17 +652,21 @@ def dispatch(root: Path, a) -> str:
         r = subprocess.run(["git", "-C", str(root), *cmd], capture_output=True, text=True)
         if r.returncode != 0:
             raise Refused(f"git {cmd[0]} 失败:{r.stderr.strip()}")
-    who = f"#{n}" if n else name
+    who = a.id or name
+    ticket = (f"Issue：{a.id}（认领、进展用 nawaban 命令记，见 docs/agents/issue-tracker.md）" if n else
+              f"任务：{a.id}（nawaban show {a.id} 看全文；认领、进展、关闭用 nawaban 命令记）" if a.id else f"任务：{name}")
     brief = "\n".join([
-        f"/pstack:poteto-mode " + (f"Issue：#{n}（认领、进展用 nawaban 命令记，见 docs/agents/issue-tracker.md）" if n else f"任务：{name}"),
+        f"/pstack:poteto-mode {ticket}",
         f"worktree：{wt}（分支 {branch}，已从 origin/main 拉好；只在这里改，PR 合并或作废后 git worktree remove）",
         a.brief,
         f"验收：{a.accept}",
-        "完成或受阻：照抄其一，三段位置固定、段里的话自己写，详情在 issue 上：",
-        f'  hc send {orch} "回报：{who} 完成 | 结论一句 | 证据在哪（PR / issue 评论链接）"',
+        "完成或受阻：照抄其一，三段位置固定、段里的话自己写，详情记在票上：",
+        f'  hc send {orch} "回报：{who} 完成 | 结论一句 | 证据在哪（PR / 票上的记录）"',
         f'  hc send {orch} "回报：{who} 受阻 | 卡在什么 | 要谁做什么"',
     ])
-    r = subprocess.run(["hc", "run", "--bg", "--json", "--name", name, "--cwd", str(wt), "claude", "--model", a.model, brief],
+    # a local board the worker must reach even when it was named by --db
+    env = ["env", f"NAWABAN_DB={con.execute('PRAGMA database_list').fetchone()[2]}"] if con is not None else []
+    r = subprocess.run(["hc", "run", "--bg", "--json", "--name", name, "--cwd", str(wt), *env, "claude", "--model", a.model, brief],
                        capture_output=True, text=True)
     try:
         addr = json.loads(r.stdout)["address"]
@@ -663,12 +674,17 @@ def dispatch(root: Path, a) -> str:
         subprocess.run(["git", "-C", str(root), "worktree", "remove", "--force", str(wt)], capture_output=True)
         subprocess.run(["git", "-C", str(root), "branch", "-D", branch], capture_output=True)
         raise Refused(f"hc run 失败,worktree 已删:{(r.stderr or r.stdout).strip()}")
-    if n:
-        note = f"派给 hc {addr}（worktree {wt}，回报给 {orch}）\n验收：{a.accept}"
+    if a.id:
+        # `dispatch: <name>` opens a local note: the Herdr panel names the task's orchestrator by it
+        note = (f"dispatch: {name} · " if con is not None else "") + f"派给 hc {addr}（worktree {wt}，回报给 {orch}）\n验收：{a.accept}"
         try:
-            gh_post(root, n, "note", note)
-        except (Refused, OSError) as e:  # the worker runs: say so, and how to record it
-            raise Refused(f"已派给 hc {addr}（{wt}），但记票失败:{e}\n补记:nawaban event '#{n}' --kind note --body {shlex.quote(note)}")
+            if con is not None:
+                add_event(con, a.id, identity(), "note", note)
+                con.commit()
+            else:
+                gh_post(root, n, "note", note)
+        except (Refused, OSError, sqlite3.Error) as e:  # the worker runs: say so, and how to record it
+            raise Refused(f"已派给 hc {addr}（{wt}），但记票失败:{e}\n补记:nawaban event {shlex.quote(a.id)} --kind note --body {shlex.quote(note)}")
     return f"✓ dispatch {who} → hc {addr} · {wt}"
 
 
@@ -1000,9 +1016,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--project")
     p.add_argument("--parent")
     p.add_argument("--frontier", action="store_true", help="只列可开工:未关闭、没人认领、前置都已关闭")
-    p = sub.add_parser("dispatch", help="GitHub 记账的仓库:派 worker(worktree + hc run),终端号与验收记到 #N 上")
-    p.add_argument("id", nargs="?", help="#N;不带时只派活不记票(如每晚复盘)")
-    p.add_argument("--name", help="终端与 worktree 名,默认 w-<N>")
+    p = sub.add_parser("dispatch", help="派 worker(worktree + hc run,回报给编排者),终端号与验收记到票上")
+    p.add_argument("id", nargs="?", help="任务号;GitHub 记账的仓库是 #N;不带时只派活不记票(如每晚复盘)")
+    p.add_argument("--name", help="终端与 worktree 名,默认 w-<N> 或小写任务号")
     p.add_argument("--brief", required=True, help="目标、范围等派活说明正文")
     p.add_argument("--accept", required=True, help="验收:可检查的完成标准")
     p.add_argument("--model", default="opus")
@@ -1033,11 +1049,18 @@ def main(argv: list[str] | None = None) -> int:
             print(brief_text(any_board(path, None)[0]))
             return 0
         if a.verb == "dispatch":
-            if not (root := github_root()):
-                raise Refused("dispatch 只用于 GitHub 记账的仓库")
             if not (a.id or a.name):
-                raise Refused("不带 #N 时要给 --name")
-            print(dispatch(root, a))
+                raise Refused("不带任务号时要给 --name")
+            if root := github_root():
+                print(dispatch(root, a))
+                return 0
+            if not (root := _repo_root(Path.cwd().resolve())):
+                raise Refused("dispatch 要在 worker 改的 git 仓库里跑")
+            con = open_board(path)
+            try:
+                print(dispatch(root, a, con))
+            finally:
+                con.close()
             return 0
         if a.verb in ("claim", "close", "event") and _GH_ISSUE.fullmatch(a.id) and (root := github_root()):
             print(gh_write(root, a))

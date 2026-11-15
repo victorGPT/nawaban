@@ -98,10 +98,10 @@ Setting a task's session. A claim on a task another session holds fails and name
 _Avoid_: assign, start, lock.
 _Current identifiers_: CLI `claim`, `claim --take`, `claim --release`.
 
-**Leader**(leader)
-The session the user talks to about a piece of work. It does tasks itself and starts worker sessions. In Herdr a leader is a terminal with child terminals (`parent` in `terminals()`, the tree in Herdr's sidebar), and its workers are those children, whatever tracker they work from. On the board, a task's leader is the author of its latest `dispatch:` note, else the session holding it, else the session that last claimed it; the panel uses that only for tasks no window holds yet.
-leader 是用户就一摊工作直接对话的那个会话。它自己做一些任务，也开 worker 会话。在 Herdr 里，leader 是有子终端的终端（`terminals()` 的 `parent`，即 Herdr 侧边栏里的树），它的 worker 就是这些子终端，不管它们用哪个 tracker。在看板上，一个任务的 leader 是它最新一条 `dispatch:` note 的作者，没有时是持有它的会话，没人持有时是最后认领它的会话；面板只对还没有窗口在做的任务用这条。
-_Avoid_: 总经理, lead agent, dispatcher, coordinator.
+**Orchestrator**(编排者)
+The session the user talks to about a piece of work, declared by the owner typing `/nawaban:orchestrator`, which labels its terminal `role=orchestrator`; one per repository. It starts worker sessions and receives their reports. In Herdr an orchestrator is a terminal with child terminals (`parent` in `terminals()`, the tree in Herdr's sidebar), and its workers are those children, whatever tracker they work from. On the board, a task's orchestrator is the author of its latest `dispatch:` note, else the session holding it, else the session that last claimed it; the panel uses that only for tasks no window holds yet.
+编排者是用户就一摊工作直接对话的那个会话，由主人敲 `/nawaban:orchestrator` 声明，终端打上 `role=orchestrator` 标签；一个仓库一个。它开 worker 会话、收它们的回报。在 Herdr 里，编排者是有子终端的终端（`terminals()` 的 `parent`，即 Herdr 侧边栏里的树），它的 worker 就是这些子终端，不管它们用哪个 tracker。在看板上，一个任务的编排者是它最新一条 `dispatch:` note 的作者，没有时是持有它的会话，没人持有时是最后认领它的会话；面板只对还没有窗口在做的任务用这条。
+_Avoid_: leader, 带队会话, 总经理, lead agent, dispatcher, coordinator.
 _Current identifiers_: note `dispatch: <worker name>` (agent-center also writes `coord: dispatch {…}`).
 
 **Dispatch**(派活)
@@ -165,14 +165,14 @@ _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`.
 
 **Index**(索引)
-The md text a leader reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), stopped (no activity for 24 hours, with on whom) and moving, each with its spec, latest progress and next step; the user's decisions of the last 48 hours; the untouched; and a count of the closed. On GitHub it opens with the pending decisions, oldest first, by issue number and title. It is printed from `json board`'s data each time and never stored.
-索引是 leader 开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、停了（24 小时没动静，写明停在谁身上）、在推分组，每件带所属的 spec、最新进展和下一步；48 小时内用户拍的板；没动的；关掉的个数。在 GitHub 上最上面先列待决，按提出先后，只写 issue 号和标题。每次从 `json board` 的数据现打，从不存。
+The md text an orchestrator reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), stopped (no activity for 24 hours, with on whom) and moving, each with its spec, latest progress and next step; the user's decisions of the last 48 hours; the untouched; and a count of the closed. On GitHub it opens with the pending decisions, oldest first, by issue number and title. It is printed from `json board`'s data each time and never stored.
+索引是编排者开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、停了（24 小时没动静，写明停在谁身上）、在推分组，每件带所属的 spec、最新进展和下一步；48 小时内用户拍的板；没动的；关掉的个数。在 GitHub 上最上面先列待决，按提出先后，只写 issue 号和标题。每次从 `json board` 的数据现打，从不存。
 _Avoid_: wiki, summary file, status report.
 _Current identifiers_: CLI `index`; `NAWABAN_OWNER_NAMES`.
 
 **Herdr panel**(Herdr 面板)
-A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each leader and its workers are doing. On GitHub the top shows only the pending decisions, each opening its issue, with the window groups folded under them. Claiming, closing and dispatching stay with agents and the CLI.
-Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按 leader 列出当前 space 所在项目里每个 leader 和它的 worker 在做什么。在 GitHub 上最上面只列待决，点一行打开它的 issue，按窗口分组的部分折叠在下面。认领、关闭、派活仍由 agent 通过 CLI 完成。
+A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each orchestrator and its workers are doing. On GitHub the top shows only the pending decisions, each opening its issue, with the window groups folded under them. Claiming, closing and dispatching stay with agents and the CLI.
+Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按编排者列出当前 space 所在项目里每个编排者和它的 worker 在做什么。在 GitHub 上最上面只列待决，点一行打开它的 issue，按窗口分组的部分折叠在下面。认领、关闭、派活仍由 agent 通过 CLI 完成。
 _Avoid_: sidebar, shepherdr, board tab.
 _Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `cmd-shift-j`.
 

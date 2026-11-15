@@ -206,3 +206,28 @@ def test_dispatch_to_a_closed_issue_starts_nothing(gh):
     gh.issue["state"] = "CLOSED"
     assert gh.nawaban("dispatch", "#950", "--brief", "b", "--accept", "a")[0] == 1
     assert not any(c[:2] == ["hc", "run"] for c in gh)
+
+
+def test_dispatch_on_a_local_board_records_a_dispatch_note(tmp_path, monkeypatch, capsys):
+    repo = tmp_path / "proj"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    _with_origin(repo)
+    db = str(tmp_path / "b.db")
+    cli.main(["--db", db, "init"]); cli.main(["--db", db, "create", "P-01", "--title", "t", "--body", ""])
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("HC_TERMINAL_ID", "t9")
+    real_run, runs = subprocess.run, []
+
+    def run(args, **kw):
+        if args[0] != "hc":
+            return real_run(args, **kw)
+        runs.append(args)
+        return subprocess.CompletedProcess(args, 0, json.dumps({"address": "t77"} if args[1] == "run" else {"labels": {"role": "orchestrator"}}), "")
+    monkeypatch.setattr(subprocess, "run", run)
+    capsys.readouterr()
+    assert cli.main(["--db", db, "dispatch", "P-01", "--brief", "b", "--accept", "a"]) == 0
+    assert (tmp_path / "proj-p-01" / ".git").exists()
+    assert f"NAWABAN_DB={tmp_path / 'b.db'}" in runs[-1]
+    assert runs[-1][-1].startswith("/pstack:poteto-mode 任务：P-01") and 'hc send t9 "回报：P-01 完成' in runs[-1][-1]
+    cli.main(["--db", db, "show", "P-01"])
+    assert "dispatch: p-01 · 派给 hc t77" in capsys.readouterr().out
