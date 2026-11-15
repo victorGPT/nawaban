@@ -3,7 +3,8 @@
 # into a terminal the owner declared the orchestrator: `hc label $HC_TERMINAL_ID role=orchestrator`.
 # Every other session, and sessions outside Herdr, get nothing.
 [ -n "$HC_TERMINAL_ID" ] || exit 0
-hc get "$HC_TERMINAL_ID" --json 2>/dev/null | python3 -c '
+info=$(hc get "$HC_TERMINAL_ID" --json 2>/dev/null) || exit 0
+printf '%s' "$info" | python3 -c '
 import json, sys
 sys.exit(0 if (json.load(sys.stdin).get("labels") or {}).get("role") == "orchestrator" else 1)' 2>/dev/null || exit 0
 echo "nawaban index（现状索引，SessionStart 钩子注入；你是编排者，先读它再凭记忆补）："

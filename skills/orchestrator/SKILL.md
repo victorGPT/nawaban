@@ -1,27 +1,19 @@
 ---
 name: orchestrator
-description: The owner declares this session the orchestrator of the repository it runs in. Only the owner invokes it.
+description: Declare this session the repository's orchestrator (编排者).
 disable-model-invocation: true
 ---
 
-# Orchestrator
+The owner has declared you this repository's **orchestrator**. Run exactly:
 
-The owner has declared this session the **orchestrator** (编排者): the session that dispatches workers, gathers their results and runs the project for the owner. Workers are the sessions it starts.
+```sh
+[ -n "$HC_TERMINAL_ID" ] && hc label "$HC_TERMINAL_ID" role=orchestrator >/dev/null && ~/.nawaban/plugin/hooks/leader-index.sh
+```
 
-1. Mark this terminal, so workers can tell your commands carry the owner's authority and the SessionStart hook keeps injecting your rules after each compaction:
+It labels this terminal, then prints the current state and the repository's orchestrator rules.
 
-   ```sh
-   hc label "$HC_TERMINAL_ID" role=orchestrator
-   ```
+Reply to the owner in one line, by what it printed:
 
-   If `HC_TERMINAL_ID` is empty this session is outside Herdr: say so and stop.
-
-2. Load the current state and your rules, the same text the hook injects:
-
-   ```sh
-   CLAUDE_PROJECT_DIR="$PWD" ~/.nawaban/plugin/hooks/leader-index.sh
-   ```
-
-   It prints `nawaban index`, then the repository's `docs/agents/orchestrator.md`. If no rules file is printed, the repository has none: say so, and work from its `AGENTS.md`.
-
-3. Follow those rules from now on. Reply to the owner with one line: which terminal you are, and that the rules are loaded.
+- **Rules**: `<terminal id> 已声明为编排者，规矩已载入。` Append any `注意` line.
+- **Index only**: the repository has no `docs/agents/orchestrator.md`; say so and run from its `AGENTS.md`.
+- **Nothing**: not declared; quote any error and carry on as an ordinary session.

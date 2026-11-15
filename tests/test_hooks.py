@@ -4,9 +4,9 @@ from pathlib import Path
 HOOK = Path(__file__).resolve().parent.parent / "hooks" / "leader-index.sh"
 
 
-def _run(tmp_path, labels, branch=None, rules_file="orchestrator.md"):
+def _run(tmp_path, labels, branch=None, rules_file="orchestrator.md", hc_exit=0):
     bin_ = tmp_path / "bin"; bin_.mkdir(parents=True, exist_ok=True)
-    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': labels})}'\n"); (bin_ / "hc").chmod(0o755)
+    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': labels})}'\nexit {hc_exit}\n"); (bin_ / "hc").chmod(0o755)
     proj = tmp_path / "p"; (proj / "docs/agents").mkdir(parents=True, exist_ok=True)
     (proj / f"docs/agents/{rules_file}").write_text("规矩正文\n")
     if branch:
@@ -28,3 +28,7 @@ def test_an_undeclared_terminal_gets_nothing(tmp_path):
 def test_an_orchestrator_is_told_when_the_repository_is_off_main(tmp_path):
     assert "不在 main" in _run(tmp_path, {"role": "orchestrator"}, branch="fix/x")
     assert "不在 main" not in _run(tmp_path / "m", {"role": "orchestrator"}, branch="main")
+
+
+def test_nothing_when_hc_fails_even_if_it_printed_the_label(tmp_path):
+    assert _run(tmp_path, {"role": "orchestrator"}, hc_exit=7) == ""
