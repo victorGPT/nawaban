@@ -57,3 +57,9 @@ def test_a_marked_ask_is_pending_and_a_marked_resolve_ends_it(monkeypatch, capsy
 def test_a_resolve_is_the_owners_decision(monkeypatch, capsys):
     _, decisions = board(monkeypatch, capsys, [issue([marked("resolve", "选 A"), "决定：agent 自己定的"])])
     assert [(d["verdict"], d["owner"]) for d in decisions] == [("agent 自己定的", False), ("选 A", True)]
+
+
+def test_a_malformed_marker_falls_back_to_the_visible_text(monkeypatch, capsys):
+    bad = ['进展：可见\n<!-- nawaban {"kind": "note"} -->', '进展：可见二\n<!-- nawaban [1] -->']
+    tasks, _ = board(monkeypatch, capsys, [issue(bad)])
+    assert tasks["#1"]["progress"]["body"] == "可见二"

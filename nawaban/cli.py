@@ -619,7 +619,9 @@ def gh_write(root: Path, a) -> str:
 def _canonical(c: dict) -> dict:
     """A comment as the prefix readers see it: a marked one rewritten from its marker, so edits to its visible text do not count."""
     ev = read_marker(c["body"])
-    return {**c, "body": f"{GH_WORDS[ev['kind']]}：{ev['body']}"} if ev and ev.get("kind") in GH_WORDS else c
+    if isinstance(ev, dict) and ev.get("kind") in GH_WORDS and isinstance(ev.get("body"), str):
+        return {**c, "body": f"{GH_WORDS[ev['kind']]}：{ev['body']}"}
+    return {**c, "body": _MARKER.sub("", c["body"])}  # a malformed marker: read the visible text
 
 
 def _at(iso: str) -> int:
