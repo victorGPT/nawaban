@@ -47,6 +47,9 @@ def gh(tmp_path, monkeypatch, capsys):
     return calls
 
 
+CARD = ["--kr", "L2 前 5 相关率 ≥70%", "--context", "第 5 轮 84.3%", "--option", "A 接受｜two-way", "--option", "B 重判｜one-way", "--rec", "A"]
+
+
 def posted(calls):
     return [c[c.index("--body") + 1] for c in calls if c[:2] == ["issue", "comment"]]
 
@@ -64,8 +67,8 @@ def test_an_event_posts_its_prefix_for_people_and_a_marker_that_reads_back_exact
 
 def test_each_kind_keeps_the_prefix_the_old_readers_know(gh):
     for kind, word in [("decision", "决定"), ("link", "PR"), ("ask", "待决"), ("resolve", "已决")]:
-        assert gh.nawaban("event", "#950", "--kind", kind, "--body", "x")[0] == 0
-        assert posted(gh)[-1].startswith(f"{word}：x")
+        assert gh.nawaban("event", "#950", "--kind", kind, "--body", "x", *(CARD if kind == "ask" else []))[0] == 0
+        assert posted(gh)[-1].startswith(f"{word}：")
 
 
 def test_claim_assigns_the_issue_and_posts_a_claim_naming_the_terminal(gh):
@@ -100,11 +103,11 @@ def test_close_sets_the_issue_state(gh, flag, cmd):
 
 
 def test_a_second_pending_decision_on_one_issue_is_refused_until_resolved(gh):
-    assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B")[0] == 0
-    code, out = gh.nawaban("event", "#950", "--kind", "ask", "--body", "再定一件")
+    assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *CARD)[0] == 0
+    code, out = gh.nawaban("event", "#950", "--kind", "ask", "--body", "再定一件", *CARD)
     assert code == 1 and "已有待决" in out
     assert gh.nawaban("event", "#950", "--kind", "resolve", "--body", "A")[0] == 0
-    assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "再定一件")[0] == 0
+    assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "再定一件", *CARD)[0] == 0
 
 
 def test_only_the_orchestrator_records_a_resolution(gh, monkeypatch):
@@ -231,3 +234,44 @@ def test_dispatch_on_a_local_board_records_a_dispatch_note(tmp_path, monkeypatch
     assert runs[-1][-1].startswith("/pstack:poteto-mode 任务：P-01") and 'hc send t9 "回报：P-01 完成' in runs[-1][-1]
     cli.main(["--db", db, "show", "P-01"])
     assert "dispatch: p-01 · 派给 hc t77" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("drop", ["--kr", "--context", "--rec"])
+def test_a_decision_card_missing_a_field_is_refused_before_posting(gh, drop):
+    i = CARD.index(drop)
+    code, out = gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *CARD[:i], *CARD[i + 2:])
+    assert code == 1 and drop in out and posted(gh) == []
+
+
+def test_a_decision_card_needs_two_options(gh):
+    one = CARD[:6] + CARD[8:]  # only option A
+    code, out = gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *one)
+    assert code == 1 and "--option" in out and posted(gh) == []
+
+
+def test_ask_posts_the_card_in_order_and_marks_its_kr(gh):
+    assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *CARD)[0] == 0
+    [comment] = posted(gh)
+    heads = ["【Decision】定 A 还是 B", "【Objective / KR】L2 前 5 相关率 ≥70%", "【Context】第 5 轮 84.3%",
+             "【Options】\n- A 接受｜two-way\n- B 重判｜one-way", "【Recommendation】A"]
+    at = [comment.index(h) for h in heads]
+    assert at == sorted(at)
+    assert cli.read_marker(comment)["kr"] == "L2 前 5 相关率 ≥70%"
+
+
+def test_a_delegated_decision_carries_its_kr(gh, tmp_path, capsys):
+    assert gh.nawaban("event", "#950", "--kind", "decision", "--body", "先修一轮", "--kr", "KR1")[0] == 0
+    [comment] = posted(gh)
+    assert comment.startswith("决定：[KR1] 先修一轮") and cli.read_marker(comment)["kr"] == "KR1"
+    db = str(tmp_path / "b.db")
+    cli.main(["--db", db, "init"])
+    cli.main(["--db", db, "create", "T", "--title", "t", "--body", ""])
+    assert cli.main(["--db", db, "event", "T", "--kind", "decision", "--body", "先修一轮", "--kr", "KR1"]) == 0
+    capsys.readouterr()
+    cli.main(["--db", db, "show", "T"])
+    assert "[KR1] 先修一轮" in capsys.readouterr().out
+
+
+def test_kr_belongs_only_to_asks_and_decisions(gh):
+    code, out = gh.nawaban("event", "#950", "--kind", "note", "--body", "x", "--kr", "KR1")
+    assert code == 1 and "--kr" in out and posted(gh) == []

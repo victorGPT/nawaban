@@ -306,6 +306,25 @@ def close(con, a) -> str:
     return f"✓ close {a.id} → {to}"
 
 
+def card(a) -> None:
+    """Spec NAWABAN-OKR: an ask is a decision card hung on a KR; a decision may name the KR it serves."""
+    if a.kr and a.kind not in ("ask", "decision"):
+        raise Refused("--kr 只给 ask(待决)和 decision")
+    if a.kind != "ask":
+        if a.context or a.option or a.rec:
+            raise Refused("--context / --option / --rec 只给 ask(待决)")
+        if a.kr:
+            a.body = f"[{a.kr}] {a.body}"
+        return
+    missing = [f for f, v in (("--kr", a.kr), ("--context", a.context), ("--rec", a.rec)) if not v]
+    if len(a.option or []) < 2:
+        missing.append("--option(至少两个)")
+    if missing:
+        raise Refused("决策卡缺 " + " ".join(missing))
+    a.body = "\n".join([f"【Decision】{a.body}", f"【Objective / KR】{a.kr}", f"【Context】{a.context}",
+                        "【Options】", *(f"- {o}" for o in a.option), f"【Recommendation】{a.rec}"])
+
+
 def event(con, a) -> str:
     _task(con, a.id)
     author = "user" if a.by else identity()
@@ -583,11 +602,13 @@ def read_marker(comment: str) -> dict | None:
         return None
 
 
-def gh_post(root: Path, number: str, kind: str, body: str) -> None:
+def gh_post(root: Path, number: str, kind: str, body: str, kr: str | None = None) -> None:
     """One comment: the prefixed body for people, then the full event for code."""
     import uuid
     ev = {"v": 1, "uid": str(uuid.uuid4()), "kind": kind, "author": identity(),
           "terminal": herdr_terminal(), "at": int(time.time()), "body": body}
+    if kr:
+        ev["kr"] = kr
     _gh(root, "issue", "comment", number, "--body", f"{GH_WORDS[kind]}：{body}\n\n{marker(ev)}")
 
 
@@ -712,7 +733,7 @@ def gh_write(root: Path, a) -> str:
         issue = _gh_json(root, "issue", "view", n, "--json", "body,createdAt,comments")
         if _issue_pending(issue):
             raise Refused(f"{a.id} 已有待决,一个 issue 只放一件;先记已决,或开子 issue")
-    gh_post(root, n, a.kind, a.body)
+    gh_post(root, n, a.kind, a.body, a.kr)
     return f"✓ event {a.id} · {a.kind}"
 
 
@@ -1010,6 +1031,10 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--kind", required=True, choices=("note", "decision", "link", "ask", "resolve"))
     p.add_argument("--body", required=True)
     p.add_argument("--by", choices=("user",), help="user = 用户拍板")
+    p.add_argument("--kr", help="挂哪个 Objective / KR;ask 必填,decision 可选")
+    p.add_argument("--context", help="ask:只写影响这次决策的事实")
+    p.add_argument("--option", action="append", help="ask:每个选项一次,写 trade-off 和 one-way / two-way door;至少两个")
+    p.add_argument("--rec", help="ask:Recommendation")
     p = sub.add_parser("show", help="看一个任务")
     p.add_argument("id")
     p = sub.add_parser("list", help="列任务")
@@ -1063,6 +1088,8 @@ def main(argv: list[str] | None = None) -> int:
                 con.close()
             return 0
         if a.verb in ("claim", "close", "event") and _GH_ISSUE.fullmatch(a.id) and (root := github_root()):
+            if a.verb == "event":
+                card(a)
             print(gh_write(root, a))
             return 0
         if getattr(a, "kind", None) in ("ask", "resolve"):
@@ -1080,6 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
             elif a.verb == "close":
                 out = close(con, a)
             elif a.verb == "event":
+                card(a)
                 out = event(con, a)
             elif a.verb == "show":
                 out = show(con, a)
