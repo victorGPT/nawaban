@@ -144,3 +144,25 @@ def test_a_reading_just_below_the_target_is_missed_however_many_digits(repo, cap
         '[[objective.kr]]\nname = "J"\ntarget = ">= 1.0000000000000001"\nmeasure = "echo 1 today"\n')
     _, out = okr(capsys)
     assert "0/2 达标" in out
+
+
+def test_a_reading_older_than_max_age_days_is_stale_not_met(repo, capsys):
+    import datetime
+    d = lambda n: (datetime.date.today() - datetime.timedelta(days=n)).isoformat()
+    (repo / "docs" / "agents" / "okr.toml").write_text(
+        '[[objective]]\nname = "O"\n'
+        f'[[objective.kr]]\nname = "新"\ntarget = ">= 1"\nmax_age_days = 7\nmeasure = "echo \'5 {d(2)} report.md\'"\n'
+        f'[[objective.kr]]\nname = "旧"\ntarget = ">= 1"\nmax_age_days = 7\nmeasure = "echo \'5 {d(10)}\'"\n'
+        '[[objective.kr]]\nname = "无日期"\ntarget = ">= 1"\nmax_age_days = 7\nmeasure = "echo \'5 latest\'"\n')
+    _, out = okr(capsys)
+    assert "1/3 达标" in out and line(out, "新").startswith("  ✓")
+    assert line(out, "旧").startswith("  ⌛") and "测量过期" in line(out, "旧")
+    assert "测量失败" in line(out, "无日期")
+
+
+@pytest.mark.parametrize("age", ["-1", "true", '"7"', "1.5"])
+def test_a_bad_max_age_days_refuses_the_file(repo, capsys, age):
+    (repo / "docs" / "agents" / "okr.toml").write_text(
+        f'[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nmax_age_days = {age}\n')
+    code, out = okr(capsys)
+    assert code == 1 and "max_age_days" in out

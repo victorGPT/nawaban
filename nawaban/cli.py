@@ -603,6 +603,16 @@ def _measure(root: Path, cmd: str) -> tuple[Decimal, str] | str:
     return (Decimal(m.group(1)), m.group(2)) if m else f"最后一行不是「数值 截至」：{last[:60]!r}"
 
 
+def _stale(as_of: str, max_days: int) -> str:
+    """Why a reading is too old to count (SLO measurement window), or "" when it is fresh."""
+    try:
+        day = _dt.date.fromisoformat(as_of[:10])
+    except ValueError:
+        return f"测量失败：设了 max_age_days，截至要以 YYYY-MM-DD 开头：{as_of[:30]!r}"
+    old = (_dt.date.today() - day).days
+    return f"测量过期：截至 {day}，已 {old} 天，超过 {max_days} 天" if old > max_days else ""
+
+
 def okr_text(root: Path) -> str:
     """Each Objective with its KRs measured now; only a measured value meeting its target counts as met."""
     import tomllib
@@ -622,6 +632,9 @@ def okr_text(root: Path) -> str:
                 raise Refused(f"{OKR_FILE}:{o.get('name')} 下有一条 KR 没写 name")
             if not all(isinstance(kr.get(k, ""), str) for k in ("measure", "unit")):
                 raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 measure、unit 要写成字符串")
+            age = kr.get("max_age_days", 0)
+            if isinstance(age, bool) or not isinstance(age, int) or age < 0:
+                raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 max_age_days 要写成非负整数")
             if not isinstance(kr.get("target"), str) or not _TARGET.fullmatch(kr["target"].strip()):
                 raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr.get('name')} 的 target 要写成「>= 95」这样")
     git = lambda *a: subprocess.run(["git", *a], cwd=root, capture_output=True, text=True).stdout.strip()
@@ -638,6 +651,8 @@ def okr_text(root: Path) -> str:
                 rows.append(f"  · {kr['name']}  未测 / {want}")
             elif isinstance(got, str):
                 rows.append(f"  ! {kr['name']}  测量失败：{got}")
+            elif kr.get("max_age_days") is not None and (stale := _stale(got[1], kr["max_age_days"])):
+                rows.append(f"  ⌛ {kr['name']}  {got[0]:.1f}{unit} / {want}  {stale}")
             else:
                 ok = _CMP[op](got[0], Decimal(goal))
                 met += ok
