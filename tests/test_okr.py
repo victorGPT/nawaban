@@ -110,3 +110,20 @@ def test_no_definitions_file_is_refused(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     code, out = okr(capsys)
     assert code == 1 and "docs/agents/okr.toml" in out
+
+
+def test_a_kr_without_a_name_or_with_a_numeric_target_refuses_the_file(repo, capsys):
+    path = repo / "docs" / "agents" / "okr.toml"
+    path.write_text('[[objective]]\nname = "O"\n[[objective.kr]]\ntarget = ">= 95"\n')
+    assert okr(capsys)[0] == 1
+    path.write_text('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = 95\n')
+    code, out = okr(capsys)
+    assert code == 1 and "target" in out
+
+
+def test_a_measure_printing_bad_bytes_fails_that_kr_only(repo, capsys):
+    (repo / "docs" / "agents" / "okr.toml").write_text(
+        '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "坏字节"\ntarget = ">= 1"\nmeasure = "printf \'\\\\377\'"\n'
+        '[[objective.kr]]\nname = "好的"\ntarget = ">= 1"\nmeasure = "echo \'2 today\'"\n')
+    code, out = okr(capsys)
+    assert code == 0 and "测量失败" in line(out, "坏字节") and line(out, "好的").startswith("  ✓")

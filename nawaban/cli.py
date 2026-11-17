@@ -590,7 +590,8 @@ _CMP = {">=": float.__ge__, "<=": float.__le__, ">": float.__gt__, "<": float.__
 def _measure(root: Path, cmd: str) -> tuple[float, str] | str:
     """(value, as-of) from the last stdout line `<number> <as-of>`, or why it could not be read."""
     try:
-        r = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, text=True, timeout=MEASURE_TIMEOUT)
+        r = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, text=True,
+                           errors="replace", timeout=MEASURE_TIMEOUT)
     except subprocess.TimeoutExpired:
         return f"超时（{MEASURE_TIMEOUT}s）"
     if r.returncode != 0:
@@ -612,7 +613,9 @@ def okr_text(root: Path) -> str:
         raise Refused(f"{OKR_FILE} 不是合法 TOML:{e}")
     for o in objectives:  # a wrong target misreports every run: refuse the file, never skip the KR
         for kr in o.get("kr", []):
-            if not _TARGET.fullmatch(str(kr.get("target", "")).strip()):
+            if not kr.get("name"):
+                raise Refused(f"{OKR_FILE}:{o.get('name')} 下有一条 KR 没写 name")
+            if not isinstance(kr.get("target"), str) or not _TARGET.fullmatch(kr["target"].strip()):
                 raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr.get('name')} 的 target 要写成「>= 95」这样")
     git = lambda *a: subprocess.run(["git", *a], cwd=root, capture_output=True, text=True).stdout.strip()
     head = git("log", "-1", "--format=%h %cs", "--", OKR_FILE) or "未提交"
