@@ -616,8 +616,10 @@ def okr_text(root: Path) -> str:
         raise Refused(f"{OKR_FILE} 要写成 [[objective]] 下挂 [[objective.kr]]")
     for o in objectives:  # a wrong target misreports every run: refuse the file, never skip the KR
         for kr in o.get("kr", []):
-            if not kr.get("name"):
+            if not isinstance(kr.get("name"), str) or not kr["name"]:
                 raise Refused(f"{OKR_FILE}:{o.get('name')} 下有一条 KR 没写 name")
+            if not all(isinstance(kr.get(k, ""), str) for k in ("measure", "unit")):
+                raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 measure、unit 要写成字符串")
             if not isinstance(kr.get("target"), str) or not _TARGET.fullmatch(kr["target"].strip()):
                 raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr.get('name')} 的 target 要写成「>= 95」这样")
     git = lambda *a: subprocess.run(["git", *a], cwd=root, capture_output=True, text=True).stdout.strip()

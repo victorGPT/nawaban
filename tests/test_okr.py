@@ -129,7 +129,9 @@ def test_a_measure_printing_bad_bytes_fails_that_kr_only(repo, capsys):
     assert code == 0 and "测量失败" in line(out, "坏字节") and line(out, "好的").startswith("  ✓")
 
 
-@pytest.mark.parametrize("body", [b"\xff", b"objective = 5\n", b'[[objective]]\nname = "O"\nkr = [1]\n'])
+@pytest.mark.parametrize("body", [b"\xff", b"objective = 5\n", b'[[objective]]\nname = "O"\nkr = [1]\n',
+                                  b'[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nmeasure = true\n',
+                                  b'[[objective]]\nname = "O"\n[[objective.kr]]\nname = 3\ntarget = ">= 1"\n'])
 def test_a_definitions_file_of_the_wrong_shape_is_refused(repo, capsys, body):
     (repo / "docs" / "agents" / "okr.toml").write_bytes(body)
     code, out = okr(capsys)
