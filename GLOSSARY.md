@@ -116,6 +116,12 @@ A pending decision put to the owner, hung on the Objective or KR it serves: the 
 _Avoid_: 决策简报, 来龙去脉.
 _Current identifiers_: CLI `event --kind ask --kr --context --option --rec`.
 
+**OKR progress**(OKR 进度)
+The owner's Progress view: each Objective with its KRs, each KR's current value measured now against its target. A repository defines them in `docs/agents/okr.toml`; each KR's `measure` is a command that reads results already produced and prints `<number> <as-of>`. Only a measured value that meets its target counts as met; a KR with no measure is untested, and one whose measure fails says why. A KR with `max_age_days` whose reading is older than that is stale and does not count as met.
+OKR 进度是主人看的 Progress：每个 Objective 和它的 KR，每条 KR 当场量出的现值对目标。仓库在 `docs/agents/okr.toml` 定义；每条 KR 的 `measure` 是一条命令，只读已有结果，打印「数值 截至」。只有量出来且满足目标的才算达标；没写测量的算未测，测量失败的写明原因；设了 `max_age_days` 而读数比它旧的算过期，不算达标。
+_Avoid_: 进度汇报（口述的）.
+_Current identifiers_: CLI `okr`, file `docs/agents/okr.toml`.
+
 ### Events
 
 **Event**(事件)
