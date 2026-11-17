@@ -578,6 +578,64 @@ def _gh_issues(root: Path) -> list[dict]:
             for i in _gh_json(root, "issue", "list", *state, "--limit", "1000", "--json", _GH_FIELDS)]
 
 
+# ── OKR progress (spec NAWABAN-OKR) ──
+
+OKR_FILE = "docs/agents/okr.toml"
+MEASURE_TIMEOUT = 60  # seconds per KR; a measure reads results already produced, it never runs an eval
+_TARGET = re.compile(r"(>=|<=|>|<|==)\s*(-?\d+(?:\.\d+)?)")
+_READING = re.compile(r"(-?\d+(?:\.\d+)?)\s+(\S.*)")
+_CMP = {">=": float.__ge__, "<=": float.__le__, ">": float.__gt__, "<": float.__lt__, "==": float.__eq__}
+
+
+def _measure(root: Path, cmd: str) -> tuple[float, str] | str:
+    """(value, as-of) from the last stdout line `<number> <as-of>`, or why it could not be read."""
+    try:
+        r = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, text=True, timeout=MEASURE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return f"超时（{MEASURE_TIMEOUT}s）"
+    if r.returncode != 0:
+        return f"退出码 {r.returncode}：" + (r.stderr.strip().splitlines() or [""])[-1][:120]
+    last = (r.stdout.strip().splitlines() or [""])[-1].strip()
+    m = _READING.fullmatch(last)
+    return (float(m.group(1)), m.group(2)) if m else f"最后一行不是「数值 截至」：{last[:60]!r}"
+
+
+def okr_text(root: Path) -> str:
+    """Each Objective with its KRs measured now; only a measured value meeting its target counts as met."""
+    import tomllib
+    path = root / OKR_FILE
+    if not path.is_file():
+        raise Refused(f"没有 {OKR_FILE}:KR 定义写在仓库里,O 由主人定、KR 由主人点头")
+    try:
+        objectives = tomllib.loads(path.read_text()).get("objective", [])
+    except tomllib.TOMLDecodeError as e:
+        raise Refused(f"{OKR_FILE} 不是合法 TOML:{e}")
+    for o in objectives:  # a wrong target misreports every run: refuse the file, never skip the KR
+        for kr in o.get("kr", []):
+            if not _TARGET.fullmatch(str(kr.get("target", "")).strip()):
+                raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr.get('name')} 的 target 要写成「>= 95」这样")
+    git = lambda *a: subprocess.run(["git", *a], cwd=root, capture_output=True, text=True).stdout.strip()
+    head = git("log", "-1", "--format=%h %cs", "--", OKR_FILE) or "未提交"
+    dirty = "（有未提交改动）" if git("status", "--porcelain", "--", OKR_FILE) else ""
+    out = [f"OKR · 定义 {OKR_FILE} @ {head}{dirty}"]
+    for o in objectives:
+        rows, met = [], 0
+        for kr in o.get("kr", []):
+            op, goal = _TARGET.fullmatch(kr["target"].strip()).groups()
+            unit, want = kr.get("unit", ""), f"{op} {goal}{kr.get('unit', '')}"
+            got = _measure(root, kr["measure"]) if kr.get("measure") else None
+            if got is None:
+                rows.append(f"  · {kr['name']}  未测 / {want}")
+            elif isinstance(got, str):
+                rows.append(f"  ! {kr['name']}  测量失败：{got}")
+            else:
+                ok = _CMP[op](got[0], float(goal))
+                met += ok
+                rows.append(f"  {'✓' if ok else '✗'} {kr['name']}  {got[0]:.1f}{unit} / {want}  截至 {got[1]}")
+        out += [f"O {o.get('name')} · {met}/{len(rows)} 达标", *rows]
+    return "\n".join(out)
+
+
 # ── writes to a GitHub-tracked repository (spec NAWABAN-PROTO) ──
 
 # Each kind's visible prefix is the one people and the older readers already know.
@@ -1055,6 +1113,7 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("brief", help="GitHub 记账的仓库:每件待决的原文、所在 issue、该 issue 最近的进展")
     p = sub.add_parser("index", help="等你 / 停了 / 在推的 md 索引(读 json board 同一份数据,只打到 stdout)")
     p.add_argument("--project", help="只看这个项目")
+    sub.add_parser("okr", help=f"各 O 的 KR 现值对目标:跑 {OKR_FILE} 里每条 KR 的测量,只读")
     return ap
 
 
@@ -1067,6 +1126,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if a.verb == "json":
             return json_out(path, a)
+        if a.verb == "okr":
+            r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+            if r.returncode != 0:
+                raise Refused("okr 要在 git 仓库里跑")
+            print(okr_text(Path(r.stdout.strip())))
+            return 0
         if a.verb == "index":
             print(index_text(*any_board(path, a.project)))
             return 0
