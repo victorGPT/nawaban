@@ -17,6 +17,7 @@ import sys
 import time
 from collections import Counter
 from contextlib import closing
+from decimal import Decimal
 from pathlib import Path
 
 VERSION = 1  # PRAGMA user_version; old-schema boards read 0
@@ -584,10 +585,11 @@ OKR_FILE = "docs/agents/okr.toml"
 MEASURE_TIMEOUT = 60  # seconds per KR; a measure reads results already produced, it never runs an eval
 _TARGET = re.compile(r"(>=|<=|>|<|==)\s*(-?\d+(?:\.\d+)?)")
 _READING = re.compile(r"(-?\d+(?:\.\d+)?)\s+(\S.*)")
-_CMP = {">=": float.__ge__, "<=": float.__le__, ">": float.__gt__, "<": float.__lt__, "==": float.__eq__}
+_CMP = {">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b, ">": lambda a, b: a > b, "<": lambda a, b: a < b,
+        "==": lambda a, b: a == b}  # on Decimal: a float would round 1.0000000000000001 down to 1
 
 
-def _measure(root: Path, cmd: str) -> tuple[float, str] | str:
+def _measure(root: Path, cmd: str) -> tuple[Decimal, str] | str:
     """(value, as-of) from the last stdout line `<number> <as-of>`, or why it could not be read."""
     try:
         r = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, text=True,
@@ -598,7 +600,7 @@ def _measure(root: Path, cmd: str) -> tuple[float, str] | str:
         return f"退出码 {r.returncode}：" + (r.stderr.strip().splitlines() or [""])[-1][:120]
     last = (r.stdout.strip().splitlines() or [""])[-1].strip()
     m = _READING.fullmatch(last)
-    return (float(m.group(1)), m.group(2)) if m else f"最后一行不是「数值 截至」：{last[:60]!r}"
+    return (Decimal(m.group(1)), m.group(2)) if m else f"最后一行不是「数值 截至」：{last[:60]!r}"
 
 
 def okr_text(root: Path) -> str:
@@ -637,7 +639,7 @@ def okr_text(root: Path) -> str:
             elif isinstance(got, str):
                 rows.append(f"  ! {kr['name']}  测量失败：{got}")
             else:
-                ok = _CMP[op](got[0], float(goal))
+                ok = _CMP[op](got[0], Decimal(goal))
                 met += ok
                 rows.append(f"  {'✓' if ok else '✗'} {kr['name']}  {got[0]:.1f}{unit} / {want}  截至 {got[1]}")
         out += [f"O {o.get('name')} · {met}/{len(rows)} 达标", *rows]

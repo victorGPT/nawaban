@@ -136,3 +136,11 @@ def test_a_definitions_file_of_the_wrong_shape_is_refused(repo, capsys, body):
     (repo / "docs" / "agents" / "okr.toml").write_bytes(body)
     code, out = okr(capsys)
     assert code == 1 and "okr.toml" in out
+
+
+def test_a_reading_just_below_the_target_is_missed_however_many_digits(repo, capsys):
+    (repo / "docs" / "agents" / "okr.toml").write_text(
+        '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 9007199254740993"\nmeasure = "echo 9007199254740992 today"\n'
+        '[[objective.kr]]\nname = "J"\ntarget = ">= 1.0000000000000001"\nmeasure = "echo 1 today"\n')
+    _, out = okr(capsys)
+    assert "0/2 达标" in out
