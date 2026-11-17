@@ -584,7 +584,7 @@ def _gh_issues(root: Path) -> list[dict]:
 OKR_FILE = "docs/agents/okr.toml"
 MEASURE_TIMEOUT = 60  # seconds per KR; a measure reads results already produced, it never runs an eval
 _TARGET = re.compile(r"(>=|<=|>|<|==)\s*(-?\d+(?:\.\d+)?)")
-_READING = re.compile(r"(-?\d+(?:\.\d+)?)\s+(\S.*)")
+_READING = re.compile(r"(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s+(\S.*)")
 _CMP = {">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b, ">": lambda a, b: a > b, "<": lambda a, b: a < b,
         "==": lambda a, b: a == b}  # on Decimal: a float would round 1.0000000000000001 down to 1
 

@@ -183,3 +183,10 @@ def test_a_nul_in_a_measure_refuses_the_file(repo, capsys):
         '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nmeasure = "echo \\u0000"\n')
     code, out = okr(capsys)
     assert code == 1 and "measure" in out
+
+
+def test_a_reading_in_scientific_notation_is_read(repo, capsys):
+    (repo / "docs" / "agents" / "okr.toml").write_text(
+        '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = "> 0"\nmeasure = "echo 1e-05 today"\n')
+    _, out = okr(capsys)
+    assert "1/1 达标" in out
