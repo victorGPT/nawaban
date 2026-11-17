@@ -598,6 +598,8 @@ def _measure(root: Path, cmd: str) -> tuple[Decimal, str] | str:
         return f"超时（{MEASURE_TIMEOUT}s）"
     if r.returncode != 0:
         return f"退出码 {r.returncode}：" + (r.stderr.strip().splitlines() or [""])[-1][:120]
+    if "\ufffd" in r.stdout:
+        return "输出不是 UTF-8"
     last = (r.stdout.strip().splitlines() or [""])[-1].strip()
     m = _READING.fullmatch(last)
     return (Decimal(m.group(1)), m.group(2)) if m else f"最后一行不是「数值 截至」：{last[:60]!r}"
@@ -606,6 +608,8 @@ def _measure(root: Path, cmd: str) -> tuple[Decimal, str] | str:
 def _stale(as_of: str, max_days: int) -> str:
     """Why a reading is too old to count (SLO measurement window), or "" when it is fresh."""
     try:
+        if not re.match(r"\d{4}-\d\d-\d\d", as_of):
+            raise ValueError
         day = _dt.date.fromisoformat(as_of[:10])
     except ValueError:
         return f"测量失败：设了 max_age_days，截至要以 YYYY-MM-DD 开头：{as_of[:30]!r}"
@@ -630,7 +634,7 @@ def okr_text(root: Path) -> str:
         for kr in o.get("kr", []):
             if not isinstance(kr.get("name"), str) or not kr["name"]:
                 raise Refused(f"{OKR_FILE}:{o.get('name')} 下有一条 KR 没写 name")
-            if not all(isinstance(kr.get(k, ""), str) for k in ("measure", "unit")):
+            if not all(isinstance(kr.get(k, ""), str) and "\0" not in kr.get(k, "") for k in ("measure", "unit")):
                 raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 measure、unit 要写成字符串")
             age = kr.get("max_age_days", 0)
             if isinstance(age, bool) or not isinstance(age, int) or age < 0:

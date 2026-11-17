@@ -166,3 +166,19 @@ def test_a_bad_max_age_days_refuses_the_file(repo, capsys, age):
         f'[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nmax_age_days = {age}\n')
     code, out = okr(capsys)
     assert code == 1 and "max_age_days" in out
+
+
+def test_a_reading_with_bad_bytes_or_a_compact_date_never_counts(repo, capsys):
+    (repo / "docs" / "agents" / "okr.toml").write_text(
+        '[[objective]]\nname = "O"\n'
+        '[[objective.kr]]\nname = "坏截至"\ntarget = ">= 1"\nmeasure = "printf \'2 \\\\377\'"\n'
+        '[[objective.kr]]\nname = "紧凑日期"\ntarget = ">= 1"\nmax_age_days = 7\nmeasure = "echo 2 $(date +%Y%m%d)"\n')
+    _, out = okr(capsys)
+    assert "0/2 达标" in out and "测量失败" in line(out, "坏截至") and "测量失败" in line(out, "紧凑日期")
+
+
+def test_a_nul_in_a_measure_refuses_the_file(repo, capsys):
+    (repo / "docs" / "agents" / "okr.toml").write_text(
+        '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nmeasure = "echo \\u0000"\n')
+    code, out = okr(capsys)
+    assert code == 1 and "measure" in out
