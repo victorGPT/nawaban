@@ -608,9 +608,12 @@ def okr_text(root: Path) -> str:
     if not path.is_file():
         raise Refused(f"没有 {OKR_FILE}:KR 定义写在仓库里,O 由主人定、KR 由主人点头")
     try:
-        objectives = tomllib.loads(path.read_text()).get("objective", [])
-    except tomllib.TOMLDecodeError as e:
-        raise Refused(f"{OKR_FILE} 不是合法 TOML:{e}")
+        objectives = tomllib.loads(path.read_text(encoding="utf-8")).get("objective", [])
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+        raise Refused(f"{OKR_FILE} 不是合法的 UTF-8 TOML:{e}")
+    if not (isinstance(objectives, list) and all(isinstance(o, dict) and isinstance(o.get("kr", []), list)
+                                                 and all(isinstance(k, dict) for k in o.get("kr", [])) for o in objectives)):
+        raise Refused(f"{OKR_FILE} 要写成 [[objective]] 下挂 [[objective.kr]]")
     for o in objectives:  # a wrong target misreports every run: refuse the file, never skip the KR
         for kr in o.get("kr", []):
             if not kr.get("name"):
