@@ -81,6 +81,14 @@ def test_no_measure_is_untested_and_a_broken_measure_says_why(repo, capsys):
     assert "测量失败" in line(out, "没写日期") and "测量失败" in line(out, "不是数")
 
 
+def test_a_crash_names_the_error_line_not_the_runtime_footer(repo, capsys):
+    (repo / "docs" / "agents" / "okr.toml").write_text(
+        '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "崩"\ntarget = ">= 1"\n'
+        'measure = "printf \'  at x\\\\nError [ERR_MODULE_NOT_FOUND]: no pkg\\\\n  at y\\\\n\\\\nNode.js v26\\\\n\' >&2; exit 1"\n')
+    _, out = okr(capsys)
+    assert "ERR_MODULE_NOT_FOUND" in line(out, "崩")
+
+
 def test_a_slow_measure_fails_instead_of_hanging(repo, capsys, monkeypatch):
     monkeypatch.setattr(cli, "MEASURE_TIMEOUT", 0.5)
     (repo / "docs" / "agents" / "okr.toml").write_text(

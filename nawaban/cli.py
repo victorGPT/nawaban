@@ -597,7 +597,9 @@ def _measure(root: Path, cmd: str) -> tuple[Decimal, str] | str:
     except subprocess.TimeoutExpired:
         return f"超时（{MEASURE_TIMEOUT}s）"
     if r.returncode != 0:
-        return f"退出码 {r.returncode}：" + (r.stderr.strip().splitlines() or [""])[-1][:120]
+        err = r.stderr.strip().splitlines() or [""]
+        # ponytail: first line naming an error beats a runtime footer like "Node.js v26"; else the last line
+        return f"退出码 {r.returncode}：" + next((l for l in err if "rror" in l), err[-1]).strip()[:120]
     if "\ufffd" in r.stdout:
         return "输出不是 UTF-8"
     last = (r.stdout.strip().splitlines() or [""])[-1].strip()
