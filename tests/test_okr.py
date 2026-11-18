@@ -89,6 +89,14 @@ def test_a_crash_names_the_error_line_not_the_runtime_footer(repo, capsys):
     assert "ERR_MODULE_NOT_FOUND" in line(out, "崩")
 
 
+def test_a_python_crash_names_the_exception_not_a_traceback_path(repo, capsys):
+    (repo / "docs" / "agents" / "okr.toml").write_text(
+        '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "崩"\ntarget = ">= 1"\n'
+        'measure = "python3 -c \'exec(compile(\\"1/0\\", \\"errors.py\\", \\"exec\\"))\'"\n')
+    _, out = okr(capsys)
+    assert "ZeroDivisionError" in line(out, "崩")
+
+
 def test_a_slow_measure_fails_instead_of_hanging(repo, capsys, monkeypatch):
     monkeypatch.setattr(cli, "MEASURE_TIMEOUT", 0.5)
     (repo / "docs" / "agents" / "okr.toml").write_text(
