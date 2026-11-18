@@ -589,6 +589,9 @@ _CMP = {">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b, ">": lambda a, b: 
         "==": lambda a, b: a == b}  # on Decimal: a float would round 1.0000000000000001 down to 1
 
 
+_ERR_HEAD = re.compile(r"\s*[\w.]*(?:Error|Exception)(?:\s*\[[^\]]*\])?:")
+
+
 def _measure(root: Path, cmd: str) -> tuple[Decimal, str] | str:
     """(value, as-of) from the last stdout line `<number> <as-of>`, or why it could not be read."""
     try:
@@ -597,7 +600,9 @@ def _measure(root: Path, cmd: str) -> tuple[Decimal, str] | str:
     except subprocess.TimeoutExpired:
         return f"超时（{MEASURE_TIMEOUT}s）"
     if r.returncode != 0:
-        return f"退出码 {r.returncode}：" + (r.stderr.strip().splitlines() or [""])[-1][:120]
+        err = r.stderr.strip().splitlines() or [""]
+        # first error header (`ValueError: …`, `Error [ERR_X]: …`) beats a runtime footer like "Node.js v26"
+        return f"退出码 {r.returncode}：" + next((l for l in err if _ERR_HEAD.match(l)), err[-1]).strip()[:120]
     if "\ufffd" in r.stdout:
         return "输出不是 UTF-8"
     last = (r.stdout.strip().splitlines() or [""])[-1].strip()
