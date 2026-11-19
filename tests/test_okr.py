@@ -434,3 +434,96 @@ def test_a_raced_migration_backs_up_and_migrates_once(board, monkeypatch):
     cli._migrate(board)
     cli._migrate(board)  # the loser of a race finds version 2 under the write lock
     assert len(calls) == 1 and rows(board) == []
+
+
+# ── declarations against readings (ticket NAWABAN-KRI-02) ──
+
+def declare(db, repo, ticket, kr, d, at, o="O"):
+    with closing(sqlite3.connect(db)) as con, con:
+        con.execute("INSERT INTO kr_impacts VALUES (?,?,?,?,?,NULL,NULL,NULL,?)", (str(repo.resolve()), ticket, o, kr, d, at))
+
+
+def reading(db, repo, kr, value, at, as_of=None):
+    with closing(sqlite3.connect(db)) as con, con:
+        con.execute("INSERT INTO kr_readings VALUES (?, ?, ?, ?, '', ?)", (str(repo.resolve()), kr, str(value), as_of or at[:10], at))
+
+
+def kr_of(data, name):
+    return next(k for o in data["objectives"] for k in o["krs"] if k["name"] == name)
+
+
+def test_the_summary_counts_declarations_since_each_krs_last_round(repo, board, capsys):
+    define(repo, [("K", ">= 95", ""), ("J", "<= 5", "")])
+    reading(board, repo, "K", 80, "2026-11-10T00:00:00")
+    declare(board, repo, "#1", "K", "↑", "2026-11-09T00:00:00")  # before the last round: no longer counted
+    declare(board, repo, "#2", "K", "↑", "2026-11-11T00:00:00")
+    declare(board, repo, "#3", "K", "=", "2026-11-11T00:00:01")
+    declare(board, repo, "#4", "J", "↓", "2026-11-11T00:00:02")  # J has no reading yet: every declaration counts
+    declare(board, repo, "#5", "J", "↑", "2026-11-01T00:00:00")
+    declare(board, repo, "#6", "", "=", "2026-11-11T00:00:03")  # O only, no KR: not in the counts
+    data = jokr(board, capsys)[1]
+    assert data["objectives"][0]["impacts"] == {"↑": 2, "↓": 1, "=": 1}
+    assert [i["ticket"] for i in kr_of(data, "K")["impacts"]] == ["#2", "#3"]
+    assert kr_of(data, "K")["impacts"][0] == {"ticket": "#2", "dir": "↑", "before": None, "after": None,
+                                              "basis": None, "at": "2026-11-11T00:00:00"}
+    assert [i["ticket"] for i in kr_of(data, "J")["impacts"]] == ["#5", "#4"]
+    assert kr_of(data, "K")["mismatch"] == []
+
+
+@pytest.mark.parametrize("target,before,after,d,mismatch", [
+    (">= 95", 80, 80, "↑", True), (">= 95", 80, 79, "↑", True), (">= 95", 80, 85, "↑", False),
+    ("<= 5", 9, 7, "↑", False), ("<= 5", 7, 7, "↑", True),
+    ("== 0", 2, -1, "↑", False), ("== 0", 2, -3, "↑", True),
+    (">= 95", 80, 79, "=", True), (">= 95", 80, 80, "=", False), (">= 95", 80, 85, "=", False),
+    ("<= 5", 7, 9, "↓", True), ("<= 5", 7, 6, "↓", False), ("<= 5", 7, 7, "↓", False)])
+def test_the_first_round_after_a_declaration_judges_it_by_the_target(repo, board, capsys, target, before, after, d, mismatch):
+    define(repo, [("K", target, "")])
+    reading(board, repo, "K", before, "2026-11-10T00:00:00")
+    declare(board, repo, "#7", "K", d, "2026-11-11T00:00:00")
+    reading(board, repo, "K", after, "2026-11-12T00:00:00")
+    k = kr_of(jokr(board, capsys)[1], "K")
+    assert k["mismatch"] == ([{"ticket": "#7", "dir": d}] if mismatch else [])
+    assert k["impacts"] == []  # a round has come since: no longer pending
+
+
+def test_no_new_round_no_verdict(repo, board, capsys):
+    define(repo, [("K", ">= 95", 'measure = "echo 80 2026-11-10"')])
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    declare(board, repo, "#7", "K", "↑", "2099-01-01T00:00:00")
+    assert cli.main(["--db", str(board), "okr"]) == 0  # the same as-of again: no row, no new round
+    k = kr_of(jokr(board, capsys)[1], "K")
+    assert k["mismatch"] == [] and [i["ticket"] for i in k["impacts"]] == ["#7"]
+
+
+def test_a_declaration_before_any_reading_or_judged_by_an_older_round_is_not_judged(repo, board, capsys):
+    define(repo, [("K", ">= 95", "")])
+    declare(board, repo, "#1", "K", "↑", "2026-11-09T00:00:00")  # no baseline before it
+    reading(board, repo, "K", 80, "2026-11-10T00:00:00")
+    declare(board, repo, "#2", "K", "↑", "2026-11-11T00:00:00")
+    reading(board, repo, "K", 70, "2026-11-12T00:00:00")  # judges #2 ...
+    assert kr_of(jokr(board, capsys)[1], "K")["mismatch"] == [{"ticket": "#2", "dir": "↑"}]
+    reading(board, repo, "K", 60, "2026-11-13T00:00:00")  # ... a later round does not judge it again
+    assert kr_of(jokr(board, capsys)[1], "K")["mismatch"] == []
+
+
+def test_one_round_with_several_readings_is_judged_on_its_latest_as_of(repo, board, capsys):
+    define(repo, [("K", ">= 95", "")])
+    reading(board, repo, "K", 80, "2026-11-10T00:00:00", "2026-11-10")
+    declare(board, repo, "#7", "K", "↑", "2026-11-11T00:00:00")
+    reading(board, repo, "K", 90, "2026-11-12T00:00:00", "2026-11-12")
+    reading(board, repo, "K", 70, "2026-11-12T00:00:00", "2026-11-11")  # same round, older as-of
+    assert kr_of(jokr(board, capsys)[1], "K")["mismatch"] == []
+
+
+def test_okr_prints_the_counts_and_the_mismatches(repo, board, capsys):
+    define(repo, [("K", ">= 95", 'measure = "echo 80 2026-11-10"'), ("J", ">= 1", "")])
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    declare(board, repo, "#7", "K", "↑", "2000-01-01T00:00:00")  # before the run above: judged by the next
+    with closing(sqlite3.connect(board)) as con, con:
+        con.execute("UPDATE kr_readings SET measured_at='2000-01-01T00:00:00' WHERE kr='K'")
+    declare(board, repo, "#8", "J", "↓", "2000-01-02T00:00:00")
+    define(repo, [("K", ">= 95", 'measure = "echo 79 2026-11-11"'), ("J", ">= 1", "")])
+    capsys.readouterr()
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    out = capsys.readouterr().out
+    assert "O O · 声明 ↑0 ↓1 =0" in out and "预期不符 K：#7 声明 ↑" in out, out

@@ -361,8 +361,13 @@ const krRow = (k, w) => {
     value: has ? `${num(k.value)}${k.unit ?? ""}` : w.status.untested, target: t?.text ?? k.target ?? "",
     goal: t?.goal ?? null, fill: has ? pct(k.value) : null, tick: t ? pct(t.goal) : null,
     as_of: k.as_of ?? null, source: k.source ?? null, trend: w.trend[k.trend] ?? w.trend.null,
-    missed_rounds: k.missed_rounds ?? 0, wait: k.wait ?? null, history: k.history ?? [] };
+    missed_rounds: k.missed_rounds ?? 0, wait: k.wait ?? null, history: k.history ?? [],
+    mismatch: Array.isArray(k.mismatch) && k.mismatch.length ? w.mismatch(k.mismatch.map((m) => m.ticket)) : null };
 };
+
+// An Objective's declarations since the last round as "↑2 ↓1 =3"; null when none (or an older CLI).
+const DIRS = ["↑", "↓", "="];
+const impactLine = (n) => (n && DIRS.some((d) => n[d] > 0) ? DIRS.map((d) => d + (n[d] ?? 0)).join(" ") : null);
 
 // The OKR section, or null to leave it out: no okr.toml, a CLI without `json okr`, or a reading
 // that is not the contract. Attention: one card per KR (the harder kind wins), by kind, then in the
@@ -375,7 +380,7 @@ export function okrView(okr, lang) {
   const objectives = okr.objectives.map((o) => {
     const krs = (o.krs ?? []).map((k) => krRow(k, w));
     const counts = Object.fromEntries(OKR_STATES.map((s) => [s, krs.filter((k) => k.status === s).length]));
-    return { name: o.name, met: o.met ?? counts.met, total: o.total ?? krs.length, counts,
+    return { name: o.name, met: o.met ?? counts.met, total: o.total ?? krs.length, counts, impacts: impactLine(o.impacts),
       segments: OKR_STATES.flatMap((s) => Array(counts[s]).fill(s)), krs, attention: false };
   });
   const rank = (a) => {
@@ -410,11 +415,13 @@ export const OKR_WORDS = {
     waits: (o, n) => `${o}：${n} 条 KR 等你批`, list: "、",
     status: { met: "达标", missed: "未达标", stale: "过期", untested: "未测" },
     trend: { closer: "在变好", away: "在变差", flat: "没动", null: "首次读数" },
-    target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮未达标`, wait: "要你做" },
+    target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮未达标`, wait: "要你做",
+    mismatch: (ts) => `预期不符 ${ts.join(" ")}` },
   en: { headline: (n) => `${n} thing${n === 1 ? "" : "s"} for you`, summary: (met, total, at) => `OKR ${met}/${total} met${at ? ` · measured ${at}` : ""}`,
     kind: { five: "Missed 5 rounds", stuck: "No better in 2 rounds", wait: "Needs you", accept: "Ready to accept" },
     waits: (o, n) => `${o}: ${n} KRs waiting on you`, list: ", ",
     status: { met: "Met", missed: "Missed", stale: "Stale", untested: "Untested" },
     trend: { closer: "Getting closer", away: "Moving away", flat: "Flat", null: "First reading" },
-    target: "Target", value: "Value", asOf: "As of", source: "Source", trendLabel: "Trend", rounds: (n) => `missed ${n} rounds in a row`, wait: "Needs you to" },
+    target: "Target", value: "Value", asOf: "As of", source: "Source", trendLabel: "Trend", rounds: (n) => `missed ${n} rounds in a row`, wait: "Needs you to",
+    mismatch: (ts) => `Not as declared ${ts.join(" ")}` },
 };

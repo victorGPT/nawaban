@@ -930,6 +930,38 @@ def _closer(op: str, goal: Decimal, prev: Decimal, cur: Decimal) -> str:
     return "closer" if dist(cur) < dist(prev) else "away" if dist(cur) > dist(prev) else "flat"
 
 
+def _impacts(op: str, goal: Decimal, readings: list, declared: list) -> tuple[list, list]:
+    """(the declarations since the KR's last round, the tickets that round found off their word).
+
+    A round is one measured_at; its reading the one with the latest as-of. Only a declaration's first round
+    judges it, against the round before the declaration: ↑ must come closer to the target, ↓ and = not move away.
+    """
+    rounds = {r["measured_at"]: r for r in readings}  # readings come by as-of: the last one per round wins
+    times = sorted(rounds)
+    last = times[-1] if times else ""
+    pending = [{"ticket": i["ticket"], "dir": i["dir"], "before": i["before"], "after": i["after"],
+                "basis": i["basis"], "at": i["declared_at"]} for i in declared if i["declared_at"] >= last]
+    if len(times) < 2:
+        return pending, []
+    prev = times[-2]
+    moved = _closer(op, goal, Decimal(rounds[prev]["value"]), Decimal(rounds[last]["value"]))
+    off = {i["ticket"]: i["dir"] for i in declared if prev <= i["declared_at"] < last
+           and (moved != "closer" if i["dir"] == "↑" else moved == "away")}
+    return pending, [{"ticket": t, "dir": d} for t, d in off.items()]
+
+
+def impact_text(data: dict) -> str:
+    """okr's lines for the declarations: each Objective's ↑ ↓ = since the last round, each KR off its word."""
+    out = []
+    for o in data["objectives"]:
+        n = o["impacts"]
+        if any(n.values()):
+            out.append(f"O {o['name']} · 声明 ↑{n['↑']} ↓{n['↓']} ={n['=']}")
+        out += [f"  预期不符 {k['name']}：" + "、".join(f"{m['ticket']} 声明 {m['dir']}" for m in k["mismatch"])
+                for k in o["krs"] if k["mismatch"]]
+    return "\n".join(out)
+
+
 def okr_data(path: Path | str, repo: Path) -> dict:
     """json okr: the stored readings judged against the current {OKR_FILE}; never runs a measure."""
     objectives = _okr_defs(repo)
@@ -938,6 +970,10 @@ def okr_data(path: Path | str, repo: Path) -> dict:
                            " ORDER BY as_of, measured_at", (str(repo),)).fetchall()
         accepts = dict(con.execute("SELECT objective, max(accepted_at) FROM okr_accepts WHERE repo=?"
                                    " GROUP BY objective", (str(repo),)).fetchall())
+        declared: dict[tuple, list] = {}
+        for i in con.execute("SELECT ticket, objective, kr, dir, before, after, basis, declared_at FROM kr_impacts"
+                             " WHERE repo=? AND kr != '' ORDER BY declared_at", (str(repo),)):
+            declared.setdefault((i["objective"], i["kr"]), []).append(i)
     by_kr: dict[str, list] = {}
     for r in rows:
         by_kr.setdefault(r["kr"], []).append(r)
@@ -947,7 +983,7 @@ def okr_data(path: Path | str, repo: Path) -> dict:
            "last_measured_at": max((r["measured_at"] for r in rows), default=None), "met": 0, "total": 0,
            "objectives": [], "attention": []}
     for o in objectives:
-        name, krs, late_miss = o.get("name"), [], False
+        name, krs, late_miss, counts = o.get("name"), [], False, {"↑": 0, "↓": 0, "=": 0}
         for kr in o.get("kr", []):
             op, goal = _TARGET.fullmatch(kr["target"].strip()).groups()
             rs, g = by_kr.get(kr["name"], []), Decimal(goal)
@@ -966,11 +1002,15 @@ def okr_data(path: Path | str, repo: Path) -> dict:
                 status = "missed" if missed else "met"
             trends = [_closer(op, g, Decimal(a["value"]), Decimal(b["value"])) for a, b in zip(rs, rs[1:])]
             late_miss |= name in accepts and any(r["measured_at"] > accepts[name] and not ok(r) for r in rs)
+            pending, mismatch = _impacts(op, g, rs, declared.get((name, kr["name"]), []))
+            for i in pending:
+                counts[i["dir"]] += 1
             krs.append({"name": kr["name"], "target": f"{op} {goal}", "unit": kr.get("unit", ""), "status": status,
                         "value": last and float(last["value"]), "as_of": last and last["as_of"],
                         "source": last and last["source"],
                         "history": [{"value": float(r["value"]), "as_of": r["as_of"]} for r in rs[-3:]],
-                        "trend": trends[-1] if trends else None, "missed_rounds": missed, "wait": kr.get("wait")})
+                        "trend": trends[-1] if trends else None, "missed_rounds": missed, "wait": kr.get("wait"),
+                        "impacts": pending, "mismatch": mismatch})
             seen = "、".join(r["value"] for r in rs[-3:])
             if missed >= 5:  # a stale KR still counts: five missed rounds then silence is what to flag
                 out["attention"].append({"kind": "five", "objective": name, "kr": kr["name"],
@@ -985,7 +1025,8 @@ def okr_data(path: Path | str, repo: Path) -> dict:
         if pending:
             out["attention"].append({"kind": "accept", "objective": name, "kr": None,
                                      "text": f"{name} 全 ✓，待你验收（nawaban okr --accept）"})
-        out["objectives"].append({"name": name, "met": met, "total": len(krs), "accept_pending": pending, "krs": krs})
+        out["objectives"].append({"name": name, "met": met, "total": len(krs), "accept_pending": pending,
+                                  "impacts": counts, "krs": krs})
         out["met"] += met
         out["total"] += len(krs)
     return out
@@ -1514,6 +1555,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(okr_record(con, _repo_root(top) or top, readings, a.accept, full))
             finally:
                 con.close()
+            if text := impact_text(okr_data(path, _repo_root(top) or top)):
+                print(text)
             return 0
         if a.verb == "index":
             print(index_text(*any_board(path, a.project)))
