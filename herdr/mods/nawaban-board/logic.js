@@ -86,9 +86,10 @@ export function leadersView(args) {
   const claimedAt = new Map(github ? args.board.columns.flatMap((c) => c.tasks ?? []).filter((t) => t.terminal)
     .sort((x, y) => (y.status === "done") - (x.status === "done")).map((t) => [t.terminal, t.id]) : []); // an open one over a closed one
   if (github) args = { ...args, board: matchIssues(args.board, args.terminals ?? []) };
-  // On a GitHub board a pending decision waits on you in a card's place (GLOSSARY: Pending decision).
-  const { waiting: asking, otherWaiting } = windowsView(args);
-  const waiting = github ? [] : asking;
+  // On a GitHub board a pending decision takes needs-info's place (GLOSSARY: Pending decision), so no
+  // question makes a card there; a window Herdr says is blocked still does (GLOSSARY: Waiting on you).
+  const { waiting: asking, otherWaiting } = windowsView(!github ? args : { ...args, board: { ...args.board,
+    columns: args.board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => ({ ...t, waiting: null })) })) } });
   const terminals = args.terminals ?? [], nameOf = namer(terminals);
   const tasks = (args.board?.columns ?? []).flatMap((c) => c.tasks ?? []);
   const agentAt = (terminal) => args.agents.find((a) => a.address === terminal);
@@ -198,9 +199,17 @@ export function leadersView(args) {
       decision: last ? { at: last.at, verdict: last.verdict.split("\n")[0] } : null, items, closed,
       stopped: items.some((i) => i.state === "stopped" || i.state === "waiting"), active: Math.max(...all.map((x) => x.active)) };
   }).sort((x, y) => y.stopped - x.stopped || y.active - x.active).map(({ stopped, active, ...g }) => g);
+  // On a GitHub board a worker `hc run` started has no pane, so no agent and no card from windowsView:
+  // blocked, it is a card too, named and titled as its item. Only blocked, as windowsView's cards.
+  const words = WINDOW_WORDS[args.lang];
+  const items = out.flatMap((g) => [...g.items, ...g.closed]);
+  const unpaned = !github ? [] : live.filter((k) => parentOf.has(k.address) && !agentAt(k.address) && k.status === "blocked")
+    .map((k) => items.find((x) => x.focus === k.address)).filter(Boolean)
+    .map((x) => ({ name: x.name, question: words.confirm, doing: x.title, state: "waiting", label: words.waiting, duration: null,
+      focus: x.focus, ...(x.url && { url: x.url }) }));
+  const waiting = [...asking, ...unpaned];
   // Every window of the space that is neither a card, a leader or its child, nor the terminal of an
   // open task, named with what Herdr says it is doing unless idle: a window working without a task still shows.
-  const words = WINDOW_WORDS[args.lang];
   const free = args.agents.filter((a) => a.space === args.space && !waiting.some((c) => c.focus === a.address)
     && !kids.has(a.address) && !parentOf.has(a.address) && !tasks.some((t) => t.status !== "done" && t.terminal === a.address))
     .map((a) => (a.status === "working" || a.status === "done" ? words.withState(nameOf(a), words[a.status]) : nameOf(a)));

@@ -6,12 +6,13 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { leadersView, pendingView, okrView } from "./logic.js";
+import { leadersView, pendingView, okrView, OKR_WORDS } from "./logic.js";
 
 const called = new Set();
 let onSize = null;
 let lastId = null;
 const clicks = new Map(); // an element's id -> its click handler
+const texts = []; // every string drawn as a child
 // An element: any method records its name and returns the element. `when` and `hover` run their
 // builder, as gpui does, so the branches they add are drawn too.
 const el = new Proxy({}, {
@@ -22,6 +23,7 @@ const el = new Proxy({}, {
     if (name === "on_size_change") onSize = args[0];
     if (name === "id") lastId = args[0];
     if (name === "on_click") clicks.set(lastId, args[0]);
+    if (name === "child" && typeof args[0] === "string") texts.push(args[0]);
     return el;
   },
 });
@@ -36,7 +38,7 @@ const agents = [agent("t1", "working", "入职"), agent("t2", "working", "w"), a
   agent("t4", "idle", "闲聊"), agent("t5", "working", "部署"), agent("t6", "idle", "leader agent")];
 // Herdr's tree: t6 started two workers with `hc run`; they have no pane, so no AgentInfo.
 const kid = (address, name, status) => ({ address, name, parent: "t6", status, state: "live" });
-const terminals = [...agents.map((a) => ({ address: a.address, name: null, parent: null, status: a.status, state: "live" })),
+let terminals = [...agents.map((a) => ({ address: a.address, name: null, parent: null, status: a.status, state: "live" })),
   kid("t7", "gh-239", "working"), kid("t8", "gh-256", "done"), kid("t9", "gh-260", "blocked")];
 const board = { columns: [
   { key: "in_progress", tasks: [
@@ -62,6 +64,7 @@ const ghBoard = { tracker: "github", columns: [
   { key: "done", tasks: [{ id: "#260", title: "issue 260", status: "done", parent: null, session: null, leader: null, terminal: null,
     claimed_at: null, created_at: 0, active_at: now - 600, done_at: now - 600 }] }] };
 let execImpl = async () => ({ code: 1 });
+let runImpl = async () => {};
 const here = { spaces: () => [{ id: "here", active: true, name: "nawaban", folder: "/x" }], focused: () => ({ space: "here", cwd: "/x" }) };
 let where = here;
 
@@ -71,7 +74,7 @@ const stubs = {
     AccordionItem: el, AccordionHeader: el, AccordionTrigger: el, AccordionPanel: el, Progress: el, ProgressTrack: el, ProgressIndicator: el },
   herdr: { spaces: () => where.spaces(), focused: () => where.focused(),
     agents: () => agents, terminals: () => terminals, theme: () => new Proxy({}, { get: () => "#808080" }), home: () => "/h",
-    run: async () => {}, exec: (...a) => execImpl(...a), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}), props: () => null, closeOverlay: () => null },
+    run: (...a) => runImpl(...a), exec: (...a) => execImpl(...a), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}), props: () => null, closeOverlay: () => null },
 };
 globalThis.__nawabanStubs = stubs;
 globalThis.window = { paint_path: make("paint_path") }; // Herdr's global window
@@ -137,6 +140,58 @@ test("on a GitHub board the panel draws issue titles, 在推, and the 已关 row
     execImpl = async () => ({ code: 1 });
   }
   assert.ok(called.has("content") && called.has("open"));
+});
+
+test("on a GitHub board a blocked worker is a 等你 card above the pending decisions, out of the fold and its count; none blocked, the panel as before", () => {
+  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+  const pending = { brief: "待决：发吗？", at: now - 3600, progress: [] };
+  const withPending = { ...ghBoard, columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: c.tasks.map((x) => ({ ...x, url: "https://gh/256", pending })) }) };
+  const focused = [];
+  runImpl = async (cmd, args) => { focused.push([cmd, args]); };
+  const draw = () => {
+    clicks.clear();
+    texts.length = 0;
+    const view = new NawabanBoard();
+    view.init({}, cx);
+    Object.assign(view, { lang: "zh", board: withPending, okr }); // the groups folded
+    view.render(cx);
+    return { view, v: leadersView({ agents, terminals, space: "here", board: withPending, now, lang: "zh" }) };
+  };
+  const saved = terminals;
+  const okr = JSON.parse(readFileSync(new URL("./okr.fixture.json", import.meta.url), "utf8"));
+  const o = okrView(okr, "zh"), summary = OKR_WORDS.zh.summary(o.met, o.total, o.measured);
+  const at = (s) => texts.findIndex((x) => x.startsWith(s));
+  try {
+    // t9 (gh-260, no pane) is blocked
+    let { view, v } = draw();
+    assert.deepEqual(v.waiting.map((c) => c.focus), ["t9"]);
+    assert.deepEqual(view.keys, ["card:0"]); // the card is in the arrow keys while the groups are folded
+    // needed or not first: the cards, the pending decisions, the OKR section, the folded groups
+    const order = ["1 个窗口在等你", "待决 1", summary, "窗口分组"].map(at);
+    assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join(","));
+    assert.ok(texts.includes(`窗口分组 ${v.groups.length + (v.idle.count > 0 ? 1 : 0)}`)); // the card is not counted in the fold
+    clicks.get("nawaban-card-0")({}, cx);
+    assert.deepEqual(focused, [["agent.focus", { terminal: "t9" }]]);
+    // nothing blocked: no card, no keys while folded, the fold counts what it did before
+    terminals = saved.map((k) => (k.status === "blocked" ? { ...k, status: "done" } : k));
+    ({ view, v } = draw());
+    assert.deepEqual([v.waiting, view.keys, clicks.has("nawaban-card-0")], [[], [], false]);
+    assert.ok(!texts.some((s) => s.includes("个窗口在等你")));
+    assert.ok(at("待决 1") < at(summary) && at(summary) < at("窗口分组"));
+    assert.ok(texts.includes(`窗口分组 ${v.groups.length + (v.idle.count > 0 ? 1 : 0)}`));
+  } finally {
+    terminals = saved;
+    runImpl = async () => {};
+  }
+  // the local board too: its waiting cards above the OKR section, the groups under it
+  texts.length = 0;
+  const view = new NawabanBoard();
+  view.init({}, cx);
+  Object.assign(view, { lang: "zh", board, okr });
+  view.render(cx);
+  const local = leadersView({ agents, terminals, space: "here", board, now, lang: "zh" });
+  const order = [`${local.waiting.length} 个窗口在等你`, summary, local.groups[0].name].map(at);
+  assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join(","));
 });
 
 test("a GitHub board is read from GitHub at most once a minute, whatever asks for it", async () => {

@@ -413,11 +413,29 @@ test("on a GitHub board the closed issues of a group fold into one 已关 row, l
   assert.deepEqual(ghView({ board: github() }).groups[0].closed, []); // nothing to match: nothing folded
 });
 
-test("on a GitHub board nothing is a waiting card, a pending decision takes its place; an issue in no Herdr window is in no group", () => {
+test("on a GitHub board with no window blocked there is no waiting card: needs-info is no card there; an issue in no Herdr window is in no group", () => {
   const v = ghView();
   assert.deepEqual(v.waiting, []);
   assert.deepEqual(v.groups.map((g) => g.leader), ["t23"]); // not one group per claimant (#307, #275's stale t52)
   assert.deepEqual([v.groups[0].self, v.groups[0].dispatched], [0, 7]);
+});
+
+test("on a GitHub board a window Herdr reports blocked is still a 等你 card (GLOSSARY: Waiting on you), a worker with no pane too, its issue closed or not", () => {
+  // t4c (gh-238r, open #238) and t4d (gh-239, closed #239) wait for a permission; t4e's needs-info (#292) makes no card
+  const terminals = ghTree.map((k) => (k.address === "t4c" || k.address === "t4d" ? { ...k, status: "blocked" } : k));
+  const v = ghView({ terminals });
+  assert.deepEqual(v.waiting, [
+    { key: "card:0", name: "gh-238r", question: "在等你确认", doing: "issue 238", state: "waiting", label: "等你", duration: null,
+      focus: "t4c", url: "https://github.com/o/r/issues/238" },
+    { key: "card:1", name: "gh-239", question: "在等你确认", doing: "issue 239", state: "waiting", label: "等你", duration: null,
+      focus: "t4d", url: "https://github.com/o/r/issues/239" }]);
+  assert.deepEqual(v.keys.slice(0, 2), ["card:0", "card:1"]);
+  assert.equal(v.groups[0].items.find((i) => i.focus === "t4c").state, "waiting"); // still in its group too, as on the local board
+  // error is not blocked: no card, as on the local board
+  assert.deepEqual(ghView({ terminals: ghTree.map((k) => (k.address === "t4c" ? { ...k, status: "error" } : k)) }).waiting, []);
+  // a window with a pane: its agent's status, its terminal title what it asks
+  const pane = leaders([agent("t23", "blocked", "rm -rf build?", "leader agent")], ghIssues, { terminals: ghTree, board: github(...ghIssues) });
+  assert.deepEqual(pane.waiting.map((c) => [c.name, c.question, c.doing, c.focus]), [["leader agent", "在等你确认", "rm -rf build?", "t23"]]);
 });
 
 test("on a GitHub board an issue's item carries its URL", () => {

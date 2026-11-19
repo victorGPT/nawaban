@@ -69,8 +69,8 @@ _Avoid_: in_progress as a stored status, doing.
 _Current identifiers_: `in_progress` in `show`, `list` and board responses.
 
 **Waiting on you**(等你)
-An open task whose latest `triage:` note is `triage: needs-info — 等你：<question>`: the agent needs the user to answer or act. It is derived, never stored; its session keeps holding it, and a later `triage:` note such as `triage: ready-for-agent` ends the wait. The Herdr panel shows these first, as cards, each with its question. It applies only when the board is the local nawaban board; when work is tracked on GitHub, a pending decision takes its place.
-等你是最新一条 `triage:` 备注为 `triage: needs-info — 等你：<问题>` 的未关闭任务：agent 需要用户回答或动手。由数据推导，不单独存储；会话继续持有它，之后再记一条 `triage:` 备注（如 `triage: ready-for-agent`）就不再等。Herdr 面板把它们做成卡片放在最上面，并显示那句问题。它只用于 nawaban 本地看板模式；在 GitHub 上记账时改用待决。
+An open task whose latest `triage:` note is `triage: needs-info — 等你：<question>`: the agent needs the user to answer or act. It is derived, never stored; its session keeps holding it, and a later `triage:` note such as `triage: ready-for-agent` ends the wait. The Herdr panel shows these first, as cards, each with its question. A window Herdr reports blocked (an agent waiting for a permission) is a waiting card too, with "在等你确认" for its question. Questions apply only when the board is the local nawaban board; when work is tracked on GitHub, a pending decision takes their place, while a blocked window still makes a card above the pending decisions: it is a window waiting on you, not a pending decision.
+等你是最新一条 `triage:` 备注为 `triage: needs-info — 等你：<问题>` 的未关闭任务：agent 需要用户回答或动手。由数据推导，不单独存储；会话继续持有它，之后再记一条 `triage:` 备注（如 `triage: ready-for-agent`）就不再等。Herdr 面板把它们做成卡片放在最上面，并显示那句问题。Herdr 显示 blocked 的窗口（agent 在等权限确认）也出等你卡，问题写「在等你确认」。问题只用于 nawaban 本地看板模式，在 GitHub 上记账时改用待决；blocked 的窗口在 GitHub 上照样出卡，放在待决上方：它是「窗口在等你」，不是待决。
 _Avoid_: needs-info as a status, a stored question.
 _Current identifiers_: `waiting` on open tasks in `json board` (the question, or null); panel window state `waiting`.
 
@@ -183,8 +183,8 @@ _Avoid_: wiki, summary file, status report.
 _Current identifiers_: CLI `index`; `NAWABAN_OWNER_NAMES`.
 
 **Herdr panel**(Herdr 面板)
-A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each orchestrator and its workers are doing. On GitHub the top shows only the pending decisions, each opening its issue, with the window groups folded under them. Claiming, closing and dispatching stay with agents and the CLI.
-Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按编排者列出当前 space 所在项目里每个编排者和它的 worker 在做什么。在 GitHub 上最上面只列待决，点一行打开它的 issue，按窗口分组的部分折叠在下面。认领、关闭、派活仍由 agent 通过 CLI 完成。
+A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each orchestrator and its workers are doing. On GitHub the top shows the blocked windows' waiting cards, when there are any, then the pending decisions, each opening its issue, with the window groups folded under them. Claiming, closing and dispatching stay with agents and the CLI.
+Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按编排者列出当前 space 所在项目里每个编排者和它的 worker 在做什么。在 GitHub 上最上面先是 blocked 窗口的等你卡（有才出），再列待决，点一行打开它的 issue，按窗口分组的部分折叠在下面。认领、关闭、派活仍由 agent 通过 CLI 完成。
 _Avoid_: sidebar, shepherdr, board tab.
 _Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `cmd-shift-j`.
 
