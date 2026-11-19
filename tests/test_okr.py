@@ -206,3 +206,195 @@ def test_a_reading_in_scientific_notation_is_read(repo, capsys):
         '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = "> 0"\nmeasure = "echo 1e-05 today"\n')
     _, out = okr(capsys)
     assert "1/1 达标" in out
+
+
+# ── readings kept on the board, json okr, attention (spec NAWABAN-OKRP, ticket 01) ──
+
+import json
+import sqlite3
+from contextlib import closing
+
+
+@pytest.fixture
+def board(tmp_path):
+    db = tmp_path / "b" / ".nawaban" / "nawaban.db"
+    assert cli.main(["--db", str(db), "init"]) == 0
+    return db
+
+
+def rows(db, table="kr_readings"):
+    with closing(sqlite3.connect(db)) as con:
+        return con.execute(f"SELECT * FROM {table}").fetchall()
+
+
+
+def test_an_old_board_is_backed_up_and_migrated_on_open_keeping_its_tasks(board, capsys):
+    assert cli.main(["--db", str(board), "create", "T", "--title", "留下", "--body", ""]) == 0
+    with closing(sqlite3.connect(board)) as con:  # back to what a version-1 board looks like
+        con.executescript("DROP TABLE kr_readings; DROP TABLE okr_accepts; PRAGMA user_version=1;")
+    capsys.readouterr()
+    assert cli.main(["--db", str(board), "list"]) == 0 and "留下" in capsys.readouterr().out
+    with closing(sqlite3.connect(board)) as con:
+        assert con.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert con.execute("SELECT count(*) FROM kr_readings").fetchone()[0] == 0
+    backups = list((board.parent / "backups").glob("nawaban-*.db"))
+    assert backups
+    with closing(sqlite3.connect(backups[0])) as con:
+        assert con.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert con.execute("SELECT title FROM tasks").fetchall() == [("留下",)]
+
+
+def test_init_on_an_old_board_migrates_it(board):
+    with closing(sqlite3.connect(board)) as con:
+        con.executescript("DROP TABLE kr_readings; DROP TABLE okr_accepts; PRAGMA user_version=1;")
+    assert cli.main(["--db", str(board), "init"]) == 0
+    assert rows(board) == []
+
+
+def test_okr_keeps_each_reading_once_and_skips_failed_and_untested(repo, board, capsys):
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    assert "读数新记 2 条" in capsys.readouterr().out
+    got = {(r[0], r[1], r[2], r[3], r[4]) for r in rows(board)}
+    assert got == {(str(repo.resolve()), "意图准确率", 100.0, "2026-11-17", ""),
+                   (str(repo.resolve()), "L1 首位", 89.0, "2026-11-17", "")}
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    assert "读数新记 0 条" in capsys.readouterr().out and len(rows(board)) == 2
+
+
+def test_as_of_is_the_date_and_source_the_rest(repo, board):
+    (repo / "docs" / "agents" / "okr.toml").write_text(
+        '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nmeasure = "echo 3 2026-11-18 a/b.md"\n')
+    cli.main(["--db", str(board), "okr"])
+    assert [r[3:5] for r in rows(board)] == [("2026-11-18", "a/b.md")]
+
+
+def test_okr_in_a_worktree_records_under_the_main_checkout(repo, board, monkeypatch):
+    wt = repo.parent / "wt"
+    subprocess.run(["git", "worktree", "add", "-q", str(wt)], cwd=repo, check=True)
+    monkeypatch.chdir(wt)
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    assert {r[0] for r in rows(board)} == {str(repo.resolve())}
+
+
+def test_okr_without_a_board_prints_and_records_nothing(repo, capsys):
+    code, out = okr(capsys)
+    assert code == 0 and "没有看板" in out
+
+
+# KR names → readings (value, as_of), oldest first
+def seed(db, repo, readings, at="2026-11-19T00:00:00"):
+    with closing(sqlite3.connect(db)) as con, con:
+        for kr, rs in readings.items():
+            for i, (v, as_of) in enumerate(rs):
+                con.execute("INSERT INTO kr_readings VALUES (?, ?, ?, ?, '', ?)",
+                            (str(repo.resolve()), kr, v, as_of, f"{at[:-2]}{i:02d}"))
+
+
+def jokr(db, capsys, *extra):
+    capsys.readouterr()
+    code = cli.main(["--db", str(db), "json", "okr", *extra])
+    return code, json.loads(capsys.readouterr().out)
+
+
+def define(repo, krs):
+    body = '[[objective]]\nname = "O"\n' + "".join(f'[[objective.kr]]\nname = "{n}"\ntarget = "{t}"\n{x}\n'
+                                               for n, t, x in krs)
+    (repo / "docs" / "agents" / "okr.toml").write_text(body)
+
+
+def kinds(data):
+    return {(a["kind"], a["kr"]) for a in data["attention"]}
+
+
+def test_json_okr_reads_the_board_and_never_runs_a_measure(repo, board, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "_measure", lambda *a: (_ for _ in ()).throw(AssertionError("ran a measure")))
+    seed(board, repo, {"意图准确率": [(90, "2026-11-10"), (97.5, "2026-11-18")]})
+    code, data = jokr(board, capsys)
+    assert code == 0 and data["repo"] == str(repo.resolve()) and data["def_commit"]
+    o = data["objectives"][0]
+    k = o["krs"][0]
+    assert (k["status"], k["value"], k["as_of"], k["trend"], k["missed_rounds"]) == ("met", 97.5, "2026-11-18", "closer", 0)
+    assert k["history"] == [{"value": 90, "as_of": "2026-11-10"}, {"value": 97.5, "as_of": "2026-11-18"}]
+    assert {x["name"]: x["status"] for x in o["krs"]}["边界难例"] == "untested"
+    assert (data["met"], data["total"], o["met"], o["total"]) == (1, 6, 1, 3)
+
+
+def test_json_okr_with_repo_and_no_okr_file_is_a_json_error(board, tmp_path, capsys):
+    subprocess.run(["git", "init", "-q", str(tmp_path / "bare")], check=True)
+    code, data = jokr(board, capsys, "--repo", str(tmp_path / "bare"))
+    assert code == 1 and "okr.toml" in data["error"]
+
+
+@pytest.mark.parametrize("target,values,trend", [
+    (">= 95", [80, 85], "closer"), (">= 95", [85, 80], "away"), (">= 95", [80, 80], "flat"),
+    ("<= 5", [9, 7], "closer"), ("<= 5", [7, 9], "away"),
+    ("== 0", [-3, 2], "closer"), ("== 0", [2, -3], "away"), ("== 0", [2, -2], "flat")])
+def test_closer_is_toward_the_target(repo, board, capsys, target, values, trend):
+    define(repo, [("K", target, "")])
+    seed(board, repo, {"K": [(v, f"2026-11-1{i}") for i, v in enumerate(values)]})
+    assert jokr(board, capsys)[1]["objectives"][0]["krs"][0]["trend"] == trend
+
+
+def test_stuck_is_missed_with_two_rounds_not_closer(repo, board, capsys):
+    define(repo, [("卡住", ">= 95", ""), ("在动", ">= 95", ""), ("两条", ">= 95", ""), ("达标", ">= 95", "")])
+    seed(board, repo, {"卡住": [(80, "2026-11-10"), (80, "2026-11-11"), (79, "2026-11-12")],
+                       "在动": [(80, "2026-11-10"), (80, "2026-11-11"), (81, "2026-11-12")],
+                       "两条": [(80, "2026-11-10"), (80, "2026-11-11")],
+                       "达标": [(96, "2026-11-10"), (96, "2026-11-11"), (96, "2026-11-12")]})
+    data = jokr(board, capsys)[1]
+    assert kinds(data) == {("stuck", "卡住")}
+    assert "80、80、79" in data["attention"][0]["text"]
+
+
+def test_five_is_five_missed_rounds_in_a_row(repo, board, capsys):
+    define(repo, [("五轮", ">= 95", ""), ("四轮", ">= 95", "")])
+    seed(board, repo, {"五轮": [(96, "2026-11-09")] + [(80 + i, f"2026-11-1{i}") for i in range(5)],
+                       "四轮": [(96, "2026-11-09")] + [(80 + i, f"2026-11-1{i}") for i in range(4)]})
+    data = jokr(board, capsys)[1]
+    assert kinds(data) == {("five", "五轮")}
+    assert {k["name"]: k["missed_rounds"] for k in data["objectives"][0]["krs"]} == {"五轮": 5, "四轮": 4}
+
+
+def test_wait_is_a_kr_waiting_on_the_owner_without_a_measure(repo, board, capsys):
+    define(repo, [("要批", ">= 1", 'wait = "批读生产数据"'), ("有量", ">= 1", 'wait = "x"\nmeasure = "echo 1 2026-11-18"')])
+    data = jokr(board, capsys)[1]
+    assert data["attention"] == [{"kind": "wait", "objective": "O", "kr": "要批", "text": "批读生产数据"}]
+    assert data["objectives"][0]["krs"][0]["wait"] == "批读生产数据"
+
+
+def test_a_non_string_wait_refuses_the_file(repo, board, capsys):
+    define(repo, [("K", ">= 1", "wait = 3")])
+    code, data = jokr(board, capsys)
+    assert code == 1 and "wait" in data["error"]
+
+
+def accepted(db, repo, at):
+    with closing(sqlite3.connect(db)) as con, con:
+        con.execute("INSERT INTO okr_accepts VALUES (?, 'O', ?)", (str(repo.resolve()), at))
+
+
+def test_accept_is_asked_when_all_met_and_never_accepted_or_missed_since(repo, board, capsys):
+    define(repo, [("K", ">= 1", "")])
+    seed(board, repo, {"K": [(2, "2026-11-10")]}, at="2026-11-10T00:00:00")
+    assert kinds(jokr(board, capsys)[1]) == {("accept", None)}
+    accepted(board, repo, "2026-11-11T00:00:00")
+    data = jokr(board, capsys)[1]
+    assert data["attention"] == [] and data["objectives"][0]["accept_pending"] is False
+    seed(board, repo, {"K": [(0, "2026-11-12"), (3, "2026-11-13")]}, at="2026-11-12T00:00:00")
+    data = jokr(board, capsys)[1]
+    assert kinds(data) == {("accept", None)} and data["objectives"][0]["accept_pending"] is True
+
+
+def test_accept_is_not_asked_while_a_kr_is_not_met(repo, board, capsys):
+    define(repo, [("K", ">= 1", ""), ("J", ">= 1", "")])
+    seed(board, repo, {"K": [(2, "2026-11-10")]})
+    assert jokr(board, capsys)[1]["attention"] == []
+
+
+def test_okr_accept_refuses_unless_the_objective_is_all_met_now(repo, board, capsys):
+    assert cli.main(["--db", str(board), "okr", "--accept", "听得懂需求"]) == 1
+    assert "还没全 ✓" in capsys.readouterr().err and rows(board, "okr_accepts") == []
+    assert cli.main(["--db", str(board), "okr", "--accept", "没这个"]) == 1
+    define(repo, [("K", ">= 1", 'measure = "echo 2 2026-11-18"')])
+    assert cli.main(["--db", str(board), "okr", "--accept", "O"]) == 0
+    assert [r[:2] for r in rows(board, "okr_accepts")] == [(str(repo.resolve()), "O")]
