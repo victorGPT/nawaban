@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { leadersView, pendingView, okrView } from "./logic.js";
+import { leadersView, pendingView, okrView, OKR_WORDS } from "./logic.js";
 
 const called = new Set();
 let onSize = null;
@@ -153,17 +153,22 @@ test("on a GitHub board a blocked worker is a 等你 card above the pending deci
     texts.length = 0;
     const view = new NawabanBoard();
     view.init({}, cx);
-    Object.assign(view, { lang: "zh", board: withPending }); // the groups folded
+    Object.assign(view, { lang: "zh", board: withPending, okr }); // the groups folded
     view.render(cx);
     return { view, v: leadersView({ agents, terminals, space: "here", board: withPending, now, lang: "zh" }) };
   };
   const saved = terminals;
+  const okr = JSON.parse(readFileSync(new URL("./okr.fixture.json", import.meta.url), "utf8"));
+  const o = okrView(okr, "zh"), summary = OKR_WORDS.zh.summary(o.met, o.total, o.measured);
+  const at = (s) => texts.findIndex((x) => x.startsWith(s));
   try {
     // t9 (gh-260, no pane) is blocked
     let { view, v } = draw();
     assert.deepEqual(v.waiting.map((c) => c.focus), ["t9"]);
     assert.deepEqual(view.keys, ["card:0"]); // the card is in the arrow keys while the groups are folded
-    assert.ok(texts.indexOf("1 个窗口在等你") >= 0 && texts.indexOf("1 个窗口在等你") < texts.indexOf("待决 1"), texts.join("|"));
+    // needed or not first: the cards, the pending decisions, the OKR section, the folded groups
+    const order = ["1 个窗口在等你", "待决 1", summary, "窗口分组"].map(at);
+    assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join(","));
     assert.ok(texts.includes(`窗口分组 ${v.groups.length + (v.idle.count > 0 ? 1 : 0)}`)); // the card is not counted in the fold
     clicks.get("nawaban-card-0")({}, cx);
     assert.deepEqual(focused, [["agent.focus", { terminal: "t9" }]]);
@@ -172,11 +177,21 @@ test("on a GitHub board a blocked worker is a 等你 card above the pending deci
     ({ view, v } = draw());
     assert.deepEqual([v.waiting, view.keys, clicks.has("nawaban-card-0")], [[], [], false]);
     assert.ok(!texts.some((s) => s.includes("个窗口在等你")));
+    assert.ok(at("待决 1") < at(summary) && at(summary) < at("窗口分组"));
     assert.ok(texts.includes(`窗口分组 ${v.groups.length + (v.idle.count > 0 ? 1 : 0)}`));
   } finally {
     terminals = saved;
     runImpl = async () => {};
   }
+  // the local board too: its waiting cards above the OKR section, the groups under it
+  texts.length = 0;
+  const view = new NawabanBoard();
+  view.init({}, cx);
+  Object.assign(view, { lang: "zh", board, okr });
+  view.render(cx);
+  const local = leadersView({ agents, terminals, space: "here", board, now, lang: "zh" });
+  const order = [`${local.waiting.length} 个窗口在等你`, summary, local.groups[0].name].map(at);
+  assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join(","));
 });
 
 test("a GitHub board is read from GitHub at most once a minute, whatever asks for it", async () => {

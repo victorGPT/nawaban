@@ -79,13 +79,13 @@ The approved structure is the line view (2026-11-06), which replaces the window 
 From top to bottom:
 
 1. **Header.** The project name. On the right: how many windows, and how many items are waiting in other projects.
-2. **Waiting.** A large headline, "N 个窗口在等你", then one card per waiting window. Unchanged from mix B+C. On a GitHub project (2026-11-19) the cards are the windows Herdr reports blocked, a worker started with `hc run` too, its issue open or closed; below them "待决 N" and its rows, then the window groups folded under "窗口分组 n", whose n leaves the cards out. With no window blocked the GitHub top is as it was: 待决, then the fold.
+2. **Waiting.** A large headline, "N 个窗口在等你", then one card per waiting window. Unchanged from mix B+C. On a GitHub project (2026-11-19) the cards are the windows Herdr reports blocked, a worker started with `hc run` too, its issue open or closed; below them "待决 N" and its rows, then the OKR section, then the window groups folded under "窗口分组 n", whose n leaves the cards out. With no window blocked the GitHub top is as it was: 待决, then the fold.
 3. **Leaders.** One group per leader with an open task: its own tasks and the ones it dispatched, numbered by arrival. A spec is one item with its own progress segments. Done items stay, ticked, for 24 hours. On a GitHub project a group's closed issues fold into one dim "已关 n 个" row under its items; a click opens it. A 1 px `border` line separates groups.
 4. **没认领.** Every window of the space that is neither a card nor holding a task collapses into one last row, with its count and names, the Herdr state after a working or done one: "没认领 3 · 部署（在干）、闲聊、13（完成）". A window working with no task still shows.
 
 When nothing is waiting, the headline and the cards disappear, and the leaders move to the top.
 
-In a repository with `docs/agents/okr.toml`, an OKR section sits above all of this (see OKR section below).
+In a repository with `docs/agents/okr.toml`, an OKR section (see OKR section below) sits under the waiting cards and, on GitHub, the pending decisions, above the leaders (2026-11-19): needed or not comes first, and a blocked window or a pending decision is more urgent than the OKR overview.
 
 ## Colors
 
