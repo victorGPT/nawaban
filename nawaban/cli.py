@@ -934,7 +934,8 @@ def _impacts(op: str, goal: Decimal, readings: list, declared: list) -> tuple[li
     """(the declarations since the KR's last round, the tickets that round found off their word).
 
     A round is one measured_at; its reading the one with the latest as-of. Only a declaration's first round
-    judges it, against the round before the declaration: ↑ must come closer to the target, ↓ and = not move away.
+    judges it, against the round before the declaration: ↑ must come closer to the target, = not move away;
+    ↓ said it would move away, so no round can catch it overclaiming.
     """
     rounds = {r["measured_at"]: r for r in readings}  # readings come by as-of: the last one per round wins
     times = sorted(rounds)
@@ -946,7 +947,7 @@ def _impacts(op: str, goal: Decimal, readings: list, declared: list) -> tuple[li
     prev = times[-2]
     moved = _closer(op, goal, Decimal(rounds[prev]["value"]), Decimal(rounds[last]["value"]))
     off = {i["ticket"]: i["dir"] for i in declared if prev <= i["declared_at"] < last
-           and (moved != "closer" if i["dir"] == "↑" else moved == "away")}
+           and (moved != "closer" if i["dir"] == "↑" else i["dir"] == "=" and moved == "away")}
     return pending, [{"ticket": t, "dir": d} for t, d in off.items()]
 
 
