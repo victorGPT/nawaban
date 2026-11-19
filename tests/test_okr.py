@@ -255,8 +255,8 @@ def test_okr_keeps_each_reading_once_and_skips_failed_and_untested(repo, board, 
     assert cli.main(["--db", str(board), "okr"]) == 0
     assert "读数新记 2 条" in capsys.readouterr().out
     got = {(r[0], r[1], r[2], r[3], r[4]) for r in rows(board)}
-    assert got == {(str(repo.resolve()), "意图准确率", 100.0, "2026-11-17", ""),
-                   (str(repo.resolve()), "L1 首位", 89.0, "2026-11-17", "")}
+    assert got == {(str(repo.resolve()), "意图准确率", "100.0", "2026-11-17", ""),
+                   (str(repo.resolve()), "L1 首位", "89", "2026-11-17", "")}
     assert cli.main(["--db", str(board), "okr"]) == 0
     assert "读数新记 0 条" in capsys.readouterr().out and len(rows(board)) == 2
 
@@ -287,7 +287,7 @@ def seed(db, repo, readings, at="2026-11-19T00:00:00"):
         for kr, rs in readings.items():
             for i, (v, as_of) in enumerate(rs):
                 con.execute("INSERT INTO kr_readings VALUES (?, ?, ?, ?, '', ?)",
-                            (str(repo.resolve()), kr, v, as_of, f"{at[:-2]}{i:02d}"))
+                            (str(repo.resolve()), kr, str(v), as_of, f"{at[:-2]}{i:02d}"))
 
 
 def jokr(db, capsys, *extra):
@@ -401,7 +401,36 @@ def test_accept_is_not_asked_while_a_kr_is_not_met(repo, board, capsys):
 def test_okr_accept_refuses_unless_the_objective_is_all_met_now(repo, board, capsys):
     assert cli.main(["--db", str(board), "okr", "--accept", "听得懂需求"]) == 1
     assert "还没全 ✓" in capsys.readouterr().err and rows(board, "okr_accepts") == []
+    assert len(rows(board)) == 2  # a refused accept still keeps this run's readings
     assert cli.main(["--db", str(board), "okr", "--accept", "没这个"]) == 1
     define(repo, [("K", ">= 1", 'measure = "echo 2 2026-11-18"')])
     assert cli.main(["--db", str(board), "okr", "--accept", "O"]) == 0
     assert [r[:2] for r in rows(board, "okr_accepts")] == [(str(repo.resolve()), "O")]
+
+
+def test_okr_and_json_okr_judge_the_same_kept_value(repo, board, capsys):
+    define(repo, [("等于", "== 1", 'measure = "echo 1.0000000000000001 2026-11-18"'),
+                  ("大数", ">= 9007199254740993", 'measure = "echo 9007199254740992 2026-11-18"')])
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    assert "0/2 达标" in capsys.readouterr().out
+    assert [k["status"] for k in jokr(board, capsys)[1]["objectives"][0]["krs"]] == ["missed", "missed"]
+
+
+def test_a_miss_right_after_an_accept_asks_for_accept_again(repo, board, capsys):
+    for value, day in ((2, 18), (0, 19), (3, 20)):  # all within the same second
+        define(repo, [("K", ">= 1", f'measure = "echo {value} 2026-11-{day}"')])
+        assert cli.main(["--db", str(board), "okr", *(["--accept", "O"] if day == 18 else [])]) == 0
+    data = jokr(board, capsys)[1]
+    assert kinds(data) == {("accept", None)}
+    (accepted_at,), = [r[2:] for r in rows(board, "okr_accepts")]
+    assert len(accepted_at) == 26 and all(r[5] != accepted_at for r in rows(board))
+
+
+def test_a_raced_migration_backs_up_and_migrates_once(board, monkeypatch):
+    with closing(sqlite3.connect(board)) as con:
+        con.executescript("DROP TABLE kr_readings; DROP TABLE okr_accepts; PRAGMA user_version=1;")
+    calls, real = [], cli.backup
+    monkeypatch.setattr(cli, "backup", lambda p: calls.append(p) or real(p))
+    cli._migrate(board)
+    cli._migrate(board)  # the loser of a race finds version 2 under the write lock
+    assert len(calls) == 1 and rows(board) == []

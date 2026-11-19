@@ -21,12 +21,13 @@ from decimal import Decimal
 from pathlib import Path
 
 VERSION = 2  # PRAGMA user_version; old-schema boards read 0, a pre-OKR board 1 (migrated on open)
-# OKR readings (spec NAWABAN-OKRP): source '' not NULL, so UNIQUE holds for a reading with none
+# OKR readings (spec NAWABAN-OKRP): source '' not NULL, so UNIQUE holds for a reading with none;
+# value is TEXT, not REAL: a float would meet "== 1" with 1.0000000000000001 that okr judged missed
 OKR_SCHEMA = """
 CREATE TABLE IF NOT EXISTS kr_readings (
     repo        TEXT NOT NULL,
     kr          TEXT NOT NULL,
-    value       REAL NOT NULL,
+    value       TEXT NOT NULL,  -- the measured decimal verbatim: judged the same as okr judged it
     as_of       TEXT NOT NULL,
     source      TEXT NOT NULL DEFAULT '',
     measured_at TEXT NOT NULL,
@@ -141,11 +142,19 @@ def _version(path: Path) -> int | None:
 
 
 def _migrate(path: Path) -> None:
-    """Version 1 → 2: back the board up, then add the OKR tables (idempotent if two processes race)."""
-    backup(path)
+    """Version 1 → 2: back the board up, then add the OKR tables (once, however many processes race)."""
     con = _connect(path)
+    con.isolation_level = None  # explicit transaction: the version check, backup and DDL under one write lock
     try:
-        con.executescript(f"BEGIN IMMEDIATE; {OKR_SCHEMA} PRAGMA user_version={VERSION}; COMMIT;")
+        con.execute("BEGIN IMMEDIATE")
+        if con.execute("PRAGMA user_version").fetchone()[0] != 1:  # another process migrated first
+            con.execute("ROLLBACK")
+            return
+        backup(path)
+        for stmt in filter(str.strip, OKR_SCHEMA.split(";")):
+            con.execute(stmt)
+        con.execute(f"PRAGMA user_version={VERSION}")
+        con.execute("COMMIT")
     finally:
         con.close()
 
@@ -702,7 +711,7 @@ def okr_run(root: Path) -> tuple[str, list[tuple[str, float, str, str]], dict[st
             got = _measure(root, kr["measure"]) if kr.get("measure") else None
             if isinstance(got, tuple) and (d := _AS_OF.fullmatch(got[1])):
                 # ponytail: a dateless as-of is not kept, UNIQUE(as_of, source) would pin its first value forever
-                readings.append((kr["name"], float(got[0]), d.group(1), d.group(2)))
+                readings.append((kr["name"], str(got[0]), d.group(1), d.group(2)))
             if got is None:
                 rows.append(f"  · {kr['name']}  未测 / {want}")
             elif isinstance(got, str):
@@ -718,26 +727,29 @@ def okr_run(root: Path) -> tuple[str, list[tuple[str, float, str, str]], dict[st
     return "\n".join(out), readings, full
 
 
-def _now() -> str:
-    return _dt.datetime.now().isoformat(timespec="seconds")
+def _iso(t: _dt.datetime) -> str:
+    return t.isoformat(timespec="microseconds")  # fixed width, so text order is time order
 
 
 def okr_record(con, repo: Path, readings: list, accept: str | None, full: dict[str, bool]) -> str:
     """Keep the new readings; with accept, the decision-maker's sign-off on an Objective that is all met right now."""
-    if accept is not None and not full.get(accept):
-        raise Refused(f"没有这个 O:{accept}" if accept not in full else f"{accept} 还没全 ✓,不收 accept")
-    now = _now()
-    with con:
+    now = _dt.datetime.now()
+    with con:  # the readings are kept even when the accept below is refused
         n = con.total_changes
         con.executemany("INSERT OR IGNORE INTO kr_readings VALUES (?, ?, ?, ?, ?, ?)",
-                        [(str(repo), k, v, as_of, src, now) for k, v, as_of, src in readings])
+                        [(str(repo), k, v, as_of, src, _iso(now)) for k, v, as_of, src in readings])
         n = con.total_changes - n
-        if accept is not None:
-            con.execute("INSERT INTO okr_accepts VALUES (?, ?, ?)", (str(repo), accept, now))
+    if accept is not None and not full.get(accept):
+        why = f"没有这个 O:{accept}" if accept not in full else f"{accept} 还没全 ✓,不收 accept"
+        raise Refused(f"{why}(读数新记 {n} 条)")
+    if accept is not None:  # strictly after this run's readings
+        with con:
+            con.execute("INSERT INTO okr_accepts VALUES (?, ?, ?)",
+                        (str(repo), accept, _iso(now + _dt.timedelta(microseconds=1))))
     return f"读数新记 {n} 条" + (f" · ✓ accept {accept}" if accept is not None else "")
 
 
-def _closer(op: str, goal: float, prev: float, cur: float) -> str:
+def _closer(op: str, goal: Decimal, prev: Decimal, cur: Decimal) -> str:
     """Whether cur is closer to the target than prev: >= and > want more, <= and < less, == the nearer."""
     dist = {">=": lambda v: -v, ">": lambda v: -v, "<=": lambda v: v, "<": lambda v: v}.get(op, lambda v: abs(v - goal))
     return "closer" if dist(cur) < dist(prev) else "away" if dist(cur) > dist(prev) else "flat"
@@ -763,8 +775,8 @@ def okr_data(path: Path | str, repo: Path) -> dict:
         name, krs, late_miss = o.get("name"), [], False
         for kr in o.get("kr", []):
             op, goal = _TARGET.fullmatch(kr["target"].strip()).groups()
-            rs, g = by_kr.get(kr["name"], []), float(goal)
-            ok = lambda r: _CMP[op](Decimal(str(r["value"])), Decimal(goal))
+            rs, g = by_kr.get(kr["name"], []), Decimal(goal)
+            ok = lambda r: _CMP[op](Decimal(r["value"]), g)
             missed = 0
             for r in reversed(rs):
                 if ok(r):
@@ -777,14 +789,14 @@ def okr_data(path: Path | str, repo: Path) -> dict:
                 status = "stale"  # only the latest reading goes stale; history is judged by value
             else:
                 status = "missed" if missed else "met"
-            trends = [_closer(op, g, a["value"], b["value"]) for a, b in zip(rs, rs[1:])]
+            trends = [_closer(op, g, Decimal(a["value"]), Decimal(b["value"])) for a, b in zip(rs, rs[1:])]
             late_miss |= name in accepts and any(r["measured_at"] > accepts[name] and not ok(r) for r in rs)
             krs.append({"name": kr["name"], "target": f"{op} {goal}", "unit": kr.get("unit", ""), "status": status,
-                        "value": last and last["value"], "as_of": last and last["as_of"],
+                        "value": last and float(last["value"]), "as_of": last and last["as_of"],
                         "source": last and last["source"],
-                        "history": [{"value": r["value"], "as_of": r["as_of"]} for r in rs[-3:]],
+                        "history": [{"value": float(r["value"]), "as_of": r["as_of"]} for r in rs[-3:]],
                         "trend": trends[-1] if trends else None, "missed_rounds": missed, "wait": kr.get("wait")})
-            seen = "、".join(f"{r['value']:g}" for r in rs[-3:])
+            seen = "、".join(r["value"] for r in rs[-3:])
             if missed >= 5:  # a stale KR still counts: five missed rounds then silence is what to flag
                 out["attention"].append({"kind": "five", "objective": name, "kr": kr["name"],
                                          "text": f"连续 {missed} 轮未达标（{op} {goal}），最近三次 {seen}"})
