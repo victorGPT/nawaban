@@ -241,6 +241,32 @@ test("json okr failing (no okr.toml, an older CLI) leaves the OKR section out an
   }
 });
 
+test("a json okr that hangs holds up neither the board nor the next refresh, and is not asked twice", async () => {
+  const reads = [];
+  execImpl = (_cmd, args = [], opts = {}) => {
+    if (args[1] !== "json") return Promise.resolve({ code: 1, stdout: "" });
+    reads.push([args[2], opts.timeout]);
+    if (args[2] === "okr") return new Promise(() => {}); // never answers
+    return Promise.resolve({ code: 0, stdout: JSON.stringify(args[2] === "board" ? board : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) });
+  };
+  try {
+    const quiet = { spawn() {}, notify() {} };
+    const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+    const settle = () => new Promise((r) => setImmediate(r));
+    const view = new NawabanBoard();
+    view.init({}, cx);
+    await settle();
+    assert.deepEqual(view.board, board);
+    view.refresh(cx);
+    await settle();
+    assert.equal(reads.filter(([v]) => v === "board").length, 2);
+    assert.deepEqual(reads.filter(([v]) => v === "okr"), [["okr", 5000]]); // in flight: not asked again; with its own timeout
+    assert.equal(view.okr, null);
+  } finally {
+    execImpl = async () => ({ code: 1 });
+  }
+});
+
 test("every element method the panel calls is in gpui-kit.d.ts", { skip: !dts && "no gpui-kit.d.ts on this machine" }, () => {
   const missing = [...called].filter((name) => !new RegExp(`\\b${name}\\??\\s*(\\(|<|:\\s*\\()`).test(dts));
   assert.deepEqual(missing, []);

@@ -16,6 +16,7 @@ const POLL_MS = 5000;      // re-read the board this often when it cannot be wat
 const FALLBACK_MS = 60000; // and this often when it is, in case a change was missed
 const GITHUB_MS = 60000;   // a GitHub board (`tracker: "github"`) is read from GitHub at most this often
 const NARROW_W = 400;      // a narrower panel drops a spec's progress segments
+const OKR_MS = 5000;       // `json okr` only reads the board and okr.toml: one slower than this is given up
 const ICON = (name) => `mods/nawaban-board/${name}.svg`;
 const CHROME = (name) => `mods/workspace-chrome/${name}.svg`; // Herdr's shipped icons
 const cli = () => `${home()}/nawaban/nawaban/cli.py`;
@@ -34,10 +35,10 @@ function place() {
 const spaceId = () => focused()?.space ?? spaces().find((s) => s.active)?.id;
 
 // On another machine the CLI is that machine's ~/nawaban checkout, so $HOME is expanded there.
-async function nawaban(args, at) {
+async function nawaban(args, at, timeout) {
   const r = at.on
-    ? await exec("sh", ["-c", 'exec python3 "$HOME/nawaban/nawaban/cli.py" "$@"', "sh", ...args], { cwd: at.cwd, on: at.on })
-    : await exec("python3", [cli(), ...args], { cwd: at.cwd });
+    ? await exec("sh", ["-c", 'exec python3 "$HOME/nawaban/nawaban/cli.py" "$@"', "sh", ...args], { cwd: at.cwd, on: at.on, timeout })
+    : await exec("python3", [cli(), ...args], { cwd: at.cwd, timeout });
   let out = null;
   try { out = JSON.parse(r.stdout || "null"); } catch {}
   if (r.code !== 0 || !out || out.error) throw new Error(out?.error || r.stderr?.trim().split("\n").pop() || `exit ${r.code}`);
@@ -60,6 +61,9 @@ export default class NawabanBoard extends View {
     this.unfolded = new Set();  // leaders whose 已关 row is open
     this.windowsOpen = false;   // a GitHub board's window groups, folded under its pending decisions
     this.okr = null;            // `nawaban json okr` of the space's repository (null: no OKR section)
+    this.okrKey = null;         // the place this.okr was read for
+    this.okrLoading = null;     // the place a `json okr` is in flight for
+    this.okrWatch = null;       // the one okr.toml folder watched: { repo, stop }
     this.okrOpen = new Set();   // the Objectives unfolded
     this.keys = [];             // the cards and items Enter can go to, in the order shown
     this.focusOf = new Map();   // their key -> the card or row, which go() follows
@@ -98,6 +102,7 @@ export default class NawabanBoard extends View {
   refresh(cx) {
     if (this.loading) { this.again = true; return; } // read once more when this one ends
     const at = place(), key = at.key;
+    this.refreshOkr(at, cx);
     this.loading = true;
     this.readAt = Date.now();
     this.context = key;
@@ -124,11 +129,8 @@ export default class NawabanBoard extends View {
           board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], at);
           if (board.tracker === "github") this.github.set(key, { board, at: started });
         }
-        // No okr.toml, or a CLI without `json okr`: no OKR section, the rest as before.
-        const okr = await nawaban(["json", "okr"], at).catch(() => null);
         if (place().key !== key) return; // the space changed meanwhile: the next refresh reads it
-        Object.assign(this, { project, projectsOut: projects, board, okr, error: null });
-        if (okr?.repo && !at.on) this.watchOkr(okr.repo, cx);
+        Object.assign(this, { project, projectsOut: projects, board, error: null });
       } catch (e) {
         this.error = String(e?.message ?? e); // keep the last board shown
       } finally {
@@ -154,18 +156,41 @@ export default class NawabanBoard extends View {
     });
   }
 
-  // Reads again when okr.toml changes (the board file's changes already do): watches its folder
-  // in the repository's main checkout, as the board's.
-  watchOkr(repo, cx) {
-    const dir = `${repo}/docs/agents`;
-    if (this.watched.has(dir)) return;
-    this.watched.add(dir);
+  // The OKR section's read, apart from the board's so a slow one never holds the board up: one in
+  // flight per place, given up after OKR_MS, kept only if the space is still that place. No
+  // okr.toml, or a CLI without `json okr`: null, no OKR section.
+  refreshOkr(at, cx) {
+    if (this.okrLoading === at.key) return;
+    this.okrLoading = at.key;
+    if (this.okrKey !== at.key) { this.okr = null; this.okrKey = at.key; } // another space's OKR is not this one's
     cx.spawn(async (cx) => {
-      for (;;) {
+      const okr = await nawaban(["json", "okr"], at, OKR_MS).catch(() => null);
+      if (this.okrLoading === at.key) this.okrLoading = null;
+      if (place().key !== at.key) return;
+      this.okr = okr;
+      if (okr?.repo && !at.on) this.watchOkr(okr.repo, cx);
+      else { this.okrWatch?.stop(); this.okrWatch = null; }
+      cx.notify();
+    });
+  }
+
+  // Reads again when okr.toml changes (the board file's changes already do): watches its folder in
+  // the repository's main checkout (`repo` is the main checkout's, from a worktree too). One watch
+  // at a time: the shown repository's; another space's cancels it.
+  watchOkr(repo, cx) {
+    if (this.okrWatch?.repo === repo) return;
+    this.okrWatch?.stop();
+    const dir = `${repo}/docs/agents`;
+    let pending = null, stopped = false;
+    const me = { repo, stop: () => { stopped = true; pending?.cancel(); } };
+    this.okrWatch = me;
+    cx.spawn(async (cx) => {
+      while (!stopped) {
         let paths;
-        try { paths = await watchFolder(dir); } catch { this.watched.delete(dir); return; }
-        if (this.okr?.repo === repo && paths.some((p) => p === dir || p.endsWith("/okr.toml"))) this.refresh(cx);
+        try { paths = await (pending = watchFolder(dir)); } catch { break; } // a watch that fails: the FALLBACK_MS reads
+        if (!stopped && paths.some((p) => p === dir || p.endsWith("/okr.toml"))) this.refreshOkr(place(), cx);
       }
+      if (this.okrWatch === me) this.okrWatch = null;
     });
   }
 
