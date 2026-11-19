@@ -117,10 +117,10 @@ _Avoid_: 决策简报, 来龙去脉.
 _Current identifiers_: CLI `event --kind ask --kr --context --option --rec`.
 
 **OKR progress**(OKR 进度)
-The owner's Progress view: each Objective with its KRs, each KR's current value measured now against its target. A repository defines them in `docs/agents/okr.toml`; each KR's `measure` is a command that reads results already produced and prints `<number> <as-of>`. Only a measured value that meets its target counts as met; a KR with no measure is untested, and one whose measure fails says why. A KR with `max_age_days` whose reading is older than that is stale and does not count as met.
-OKR 进度是主人看的 Progress：每个 Objective 和它的 KR，每条 KR 当场量出的现值对目标。仓库在 `docs/agents/okr.toml` 定义；每条 KR 的 `measure` 是一条命令，只读已有结果，打印「数值 截至」。只有量出来且满足目标的才算达标；没写测量的算未测，测量失败的写明原因；设了 `max_age_days` 而读数比它旧的算过期，不算达标。
+The owner's Progress view: each Objective with its KRs, each KR's current value measured now against its target. A repository defines them in `docs/agents/okr.toml`; each KR's `measure` is a command that reads results already produced and prints `<number> <as-of>`. Only a measured value that meets its target counts as met; a KR with no measure is untested, and one whose measure fails says why. A KR with `max_age_days` whose reading is older than that is stale and does not count as met. Each dated reading is kept on the board (`kr_readings`); `json okr` judges the kept readings against the current definitions without measuring, and lists what the decision-maker must watch (stuck, five missed rounds, waiting on them, an Objective all met awaiting `okr --accept`).
+OKR 进度是主人看的 Progress：每个 Objective 和它的 KR，每条 KR 当场量出的现值对目标。仓库在 `docs/agents/okr.toml` 定义；每条 KR 的 `measure` 是一条命令，只读已有结果，打印「数值 截至」。只有量出来且满足目标的才算达标；没写测量的算未测，测量失败的写明原因；设了 `max_age_days` 而读数比它旧的算过期，不算达标。带日期的读数记进看板（`kr_readings`）；`json okr` 不量，只拿存下的读数对当前定义现算，并列出要决策者盯的（两轮没动、连续 5 轮未达标、等决策者做事、O 全 ✓ 待 `okr --accept` 验收）。
 _Avoid_: 进度汇报（口述的）.
-_Current identifiers_: CLI `okr`, file `docs/agents/okr.toml`.
+_Current identifiers_: CLI `okr`, `okr --accept`, `json okr`, file `docs/agents/okr.toml`, tables `kr_readings`, `okr_accepts`.
 
 ### Events
 

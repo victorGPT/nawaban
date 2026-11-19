@@ -355,7 +355,14 @@ def test_five_is_five_missed_rounds_in_a_row(repo, board, capsys):
     assert {k["name"]: k["missed_rounds"] for k in data["objectives"][0]["krs"]} == {"五轮": 5, "四轮": 4}
 
 
-def test_wait_is_a_kr_waiting_on_the_owner_without_a_measure(repo, board, capsys):
+def test_five_still_shows_once_the_latest_reading_has_gone_stale(repo, board, capsys):
+    define(repo, [("K", ">= 95", "max_age_days = 7")])
+    seed(board, repo, {"K": [(80 + i, f"2020-01-1{i}") for i in range(5)]})
+    data = jokr(board, capsys)[1]
+    assert data["objectives"][0]["krs"][0]["status"] == "stale" and kinds(data) == {("five", "K")}
+
+
+def test_wait_is_a_kr_waiting_on_the_decision_maker_without_a_measure(repo, board, capsys):
     define(repo, [("要批", ">= 1", 'wait = "批读生产数据"'), ("有量", ">= 1", 'wait = "x"\nmeasure = "echo 1 2026-11-18"')])
     data = jokr(board, capsys)[1]
     assert data["attention"] == [{"kind": "wait", "objective": "O", "kr": "要批", "text": "批读生产数据"}]

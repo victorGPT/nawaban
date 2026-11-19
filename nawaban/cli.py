@@ -723,7 +723,7 @@ def _now() -> str:
 
 
 def okr_record(con, repo: Path, readings: list, accept: str | None, full: dict[str, bool]) -> str:
-    """Keep the new readings; with accept, the owner's sign-off on an Objective that is all met right now."""
+    """Keep the new readings; with accept, the decision-maker's sign-off on an Objective that is all met right now."""
     if accept is not None and not full.get(accept):
         raise Refused(f"没有这个 O:{accept}" if accept not in full else f"{accept} 还没全 ✓,不收 accept")
     now = _now()
@@ -785,7 +785,7 @@ def okr_data(path: Path | str, repo: Path) -> dict:
                         "history": [{"value": r["value"], "as_of": r["as_of"]} for r in rs[-3:]],
                         "trend": trends[-1] if trends else None, "missed_rounds": missed, "wait": kr.get("wait")})
             seen = "、".join(f"{r['value']:g}" for r in rs[-3:])
-            if status == "missed" and missed >= 5:
+            if missed >= 5:  # a stale KR still counts: five missed rounds then silence is what to flag
                 out["attention"].append({"kind": "five", "objective": name, "kr": kr["name"],
                                          "text": f"连续 {missed} 轮未达标（{op} {goal}），最近三次 {seen}"})
             elif status == "missed" and len(trends) >= 2 and "closer" not in trends[-2:]:
