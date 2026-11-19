@@ -305,6 +305,7 @@ export default class NawabanBoard extends View {
           .child(h_flex().gap(8).items_center()
             .child(h_flex().w(18).flex_none().justify_center().child(svg(CHROME(open ? "chevron-down" : "chevron-right")).size(12)))
             .child(div().flex_1().min_w(0).truncate().font_semibold().child(ob.name))
+            .when(Boolean(ob.impacts), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(ob.impacts)))
             .child(div().flex_none().text_size(11).font_semibold().text_color(ob.attention ? t.blocked : t.muted).child(`${ob.met}/${ob.total}`)))
           .child(h_flex().ml(26).h(4).gap(2).children(ob.segments.map((s) => div().flex_1().h(4).rounded(1).bg(seg[s])))))))
       .panel(AccordionPanel.new().child(v_flex().px(8).pb(6).children(ob.krs.map((k, j) => this.kr(k, `${i}-${j}`, t, o)))));
@@ -325,6 +326,7 @@ export default class NawabanBoard extends View {
           .child(k.status === "stale" ? `${k.value} · ${o.status.stale}` : k.value)))
       .child(div().ml(24).truncate().text_size(11).text_color(t.dim)
         .child([`${o.target} ${k.target}`, k.as_of?.slice(5, 10)].filter(Boolean).join(" · ")))
+      .when(Boolean(k.mismatch), (el) => el.child(div().ml(24).truncate().text_size(11).text_color(t.foreground).child(k.mismatch)))
       .when(k.fill != null, (el) => el.child(Progress.new(`nawaban-kr-bar-${key}`).value(k.fill).ml(24).mt(2)
         .child(ProgressTrack.new().relative().h(3).w_full().rounded(2).bg(t.border)
           .child(ProgressIndicator.new().h(3).w(`${k.fill}%`).rounded(2).bg(tone))

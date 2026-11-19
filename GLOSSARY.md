@@ -128,6 +128,12 @@ KR 影响声明是一张票在关成完成之前声明它动了什么：一个 O
 _Avoid_: 影响评估, impact note.
 _Current identifiers_: CLI `event --kind impact --o --kr`, table `kr_impacts`, note `impact:`, GitHub comment `影响：`, hook `hooks/impact-guard.sh`.
 
+**Impact mismatch**(预期不符)
+A declaration the readings contradict. A KR's round is one `okr` run that kept a new reading for it; only the first round after a declaration judges it, against the round before the declaration, by the KR's target: ↑ is off its word unless the reading came closer to the target, ↓ and = are off their word when it moved away. No new round, or no round before the declaration, is no verdict. `json okr` lists, per KR, the declarations since its last round (`impacts`) and the tickets its last round found off their word (`mismatch`); per Objective, the ↑ ↓ = count of those declarations. Declarations of an Objective with no KR (`--o` alone, or `无`) are not counted.
+预期不符是读数与声明对不上。一条 KR 的一轮是一次给它记下新读数的 `okr`；只有声明之后的第一轮评判它，与声明之前的那一轮比，按 KR 的 target 判好坏：↑ 而读数没往目标走，或 ↓、= 而读数离目标更远，就是预期不符。没有新一轮、或声明之前没有读数，不判。`json okr` 每条 KR 列出自上一轮以来的声明（`impacts`）和上一轮判出预期不符的票（`mismatch`）；每个 O 给这些声明的 ↑ ↓ = 条数。只声明 O 不带 KR 的（含「无」）不计数。
+_Avoid_: 声明失实, 对账失败.
+_Current identifiers_: `json okr` fields `impacts`, `mismatch`; `okr` lines `声明 ↑ ↓ =`, `预期不符`.
+
 ### Events
 
 **Event**(事件)

@@ -554,3 +554,18 @@ test("a spark puts the higher value higher, oldest on the left, the goal on the 
   assert.deepEqual(okrSpark([{ value: 5 }], 5).points, [[50, 50]]);
   assert.equal(okrSpark([], 5), null);
 });
+
+test("OKR declarations: an Objective's ↑ ↓ = since the last round, a KR off its word; an older CLI's json draws neither", () => {
+  const okr = { ...okrFixture, objectives: [
+    { name: "O", impacts: { "↑": 2, "↓": 1, "=": 0 }, krs: [
+      { name: "a", target: ">= 1", status: "missed", value: 0, mismatch: [{ ticket: "#5", dir: "↑" }, { ticket: "KRI-07", dir: "=" }] },
+      { name: "b", target: ">= 1", status: "met", value: 2, mismatch: [] }] },
+    { name: "P", impacts: { "↑": 0, "↓": 0, "=": 0 }, krs: [{ name: "c", target: ">= 1", status: "untested" }] }] };
+  const v = okrView(okr, "zh");
+  assert.deepEqual(v.objectives.map((o) => o.impacts), ["↑2 ↓1 =0", null]);
+  assert.deepEqual(v.objectives[0].krs.map((k) => k.mismatch), ["预期不符 #5 KRI-07", null]);
+  assert.equal(okrView(okr, "en").objectives[0].krs[0].mismatch, "Not as declared #5 KRI-07");
+  const old = okrView(okrFixture, "zh"); // the fixture predates impacts and mismatch
+  assert.ok(old.objectives.every((o) => o.impacts === null && o.krs.every((k) => k.mismatch === null)));
+  assert.deepEqual(old.attention.map((a) => a.kind), ["five", "wait", "accept"]); // no new card kind
+});

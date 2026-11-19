@@ -387,3 +387,17 @@ test("every element method the panel calls is in gpui-kit.d.ts", { skip: !dts &&
   const missing = [...called].filter((name) => !new RegExp(`\\b${name}\\??\\s*(\\(|<|:\\s*\\()`).test(dts));
   assert.deepEqual(missing, []);
 });
+
+test("an Objective row shows its ↑ ↓ = and a KR row its 预期不符", () => {
+  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+  const okr = { ...okrFixture, attention: [], objectives: [{ name: "O", impacts: { "↑": 2, "↓": 1, "=": 3 },
+    krs: [{ name: "a", target: ">= 1", status: "missed", value: 0, mismatch: [{ ticket: "#5", dir: "↑" }] }] }] };
+  const view = new NawabanBoard();
+  view.init({}, cx);
+  Object.assign(view, { lang: "zh", board, okr });
+  view.okrOpen.add("O");
+  texts.length = 0;
+  view.render(cx);
+  for (const s of ["↑2 ↓1 =3", "预期不符 #5"]) assert.ok(texts.includes(s), s);
+  assert.ok(!texts.some((s) => s.includes("件要你盯")));
+});
