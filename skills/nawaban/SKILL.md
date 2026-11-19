@@ -78,7 +78,7 @@ The frontier is every open task that no session holds and whose blockers are all
 
 - `nawaban claim <ID>`: the task becomes yours. A task held by another session is refused with the holder's session id; take it over only on purpose, with `--take`, which is logged. A done or cancelled task is refused; reopen it with `close --reopen` first.
 - `nawaban claim <ID> --release`: hand back a task you will not finish; it returns to the frontier. Record a note on where you stopped first.
-- `nawaban close <ID> --done` once its work is merged into the integration branch, after a link event for the pull request or commit. `--cancelled` for work dropped; `--reopen` for a task closed by mistake. Closing clears the session.
+- `nawaban close <ID> --done` once its work is merged into the integration branch, after a link event for the pull request or commit. In a repository with `docs/agents/okr.toml` it is refused until the task has a KR impact declaration (see "Record events"); `--cancelled` is never refused. `--cancelled` for work dropped; `--reopen` for a task closed by mistake. Closing clears the session.
 
 Every claim, takeover, release and close writes a status event by itself.
 
@@ -101,6 +101,20 @@ nawaban event <ID> --kind link --body "pr:<url>"
 - A note is the progress line others see; record one at each stopping point.
 - A decision the user made gets `--by user`; without it the author is your identity.
 - Link prefixes: `pr:`, `commit:`, `artifact:`, `adr:`.
+
+### KR impact declaration
+
+Before a ticket closes as done or its pull request merges, declare which KRs it moves:
+
+```
+nawaban event <ID> --kind impact --o "<Objective name>" --kr "<KR name>=↑ 90→95 预计" --kr "<KR name>=="
+nawaban event <ID> --kind impact --o 无
+```
+
+- `--kr` is `<KR name>=↑|↓|=[ <before>→<after> 实测|预计]`, repeatable; ↑ and ↓ need both numbers and 实测 (measured) or 预计 (expected). A KR not listed is `=`. Pure infrastructure is `--o 无` with no `--kr`.
+- The Objective and KR names must exist in the repository's `docs/agents/okr.toml`; run it from that repository. In a GitHub-tracked repository the ID is `'#N'`.
+- The declaration is kept on the local board (`kr_impacts`) and recorded on the ticket: a note `impact: …` on the board, a `影响：` comment with its marker on GitHub. The locks read only the local board.
+- In a repository with `okr.toml`, `close --done` is refused without one, and the plugin's hook denies `gh pr merge` and `scripts/merge.sh <PR>` until every ticket the PR is linked to (its closing issues, `Refs #N` in its body, or an open board task named in its title, body or branch) has one: GitHub closes an issue on merge without `nawaban close`.
 - Triage labels are notes: `--kind note --body "triage: <label>"`.
 
 ## Waiting on the user

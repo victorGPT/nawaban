@@ -235,7 +235,7 @@ def test_an_old_board_is_backed_up_and_migrated_on_open_keeping_its_tasks(board,
     capsys.readouterr()
     assert cli.main(["--db", str(board), "list"]) == 0 and "留下" in capsys.readouterr().out
     with closing(sqlite3.connect(board)) as con:
-        assert con.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert con.execute("PRAGMA user_version").fetchone()[0] == cli.VERSION
         assert con.execute("SELECT count(*) FROM kr_readings").fetchone()[0] == 0
     backups = list((board.parent / "backups").glob("nawaban-*.db"))
     assert backups
