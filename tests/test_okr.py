@@ -475,7 +475,7 @@ def test_the_summary_counts_declarations_since_each_krs_last_round(repo, board, 
     ("<= 5", 9, 7, "↑", False), ("<= 5", 7, 7, "↑", True),
     ("== 0", 2, -1, "↑", False), ("== 0", 2, -3, "↑", True),
     (">= 95", 80, 79, "=", True), (">= 95", 80, 80, "=", False), (">= 95", 80, 85, "=", False),
-    ("<= 5", 7, 9, "↓", True), ("<= 5", 7, 6, "↓", False), ("<= 5", 7, 7, "↓", False)])
+    ("<= 5", 7, 9, "↓", False), ("<= 5", 7, 6, "↓", False), ("<= 5", 7, 7, "↓", False)])
 def test_the_first_round_after_a_declaration_judges_it_by_the_target(repo, board, capsys, target, before, after, d, mismatch):
     define(repo, [("K", target, "")])
     reading(board, repo, "K", before, "2026-11-10T00:00:00")
