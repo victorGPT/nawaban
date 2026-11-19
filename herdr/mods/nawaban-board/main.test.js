@@ -275,6 +275,19 @@ test("the OKR section draws its cards, sparks, Objectives folded and open, and K
   for (const m of ["paint_path", "dash_array", "line_to", "header", "panel", "on_change", "value", "trigger", "truncate"]) assert.ok(called.has(m), m);
 });
 
+test("a wait card for several KRs draws its title, the wait text and the KRs' names", () => {
+  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+  const kr = (name) => ({ name, target: ">= 1", status: "untested", wait: "批准读生产数据" });
+  const okr = { ...okrFixture, objectives: [{ name: "O3", krs: ["a", "b"].map(kr) }],
+    attention: ["a", "b"].map((k) => ({ kind: "wait", objective: "O3", kr: k, text: "批准读生产数据" })) };
+  const view = new NawabanBoard();
+  view.init({}, cx);
+  Object.assign(view, { lang: "zh", board, okr });
+  texts.length = 0;
+  view.render(cx);
+  for (const s of ["1 件要你盯", "O3：2 条 KR 等你批", "批准读生产数据", "a、b"]) assert.ok(texts.includes(s), s);
+});
+
 test("json okr failing (no okr.toml, an older CLI) leaves the OKR section out and the board as it was", async () => {
   execImpl = async (_cmd, args = []) => {
     if (args[1] !== "json") return { code: 1, stdout: "" };

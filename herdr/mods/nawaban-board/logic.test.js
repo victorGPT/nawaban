@@ -499,6 +499,26 @@ test("OKR attention: the harder guardrail first, one card per KR, then okr.toml'
   assert.deepEqual(okrView({ ...okrFixture, attention: [{ kind: "later", objective: "x", text: "" }] }, "zh").attention, []);
 });
 
+test("OKR wait cards: one per Objective and wait text, its KRs listed; other kinds stay one per KR", () => {
+  const kr = (name, wait = null) => ({ name, target: ">= 1", status: "untested", wait });
+  const wait = (objective, kr, text) => ({ kind: "wait", objective, kr, text });
+  const okr = { ...okrFixture, objectives: [
+    { name: "O3", krs: [kr("a", "批准读生产数据"), kr("b", "批准读生产数据"), kr("c", "批准读生产数据"), kr("d", "批准读生产数据"), kr("e", "定口径")] },
+    { name: "O4", krs: [kr("f", "批准读生产数据"), kr("g")] }],
+    attention: [wait("O3", "a", "批准读生产数据"), wait("O3", "b", "批准读生产数据"), wait("O3", "c", "批准读生产数据"),
+      wait("O3", "d", "批准读生产数据"), wait("O3", "e", "定口径"), wait("O4", "f", "批准读生产数据"),
+      { kind: "stuck", objective: "O4", kr: "g", text: "两轮没变好" }] };
+  const v = okrView(okr, "zh");
+  assert.deepEqual(v.attention.map((x) => [x.kind, x.title, x.text, x.objective, x.krs ?? null]), [
+    ["stuck", "g", "两轮没变好", "O4", null],
+    ["wait", "O3：4 条 KR 等你批", "批准读生产数据", null, ["a", "b", "c", "d"]], // roubao: O3's four alike, one card
+    ["wait", "e", "定口径", "O3", null], // same O, another wait text: its own card
+    ["wait", "f", "批准读生产数据", "O4", null]]); // same text, another O: its own card
+  assert.equal(OKR_WORDS.zh.headline(v.attention.length), "4 件要你盯");
+  assert.equal(okrView(okr, "en").attention[1].title, "O3: 4 KRs waiting on you");
+  assert.deepEqual(v.attention.map((x) => x.key), ["okr:0", "okr:1", "okr:2", "okr:3"]);
+});
+
 test("OKR objectives: met/total and one segment per KR, met, missed, stale, untested in that order", () => {
   const v = okrView(okrFixture, "zh");
   assert.equal(OKR_WORDS.zh.summary(v.met, v.total, v.measured), "OKR 3/7 达标 · 11-19 09:00 量");

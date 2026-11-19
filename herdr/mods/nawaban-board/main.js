@@ -260,21 +260,23 @@ export default class NawabanBoard extends View {
       .child(div().flex_none().px(16).pt(6).pb(4).text_size(11).text_color(t.dim).truncate().child(o.summary(v.met, v.total, v.measured)))
       .when(v.attention.length > 0, (el) => el
         .child(div().flex_none().px(16).pt(6).pb(10).text_size(20).font_semibold().text_color(t.blocked).child(o.headline(v.attention.length)))
-        .child(v_flex().flex_none().px(12).gap(8).children(v.attention.map((a) => this.okrCard(a, t)))))
+        .child(v_flex().flex_none().px(12).gap(8).children(v.attention.map((a) => this.okrCard(a, t, o)))))
       .child(Accordion.new("nawaban-okr").flex_none().pt(6).children(v.objectives.map((ob, i) => this.objective(ob, i, t, o))))
       .child(sep());
   }
 
   // What the decision-maker has to watch: the KR (or Objective) and why, in amber; stuck and five
-  // with their last readings drawn; the CLI's sentence; the Objective it belongs to.
-  okrCard(a, t) {
+  // with their last readings drawn; the CLI's sentence; the Objective it belongs to, or, for one
+  // wait card standing for several KRs, their names (two lines at most).
+  okrCard(a, t, o) {
     return v_flex().id(`nawaban-${a.key}`).flex_none().p(12).rounded(8).bg(t.blocked + "26")
       .child(h_flex().gap(8).items_center()
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(a.title))
         .child(div().flex_none().text_size(12.5).text_color(t.blocked).child(a.label)))
       .when(Boolean(a.spark), (el) => el.child(this.spark(a.spark, a.target, t)))
       .when(Boolean(a.text), (el) => el.child(div().mt(6).max_h(40).overflow_hidden().line_height("20px").child(a.text)))
-      .when(Boolean(a.objective), (el) => el.child(div().mt(8).truncate().text_size(12.5).text_color(t.dim).child(a.objective)));
+      .when(Boolean(a.objective), (el) => el.child(div().mt(8).truncate().text_size(12.5).text_color(t.dim).child(a.objective)))
+      .when(Boolean(a.krs), (el) => el.child(div().mt(8).max_h(36).overflow_hidden().line_height("18px").text_size(12.5).text_color(t.dim).child(a.krs.join(o.list))));
   }
 
   // The last readings as a line (Path, in % of its box), the goal dashed, the values under it.
