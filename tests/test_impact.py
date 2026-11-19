@@ -222,6 +222,22 @@ def test_refs_in_the_body_and_a_local_ticket_id_count_as_linked(tmp_path, repo, 
     assert _hook(tmp_path, repo, board, "scripts/merge.sh 12", pr).returncode == 0
 
 
+def test_every_merge_in_a_compound_command_and_a_quoted_pr_number_are_checked(tmp_path, repo, board):
+    _declare(repo, board, "#5")
+    bin_ = tmp_path / "bin"
+    r = _hook(tmp_path, repo, board, "true", PR)  # writes the fake gh
+    # the fake gh answers PR 12 (declared #5) for "12", PR 13 (undeclared #6) for anything else
+    (bin_ / "gh").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/gh.log\n'
+                             'case "$3" in 12) echo \'{"number":12,"closingIssuesReferences":[{"number":5}]}\';;'
+                             ' *) echo \'{"number":13,"closingIssuesReferences":[{"number":6}]}\';; esac\n')
+    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "NAWABAN_DB": str(board)}
+    for cmd in ("gh pr merge 12 --squash && gh pr merge 13 --squash", 'gh pr merge "13" --squash'):
+        r = subprocess.run(["sh", str(HOOK)], input=json.dumps({"tool_input": {"command": cmd}, "cwd": str(repo)}),
+                           env=env, capture_output=True, text=True)
+        assert r.returncode == 2 and "#6" in r.stderr, (cmd, r.stderr)
+    assert "13 --json" in (tmp_path / "gh.log").read_text()
+
+
 def test_a_pr_with_no_linked_ticket_is_denied_saying_why(tmp_path, repo, board):
     r = _hook(tmp_path, repo, board, "gh pr merge 12", {**PR, "closingIssuesReferences": []})
     assert r.returncode == 2 and "查不到关联票" in r.stderr

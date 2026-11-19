@@ -497,15 +497,24 @@ def merge_gate(cmd: str, path: Path) -> str | None:
     """
     # ponytail: matches the command text from the session's cwd. `cd other && …`, `bash -c "…"` and a PR of
     # another repository through -R are judged against the cwd's repository; a guardrail, not a sandbox.
-    flat = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", "''", cmd)
-    m = _MERGE.search(flat)
-    if not m:
+    # quoted strings blanked to the same length: a quoted mention is never a merge, yet "2" still reads as 2
+    flat = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", lambda q: "'" + "x" * (len(q.group(0)) - 2) + "'", cmd)
+    merges = list(_MERGE.finditer(flat))
+    if not merges:
         return None
     top, repo = _here()
     if not (top / OKR_FILE).is_file():
         return None
+    for m in merges:  # every merge in a compound command
+        stop = re.search(r"[;&|\n)]|$", flat[m.end():]).start()
+        if why := _merge_gate_one(m.group(0), cmd[m.end():m.end() + stop], top, repo, path):
+            return why
+    return None
+
+
+def _merge_gate_one(merge: str, rest: str, top: Path, repo: str, path: Path) -> str | None:
     try:
-        args = shlex.split(re.split(r"[;&|\n)]", flat[m.end():])[0])
+        args = shlex.split(rest)
     except ValueError:
         args = []
     sel, gh_repo, it = None, None, iter(args)
@@ -515,7 +524,7 @@ def merge_gate(cmd: str, path: Path) -> str | None:
             gh_repo = v if t in ("-R", "--repo") else gh_repo
         elif not t.startswith("-") and sel is None:
             sel = t
-    if sel is None and "merge.sh" in m.group(0):
+    if sel is None and "merge.sh" in merge:
         return "scripts/merge.sh 没写 PR 号,核不了 KR 影响声明"
     try:
         pr = _gh_json(top, "pr", "view", *([sel] if sel else []), *(["--repo", gh_repo] if gh_repo else []),
