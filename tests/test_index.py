@@ -99,6 +99,32 @@ def test_without_owner_names_only_a_decision_that_says_拍板_is_the_owner_s(git
     assert "## 48 小时内你拍的板 1（agent 自己定的另有 5 条，在各任务里）\n- 2 小时前 #306 ADR 0033" in github()
 
 
+def _decision(body, at, by=None):
+    ev = {"v": 1, "uid": "u", "kind": "decision", "author": "w", "terminal": None, "at": 0, "body": body}
+    if by:
+        ev["by"] = by
+    return {"body": f"决定：{body}\n\n{cli.marker(ev)}", "createdAt": at}
+
+
+def test_a_marked_decision_is_the_owner_s_by_its_by_not_its_text(github, monkeypatch):
+    monkeypatch.setenv("NAWABAN_OWNER_NAMES", "owner,负责人")
+    issue = {**FIXTURE[0], "number": 900, "state": "OPEN", "stateReason": None, "comments": [
+        _decision("Verdict: 先发 A", "2026-11-07T11:00:00Z", by="user"),
+        _decision("Verdict: 等负责人拍板再动", "2026-11-07T10:00:00Z"),
+        _decision("Verdict: 负责人拍板了，合", "2026-11-07T09:00:00Z", by="agent")]}
+    monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
+    out = github()
+    assert "## 48 小时内你拍的板 1（agent 自己定的另有 2 条，在各任务里）\n- 1 小时前 #900 先发 A" in out
+
+
+def test_a_marked_decision_without_by_still_counts_by_its_text(github, monkeypatch):
+    monkeypatch.setenv("NAWABAN_OWNER_NAMES", "owner,负责人")
+    issue = {**FIXTURE[0], "number": 901, "state": "OPEN", "stateReason": None, "comments": [
+        _decision("（owner 2026-11-07，经 roubao-e8 转达）审过，可以合。", "2026-11-07T11:00:00Z")]}
+    monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
+    assert "## 48 小时内你拍的板 1（agent 自己定的另有 0 条" in github()
+
+
 @pytest.fixture
 def run(tmp_path, capsys):
     board = tmp_path / "proj" / ".nawaban" / "board.db"
