@@ -215,18 +215,19 @@ export default class NawabanBoard extends View {
       : !v.waiting.length && !v.groups.length && !mine.length ? w.none : null;
     const okr = okrView(this.okr, this.lang);
     const sep = () => div().flex_none().h(1).mx(16).mt(12).bg(t.border);
-    // The windows as before: waiting cards, leader groups, the idle row.
-    const windows = (el) => el
+    // The windows as before: waiting cards, then leader groups and the idle row.
+    const cards = (el) => el
       .when(v.waiting.length > 0, (el) => el
         .child(div().flex_none().px(16).pt(2).pb(10).text_size(20).font_semibold().text_color(t.blocked).child(w.headline(v.waiting.length)))
-        .child(v_flex().flex_none().px(12).gap(8).children(v.waiting.map((x, i) => this.card(x, i, keyboard, t, w)))))
+        .child(v_flex().flex_none().px(12).gap(8).children(v.waiting.map((x, i) => this.card(x, i, keyboard, t, w)))));
+    const groups = (el) => el
       .children(v.groups.flatMap((g, i) => [...(i > 0 ? [sep()] : []), this.group(g, now, keyboard, t, w)]))
       .when(v.idle.count > 0, (el) => el.when(v.groups.length > 0, (el) => el.child(sep()))
         .child(div().flex_none().px(16).pt(12).text_size(12).text_color(t.dim).truncate()
           .child(w.idleRow(v.idle.count, v.idle.names))));
-    // A GitHub board: pending decisions on top, the windows folded under them.
+    // A GitHub board: blocked windows' cards, then pending decisions, the groups folded under them.
     const github = this.board?.tracker === "github";
-    if (github && !this.windowsOpen) this.keys = [];
+    if (github && !this.windowsOpen) this.keys = v.keys.filter((k) => k.startsWith("card:"));
 
     return v_flex().id("nawaban-board").size_full().min_h(0).rounded(10).overflow_hidden()
       .bg(t.canvas).border_1().border_color(t.border).text_color(t.foreground).text_size(13.5)
@@ -245,8 +246,8 @@ export default class NawabanBoard extends View {
       .child(v_flex().id("nawaban-body").flex_1().min_h(0).overflow_y_scrollbar().pb(16)
         .when(Boolean(note), (el) => el.child(div().flex_none().px(16).pb(8).text_size(12.5).text_color(t.muted).child(note)))
         .when(Boolean(okr), (el) => this.okrSection(el, okr, sep, t, OKR_WORDS[this.lang]))
-        .when(!github, windows)
-        .when(github, (el) => this.pendingTop(el, pendingView(this.board), windows, v, t, w)));
+        .when(!github, (el) => groups(cards(el)))
+        .when(github, (el) => this.pendingTop(cards(el), pendingView(this.board), groups, v, t, w)));
   }
 
   // The OKR section above the windows: "OKR 15/23 达标 · 11-19 09:00 量", then "N 件要你盯" and an
@@ -334,9 +335,10 @@ export default class NawabanBoard extends View {
           .child(div().flex_1().min_w(0).child(String(v))))));
   }
 
-  // A GitHub board's top: 待决 N, a row per pending decision (a click opens its issue on GitHub); the window groups folded.
-  pendingTop(el, pending, windows, v, t, w) {
-    const count = v.waiting.length + v.groups.length + (v.idle.count > 0 ? 1 : 0);
+  // A GitHub board's top, under the blocked windows' cards: 待决 N, a row per pending decision (a click
+  // opens its issue on GitHub); the window groups folded, counted without the cards above.
+  pendingTop(el, pending, groups, v, t, w) {
+    const count = v.groups.length + (v.idle.count > 0 ? 1 : 0);
     return el
       .when(pending.length > 0, (el) => el
         .child(div().flex_none().px(16).pt(14).pb(6).text_size(12).font_semibold().text_color(t.muted).child(w.pending(pending.length)))
@@ -351,7 +353,7 @@ export default class NawabanBoard extends View {
           .on_click((_e, cx) => { this.windowsOpen = !this.windowsOpen; cx.notify(); })
           .child(h_flex().w(18).flex_none().justify_center().child(svg(CHROME(this.windowsOpen ? "chevron-down" : "chevron-right")).size(12)))
           .child(div().flex_1().min_w(0).truncate().child(w.windowsFold(count))))
-        .content(windows(v_flex())));
+        .content(groups(v_flex())));
   }
 
   // The project, then how many windows and what waits in other projects; the language menu; opened

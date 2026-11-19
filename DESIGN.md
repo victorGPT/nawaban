@@ -79,7 +79,7 @@ The approved structure is the line view (2026-11-06), which replaces the window 
 From top to bottom:
 
 1. **Header.** The project name. On the right: how many windows, and how many items are waiting in other projects.
-2. **Waiting.** A large headline, "N 个窗口在等你", then one card per waiting window. Unchanged from mix B+C.
+2. **Waiting.** A large headline, "N 个窗口在等你", then one card per waiting window. Unchanged from mix B+C. On a GitHub project (2026-11-19) the cards are the windows Herdr reports blocked, a worker started with `hc run` too, its issue open or closed; below them "待决 N" and its rows, then the window groups folded under "窗口分组 n", whose n leaves the cards out. With no window blocked the GitHub top is as it was: 待决, then the fold.
 3. **Leaders.** One group per leader with an open task: its own tasks and the ones it dispatched, numbered by arrival. A spec is one item with its own progress segments. Done items stay, ticked, for 24 hours. On a GitHub project a group's closed issues fold into one dim "已关 n 个" row under its items; a click opens it. A 1 px `border` line separates groups.
 4. **没认领.** Every window of the space that is neither a card nor holding a task collapses into one last row, with its count and names, the Herdr state after a working or done one: "没认领 3 · 部署（在干）、闲聊、13（完成）". A window working with no task still shows.
 
@@ -139,7 +139,7 @@ In a repository with `docs/agents/okr.toml`, an OKR section sits above all of th
   - current (held): a `working` ring with a breathing inner dot, "在干 40 分钟";
   - stopped (held, its window gone or idle): a `blocked` ring, "停了 2 小时";
   - not started: a hollow `dim` dot, "还没动".
-  - On a GitHub project, a child's issue: closed, done; open, current while its window works; else 在推, a `dim` ring and dim label with no duration, while the issue had a comment or edit in the last 24 hours; else stopped since then ("停了 1 天"); `needs-info`, waiting on you, with a card. 在推 is not amber: the issue moves, nobody needs the owner.
+  - On a GitHub project, a child's issue: closed, done; open, current while its window works; else 在推, a `dim` ring and dim label with no duration, while the issue had a comment or edit in the last 24 hours; else stopped since then ("停了 1 天"); waiting on you while its window is blocked (or error), with a card when blocked. `needs-info` makes no card there: a pending decision takes its place. 在推 is not amber: the issue moves, nobody needs the owner.
 - **Note.** Under a current, 在推, stopped or waiting item only: who is on it, 自己 or worker, then the latest note it wrote ("自己 · verify：3814 个测试通过"), at most two lines, skipping `coord:` notes, which are bookkeeping. A child terminal, already named on the right, has no who; an issue's note is its latest `进展：` comment. "去窗口 →" sits at its right, in `foreground`, when the window is still there; with nothing to say there is no note line, and "去窗口 →" ends the title row. A stopped item whose window is gone says so and has no button. Resting the pointer on the item opens a HoverCard with the whole note.
 - **已关 row.** A GitHub group's closed issues: a 12 px chevron in the rail column (Herdr's `chevron-right`, `chevron-down` when open), then "已关 n 个" in dim 12 px, 26 px high. Clicking it shows the closed items under it (gpui-base `Collapsible`), done-styled, numbered after the open ones. They are not in the ↑ ↓ order.
 - **Row behaviour.** Clicking an item with a window focuses it, the same as a card. ↑ and ↓ move through cards and items together, and Enter goes to the selected one.
