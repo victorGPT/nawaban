@@ -62,7 +62,8 @@ export default class NawabanBoard extends View {
     this.windowsOpen = false;   // a GitHub board's window groups, folded under its pending decisions
     this.okr = null;            // `nawaban json okr` of the space's repository (null: no OKR section)
     this.okrKey = null;         // the place this.okr was read for
-    this.okrLoading = null;     // the place a `json okr` is in flight for
+    this.okrFlight = new Map(); // place -> the generation of its `json okr` in flight
+    this.okrGen = 0;            // generations: each read gets the next, only the newest one counts
     this.okrWatch = null;       // the one okr.toml folder watched: { repo, stop }
     this.okrOpen = new Set();   // the Objectives unfolded
     this.keys = [];             // the cards and items Enter can go to, in the order shown
@@ -160,12 +161,14 @@ export default class NawabanBoard extends View {
   // flight per place, given up after OKR_MS, kept only if the space is still that place. No
   // okr.toml, or a CLI without `json okr`: null, no OKR section.
   refreshOkr(at, cx) {
-    if (this.okrLoading === at.key) return;
-    this.okrLoading = at.key;
     if (this.okrKey !== at.key) { this.okr = null; this.okrKey = at.key; } // another space's OKR is not this one's
+    if (this.okrFlight.has(at.key)) return;
+    const gen = ++this.okrGen;
+    this.okrFlight.set(at.key, gen);
     cx.spawn(async (cx) => {
       const okr = await nawaban(["json", "okr"], at, OKR_MS).catch(() => null);
-      if (this.okrLoading === at.key) this.okrLoading = null;
+      if (this.okrFlight.get(at.key) !== gen) return; // a newer read of this place owns it
+      this.okrFlight.delete(at.key);
       if (place().key !== at.key) return;
       this.okr = okr;
       if (okr?.repo && !at.on) this.watchOkr(okr.repo, cx);

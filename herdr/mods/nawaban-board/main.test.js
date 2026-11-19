@@ -267,6 +267,54 @@ test("a json okr that hangs holds up neither the board nor the next refresh, and
   }
 });
 
+test("A, then B, then back to A: a late answer never overwrites a newer one, nor another space's", async () => {
+  const asked = []; // [folder, resolve] per json okr
+  execImpl = (_cmd, args = [], opts = {}) => {
+    if (args[1] !== "json") return Promise.resolve({ code: 1, stdout: "" });
+    if (args[2] === "okr") return new Promise((r) => asked.push([opts.cwd, (x) => r({ code: 0, stdout: JSON.stringify(x) })]));
+    return Promise.resolve({ code: 0, stdout: JSON.stringify(args[2] === "board" ? board : { projects: [] }) });
+  };
+  const at = (id) => ({ spaces: () => [{ id, active: true, name: id, folder: `/${id}` }], focused: () => ({ space: id, cwd: `/${id}` }) });
+  const okrOf = (repo, tag) => ({ ...okrFixture, repo, def_commit: tag });
+  try {
+    const quiet = { spawn() {}, notify() {} };
+    const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+    const settle = () => new Promise((r) => setImmediate(r));
+    where = at("A");
+    const view = new NawabanBoard();
+    view.init({}, cx); // A1 in flight
+    await settle();
+    where = at("B");
+    view.refresh(cx); // B1
+    await settle();
+    where = at("A");
+    view.refresh(cx); // A1 still in flight: not asked again
+    await settle();
+    assert.deepEqual(asked.map(([cwd]) => cwd), ["/A", "/B"]);
+    assert.equal(view.okr, null); // B's answer is not A's, A's not come yet
+    asked[1][1](okrOf("/b", "B1")); // B answers late, while A is shown
+    await settle();
+    assert.equal(view.okr, null);
+    asked[0][1](okrOf("/a", "A1"));
+    await settle();
+    assert.equal(view.okr.def_commit, "A1");
+    view.refresh(cx); // A2
+    await settle();
+    asked[2][1](okrOf("/a", "A2"));
+    await settle();
+    assert.equal(view.okr.def_commit, "A2");
+    view.refresh(cx); // A3
+    await settle();
+    view.okrFlight.set("|/A", view.okrGen + 1); // a newer read of A took over before A3 answered
+    asked[3][1](okrOf("/a", "A3-late"));
+    await settle();
+    assert.equal(view.okr.def_commit, "A2");
+  } finally {
+    where = here;
+    execImpl = async () => ({ code: 1 });
+  }
+});
+
 test("every element method the panel calls is in gpui-kit.d.ts", { skip: !dts && "no gpui-kit.d.ts on this machine" }, () => {
   const missing = [...called].filter((name) => !new RegExp(`\\b${name}\\??\\s*(\\(|<|:\\s*\\()`).test(dts));
   assert.deepEqual(missing, []);
