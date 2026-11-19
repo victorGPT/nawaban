@@ -20,8 +20,26 @@ from contextlib import closing
 from decimal import Decimal
 from pathlib import Path
 
-VERSION = 1  # PRAGMA user_version; old-schema boards read 0
-SCHEMA = """
+VERSION = 2  # PRAGMA user_version; old-schema boards read 0, a pre-OKR board 1 (migrated on open)
+# OKR readings (spec NAWABAN-OKRP): source '' not NULL, so UNIQUE holds for a reading with none;
+# value is TEXT, not REAL: a float would meet "== 1" with 1.0000000000000001 that okr judged missed
+OKR_SCHEMA = """
+CREATE TABLE IF NOT EXISTS kr_readings (
+    repo        TEXT NOT NULL,
+    kr          TEXT NOT NULL,
+    value       TEXT NOT NULL,  -- the measured decimal verbatim: judged the same as okr judged it
+    as_of       TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT '',
+    measured_at TEXT NOT NULL,
+    UNIQUE (repo, kr, as_of, source)
+);
+CREATE TABLE IF NOT EXISTS okr_accepts (
+    repo        TEXT NOT NULL,
+    objective   TEXT NOT NULL,
+    accepted_at TEXT NOT NULL
+);
+"""
+SCHEMA = OKR_SCHEMA + """
 CREATE TABLE tasks (
     id         TEXT PRIMARY KEY,
     project    TEXT,
@@ -120,7 +138,25 @@ def _version(path: Path) -> int | None:
             con.close()
     except sqlite3.DatabaseError:
         return None
-    return v if v == VERSION or not tables else None
+    return v if v in (1, VERSION) or not tables else None
+
+
+def _migrate(path: Path) -> None:
+    """Version 1 → 2: back the board up, then add the OKR tables (once, however many processes race)."""
+    con = _connect(path)
+    con.isolation_level = None  # explicit transaction: the version check, backup and DDL under one write lock
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        if con.execute("PRAGMA user_version").fetchone()[0] != 1:  # another process migrated first
+            con.execute("ROLLBACK")
+            return
+        backup(path)
+        for stmt in filter(str.strip, OKR_SCHEMA.split(";")):
+            con.execute(stmt)
+        con.execute(f"PRAGMA user_version={VERSION}")
+        con.execute("COMMIT")
+    finally:
+        con.close()
 
 
 def init(path: Path) -> bool:
@@ -129,7 +165,9 @@ def init(path: Path) -> bool:
         v = _version(path)
         if v is None:
             raise Refused(f"不是新版看板:{path}")
-        if v == VERSION:
+        if v == 1:
+            _migrate(path)
+        if v in (1, VERSION):
             return False
     path.parent.mkdir(parents=True, exist_ok=True)
     con = _connect(path)
@@ -144,7 +182,10 @@ def init(path: Path) -> bool:
 def _check_board(path: Path) -> None:
     if not path.exists():
         raise Refused(f"看板不存在:{path}(建新板用 init)")
-    if _version(path) != VERSION:
+    v = _version(path)
+    if v == 1:
+        _migrate(path)
+    elif v != VERSION:
         raise Refused(f"不是新版看板:{path}")
 
 
@@ -622,8 +663,8 @@ def _stale(as_of: str, max_days: int) -> str:
     return f"测量过期：截至 {day}，已 {old} 天，超过 {max_days} 天" if old > max_days else ""
 
 
-def okr_text(root: Path) -> str:
-    """Each Objective with its KRs measured now; only a measured value meeting its target counts as met."""
+def _okr_defs(root: Path) -> list[dict]:
+    """The Objectives of root's {OKR_FILE}, validated; a malformed file is refused whole."""
     import tomllib
     path = root / OKR_FILE
     if not path.is_file():
@@ -639,23 +680,38 @@ def okr_text(root: Path) -> str:
         for kr in o.get("kr", []):
             if not isinstance(kr.get("name"), str) or not kr["name"]:
                 raise Refused(f"{OKR_FILE}:{o.get('name')} 下有一条 KR 没写 name")
-            if not all(isinstance(kr.get(k, ""), str) and "\0" not in kr.get(k, "") for k in ("measure", "unit")):
-                raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 measure、unit 要写成字符串")
+            if not all(isinstance(kr.get(k, ""), str) and "\0" not in kr.get(k, "") for k in ("measure", "unit", "wait")):
+                raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 measure、unit、wait 要写成字符串")
             age = kr.get("max_age_days", 0)
             if isinstance(age, bool) or not isinstance(age, int) or age < 0:
                 raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 max_age_days 要写成非负整数")
             if not isinstance(kr.get("target"), str) or not _TARGET.fullmatch(kr["target"].strip()):
                 raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr.get('name')} 的 target 要写成「>= 95」这样")
+    return objectives
+
+
+_AS_OF = re.compile(r"(\d{4}-\d\d-\d\d\S*)\s*(.*)")
+
+
+def okr_run(root: Path) -> tuple[str, list[tuple[str, float, str, str]], dict[str, bool]]:
+    """Each Objective with its KRs measured now; only a measured value meeting its target counts as met.
+
+    Also returns the readings worth keeping, (kr, value, as_of, source), and whether each Objective is all met.
+    """
+    objectives = _okr_defs(root)
     git = lambda *a: subprocess.run(["git", *a], cwd=root, capture_output=True, text=True).stdout.strip()
     head = git("log", "-1", "--format=%h %cs", "--", OKR_FILE) or "未提交"
     dirty = "（有未提交改动）" if git("status", "--porcelain", "--", OKR_FILE) else ""
-    out = [f"OKR · 定义 {OKR_FILE} @ {head}{dirty}"]
+    out, readings, full = [f"OKR · 定义 {OKR_FILE} @ {head}{dirty}"], [], {}
     for o in objectives:
         rows, met = [], 0
         for kr in o.get("kr", []):
             op, goal = _TARGET.fullmatch(kr["target"].strip()).groups()
             unit, want = kr.get("unit", ""), f"{op} {goal}{kr.get('unit', '')}"
             got = _measure(root, kr["measure"]) if kr.get("measure") else None
+            if isinstance(got, tuple) and (d := _AS_OF.fullmatch(got[1])):
+                # ponytail: a dateless as-of is not kept, UNIQUE(as_of, source) would pin its first value forever
+                readings.append((kr["name"], str(got[0]), d.group(1), d.group(2)))
             if got is None:
                 rows.append(f"  · {kr['name']}  未测 / {want}")
             elif isinstance(got, str):
@@ -667,7 +723,97 @@ def okr_text(root: Path) -> str:
                 met += ok
                 rows.append(f"  {'✓' if ok else '✗'} {kr['name']}  {got[0]:.1f}{unit} / {want}  截至 {got[1]}")
         out += [f"O {o.get('name')} · {met}/{len(rows)} 达标", *rows]
-    return "\n".join(out)
+        full[o.get("name")] = bool(rows) and met == len(rows)
+    return "\n".join(out), readings, full
+
+
+def _iso(t: _dt.datetime) -> str:
+    return t.isoformat(timespec="microseconds")  # fixed width, so text order is time order
+
+
+def okr_record(con, repo: Path, readings: list, accept: str | None, full: dict[str, bool]) -> str:
+    """Keep the new readings; with accept, the decision-maker's sign-off on an Objective that is all met right now."""
+    now = _dt.datetime.now()
+    with con:  # the readings are kept even when the accept below is refused
+        n = con.total_changes
+        con.executemany("INSERT OR IGNORE INTO kr_readings VALUES (?, ?, ?, ?, ?, ?)",
+                        [(str(repo), k, v, as_of, src, _iso(now)) for k, v, as_of, src in readings])
+        n = con.total_changes - n
+    if accept is not None and not full.get(accept):
+        why = f"没有这个 O:{accept}" if accept not in full else f"{accept} 还没全 ✓,不收 accept"
+        raise Refused(f"{why}(读数新记 {n} 条)")
+    if accept is not None:  # strictly after this run's readings
+        with con:
+            con.execute("INSERT INTO okr_accepts VALUES (?, ?, ?)",
+                        (str(repo), accept, _iso(now + _dt.timedelta(microseconds=1))))
+    return f"读数新记 {n} 条" + (f" · ✓ accept {accept}" if accept is not None else "")
+
+
+def _closer(op: str, goal: Decimal, prev: Decimal, cur: Decimal) -> str:
+    """Whether cur is closer to the target than prev: >= and > want more, <= and < less, == the nearer."""
+    dist = {">=": lambda v: -v, ">": lambda v: -v, "<=": lambda v: v, "<": lambda v: v}.get(op, lambda v: abs(v - goal))
+    return "closer" if dist(cur) < dist(prev) else "away" if dist(cur) > dist(prev) else "flat"
+
+
+def okr_data(path: Path | str, repo: Path) -> dict:
+    """json okr: the stored readings judged against the current {OKR_FILE}; never runs a measure."""
+    objectives = _okr_defs(repo)
+    with closing(open_readonly(path)) as con:
+        rows = con.execute("SELECT kr, value, as_of, source, measured_at FROM kr_readings WHERE repo=?"
+                           " ORDER BY as_of, measured_at", (str(repo),)).fetchall()
+        accepts = dict(con.execute("SELECT objective, max(accepted_at) FROM okr_accepts WHERE repo=?"
+                                   " GROUP BY objective", (str(repo),)).fetchall())
+    by_kr: dict[str, list] = {}
+    for r in rows:
+        by_kr.setdefault(r["kr"], []).append(r)
+    head = subprocess.run(["git", "log", "-1", "--format=%h", "--", OKR_FILE], cwd=repo,
+                          capture_output=True, text=True).stdout.strip()
+    out = {"repo": str(repo), "def_commit": head or None,
+           "last_measured_at": max((r["measured_at"] for r in rows), default=None), "met": 0, "total": 0,
+           "objectives": [], "attention": []}
+    for o in objectives:
+        name, krs, late_miss = o.get("name"), [], False
+        for kr in o.get("kr", []):
+            op, goal = _TARGET.fullmatch(kr["target"].strip()).groups()
+            rs, g = by_kr.get(kr["name"], []), Decimal(goal)
+            ok = lambda r: _CMP[op](Decimal(r["value"]), g)
+            missed = 0
+            for r in reversed(rs):
+                if ok(r):
+                    break
+                missed += 1
+            last = rs[-1] if rs else None
+            if last is None:
+                status = "untested"
+            elif kr.get("max_age_days") is not None and _stale(last["as_of"], kr["max_age_days"]):
+                status = "stale"  # only the latest reading goes stale; history is judged by value
+            else:
+                status = "missed" if missed else "met"
+            trends = [_closer(op, g, Decimal(a["value"]), Decimal(b["value"])) for a, b in zip(rs, rs[1:])]
+            late_miss |= name in accepts and any(r["measured_at"] > accepts[name] and not ok(r) for r in rs)
+            krs.append({"name": kr["name"], "target": f"{op} {goal}", "unit": kr.get("unit", ""), "status": status,
+                        "value": last and float(last["value"]), "as_of": last and last["as_of"],
+                        "source": last and last["source"],
+                        "history": [{"value": float(r["value"]), "as_of": r["as_of"]} for r in rs[-3:]],
+                        "trend": trends[-1] if trends else None, "missed_rounds": missed, "wait": kr.get("wait")})
+            seen = "、".join(r["value"] for r in rs[-3:])
+            if missed >= 5:  # a stale KR still counts: five missed rounds then silence is what to flag
+                out["attention"].append({"kind": "five", "objective": name, "kr": kr["name"],
+                                         "text": f"连续 {missed} 轮未达标（{op} {goal}），最近三次 {seen}"})
+            elif status == "missed" and len(trends) >= 2 and "closer" not in trends[-2:]:
+                out["attention"].append({"kind": "stuck", "objective": name, "kr": kr["name"],
+                                         "text": f"两轮没往目标走（{op} {goal}），最近三次 {seen}"})
+            if kr.get("wait") and not kr.get("measure"):
+                out["attention"].append({"kind": "wait", "objective": name, "kr": kr["name"], "text": kr["wait"]})
+        met = sum(k["status"] == "met" for k in krs)
+        pending = bool(krs) and met == len(krs) and (name not in accepts or late_miss)
+        if pending:
+            out["attention"].append({"kind": "accept", "objective": name, "kr": None,
+                                     "text": f"{name} 全 ✓，待你验收（nawaban okr --accept）"})
+        out["objectives"].append({"name": name, "met": met, "total": len(krs), "accept_pending": pending, "krs": krs})
+        out["met"] += met
+        out["total"] += len(krs)
+    return out
 
 
 # ── writes to a GitHub-tracked repository (spec NAWABAN-PROTO) ──
@@ -969,6 +1115,10 @@ def json_out(path: Path, a) -> int:
             out = projects_data(path)
         elif a.what == "board":
             out = any_board(path, a.project)[0]
+        elif a.what == "okr":
+            if not (repo := _repo_root(Path(a.repo or ".").resolve())):
+                raise Refused("json okr 要在 git 仓库里跑,或给 --repo")
+            out = okr_data(path, repo)
         else:
             out = task_detail(path, a.id)
     except Refused as e:
@@ -1141,13 +1291,15 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--model", default="opus")
     sub.add_parser("backup", help="备份到 <看板目录>/backups/ · 保留 14 天")
     p = sub.add_parser("json", help="看板的 JSON(projects、board、task;db:看板文件的真实路径)")
-    p.add_argument("what", choices=("projects", "board", "task", "db"))
+    p.add_argument("what", choices=("projects", "board", "task", "db", "okr"))
     p.add_argument("id", nargs="?", default="", help="task:任务 id")
     p.add_argument("--project", help="board:只看这个项目")
+    p.add_argument("--repo", help="okr:仓库路径,默认当前目录所在的仓库")
     sub.add_parser("brief", help="GitHub 记账的仓库:每件待决的原文、所在 issue、该 issue 最近的进展")
     p = sub.add_parser("index", help="等你 / 停了 / 在推的 md 索引(读 json board 同一份数据,只打到 stdout)")
     p.add_argument("--project", help="只看这个项目")
-    sub.add_parser("okr", help=f"各 O 的 KR 现值对目标:跑 {OKR_FILE} 里每条 KR 的测量,只读")
+    p = sub.add_parser("okr", help=f"各 O 的 KR 现值对目标:跑 {OKR_FILE} 里每条 KR 的测量,读数记进看板")
+    p.add_argument("--accept", metavar="O", help="该 O 当前全 ✓ 时记一次验收")
     return ap
 
 
@@ -1164,7 +1316,17 @@ def main(argv: list[str] | None = None) -> int:
             r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
             if r.returncode != 0:
                 raise Refused("okr 要在 git 仓库里跑")
-            print(okr_text(Path(r.stdout.strip())))
+            top = Path(r.stdout.strip())
+            text, readings, full = okr_run(top)
+            print(text)
+            if not path.exists() and a.accept is None:  # no board here: print only, never create one
+                print(f"(没有看板 {path},读数没记)", file=sys.stderr)
+                return 0
+            con = open_board(path)
+            try:
+                print(okr_record(con, _repo_root(top) or top, readings, a.accept, full))
+            finally:
+                con.close()
             return 0
         if a.verb == "index":
             print(index_text(*any_board(path, a.project)))
