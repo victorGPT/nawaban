@@ -1,0 +1,168 @@
+{
+  "repo": "/Users/v/roubao",
+  "def_commit": "86a99e6d",
+  "last_measured_at": "2026-11-19T09:00:00",
+  "met": 3,
+  "total": 7,
+  "objectives": [
+    {
+      "name": "听得懂需求",
+      "met": 2,
+      "total": 5,
+      "accept_pending": false,
+      "krs": [
+        {
+          "name": "长对话换题多带旧条件",
+          "target": "<= 20",
+          "unit": "%",
+          "status": "missed",
+          "value": 84.6,
+          "as_of": "2026-11-19",
+          "source": "b1/score.md",
+          "history": [
+            {
+              "value": 83.3,
+              "as_of": "2026-11-12"
+            },
+            {
+              "value": 84.1,
+              "as_of": "2026-11-15"
+            },
+            {
+              "value": 84.6,
+              "as_of": "2026-11-19"
+            }
+          ],
+          "trend": "away",
+          "missed_rounds": 5,
+          "wait": null
+        },
+        {
+          "name": "长对话接着轮保留修饰",
+          "target": ">= 90",
+          "unit": "%",
+          "status": "met",
+          "value": 90.1,
+          "as_of": "2026-11-19",
+          "source": "b1/score.md",
+          "history": [
+            {
+              "value": 90.1,
+              "as_of": "2026-11-19"
+            }
+          ],
+          "trend": null,
+          "missed_rounds": 0,
+          "wait": null
+        },
+        {
+          "name": "意图准确率",
+          "target": ">= 95",
+          "unit": "%",
+          "status": "met",
+          "value": 97.5,
+          "as_of": "2026-11-18",
+          "source": "eval",
+          "history": [],
+          "trend": "closer",
+          "missed_rounds": 0,
+          "wait": null
+        },
+        {
+          "name": "首字延迟",
+          "target": "< 800",
+          "unit": "ms",
+          "status": "stale",
+          "value": 640,
+          "as_of": "2026-10-01",
+          "source": "ci",
+          "history": [],
+          "trend": "flat",
+          "missed_rounds": 0,
+          "wait": null
+        },
+        {
+          "name": "误拦率",
+          "target": "<= 2",
+          "unit": "%",
+          "status": "untested",
+          "value": null,
+          "as_of": null,
+          "source": null,
+          "history": [],
+          "trend": null,
+          "missed_rounds": 0,
+          "wait": null
+        }
+      ]
+    },
+    {
+      "name": "推荐能减少筛选",
+      "met": 1,
+      "total": 1,
+      "accept_pending": true,
+      "krs": [
+        {
+          "name": "筛选次数下降",
+          "target": ">= 30",
+          "unit": "%",
+          "status": "met",
+          "value": 31,
+          "as_of": "2026-11-18",
+          "source": "eval",
+          "history": [],
+          "trend": "closer",
+          "missed_rounds": 0,
+          "wait": null
+        }
+      ]
+    },
+    {
+      "name": "用户愿意拉人",
+      "met": 0,
+      "total": 1,
+      "accept_pending": false,
+      "krs": [
+        {
+          "name": "邀请率",
+          "target": ">= 5",
+          "unit": "%",
+          "status": "untested",
+          "value": null,
+          "as_of": null,
+          "source": null,
+          "history": [],
+          "trend": null,
+          "missed_rounds": 0,
+          "wait": "批准读生产数据"
+        }
+      ]
+    }
+  ],
+  "attention": [
+    {
+      "kind": "accept",
+      "objective": "推荐能减少筛选",
+      "kr": null,
+      "text": "全部达标，等你验收"
+    },
+    {
+      "kind": "wait",
+      "objective": "用户愿意拉人",
+      "kr": "邀请率",
+      "text": "批准读生产数据"
+    },
+    {
+      "kind": "stuck",
+      "objective": "听得懂需求",
+      "kr": "长对话换题多带旧条件",
+      "text": "两轮没变好：83.3 → 84.1 → 84.6"
+    },
+    {
+      "kind": "five",
+      "objective": "听得懂需求",
+      "kr": "长对话换题多带旧条件",
+      "text": "连续 5 轮未达标"
+    }
+  ]
+}

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { leadersView, pendingView } from "./logic.js";
+import { leadersView, pendingView, okrView } from "./logic.js";
 
 const called = new Set();
 let onSize = null;
@@ -66,13 +66,15 @@ const here = { spaces: () => [{ id: "here", active: true, name: "nawaban", folde
 let where = here;
 
 const stubs = {
-  "gpui-kit": { View: class {}, div: make("div"), svg: make("svg") },
-  "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el, Collapsible: el },
+  "gpui-kit": { View: class {}, div: make("div"), svg: make("svg"), PathBuilder: el },
+  "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el, Collapsible: el, Accordion: el,
+    AccordionItem: el, AccordionHeader: el, AccordionTrigger: el, AccordionPanel: el, Progress: el, ProgressTrack: el, ProgressIndicator: el },
   herdr: { spaces: () => where.spaces(), focused: () => where.focused(),
     agents: () => agents, terminals: () => terminals, theme: () => new Proxy({}, { get: () => "#808080" }), home: () => "/h",
     run: async () => {}, exec: (...a) => execImpl(...a), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}), props: () => null, closeOverlay: () => null },
 };
 globalThis.__nawabanStubs = stubs;
+globalThis.window = { paint_path: make("paint_path") }; // Herdr's global window
 registerHooks({
   resolve: (specifier, context, next) => specifier in stubs ? { url: `stub:${specifier}`, shortCircuit: true } : next(specifier, context),
   load: (url, context, next) => !url.startsWith("stub:") ? next(url, context) : { format: "module", shortCircuit: true,
@@ -195,6 +197,46 @@ test("a space on another machine is read there: the CLI under that machine's hom
     assert.equal(view.board.tracker, "github");
   } finally {
     where = here;
+    execImpl = async () => ({ code: 1 });
+  }
+});
+
+const okrFixture = JSON.parse(readFileSync(new URL("./okr.fixture.json", import.meta.url), "utf8"));
+
+test("the OKR section draws its cards, sparks, Objectives folded and open, and KR rows, down to 300 px", () => {
+  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+  assert.ok(okrView(okrFixture, "zh").attention.some((a) => a.spark));
+  for (const lang of ["zh", "en"]) {
+    for (const width of [420, 300]) {
+      const view = new NawabanBoard();
+      view.init({}, cx);
+      Object.assign(view, { lang, board, okr: okrFixture });
+      view.okrOpen.add("听得懂需求");
+      view.render(cx);
+      onSize({ width }, cx);
+      view.render(cx);
+    }
+  }
+  for (const m of ["paint_path", "dash_array", "line_to", "header", "panel", "on_change", "value", "trigger", "truncate"]) assert.ok(called.has(m), m);
+});
+
+test("json okr failing (no okr.toml, an older CLI) leaves the OKR section out and the board as it was", async () => {
+  execImpl = async (_cmd, args = []) => {
+    if (args[1] !== "json") return { code: 1, stdout: "" };
+    if (args[2] === "okr") return { code: 2, stdout: "", stderr: "invalid choice: 'okr'" };
+    return { code: 0, stdout: JSON.stringify(args[2] === "board" ? board : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
+  };
+  try {
+    const quiet = { spawn() {}, notify() {} };
+    const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+    const view = new NawabanBoard();
+    view.okr = okrFixture; // a repository that had one
+    view.init({}, cx);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(view.okr, null);
+    assert.equal(view.error, null);
+    assert.deepEqual(view.board, board);
+  } finally {
     execImpl = async () => ({ code: 1 });
   }
 });

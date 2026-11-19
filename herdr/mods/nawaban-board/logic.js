@@ -315,3 +315,87 @@ export function moveSelection(keys, key, delta) {
 // reaches from keys.json or `herdr-app do`), or null to leave the key alone.
 const KEYS = { down: "down", up: "up", enter: "open", escape: "back" };
 export const keyCommand = (e) => KEYS[e.keystroke] ?? null;
+
+// ── OKR (spec NAWABAN-OKRP): `nawaban json okr` as the panel draws it ──
+
+// Attention first by how hard the guardrail is: five missed rounds, two rounds no better, a KR
+// waiting on the decision-maker, an Objective ready to accept.
+const OKR_KINDS = ["five", "stuck", "wait", "accept"];
+const OKR_STATES = ["met", "missed", "stale", "untested"];
+const OPS = { ">=": "≥", "<=": "≤", ">": ">", "<": "<", "==": "=" };
+const num = (v) => String(Math.round(v * 10) / 10);
+
+// "<= 20" with "%": the comparison, the goal, and "≤ 20%" to show; null when it does not parse.
+const parseTarget = (target, unit = "") => {
+  const m = /^\s*(>=|<=|==|>|<)\s*(-?\d+(?:\.\d+)?)\s*$/.exec(target ?? "");
+  return m ? { op: m[1], goal: Number(m[2]), text: `${OPS[m[1]]} ${m[2]}${unit}` } : null;
+};
+
+// The last readings as a small line: x and y as percentages of the drawn box (higher value, higher
+// up), with the goal's line on the same scale. Points are spread evenly, oldest on the left.
+export function okrSpark(history, goal) {
+  const vs = (history ?? []).map((h) => h.value);
+  if (!vs.length) return null;
+  const all = goal == null ? vs : [...vs, goal], lo = Math.min(...all), hi = Math.max(...all);
+  const y = (v) => (hi === lo ? 50 : 10 + ((hi - v) / (hi - lo)) * 80);
+  const x = (i) => (vs.length === 1 ? 50 : 4 + (i / (vs.length - 1)) * 92);
+  return { points: vs.map((v, i) => [x(i), y(v)]), goal: goal == null ? null : y(goal), labels: vs.map(num) };
+}
+
+// A KR's row: its state, the value against the target, and a bar from 0 with the goal's tick on it
+// (a % unit is out of 100; any other, out of a quarter past the larger of value and goal).
+const krRow = (k, w) => {
+  const t = parseTarget(k.target, k.unit ?? ""), has = k.value != null && k.status !== "untested";
+  const scale = k.unit === "%" ? 100 : Math.max(Math.abs(k.value ?? 0), Math.abs(t?.goal ?? 0)) * 1.25 || 1;
+  const pct = (v) => Math.min(100, Math.max(0, (v / scale) * 100));
+  return { name: k.name, status: OKR_STATES.includes(k.status) ? k.status : "untested",
+    value: has ? `${num(k.value)}${k.unit ?? ""}` : w.status.untested, target: t?.text ?? k.target ?? "",
+    goal: t?.goal ?? null, fill: has ? pct(k.value) : null, tick: t ? pct(t.goal) : null,
+    as_of: k.as_of ?? null, source: k.source ?? null, trend: w.trend[k.trend] ?? w.trend.null,
+    missed_rounds: k.missed_rounds ?? 0, wait: k.wait ?? null, history: k.history ?? [] };
+};
+
+// The OKR section, or null to leave it out: no okr.toml, a CLI without `json okr`, or a reading
+// that is not the contract. Attention: one card per KR (the harder kind wins), by kind, then in the
+// order okr.toml lists them; stuck and five carry the last readings. Each Objective: met/total, one
+// segment per KR (met, missed, stale, untested), its KR rows in okr.toml's order.
+export function okrView(okr, lang) {
+  if (!okr || !Array.isArray(okr.objectives) || !okr.objectives.length) return null;
+  const w = OKR_WORDS[lang] ?? OKR_WORDS.en;
+  const objectives = okr.objectives.map((o) => {
+    const krs = (o.krs ?? []).map((k) => krRow(k, w));
+    const counts = Object.fromEntries(OKR_STATES.map((s) => [s, krs.filter((k) => k.status === s).length]));
+    return { name: o.name, met: o.met ?? counts.met, total: o.total ?? krs.length, counts,
+      segments: OKR_STATES.flatMap((s) => Array(counts[s]).fill(s)), krs, attention: false };
+  });
+  const rank = (a) => {
+    const oi = objectives.findIndex((o) => o.name === a.objective), o = objectives[oi];
+    return [OKR_KINDS.indexOf(a.kind), oi, o ? o.krs.findIndex((k) => k.name === a.kr) : -1];
+  };
+  const seen = new Set();
+  const attention = (okr.attention ?? []).filter((a) => OKR_KINDS.includes(a.kind))
+    .map((a) => [rank(a), a]).sort(([x], [y]) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2])
+    .filter(([, a]) => { const k = `${a.objective}\0${a.kr ?? ""}`; return !seen.has(k) && seen.add(k); })
+    .map(([, a], i) => {
+      const o = objectives.find((x) => x.name === a.objective), kr = o?.krs.find((k) => k.name === a.kr);
+      if (o) o.attention = true;
+      const spark = (a.kind === "stuck" || a.kind === "five") && kr ? okrSpark(kr.history, kr.goal) : null;
+      return { key: `okr:${i}`, kind: a.kind, label: w.kind[a.kind], title: a.kr || a.objective,
+        objective: a.kr ? a.objective : null, text: a.text ?? "", spark, target: kr ? `${w.target} ${kr.target}` : null };
+    });
+  const at = okr.last_measured_at;
+  return { met: okr.met, total: okr.total, measured: at ? `${at.slice(5, 10)} ${at.slice(11, 16)}` : null, attention, objectives };
+}
+
+export const OKR_WORDS = {
+  zh: { headline: (n) => `${n} 件要你盯`, summary: (met, total, at) => `OKR ${met}/${total} 达标${at ? ` · ${at} 量` : ""}`,
+    kind: { five: "5 轮未达标", stuck: "两轮没变好", wait: "等你做", accept: "等你验收" },
+    status: { met: "达标", missed: "未达标", stale: "过期", untested: "未测" },
+    trend: { closer: "在变好", away: "在变差", flat: "没动", null: "首次读数" },
+    target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮未达标`, wait: "要你做" },
+  en: { headline: (n) => `${n} thing${n === 1 ? "" : "s"} for you`, summary: (met, total, at) => `OKR ${met}/${total} met${at ? ` · measured ${at}` : ""}`,
+    kind: { five: "Missed 5 rounds", stuck: "No better in 2 rounds", wait: "Needs you", accept: "Ready to accept" },
+    status: { met: "Met", missed: "Missed", stale: "Stale", untested: "Untested" },
+    trend: { closer: "Getting closer", away: "Moving away", flat: "Flat", null: "First reading" },
+    target: "Target", value: "Value", asOf: "As of", source: "Source", trendLabel: "Trend", rounds: (n) => `missed ${n} rounds in a row`, wait: "Needs you to" },
+};

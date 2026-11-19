@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, leadersView, itemLabel, decisionDate, WINDOW_WORDS,
-  pendingView } from "./logic.js";
+  pendingView, okrView, okrSpark, OKR_WORDS } from "./logic.js";
+import { readFileSync } from "node:fs";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
   const projects = { projects: [{ name: "nawaban" }, { name: "roubao" }] };
@@ -457,4 +458,61 @@ test("on a GitHub board with pending decisions the window groups are still there
   const v = leaders([agent("t23", "working", "claude", "leader agent")], tasks, { terminals: [ghTree[0], kid("t4c", "gh-239", "working")], board });
   assert.deepEqual(v.groups[0].items.map((i) => i.title), ["held"]);
   assert.deepEqual(pendingView(board).map((p) => p.id), ["#239"]);
+});
+
+// `nawaban json okr` as spec NAWABAN-OKRP gives it; okr.fixture.json stands in until the CLI has it.
+const okrFixture = JSON.parse(readFileSync(new URL("./okr.fixture.json", import.meta.url), "utf8"));
+
+test("OKR attention: the harder guardrail first, one card per KR, then okr.toml's order; stuck and five carry their readings", () => {
+  const v = okrView(okrFixture, "zh");
+  assert.deepEqual(v.attention.map((a) => [a.kind, a.label, a.title, a.objective]), [
+    ["five", "5 轮未达标", "长对话换题多带旧条件", "听得懂需求"], // stuck on the same KR folds into it
+    ["wait", "等你做", "邀请率", "用户愿意拉人"],
+    ["accept", "等你验收", "推荐能减少筛选", null]]); // an Objective's card is titled by it
+  assert.equal(v.attention[0].text, "连续 5 轮未达标");
+  assert.equal(v.attention[0].target, "目标 ≤ 20%");
+  assert.deepEqual(v.attention[0].spark.labels, ["83.3", "84.1", "84.6"]);
+  assert.equal(v.attention[1].spark, null);
+  assert.equal(OKR_WORDS.zh.headline(v.attention.length), "3 件要你盯");
+  assert.equal(OKR_WORDS.en.headline(1), "1 thing for you");
+  assert.equal(okrView(okrFixture, "en").attention[0].label, "Missed 5 rounds");
+  assert.deepEqual(v.objectives.map((o) => o.attention), [true, true, true]);
+  // an unknown kind is left out
+  assert.deepEqual(okrView({ ...okrFixture, attention: [{ kind: "later", objective: "x", text: "" }] }, "zh").attention, []);
+});
+
+test("OKR objectives: met/total and one segment per KR, met, missed, stale, untested in that order", () => {
+  const v = okrView(okrFixture, "zh");
+  assert.equal(OKR_WORDS.zh.summary(v.met, v.total, v.measured), "OKR 3/7 达标 · 11-19 09:00 量");
+  const o = v.objectives[0];
+  assert.deepEqual([o.name, o.met, o.total], ["听得懂需求", 2, 5]);
+  assert.deepEqual(o.counts, { met: 2, missed: 1, stale: 1, untested: 1 });
+  assert.deepEqual(o.segments, ["met", "met", "missed", "stale", "untested"]);
+  assert.deepEqual(v.objectives.map((x) => x.segments.length), [5, 1, 1]);
+});
+
+test("OKR KR rows: status, value against target, and the bar with the goal's tick", () => {
+  const rows = okrView(okrFixture, "zh").objectives[0].krs;
+  assert.deepEqual(rows.map((k) => [k.status, k.value, k.target]), [
+    ["missed", "84.6%", "≤ 20%"], ["met", "90.1%", "≥ 90%"], ["met", "97.5%", "≥ 95%"], ["stale", "640ms", "< 800ms"], ["untested", "未测", "≤ 2%"]]);
+  assert.deepEqual([rows[0].fill, rows[0].tick], [84.6, 20]); // a % is out of 100
+  assert.deepEqual([rows[3].fill, rows[3].tick], [64, 80]); // ms: out of a quarter past the larger
+  assert.equal(rows[4].fill, null); // nothing measured, no bar
+  assert.deepEqual(rows.map((k) => k.trend), ["在变差", "首次读数", "在变好", "没动", "首次读数"]);
+  const odd = okrView({ ...okrFixture, objectives: [{ name: "O", krs: [{ name: "k", target: ">= 1", status: "bogus", value: 3 }] }] }, "en");
+  assert.equal(odd.objectives[0].krs[0].status, "untested");
+});
+
+test("the OKR section is left out with no okr.toml, an older CLI, or a reply that is not the contract", () => {
+  for (const x of [null, undefined, { error: "没有 docs/agents/okr.toml" }, { projects: [] }, { ...okrFixture, objectives: [] }]) {
+    assert.equal(okrView(x, "zh"), null);
+  }
+});
+
+test("a spark puts the higher value higher, oldest on the left, the goal on the same scale", () => {
+  const s = okrSpark([{ value: 10 }, { value: 20 }], 0);
+  assert.deepEqual(s.points, [[4, 50], [96, 10]]);
+  assert.equal(s.goal, 90);
+  assert.deepEqual(okrSpark([{ value: 5 }], 5).points, [[50, 50]]);
+  assert.equal(okrSpark([], 5), null);
 });
