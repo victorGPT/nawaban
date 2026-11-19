@@ -1027,7 +1027,7 @@ def _issue_pending(i: dict) -> dict | None:
 
 def github_board_data(root: Path) -> dict:
     """The same columns as board_data, read from the repository's GitHub issues."""
-    # A marked decision is the owner's by its by:user; an unmarked (older) one if it says 拍板 or names an owner.
+    # A decision whose marker names its by is the owner's when by is user; one without (older, or unmarked) if it says 拍板 or names an owner.
     names = [n.strip() for n in os.environ.get("NAWABAN_OWNER_NAMES", "").split(",") if n.strip()]
     # 「等负责人拍板」「待拍板」 ask for a decision: 等/待, at most a name (an owner's, or up to 4 characters), then 拍板
     waiting = re.compile(r"[等待]\s*(?:%s)?\s*拍板" % "|".join([*map(re.escape, names), r"\w{1,4}?"]))
@@ -1048,7 +1048,7 @@ def github_board_data(root: Path) -> dict:
         if last == ["交还"]:
             claims = []  # the latest claim was handed back (comment order, not timestamps)
         recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
-                    "owner": ev.get("by") == "user" if (ev := _marked(raw)) else
+                    "owner": ev["by"] == "user" if "by" in (ev := _marked(raw) or {}) else
                     any(w in waiting.sub("", body) for w in ["拍板", *names])}
                    for raw, c in zip(i["comments"], cs) for body, t in _prefixed([c], "决定") if t >= since]
         # 已决 records the owner's own answer
