@@ -100,7 +100,7 @@ _Current identifiers_: CLI `claim`, `claim --take`, `claim --release`.
 
 **Orchestrator**(编排者)
 The session the user talks to about a piece of work, declared by the owner typing `/nawaban:orchestrator`, which labels its terminal `role=orchestrator`; one per repository. It starts worker sessions and receives their reports. In Herdr an orchestrator is a terminal with child terminals (`parent` in `terminals()`, the tree in Herdr's sidebar), and its workers are those children, whatever tracker they work from. On the board, a task's orchestrator is the author of its latest `dispatch:` note, else the session holding it, else the session that last claimed it; the panel uses that only for tasks no window holds yet.
-编排者是用户就一摊工作直接对话的那个会话，由主人敲 `/nawaban:orchestrator` 声明，终端打上 `role=orchestrator` 标签；一个仓库一个。它开 worker 会话、收它们的回报。在 Herdr 里，编排者是有子终端的终端（`terminals()` 的 `parent`，即 Herdr 侧边栏里的树），它的 worker 就是这些子终端，不管它们用哪个 tracker。在看板上，一个任务的编排者是它最新一条 `dispatch:` note 的作者，没有时是持有它的会话，没人持有时是最后认领它的会话；面板只对还没有窗口在做的任务用这条。
+编排者是用户就一摊工作直接对话的那个会话，由决策者敲 `/nawaban:orchestrator` 声明，终端打上 `role=orchestrator` 标签；一个仓库一个。它开 worker 会话、收它们的回报。在 Herdr 里，编排者是有子终端的终端（`terminals()` 的 `parent`，即 Herdr 侧边栏里的树），它的 worker 就是这些子终端，不管它们用哪个 tracker。在看板上，一个任务的编排者是它最新一条 `dispatch:` note 的作者，没有时是持有它的会话，没人持有时是最后认领它的会话；面板只对还没有窗口在做的任务用这条。
 _Avoid_: leader, 带队会话, 总经理, lead agent, dispatcher, coordinator.
 _Current identifiers_: note `dispatch: <worker name>` (agent-center also writes `coord: dispatch {…}`).
 
@@ -112,13 +112,13 @@ _Current identifiers_: CLI `dispatch`.
 
 **Decision card**(决策卡)
 A pending decision put to the owner, hung on the Objective or KR it serves: the Decision, the Objective / KR, the Context (only the facts the decision turns on), at least two Options each with its trade-off and whether it is a one-way or two-way door, and a Recommendation. The command refuses a card missing any of these.
-决策卡是交给主人拍板的一件待决，挂在它服务的 Objective 或 KR 下：Decision、Objective / KR、Context（只写这次决策取决于的事实）、至少两个 Options（各写 trade-off，以及是 one-way 还是 two-way door）、Recommendation。缺任何一项，命令就拒。
+决策卡是交给决策者拍板的一件待决，挂在它服务的 Objective 或 KR 下：Decision、Objective / KR、Context（只写这次决策取决于的事实）、至少两个 Options（各写 trade-off，以及是 one-way 还是 two-way door）、Recommendation。缺任何一项，命令就拒。
 _Avoid_: 决策简报, 来龙去脉.
 _Current identifiers_: CLI `event --kind ask --kr --context --option --rec`.
 
 **OKR progress**(OKR 进度)
 The owner's Progress view: each Objective with its KRs, each KR's current value measured now against its target. A repository defines them in `docs/agents/okr.toml`; each KR's `measure` is a command that reads results already produced and prints `<number> <as-of>`. Only a measured value that meets its target counts as met; a KR with no measure is untested, and one whose measure fails says why. A KR with `max_age_days` whose reading is older than that is stale and does not count as met. Each dated reading is kept on the board (`kr_readings`); `json okr` judges the kept readings against the current definitions without measuring, and lists what the decision-maker must watch (stuck, five missed rounds, waiting on them, an Objective all met awaiting `okr --accept`).
-OKR 进度是主人看的 Progress：每个 Objective 和它的 KR，每条 KR 当场量出的现值对目标。仓库在 `docs/agents/okr.toml` 定义；每条 KR 的 `measure` 是一条命令，只读已有结果，打印「数值 截至」。只有量出来且满足目标的才算达标；没写测量的算未测，测量失败的写明原因；设了 `max_age_days` 而读数比它旧的算过期，不算达标。带日期的读数记进看板（`kr_readings`）；`json okr` 不量，只拿存下的读数对当前定义现算，并列出要决策者盯的（两轮没动、连续 5 轮未达标、等决策者做事、O 全 ✓ 待 `okr --accept` 验收）。
+OKR 进度是决策者看的 Progress：每个 Objective 和它的 KR，每条 KR 当场量出的现值对目标。仓库在 `docs/agents/okr.toml` 定义；每条 KR 的 `measure` 是一条命令，只读已有结果，打印「数值 截至」。只有量出来且满足目标的才算达标；没写测量的算未测，测量失败的写明原因；设了 `max_age_days` 而读数比它旧的算过期，不算达标。带日期的读数记进看板（`kr_readings`）；`json okr` 不量，只拿存下的读数对当前定义现算，并列出要决策者盯的（两轮没动、连续 5 轮未达标、等决策者做事、O 全 ✓ 待 `okr --accept` 验收）。
 _Avoid_: 进度汇报（口述的）.
 _Current identifiers_: CLI `okr`, `okr --accept`, `json okr`, file `docs/agents/okr.toml`, tables `kr_readings`, `okr_accepts`.
 

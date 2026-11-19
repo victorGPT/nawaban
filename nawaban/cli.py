@@ -668,7 +668,7 @@ def _okr_defs(root: Path) -> list[dict]:
     import tomllib
     path = root / OKR_FILE
     if not path.is_file():
-        raise Refused(f"没有 {OKR_FILE}:KR 定义写在仓库里,O 由主人定、KR 由主人点头")
+        raise Refused(f"没有 {OKR_FILE}:KR 定义写在仓库里,O 由决策者定、KR 由决策者点头")
     try:
         objectives = tomllib.loads(path.read_text(encoding="utf-8")).get("objective", [])
     except ValueError as e:  # TOMLDecodeError, UnicodeDecodeError, an integer past int_max_str_digits
@@ -968,7 +968,7 @@ def gh_write(root: Path, a) -> str:
             _gh(root, "issue", "close", n, "--reason", "completed" if a.done else "not planned")
         return f"✓ close {a.id} → {'open' if a.reopen else 'done' if a.done else 'cancelled'}"
     if a.kind == "resolve" and not _orchestrator_here():
-        raise Refused("已决只由编排者记：主人的拍板转给编排者，或主人在 Herdr 外的终端自己记")
+        raise Refused("已决只由编排者记：决策者的拍板转给编排者，或决策者在 Herdr 外的终端自己记")
     if a.kind == "ask":
         issue = _gh_json(root, "issue", "view", n, "--json", "body,createdAt,comments")
         if _issue_pending(issue):
