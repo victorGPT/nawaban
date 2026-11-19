@@ -122,6 +122,12 @@ OKR 进度是决策者看的 Progress：每个 Objective 和它的 KR，每条 K
 _Avoid_: 进度汇报（口述的）.
 _Current identifiers_: CLI `okr`, `okr --accept`, `json okr`, file `docs/agents/okr.toml`, tables `kr_readings`, `okr_accepts`.
 
+**KR impact declaration**(KR 影响声明)
+What a ticket declares it moves before it closes as done: one Objective and, for each KR it changes, the direction (↑, ↓ or =) with the numbers before and after and whether they were measured (实测) or expected (预计); a KR not listed is unchanged. Pure infrastructure declares the Objective 无. The names must exist in the repository's `docs/agents/okr.toml`. It is kept on the local board and recorded on the ticket; in a repository with `okr.toml`, `close --done` and the plugin's merge hook refuse a ticket without one.
+KR 影响声明是一张票在关成完成之前声明它动了什么：一个 Objective，以及它改变的每条 KR 的方向（↑、↓ 或 =），带前后两个数字和依据（实测或预计）；没列出的 KR 视为不变。纯基础设施声明 O 为「无」。名字必须在仓库的 `docs/agents/okr.toml` 里存在。声明记在本地看板，同时记到票上；有 `okr.toml` 的仓库，没有声明的票 `close --done` 被拒，插件的合并 hook 也拦合并。
+_Avoid_: 影响评估, impact note.
+_Current identifiers_: CLI `event --kind impact --o --kr`, table `kr_impacts`, note `impact:`, GitHub comment `影响：`, hook `hooks/impact-guard.sh`.
+
 ### Events
 
 **Event**(事件)

@@ -20,7 +20,7 @@ from contextlib import closing
 from decimal import Decimal
 from pathlib import Path
 
-VERSION = 2  # PRAGMA user_version; old-schema boards read 0, a pre-OKR board 1 (migrated on open)
+VERSION = 3  # PRAGMA user_version; old-schema boards read 0, a pre-OKR board 1, a pre-impact board 2 (migrated on open)
 # OKR readings (spec NAWABAN-OKRP): source '' not NULL, so UNIQUE holds for a reading with none;
 # value is TEXT, not REAL: a float would meet "== 1" with 1.0000000000000001 that okr judged missed
 OKR_SCHEMA = """
@@ -39,7 +39,23 @@ CREATE TABLE IF NOT EXISTS okr_accepts (
     accepted_at TEXT NOT NULL
 );
 """
-SCHEMA = OKR_SCHEMA + """
+# KR 影响声明 (ticket NAWABAN-KRI-01): what a ticket declares it moves; the close and merge locks read only this.
+# ticket is a local task id or a GitHub issue '#N'; repo is the main checkout, as in kr_readings.
+IMPACT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS kr_impacts (
+    repo        TEXT NOT NULL,
+    ticket      TEXT NOT NULL,
+    objective   TEXT NOT NULL,  -- '无' for pure infrastructure
+    kr          TEXT NOT NULL DEFAULT '',
+    dir         TEXT NOT NULL CHECK (dir IN ('↑','↓','=')),
+    before      TEXT,
+    after       TEXT,
+    basis       TEXT CHECK (basis IN ('实测','预计')),
+    declared_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kr_impacts ON kr_impacts(repo, ticket);
+"""
+SCHEMA = OKR_SCHEMA + IMPACT_SCHEMA + """
 CREATE TABLE tasks (
     id         TEXT PRIMARY KEY,
     project    TEXT,
@@ -138,20 +154,23 @@ def _version(path: Path) -> int | None:
             con.close()
     except sqlite3.DatabaseError:
         return None
-    return v if v in (1, VERSION) or not tables else None
+    return v if v in (*OLD_VERSIONS, VERSION) or not tables else None
+
+
+OLD_VERSIONS = (1, 2)  # migrated on open
 
 
 def _migrate(path: Path) -> None:
-    """Version 1 → 2: back the board up, then add the OKR tables (once, however many processes race)."""
+    """Version 1 or 2 → 3: back the board up, then add the OKR and impact tables (once, however many processes race)."""
     con = _connect(path)
     con.isolation_level = None  # explicit transaction: the version check, backup and DDL under one write lock
     try:
         con.execute("BEGIN IMMEDIATE")
-        if con.execute("PRAGMA user_version").fetchone()[0] != 1:  # another process migrated first
+        if con.execute("PRAGMA user_version").fetchone()[0] not in OLD_VERSIONS:  # another process migrated first
             con.execute("ROLLBACK")
             return
         backup(path)
-        for stmt in filter(str.strip, OKR_SCHEMA.split(";")):
+        for stmt in filter(str.strip, (OKR_SCHEMA + IMPACT_SCHEMA).split(";")):  # IF NOT EXISTS: 2 has the OKR tables
             con.execute(stmt)
         con.execute(f"PRAGMA user_version={VERSION}")
         con.execute("COMMIT")
@@ -165,9 +184,9 @@ def init(path: Path) -> bool:
         v = _version(path)
         if v is None:
             raise Refused(f"不是新版看板:{path}")
-        if v == 1:
+        if v in OLD_VERSIONS:
             _migrate(path)
-        if v in (1, VERSION):
+        if v in (*OLD_VERSIONS, VERSION):
             return False
     path.parent.mkdir(parents=True, exist_ok=True)
     con = _connect(path)
@@ -183,7 +202,7 @@ def _check_board(path: Path) -> None:
     if not path.exists():
         raise Refused(f"看板不存在:{path}(建新板用 init)")
     v = _version(path)
-    if v == 1:
+    if v in OLD_VERSIONS:
         _migrate(path)
     elif v != VERSION:
         raise Refused(f"不是新版看板:{path}")
@@ -349,7 +368,21 @@ def close(con, a) -> str:
 
 
 def card(a) -> None:
-    """Spec NAWABAN-OKR: an ask is a decision card hung on a KR; a decision may name the KR it serves."""
+    """Spec NAWABAN-OKR: an ask is a decision card hung on a KR; a decision may name the KR it serves.
+    An impact (KR 影响声明) takes --o and repeatable --kr instead of a body; impact() checks them."""
+    if a.kind == "impact":
+        if a.body or a.context or a.option or a.rec or a.by:
+            raise Refused("impact 只收 --o 和 --kr")
+        if not a.o:
+            raise Refused("impact 要 --o \"<O 名>\"(纯基础设施写 --o 无)")
+        return
+    if a.o:
+        raise Refused("--o 只给 impact")
+    if a.body is None:
+        raise Refused("--body 必填(impact 除外)")
+    if a.kr and len(a.kr) > 1:
+        raise Refused("--kr 只有 impact 可重复")
+    a.kr = a.kr[0] if a.kr else None
     if a.kr and a.kind not in ("ask", "decision"):
         raise Refused("--kr 只给 ask(待决)和 decision")
     if a.kind != "ask":
@@ -373,6 +406,148 @@ def event(con, a) -> str:
     with con:
         add_event(con, a.id, author, a.kind, a.body)
     return f"✓ event {a.id} · {a.kind}"
+
+
+_IMPACT = re.compile(r"(.+)=([↑↓=])(?:\s+(-?\d+(?:\.\d+)?%?)\s*→\s*(-?\d+(?:\.\d+)?%?)\s+(实测|预计))?\s*")
+IMPACT_FORMAT = "<KR 名>=↑|↓|=[ 前→后 实测|预计]"
+
+
+def _here() -> tuple[Path, str]:
+    """(the checkout cwd is in, the key its impacts and readings are kept under: the main checkout)."""
+    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    top = Path(r.stdout.strip()) if r.returncode == 0 else Path.cwd().resolve()
+    return top, str(_repo_root(top) or top)
+
+
+def _impact_rows(top: Path, o: str, krs: list[str]) -> list[tuple]:
+    """(objective, kr, dir, before, after, basis) per declared KR, checked against top's {OKR_FILE}."""
+    if o == "无":
+        if krs:
+            raise Refused("--o 无 不带 --kr")
+        return [("无", "", "=", None, None, None)]
+    obj = next((x for x in _okr_defs(top) if x.get("name") == o), None)
+    if obj is None:
+        raise Refused(f"{OKR_FILE} 里没有这个 O:{o}")
+    names = [k["name"] for k in obj.get("kr", [])]
+    rows = []
+    for spec in krs:
+        m = _IMPACT.fullmatch(spec)
+        if not m:
+            raise Refused(f"--kr 格式是 {IMPACT_FORMAT}(数字前→后):{spec}")
+        name, d, before, after, basis = m.groups()
+        if name not in names:
+            raise Refused(f"{o} 下没有这个 KR:{name}(有:{'、'.join(names)})")
+        if d != "=" and not basis:
+            raise Refused(f"↑↓ 要带数字和依据:{name}={d} 前→后 实测|预计")
+        rows.append((o, name, d, before, after, basis))
+    return rows or [(o, "", "=", None, None, None)]  # a KR not listed is =
+
+
+def impact(con, a, gh_root: Path | None = None) -> str:
+    """Declare which KRs a ticket moves: rows in kr_impacts plus an event on the tracker, together or not at all."""
+    who = identity()
+    top, repo = _here()
+    rows = _impact_rows(top, a.o, a.kr or [])
+    if gh_root is None:
+        _task(con, a.id)
+    text = f"O {a.o}" + "".join(f" · {k}" for k in a.kr or [])
+    now = _iso(_dt.datetime.now())
+    with con:  # a failed GitHub post rolls the rows back
+        con.executemany("INSERT INTO kr_impacts VALUES (?,?,?,?,?,?,?,?,?)", [(repo, a.id, *r, now) for r in rows])
+        if gh_root is None:
+            add_event(con, a.id, who, "note", f"impact: {text}")
+        else:
+            gh_post(gh_root, _GH_ISSUE.fullmatch(a.id).group(1), "impact", text)
+    return f"✓ event {a.id} · impact"
+
+
+def _declared(path: Path, repo: str, tickets: list[str]) -> list[str]:
+    """The tickets with no impact declaration in repo on the board at path."""
+    if not path.exists():
+        return list(tickets)
+    with closing(open_readonly(path)) as con:
+        return [t for t in tickets if not con.execute(
+            "SELECT 1 FROM kr_impacts WHERE repo=? AND ticket=?", (repo, t)).fetchone()]
+
+
+def _how_to_declare(ticket: str) -> str:
+    return (f"  nawaban event {shlex.quote(ticket)} --kind impact --o \"<O 名>\" --kr \"{IMPACT_FORMAT}\""
+            f"(--kr 可重复;纯基础设施写 --o 无)")
+
+
+def impact_lock(path: Path, ticket: str) -> None:
+    """close --done in a repository with {OKR_FILE} needs the ticket's impact declaration."""
+    top, repo = _here()
+    if (top / OKR_FILE).is_file() and _declared(path, repo, [ticket]):
+        raise Refused(f"{ticket} 没有 KR 影响声明,不能 close --done。先补:\n{_how_to_declare(ticket)}")
+
+
+# Merge commands in command position (line start, after ; & | ( or $(, past VAR=value prefixes);
+# run on the command with quoted strings blanked, so a quoted mention is never one.
+_MERGE = re.compile(r"(?:^|[;&|(\n])\s*(?:\w+=(?:\$\([^)]*\)|\S*)\s+)*"
+                    r"(?:gh\s+pr\s+merge|(?:(?:ba|z)?sh\s+)?(?:\S*/)?scripts/merge\.sh)(?=[\s;&|)]|$)")
+_GH_VALUE_FLAGS = {"-R", "--repo", "-b", "--body", "-F", "--body-file", "-t", "--subject", "-A",
+                   "--author-email", "--match-head-commit"}
+
+
+def merge_gate(cmd: str, path: Path) -> str | None:
+    """PreToolUse hook: why a merge command must wait for its tickets' impact declarations, or None to let it run.
+
+    GitHub closes an issue on merge (Closes #N) without nawaban close, so the lock sits on the merge.
+    """
+    # ponytail: matches the command text from the session's cwd. `cd other && …`, `bash -c "…"` and a PR of
+    # another repository through -R are judged against the cwd's repository; a guardrail, not a sandbox.
+    # quoted strings blanked to the same length: a quoted mention is never a merge, yet "2" still reads as 2
+    flat = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", lambda q: "'" + "x" * (len(q.group(0)) - 2) + "'", cmd)
+    merges = list(_MERGE.finditer(flat))
+    if not merges:
+        return None
+    top, repo = _here()
+    if not (top / OKR_FILE).is_file():
+        return None
+    for m in merges:  # every merge in a compound command
+        stop = re.search(r"[;&|\n)]|$", flat[m.end():]).start()
+        if why := _merge_gate_one(m.group(0), cmd[m.end():m.end() + stop], top, repo, path):
+            return why
+    return None
+
+
+def _merge_gate_one(merge: str, rest: str, top: Path, repo: str, path: Path) -> str | None:
+    try:
+        args = shlex.split(rest)
+    except ValueError:
+        args = []
+    sel, gh_repo, it = None, None, iter(args)
+    for t in it:
+        if t in _GH_VALUE_FLAGS:
+            v = next(it, None)
+            gh_repo = v if t in ("-R", "--repo") else gh_repo
+        elif not t.startswith("-") and sel is None:
+            sel = t
+    if sel is None and "merge.sh" in merge:
+        return "scripts/merge.sh 没写 PR 号,核不了 KR 影响声明"
+    try:
+        pr = _gh_json(top, "pr", "view", *([sel] if sel else []), *(["--repo", gh_repo] if gh_repo else []),
+                      "--json", "number,title,body,headRefName,closingIssuesReferences")
+    except (Refused, ValueError) as e:
+        return f"查不到这个 PR 的关联票,核不了 KR 影响声明:{e}"
+    tickets = [f"#{i['number']}" for i in pr.get("closingIssuesReferences") or []]
+    tickets += [f"#{n}" for n in re.findall(r"\bRefs?\s+#(\d+)", pr.get("body") or "", re.I)]
+    if path.exists():  # a local board's ticket named in the title, body or branch
+        text = " ".join(str(pr.get(k) or "") for k in ("title", "body", "headRefName"))
+        with closing(open_readonly(path)) as con:
+            tickets += [r["id"] for r in con.execute("SELECT id FROM tasks WHERE status='open' AND project=?",
+                                                     (Path(repo).name,))
+                        if re.search(rf"(?<![\w-]){re.escape(r['id'])}(?![\w-])", text, re.I)]
+    tickets = list(dict.fromkeys(tickets))
+    if not tickets:
+        return (f"PR #{pr.get('number')} 查不到关联票(closingIssuesReferences、正文 Refs #N、看板票号都没有),"
+                f"核不了 KR 影响声明。在 PR 正文写 Closes #N 或 Refs #N")
+    missing = _declared(path, repo, tickets)
+    if missing:
+        return (f"PR #{pr.get('number')} 的关联票没有 KR 影响声明({'、'.join(missing)};看板 {path}),先补再合并:\n"
+                + "\n".join(_how_to_declare(t) for t in missing))
+    return None
 
 
 def show(con, a, limit: int = 20) -> str:
@@ -508,7 +683,7 @@ def board_data(path: Path | str, project: str | None = None) -> dict:
         notes = {r["task"]: {"body": r["body"], "at": r["at"]} for r in con.execute(
             "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
             " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
-            " WHERE task=e.task AND kind='note' AND ltrim(body) NOT LIKE 'coord:%')")}
+            " WHERE task=e.task AND kind='note' AND ltrim(body) NOT LIKE 'coord:%' AND ltrim(body) NOT LIKE 'impact:%')")}
         # GLOSSARY Leader: the author of the latest dispatch note (agent-center writes `coord: dispatch …`).
         dispatchers = {r["task"]: r["author"] for r in con.execute(
             "SELECT e.task, e.author FROM events e WHERE e.id=(SELECT MAX(id) FROM events"
@@ -819,7 +994,8 @@ def okr_data(path: Path | str, repo: Path) -> dict:
 # ── writes to a GitHub-tracked repository (spec NAWABAN-PROTO) ──
 
 # Each kind's visible prefix is the one people and the older readers already know.
-GH_WORDS = {"claim": "认领", "release": "交还", "note": "进展", "decision": "决定", "link": "PR", "ask": "待决", "resolve": "已决"}
+GH_WORDS = {"claim": "认领", "release": "交还", "note": "进展", "decision": "决定", "link": "PR", "ask": "待决", "resolve": "已决",
+            "impact": "影响"}
 # Only a trailing marker counts: a body quoting one stays text. The dumped JSON holds no raw newline.
 _MARKER = re.compile(r"\n*<!-- nawaban (\{[^\n]*\}) -->\s*\Z")
 _GH_ISSUE = re.compile(r"#(\d+)")
@@ -1141,7 +1317,7 @@ def json_out(path: Path, a) -> int:
 # ── index: the json board as md for a leader (spec NAWABAN-INDEX, format E) ──
 
 STALE = 24 * 3600  # 在推 → 停了 past this long without activity
-_BOOKKEEPING = re.compile(r"\s*(?:triage|wayfinder):")  # board notes that are labels, not progress
+_BOOKKEEPING = re.compile(r"\s*(?:triage|wayfinder|impact):")  # board notes that are labels, not progress
 _MENTION = re.compile(r"(?<![\w.])@([\w-]+)")
 _NEXT_SPLIT = re.compile(r"[，,]?\s*下一步[：:]")
 
@@ -1278,12 +1454,13 @@ def _parser() -> argparse.ArgumentParser:
     g.add_argument("--done", action="store_true")
     g.add_argument("--cancelled", action="store_true")
     g.add_argument("--reopen", action="store_true")
-    p = sub.add_parser("event", help="记事件:note / decision / link;GitHub 记账的仓库另有 ask(待决)/ resolve(已决)")
+    p = sub.add_parser("event", help="记事件:note / decision / link / impact(KR 影响声明);GitHub 记账的仓库另有 ask(待决)/ resolve(已决)")
     p.add_argument("id")
-    p.add_argument("--kind", required=True, choices=("note", "decision", "link", "ask", "resolve"))
-    p.add_argument("--body", required=True)
+    p.add_argument("--kind", required=True, choices=("note", "decision", "link", "ask", "resolve", "impact"))
+    p.add_argument("--body", help="impact 以外必填")
     p.add_argument("--by", choices=("user",), help="user = 用户拍板")
-    p.add_argument("--kr", help="挂哪个 Objective / KR;ask 必填,decision 可选")
+    p.add_argument("--kr", action="append", help="挂哪个 Objective / KR;ask 必填,decision 可选;impact 写 " + IMPACT_FORMAT + ",可重复")
+    p.add_argument("--o", help="impact:O 名,纯基础设施写 无")
     p.add_argument("--context", help="ask:只写影响这次决策的事实")
     p.add_argument("--option", action="append", help="ask:每个选项一次,写 trade-off 和 one-way / two-way door;至少两个")
     p.add_argument("--rec", help="ask:Recommendation")
@@ -1358,9 +1535,15 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 con.close()
             return 0
+        if a.verb == "close" and a.done:
+            impact_lock(path, a.id)
         if a.verb in ("claim", "close", "event") and _GH_ISSUE.fullmatch(a.id) and (root := github_root()):
             if a.verb == "event":
                 card(a)
+                if a.kind == "impact":
+                    with closing(open_board(path)) as con:
+                        print(impact(con, a, root))
+                    return 0
             print(gh_write(root, a))
             return 0
         if getattr(a, "kind", None) in ("ask", "resolve"):
@@ -1379,7 +1562,7 @@ def main(argv: list[str] | None = None) -> int:
                 out = close(con, a)
             elif a.verb == "event":
                 card(a)
-                out = event(con, a)
+                out = impact(con, a) if a.kind == "impact" else event(con, a)
             elif a.verb == "show":
                 out = show(con, a)
             else:
