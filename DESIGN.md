@@ -85,6 +85,8 @@ From top to bottom:
 
 When nothing is waiting, the headline and the cards disappear, and the leaders move to the top.
 
+In a repository with `docs/agents/okr.toml`, an OKR section sits above all of this (see OKR section below).
+
 ## Colors
 
 - **Theme.** All colours come from Herdr's `theme()`. The panel follows Herdr's light and dark themes and defines no colours of its own.
@@ -141,6 +143,19 @@ When nothing is waiting, the headline and the cards disappear, and the leaders m
 - **Note.** Under a current, 在推, stopped or waiting item only: who is on it, 自己 or worker, then the latest note it wrote ("自己 · verify：3814 个测试通过"), at most two lines, skipping `coord:` notes, which are bookkeeping. A child terminal, already named on the right, has no who; an issue's note is its latest `进展：` comment. "去窗口 →" sits at its right, in `foreground`, when the window is still there; with nothing to say there is no note line, and "去窗口 →" ends the title row. A stopped item whose window is gone says so and has no button. Resting the pointer on the item opens a HoverCard with the whole note.
 - **已关 row.** A GitHub group's closed issues: a 12 px chevron in the rail column (Herdr's `chevron-right`, `chevron-down` when open), then "已关 n 个" in dim 12 px, 26 px high. Clicking it shows the closed items under it (gpui-base `Collapsible`), done-styled, numbered after the open ones. They are not in the ↑ ↓ order.
 - **Row behaviour.** Clicking an item with a window focuses it, the same as a card. ↑ and ↓ move through cards and items together, and Enter goes to the selected one.
+
+## OKR section
+
+Spec NAWABAN-OKRP (2026-11-19). The panel reads `nawaban json okr` in the space's folder; the CLI does the counting and the rules, the panel only draws (`okrView` in logic.js). With no `okr.toml`, or a CLI that has no `json okr` or fails, the section is left out entirely and the rest of the panel is unchanged. It is read again with the board, when the board file changes, and when `okr.toml` changes in the main checkout (its `docs/agents` folder is watched).
+
+From top to bottom:
+
+1. **Summary.** One dim 11 px line: "OKR 15/23 达标 · 11-19 09:00 量".
+2. **要你盯.** When the CLI lists attention items: the 20 px amber headline "N 件要你盯", then one amber card each, the same card as a wait card but with no button. Order: `five` (missed 5 rounds), `stuck` (two rounds no closer), `wait` (a KR waiting on the decision-maker), `accept` (an Objective all met, to accept); then okr.toml's order. A KR listed as both five and stuck has one card, five. A card: the KR (an Objective for `accept`) and, in amber on the right, why ("5 轮未达标", "两轮没变好", "等你做", "等你验收"); for five and stuck, the last three readings as a line drawn with `PathBuilder` (in `foreground`, the goal dashed in `muted`), their values under it and "目标 ≤ 20%"; the CLI's sentence; the Objective, dim.
+3. **Objectives.** A gpui-base `Accordion`, one item per Objective, all closed until clicked: a 12 px chevron in the rail column, the name (semibold), "met/total" on the right (`muted`, amber when a card above belongs to it), and under it one 4 px segment per KR: `muted` met, `foreground` missed, `dim` stale, `border` untested.
+4. **KR rows** (an open Objective). A dot (met: filled `muted`; missed: a 10 px `foreground` ring; stale: `dim` ring; untested: `border` ring), the name cut with an ellipsis (down to a 300 px panel), the value on the right (stale adds "过期"; untested reads "未测"); a dim line "目标 ≤ 20% · 11-19"; a 3 px bar (`Progress`) filled to the value with a 2 px `foreground` tick at the goal; a % unit is out of 100, any other out of a quarter past the larger of value and goal. Resting on a row opens a HoverCard: value, target, as of, source, trend ("在变好", "在变差", "没动", "首次读数"), rounds missed in a row, what it waits on.
+
+Amber here, as everywhere, only marks what needs the decision-maker. The pending decisions stay in their own section, not in this one.
 
 ## Do's and Don'ts
 

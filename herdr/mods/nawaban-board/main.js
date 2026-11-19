@@ -5,16 +5,18 @@
 // Board data comes from the nawaban CLI (`nawaban json ...`), the checkout docs/install.md puts at
 // ~/nawaban; it runs in the space's folder without --db, so it finds the same board an agent
 // working there does.
-import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, Popover, HoverCard, Collapsible } from "gpui-base";
+import { View, div, svg, PathBuilder } from "gpui-kit";
+import { v_flex, h_flex, Popover, HoverCard, Collapsible, Accordion, AccordionItem, AccordionHeader, AccordionTrigger,
+  AccordionPanel, Progress, ProgressTrack, ProgressIndicator } from "gpui-base";
 import { spaces, focused, agents, terminals, run, exec, theme, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
 import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, leadersView, itemLabel, decisionDate,
-  WINDOW_WORDS, pendingView } from "./logic.js";
+  WINDOW_WORDS, pendingView, okrView, OKR_WORDS } from "./logic.js";
 
 const POLL_MS = 5000;      // re-read the board this often when it cannot be watched
 const FALLBACK_MS = 60000; // and this often when it is, in case a change was missed
 const GITHUB_MS = 60000;   // a GitHub board (`tracker: "github"`) is read from GitHub at most this often
 const NARROW_W = 400;      // a narrower panel drops a spec's progress segments
+const OKR_MS = 5000;       // `json okr` only reads the board and okr.toml: one slower than this is given up
 const ICON = (name) => `mods/nawaban-board/${name}.svg`;
 const CHROME = (name) => `mods/workspace-chrome/${name}.svg`; // Herdr's shipped icons
 const cli = () => `${home()}/nawaban/nawaban/cli.py`;
@@ -33,10 +35,10 @@ function place() {
 const spaceId = () => focused()?.space ?? spaces().find((s) => s.active)?.id;
 
 // On another machine the CLI is that machine's ~/nawaban checkout, so $HOME is expanded there.
-async function nawaban(args, at) {
+async function nawaban(args, at, timeout) {
   const r = at.on
-    ? await exec("sh", ["-c", 'exec python3 "$HOME/nawaban/nawaban/cli.py" "$@"', "sh", ...args], { cwd: at.cwd, on: at.on })
-    : await exec("python3", [cli(), ...args], { cwd: at.cwd });
+    ? await exec("sh", ["-c", 'exec python3 "$HOME/nawaban/nawaban/cli.py" "$@"', "sh", ...args], { cwd: at.cwd, on: at.on, timeout })
+    : await exec("python3", [cli(), ...args], { cwd: at.cwd, timeout });
   let out = null;
   try { out = JSON.parse(r.stdout || "null"); } catch {}
   if (r.code !== 0 || !out || out.error) throw new Error(out?.error || r.stderr?.trim().split("\n").pop() || `exit ${r.code}`);
@@ -58,6 +60,12 @@ export default class NawabanBoard extends View {
     this.github = new Map();    // folder -> its last GitHub board and when it was read
     this.unfolded = new Set();  // leaders whose 已关 row is open
     this.windowsOpen = false;   // a GitHub board's window groups, folded under its pending decisions
+    this.okr = null;            // `nawaban json okr` of the space's repository (null: no OKR section)
+    this.okrKey = null;         // the place this.okr was read for
+    this.okrFlight = new Map(); // place -> the generation of its `json okr` in flight
+    this.okrGen = 0;            // generations: each read gets the next, only the newest one counts
+    this.okrWatch = null;       // the one okr.toml folder watched: { repo, stop }
+    this.okrOpen = new Set();   // the Objectives unfolded
     this.keys = [];             // the cards and items Enter can go to, in the order shown
     this.focusOf = new Map();   // their key -> the card or row, which go() follows
     this.sel = null;            // the selected one's key (a card and an item can share a terminal)
@@ -95,6 +103,7 @@ export default class NawabanBoard extends View {
   refresh(cx) {
     if (this.loading) { this.again = true; return; } // read once more when this one ends
     const at = place(), key = at.key;
+    this.refreshOkr(at, cx);
     this.loading = true;
     this.readAt = Date.now();
     this.context = key;
@@ -148,6 +157,46 @@ export default class NawabanBoard extends View {
     });
   }
 
+  // The OKR section's read, apart from the board's so a slow one never holds the board up: one in
+  // flight per place, given up after OKR_MS, kept only if the space is still that place. No
+  // okr.toml, or a CLI without `json okr`: null, no OKR section.
+  refreshOkr(at, cx) {
+    if (this.okrKey !== at.key) { this.okr = null; this.okrKey = at.key; } // another space's OKR is not this one's
+    if (this.okrFlight.has(at.key)) return;
+    const gen = ++this.okrGen;
+    this.okrFlight.set(at.key, gen);
+    cx.spawn(async (cx) => {
+      const okr = await nawaban(["json", "okr"], at, OKR_MS).catch(() => null);
+      if (this.okrFlight.get(at.key) !== gen) return; // a newer read of this place owns it
+      this.okrFlight.delete(at.key);
+      if (place().key !== at.key) return;
+      this.okr = okr;
+      if (okr?.repo && !at.on) this.watchOkr(okr.repo, cx);
+      else { this.okrWatch?.stop(); this.okrWatch = null; }
+      cx.notify();
+    });
+  }
+
+  // Reads again when okr.toml changes (the board file's changes already do): watches its folder in
+  // the repository's main checkout (`repo` is the main checkout's, from a worktree too). One watch
+  // at a time: the shown repository's; another space's cancels it.
+  watchOkr(repo, cx) {
+    if (this.okrWatch?.repo === repo) return;
+    this.okrWatch?.stop();
+    const dir = `${repo}/docs/agents`;
+    let pending = null, stopped = false;
+    const me = { repo, stop: () => { stopped = true; pending?.cancel(); } };
+    this.okrWatch = me;
+    cx.spawn(async (cx) => {
+      while (!stopped) {
+        let paths;
+        try { paths = await (pending = watchFolder(dir)); } catch { break; } // a watch that fails: the FALLBACK_MS reads
+        if (!stopped && paths.some((p) => p === dir || p.endsWith("/okr.toml"))) this.refreshOkr(place(), cx);
+      }
+      if (this.okrWatch === me) this.okrWatch = null;
+    });
+  }
+
   render(cx) {
     const all = agents(), space = spaceId(), mine = all.filter((a) => a.space === space);
     // Read again on a new space, and when a window comes, goes or changes state; not on its
@@ -164,6 +213,7 @@ export default class NawabanBoard extends View {
     const keyboard = this.h.is_focused();
     const note = this.error ? `${w.error}: ${this.error}` : !this.board ? w.loading
       : !v.waiting.length && !v.groups.length && !mine.length ? w.none : null;
+    const okr = okrView(this.okr, this.lang);
     const sep = () => div().flex_none().h(1).mx(16).mt(12).bg(t.border);
     // The windows as before: waiting cards, leader groups, the idle row.
     const windows = (el) => el
@@ -194,8 +244,94 @@ export default class NawabanBoard extends View {
       .child(this.header(t, w, mine.length, v.otherWaiting))
       .child(v_flex().id("nawaban-body").flex_1().min_h(0).overflow_y_scrollbar().pb(16)
         .when(Boolean(note), (el) => el.child(div().flex_none().px(16).pb(8).text_size(12.5).text_color(t.muted).child(note)))
+        .when(Boolean(okr), (el) => this.okrSection(el, okr, sep, t, OKR_WORDS[this.lang]))
         .when(!github, windows)
         .when(github, (el) => this.pendingTop(el, pendingView(this.board), windows, v, t, w)));
+  }
+
+  // The OKR section above the windows: "OKR 15/23 达标 · 11-19 09:00 量", then "N 件要你盯" and an
+  // amber card for each, then one Accordion item per Objective, closed until clicked.
+  okrSection(el, v, sep, t, o) {
+    return el
+      .child(div().flex_none().px(16).pt(6).pb(4).text_size(11).text_color(t.dim).truncate().child(o.summary(v.met, v.total, v.measured)))
+      .when(v.attention.length > 0, (el) => el
+        .child(div().flex_none().px(16).pt(6).pb(10).text_size(20).font_semibold().text_color(t.blocked).child(o.headline(v.attention.length)))
+        .child(v_flex().flex_none().px(12).gap(8).children(v.attention.map((a) => this.okrCard(a, t)))))
+      .child(Accordion.new("nawaban-okr").flex_none().pt(6).children(v.objectives.map((ob, i) => this.objective(ob, i, t, o))))
+      .child(sep());
+  }
+
+  // What the decision-maker has to watch: the KR (or Objective) and why, in amber; stuck and five
+  // with their last readings drawn; the CLI's sentence; the Objective it belongs to.
+  okrCard(a, t) {
+    return v_flex().id(`nawaban-${a.key}`).flex_none().p(12).rounded(8).bg(t.blocked + "26")
+      .child(h_flex().gap(8).items_center()
+        .child(div().flex_1().min_w(0).truncate().font_semibold().child(a.title))
+        .child(div().flex_none().text_size(12.5).text_color(t.blocked).child(a.label)))
+      .when(Boolean(a.spark), (el) => el.child(this.spark(a.spark, a.target, t)))
+      .when(Boolean(a.text), (el) => el.child(div().mt(6).max_h(40).overflow_hidden().line_height("20px").child(a.text)))
+      .when(Boolean(a.objective), (el) => el.child(div().mt(8).truncate().text_size(12.5).text_color(t.dim).child(a.objective)));
+  }
+
+  // The last readings as a line (Path, in % of its box), the goal dashed, the values under it.
+  spark(s, target, t) {
+    const at = ([x, y]) => [`${x}%`, `${y}%`];
+    const line = s.points.reduce((p, pt, i) => (i ? p.line_to(...at(pt)) : p.move_to(...at(pt))), PathBuilder.stroke(1.5)).build();
+    const goal = s.goal == null ? null
+      : PathBuilder.stroke(1).dash_array([3, 3]).move_to("0%", `${s.goal}%`).line_to("100%", `${s.goal}%`).build();
+    return v_flex().mt(8).gap(2)
+      .child(div().relative().h(32).w_full()
+        .when(goal != null, (el) => el.child(window.paint_path(goal, t.muted).absolute().inset_0()))
+        .child(window.paint_path(line, t.foreground).absolute().inset_0()))
+      .child(h_flex().justify_between().text_size(11).text_color(t.muted).children(s.labels.map((l) => div().child(l))))
+      .when(Boolean(target), (el) => el.child(div().text_size(11).text_color(t.muted).child(target)));
+  }
+
+  // An Objective: chevron, name, met/total (amber when something in it needs the decision-maker),
+  // one segment per KR under it; open, its KR rows.
+  objective(ob, i, t, o) {
+    const open = this.okrOpen.has(ob.name);
+    const seg = { met: t.muted, missed: t.foreground, stale: t.dim, untested: t.border };
+    return AccordionItem.new().open(open)
+      .header(AccordionHeader.new(AccordionTrigger.new(`nawaban-okr-o-${i}`)
+        .on_change((on, cx) => { on ? this.okrOpen.add(ob.name) : this.okrOpen.delete(ob.name); cx.notify(); })
+        .child(v_flex().px(16).py(6).gap(6).cursor_pointer().hover((s) => s.bg(t.hover))
+          .child(h_flex().gap(8).items_center()
+            .child(h_flex().w(18).flex_none().justify_center().child(svg(CHROME(open ? "chevron-down" : "chevron-right")).size(12)))
+            .child(div().flex_1().min_w(0).truncate().font_semibold().child(ob.name))
+            .child(div().flex_none().text_size(11).font_semibold().text_color(ob.attention ? t.blocked : t.muted).child(`${ob.met}/${ob.total}`)))
+          .child(h_flex().ml(26).h(4).gap(2).children(ob.segments.map((s) => div().flex_1().h(4).rounded(1).bg(seg[s])))))))
+      .panel(AccordionPanel.new().child(v_flex().px(8).pb(6).children(ob.krs.map((k, j) => this.kr(k, `${i}-${j}`, t, o)))));
+  }
+
+  // A KR: its dot, name (cut with an ellipsis), value; the target and as-of; a bar from 0 to the
+  // value with the goal's tick. Resting on it opens a HoverCard with all of it.
+  kr(k, key, t, o) {
+    const dot = k.status === "met" ? div().size(8).rounded_full().bg(t.muted)
+      : k.status === "missed" ? div().size(10).rounded_full().border_2().border_color(t.foreground)
+      : div().size(8).rounded_full().border_2().border_color(k.status === "stale" ? t.dim : t.border);
+    const tone = k.status === "missed" ? t.foreground : k.status === "met" ? t.muted : t.dim;
+    const row = v_flex().id(`nawaban-kr-${key}`).flex_none().px(8).py(6).gap(3).rounded(6).hover((s) => s.bg(t.hover))
+      .child(h_flex().gap(6).items_center().text_size(12.5)
+        .child(h_flex().w(18).flex_none().justify_center().child(dot))
+        .child(div().flex_1().min_w(0).truncate().child(k.name))
+        .child(div().flex_none().text_size(12).font_semibold().text_color(tone)
+          .child(k.status === "stale" ? `${k.value} · ${o.status.stale}` : k.value)))
+      .child(div().ml(24).truncate().text_size(11).text_color(t.dim)
+        .child([`${o.target} ${k.target}`, k.as_of?.slice(5, 10)].filter(Boolean).join(" · ")))
+      .when(k.fill != null, (el) => el.child(Progress.new(`nawaban-kr-bar-${key}`).value(k.fill).ml(24).mt(2)
+        .child(ProgressTrack.new().relative().h(3).w_full().rounded(2).bg(t.border)
+          .child(ProgressIndicator.new().h(3).w(`${k.fill}%`).rounded(2).bg(tone))
+          .when(k.tick != null, (el) => el.child(div().absolute().left(`${k.tick}%`).top(-3).w(2).h(9).bg(t.foreground))))));
+    const facts = [[o.value, k.value], [o.target, k.target], [o.asOf, k.as_of], [o.source, k.source], [o.trendLabel, k.trend],
+      ...(k.missed_rounds > 0 ? [["", o.rounds(k.missed_rounds)]] : []), ...(k.wait ? [[o.wait, k.wait]] : [])].filter(([, v]) => v);
+    return HoverCard.new(`nawaban-kr-card-${key}`).anchor("bottom_left").trigger(row)
+      .content(v_flex().w(280).p(10).gap(4).rounded(8).bg(t.popover).border_1().border_color(t.border)
+        .text_size(12).line_height("18px").text_color(t.foreground)
+        .child(div().font_semibold().child(k.name))
+        .children(facts.map(([label, v]) => h_flex().gap(8).items_start()
+          .child(div().w(40).flex_none().text_color(t.dim).child(label))
+          .child(div().flex_1().min_w(0).child(String(v))))));
   }
 
   // A GitHub board's top: 待决 N, a row per pending decision (a click opens its issue on GitHub); the window groups folded.
