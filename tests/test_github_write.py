@@ -71,6 +71,13 @@ def test_each_kind_keeps_the_prefix_the_old_readers_know(gh):
         assert posted(gh)[-1].startswith(f"{word}：")
 
 
+def test_a_decision_by_user_carries_by_user_in_its_marker(gh):
+    assert gh.nawaban("event", "#950", "--kind", "decision", "--body", "发布", "--by", "user")[0] == 0
+    assert gh.nawaban("event", "#950", "--kind", "decision", "--body", "先不接")[0] == 0
+    mine, agents = (cli.read_marker(c) for c in posted(gh))
+    assert mine["by"] == "user" and "by" not in agents
+
+
 def test_claim_assigns_the_issue_and_posts_a_claim_naming_the_terminal(gh):
     code, out = gh.nawaban("claim", "#950")
     assert code == 0, out

@@ -840,13 +840,15 @@ def read_marker(comment: str) -> dict | None:
         return None
 
 
-def gh_post(root: Path, number: str, kind: str, body: str, kr: str | None = None) -> None:
+def gh_post(root: Path, number: str, kind: str, body: str, kr: str | None = None, by: str | None = None) -> None:
     """One comment: the prefixed body for people, then the full event for code."""
     import uuid
     ev = {"v": 1, "uid": str(uuid.uuid4()), "kind": kind, "author": identity(),
           "terminal": herdr_terminal(), "at": int(time.time()), "body": body}
     if kr:
         ev["kr"] = kr
+    if by:  # the decision-maker's own call, relayed: readers trust this over the text
+        ev["by"] = by
     _gh(root, "issue", "comment", number, "--body", f"{GH_WORDS[kind]}：{body}\n\n{marker(ev)}")
 
 
@@ -971,14 +973,21 @@ def gh_write(root: Path, a) -> str:
         issue = _gh_json(root, "issue", "view", n, "--json", "body,createdAt,comments")
         if _issue_pending(issue):
             raise Refused(f"{a.id} 已有待决,一个 issue 只放一件;先记已决,或开子 issue")
-    gh_post(root, n, a.kind, a.body, a.kr)
+    gh_post(root, n, a.kind, a.body, a.kr, a.by)
     return f"✓ event {a.id} · {a.kind}"
+
+
+def _marked(c: dict) -> dict | None:
+    """A comment's marker when it is a well-formed nawaban event, else None."""
+    ev = read_marker(c["body"])
+    ok = isinstance(ev, dict) and isinstance(ev.get("body"), str) and GH_WORDS.get(str(ev.get("kind")))
+    return ev if ok else None
 
 
 def _canonical(c: dict) -> dict:
     """A comment as the prefix readers see it: a marked one rewritten from its marker, so edits to its visible text do not count."""
-    ev = read_marker(c["body"])
-    if isinstance(ev, dict) and isinstance(ev.get("body"), str) and GH_WORDS.get(str(ev.get("kind"))):
+    ev = _marked(c)
+    if ev:
         return {**c, "body": f"{GH_WORDS[ev['kind']]}：{ev['body']}"}
     return {**c, "body": _MARKER.sub("", c["body"])}  # a malformed marker: read the visible text
 
@@ -1018,7 +1027,7 @@ def _issue_pending(i: dict) -> dict | None:
 
 def github_board_data(root: Path) -> dict:
     """The same columns as board_data, read from the repository's GitHub issues."""
-    # An owner decision says 拍板 or names an owner.
+    # A marked decision is the owner's by its by:user; an unmarked (older) one if it says 拍板 or names an owner.
     names = [n.strip() for n in os.environ.get("NAWABAN_OWNER_NAMES", "").split(",") if n.strip()]
     # 「等负责人拍板」「待拍板」 ask for a decision: 等/待, at most a name (an owner's, or up to 4 characters), then 拍板
     waiting = re.compile(r"[等待]\s*(?:%s)?\s*拍板" % "|".join([*map(re.escape, names), r"\w{1,4}?"]))
@@ -1039,8 +1048,9 @@ def github_board_data(root: Path) -> dict:
         if last == ["交还"]:
             claims = []  # the latest claim was handed back (comment order, not timestamps)
         recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
-                    "owner": any(w in waiting.sub("", body) for w in ["拍板", *names])}
-                   for body, t in decisions if t >= since]
+                    "owner": ev.get("by") == "user" if (ev := _marked(raw)) else
+                    any(w in waiting.sub("", body) for w in ["拍板", *names])}
+                   for raw, c in zip(i["comments"], cs) for body, t in _prefixed([c], "决定") if t >= since]
         # 已决 records the owner's own answer
         recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body), "owner": True}
                    for body, t in _prefixed(cs, "已决") if t >= since]
