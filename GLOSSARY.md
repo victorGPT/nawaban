@@ -189,10 +189,16 @@ _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`.
 
 **Index**(索引)
-The md text an orchestrator reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), stopped (no activity for 24 hours, with on whom) and moving, each with its spec, latest progress and next step; the user's decisions of the last 48 hours; the untouched; and a count of the closed. On GitHub it opens with the pending decisions, oldest first, by issue number and title. It is printed from `json board`'s data each time and never stored.
-索引是编排者开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、停了（24 小时没动静，写明停在谁身上）、在推分组，每件带所属的 spec、最新进展和下一步；48 小时内用户拍的板；没动的；关掉的个数。在 GitHub 上最上面先列待决，按提出先后，只写 issue 号和标题。每次从 `json board` 的数据现打，从不存。
+The md text an orchestrator reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), stopped (no activity for 24 hours, with on whom) and moving, each with its spec, latest progress and next step; the user's decisions of the last 48 hours; the untouched; and a count of the closed. On GitHub it opens with the pending decisions, oldest first, by issue number and title. It is printed from `json board`'s data each time and never stored (on GitHub the same read rewrites the inbox cache).
+索引是编排者开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、停了（24 小时没动静，写明停在谁身上）、在推分组，每件带所属的 spec、最新进展和下一步；48 小时内用户拍的板；没动的；关掉的个数。在 GitHub 上最上面先列待决，按提出先后，只写 issue 号和标题。每次从 `json board` 的数据现打，从不存（GitHub 上同一次读取会重写收件箱缓存）。
 _Avoid_: wiki, summary file, status report.
 _Current identifiers_: CLI `index`; `NAWABAN_OWNER_NAMES`.
+
+**Inbox**(收件箱)
+The one line under each of the orchestrator's replies that says what waits on the decision-maker: `待你决定 N 件：<id title> · …｜说「同步」看卡`. Its items are the repository's pending decisions on GitHub, and the 等你 tasks of the repository's project on the board; nothing else, and never read from the chat. It lists the items this session has not been shown yet, says only `（无变化）` when the set is the same as last time, and is absent when there are none. On GitHub it reads a cache file that every `index`, `brief`, `json board` and `event --kind ask|resolve` rewrites; a cache older than 5 minutes is still shown, marked `· x 分钟前`, while a refresh runs in the background. Only the terminal labelled orchestrator shows it.
+收件箱是编排者每轮回复下方的那一行，写要决策者定的事：`待你决定 N 件：<号 标题> · …｜说「同步」看卡`。条目只来自 tracker：GitHub 上是本仓库的待决，本地看板上是本仓库项目的等你；不从聊天里读。只列这个窗口还没看过的条目，集合和上次相同时只写 `（无变化）`，没有就不出。GitHub 上读缓存文件，每次 `index`、`brief`、`json board` 和 `event --kind ask|resolve` 都会重写它；缓存超过 5 分钟照样显示，标上 `· x 分钟前`，同时在后台刷新。只在打了编排者标签的终端出现。
+_Avoid_: notification, reminder, todo list.
+_Current identifiers_: `hooks/inbox.sh` (Stop hook); `~/.nawaban/inbox/`.
 
 **Herdr panel**(Herdr 面板)
 A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each orchestrator and its workers are doing. On GitHub the top shows the blocked windows' waiting cards, when there are any, then the pending decisions, each opening its issue, with the window groups folded under them. Claiming, closing and dispatching stay with agents and the CLI.
