@@ -1142,6 +1142,7 @@ def dispatch(root: Path, a, con: sqlite3.Connection | None = None) -> str:
         "完成或受阻：照抄其一，三段位置固定、段里的话自己写，详情记在票上：",
         f'  hc send {orch} "回报：{who} 完成 | 结论一句 | 证据在哪（PR / 票上的记录）"',
         f'  hc send {orch} "回报：{who} 受阻 | 卡在什么 | 要谁做什么"',
+        "只发这两种：中途进展、阶段结果记在票上的「进展」里，不发给编排者（每条消息都会叫醒它，留在它的上下文里）。",
     ])
     # a local board the worker must reach even when it was named by --db
     env = ["env", f"NAWABAN_DB={con.execute('PRAGMA database_list').fetchone()[2]}"] if con is not None else []
