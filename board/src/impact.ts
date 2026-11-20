@@ -106,10 +106,10 @@ export async function undeclared(team: Team, id: string, dir: string): Promise<s
 // Merge commands in command position (line start, after ; & | ( or $(, past VAR=value prefixes), as the
 // old merge gate reads them: on the command with quoted strings blanked, so a quoted mention is never one.
 const MERGE = /(?:^|[;&|(\n])\s*(?:\w+=(?:\$\([^)]*\)|\S*)\s+)*(?:gh(?:\s+(?:-R|--repo)(?:\s+|=)\S+)*\s+pr\s+merge|(?:(?:ba|z)?sh\s+)?(?:\S*\/)?scripts\/merge\.sh)(?=[\s;&|)]|$)/g
-// The board's CLI closing a task anywhere in one command (npx --yes @vercel/board, vercel board, nawaban, which hands
-// `tasks` to it): what launches it and with which flags doesn't matter.
+// The board's CLI closing a task, in command position past its launchers and their flags (npx --yes @vercel/board,
+// pnpm --silent dlx, vercel board, nawaban, which hands `tasks` to it); as an argument (echo board …) it's text.
 const CLOSE =
-  /(?:^|[;&|(\n])[^;&|\n)]*?(?:^|[\s/])(?:vb|board|nawaban|cli\.ts|@vercel\/board(?:@\S*)?)\s+(?:[^;&|\n)]*\s)?tasks\s+(?:complete|fail|cancel)(?=[\s;&|)]|$)/
+  /(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:(?:npx|bunx|pnpm|yarn|exec|dlx|node|vercel)(?:\s+-\S+)*\s+)*(?:\S*\/)?(?:vb|board|nawaban|cli\.ts|@vercel\/board(?:@\S*)?)\s+(?:[^;&|\n)]*\s)?tasks\s+(?:complete|fail|cancel)(?=[\s;&|)]|$)/
 const GH_VALUE_FLAGS = new Set(['-R', '--repo', '-b', '--body', '-F', '--body-file', '-t', '--subject', '-A', '--author-email', '--match-head-commit'])
 
 const blank = (cmd: string) => cmd.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, (q) => "'" + 'x'.repeat(q.length - 2) + "'")

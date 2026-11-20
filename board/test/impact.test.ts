@@ -166,7 +166,7 @@ it("stops an agent closing a task with the board's CLI", async () => {
   for (const cmd of ['vb tasks complete 12', 'cd x && npx vb tasks fail 3 boom', 'nawaban --as cc-1 tasks cancel 4', 'vercel board tasks complete 5', 'npx --yes @vercel/board tasks complete 12', 'pnpm --silent dlx @vercel/board@0.53.0 tasks fail 1 x']) {
     expect([cmd, closeGate(cmd)]).toEqual([cmd, expect.stringMatching(/nawaban close/)])
   }
-  for (const cmd of ['nawaban close NAWABAN-X --done', 'vb tasks list', 'echo "vb tasks complete 1"', 'git commit -m "tasks complete"']) {
+  for (const cmd of ['nawaban close NAWABAN-X --done', 'vb tasks list', 'echo "vb tasks complete 1"', 'git commit -m "tasks complete"', 'echo board tasks complete', 'printf "%s\\n" nawaban tasks complete']) {
     expect([cmd, closeGate(cmd)]).toEqual([cmd, null])
   }
   const refused = await hook('vb tasks complete 12')
