@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  nawaban serve as a launchd user agent. Not installed by anything: to install,
+    cp board/launchd/com.nawaban.board.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nawaban.board.plist
+  restart: launchctl kickstart -k gui/$(id -u)/com.nawaban.board
+  Node is an absolute path so a Homebrew or nvm switch can't swap it (needs >= 22.18).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nawaban.board</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/victor/.hermes/node/bin/node</string>
+    <string>/Users/victor/.nawaban/plugin/board/src/cli.ts</string>
+    <string>serve</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/victor/.nawaban/board/serve.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/victor/.nawaban/board/serve.log</string>
+</dict>
+</plist>
