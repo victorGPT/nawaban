@@ -140,6 +140,9 @@ it('runs one impact guard per repository: the board\'s where the project moved, 
   const merge = call('gh pr merge 7')
   const log = () => readFile(join(tmp, 'gh.log'), 'utf8').catch(() => '')
 
+  // A tab between gh pr and merge reaches the JSON as \\t: the board's guard still sees a merge.
+  const tabbed = await hook('board-impact-guard.sh', call('gh pr\tmerge 7'))
+  expect(tabbed.code).toBe(2)
   const boardClose = await hook('board-impact-guard.sh', close)
   expect([boardClose.code, boardClose.err]).toEqual([2, expect.stringContaining('nawaban close')])
   expect((await hook('impact-guard.sh', merge)).code).toBe(0)
