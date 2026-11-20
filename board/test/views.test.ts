@@ -151,3 +151,12 @@ it('prints a task with its parent, blockers, notes, decisions and events', async
   const missing = await nawaban(A, '', 'json', 'task', 'NOPE')
   expect([missing.code, JSON.parse(missing.out).error]).toEqual([1, '任务不存在:NOPE'])
 })
+
+it('reads past a long stretch of other projects\' events', async () => {
+  for (let i = 0; i < 650; i++) await team.as(null).post('other', 'noise')
+  const id = (await team.tasks.list({ state: 'all', label: { key: 'S-02' } })).tasks[0]!.message.id
+  await team.as(null).reply(id, '最后的进展')
+  const data = await read('board', '--project', 'nawaban')
+  const s02 = data.columns.flatMap((c: { tasks: { id: string }[] }) => c.tasks).find((t: { id: string }) => t.id === 'S-02')
+  expect(s02.progress.body).toBe('最后的进展')
+})

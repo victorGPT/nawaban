@@ -57,7 +57,8 @@ async function histories(team: Team, tasks: MessageView[], channel?: string) {
   let after = tasks.reduce((a, t) => (Number(t.id) < Number(a) ? t.id : a), tasks[0]!.id)
   for (;;) {
     const { events, cursor } = await team.poll({ channel, after })
-    if (!events.length) return out
+    // A page scans a stretch of the log whatever the filter keeps, so an empty one can still move on: the end is a cursor that stays.
+    if (cursor === after) return out
     after = cursor
     for (const e of events as BoardEventView[]) {
       const p = e.payload as { id?: string; by?: { actor: string } }
