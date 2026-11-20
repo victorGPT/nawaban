@@ -46,6 +46,10 @@ def test_an_ask_recorded_this_turn_lets_it_through(tmp_path):
     assert _hook(tmp_path, QUESTION, _transcript(tmp_path, board)) is None
 
 
+def test_searching_for_the_words_is_not_recording(tmp_path):
+    assert _hook(tmp_path, QUESTION, _transcript(tmp_path, 'rg "triage: needs-info" skills'))["decision"] == "block"
+
+
 def test_an_ask_from_an_earlier_turn_does_not_count(tmp_path):
     assert _hook(tmp_path, QUESTION, _transcript(tmp_path, "ls", earlier=[ASK]))["decision"] == "block"
 
@@ -65,7 +69,8 @@ def test_a_worker_or_a_missing_transcript_passes_quietly(tmp_path):
 
 
 def test_quoted_or_split_ask_arguments_count(tmp_path):
-    for cmd in ('nawaban event 7 --kind "ask" --body x', "nawaban event 7 --kind=ask --body x"):
+    for cmd in ('nawaban event 7 --kind "ask" --body x', "nawaban event 7 --kind=ask --body x",
+                json.dumps('nawaban event 7 --kind "ask" --body x')):  # a command quoted inside REPL code
         assert _hook(tmp_path, QUESTION, _transcript(tmp_path, cmd)) is None, cmd
     p = tmp_path / "r.jsonl"  # a Code Mode REPL call passing the arguments as an array
     p.write_text("\n".join(json.dumps(x) for x in [

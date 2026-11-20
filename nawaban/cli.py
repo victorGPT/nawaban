@@ -1343,7 +1343,7 @@ def any_board(path: Path, project: str | None) -> tuple[dict, str]:
 # "要不要我继续？" though no decision is asked. A wrong block costs one ask (or one continuation: a block's
 # own continuation is let through); upgrade to a structured "asks the owner" field if either bites.
 _ASKING = re.compile(r"你定|你点头|批不批|批准吗|要不要|你选|请拍板")
-_RECORDED = re.compile(r"\bevent\b.*?--kind[\s=,'\"]+ask\b|triage:\s*needs-info", re.S)
+_RECORDED = re.compile(r"\bevent\b.*?(?:--kind[\s=,'\"\\]+ask\b|triage:\s*needs-info)", re.S)
 
 
 def _leaves(v) -> str:
