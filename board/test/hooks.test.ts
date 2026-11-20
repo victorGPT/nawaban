@@ -54,7 +54,7 @@ beforeAll(async () => {
     NAWABAN_CLI: 'board',
     ROLE: 'orchestrator',
   }
-}, SLOW)
+})
 afterAll(() => server.close())
 
 /** Runs `what` with the hooks' environment plus `more`, `input` on its stdin; answers its exit code and output. */
@@ -80,16 +80,16 @@ const inbox = async (session: string, more: Record<string, string> = {}) => {
 }
 const idOf = async (key: string) => (await team.tasks.list({ state: 'all', label: { key } })).tasks[0]!.message.id
 
-it('routes a project as the panel does: the old CLI unless it moved to the board', async () => {
+it('routes a project as the panel does: the old CLI unless it moved to the board', SLOW, async () => {
   const route = (dir: string, more: Record<string, string> = {}) => spawn(['node', join(HOOKS, 'route.mjs'), dir], '', more)
   // BOARD_PROJECTS is empty: every project stays on the old CLI.
   expect((await route(repo, { NAWABAN_CLI: '' })).out).toBe('old\n')
   expect((await route(repo)).out).toBe('board proj\n')
   expect((await route(join(repo, 'docs/agents'))).out).toBe('board proj\n')
   expect((await route(tmp)).out).toBe('old\n') // no repository, no project
-}, SLOW)
+})
 
-it('prints the index off the board when an orchestrator window starts, and nothing in any other window', async () => {
+it('prints the index off the board when an orchestrator window starts, and nothing in any other window', SLOW, async () => {
   await nawaban('create', 'K1', '--title', '要密钥', '--project', 'proj')
   await nawaban('create', 'K2', '--title', '在干的', '--project', 'proj')
   await nawaban('claim', 'K2')
@@ -102,9 +102,9 @@ it('prints the index off the board when an orchestrator window starts, and nothi
   expect(start.out).toContain('- K1 要密钥')
   expect(start.out).toContain('规矩正文')
   expect((await hook('leader-index.sh', '', { ROLE: 'worker' })).out).toBe('')
-}, SLOW)
+})
 
-it('shows what waits on the decision-maker under each reply, new items first, then that nothing changed', async () => {
+it('shows what waits on the decision-maker under each reply, new items first, then that nothing changed', SLOW, async () => {
   expect(await inbox('s1')).toBeNull() // nothing waits yet
   await nawaban('claim', 'K1')
   await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: needs-info — 等你：给密钥', '--as', AS)
@@ -128,13 +128,13 @@ it('shows what waits on the decision-maker under each reply, new items first, th
   await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: ready-for-agent')
   await nawaban('event', await idOf('K2'), '--kind', 'resolve', '--body', '发')
   expect(await inbox('s1')).toBeNull()
-}, SLOW)
+})
 
-it('stays silent when the board is down', async () => {
+it('stays silent when the board is down', SLOW, async () => {
   expect(await inbox('s1', { BOARD_URL: 'http://127.0.0.1:9/api/board' })).toBeNull()
-}, SLOW)
+})
 
-it('runs one impact guard per repository: the board\'s where the project moved, the old one elsewhere', async () => {
+it('runs one impact guard per repository: the board\'s where the project moved, the old one elsewhere', SLOW, async () => {
   const call = (command: string) => ({ cwd: repo, tool_input: { command } })
   const close = call('vb tasks complete 5')
   const merge = call('gh pr merge 7')
@@ -150,12 +150,12 @@ it('runs one impact guard per repository: the board\'s where the project moved, 
   const oldMerge = await hook('impact-guard.sh', merge, old)
   expect([oldMerge.code, oldMerge.err]).toEqual([2, expect.stringContaining('核不了 KR 影响声明')])
   expect(await log()).toContain('pr view 7')
-}, SLOW)
+})
 
-it('registers the renewal on every prompt and tool call, and both impact guards before Bash', async () => {
+it('registers the renewal on every prompt and tool call, and both impact guards before Bash', SLOW, async () => {
   const { hooks } = JSON.parse(await readFile(join(HOOKS, 'hooks.json'), 'utf8'))
   const names = (event: string) => hooks[event].flatMap((g: { hooks: { command: string }[] }) => g.hooks.map((h) => h.command.split('/').pop()!.replace('"', '')))
   expect(names('UserPromptSubmit')).toContain('renew.sh')
   expect(names('PostToolUse')).toContain('renew.sh')
   expect(names('PreToolUse')).toEqual(expect.arrayContaining(['impact-guard.sh', 'board-impact-guard.sh']))
-}, SLOW)
+})
