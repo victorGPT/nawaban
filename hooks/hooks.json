@@ -66,6 +66,16 @@
             "onFailure": "continue"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/ask-guard.sh\"",
+            "timeout": 10,
+            "onFailure": "continue"
+          }
+        ]
       }
     ]
   }
