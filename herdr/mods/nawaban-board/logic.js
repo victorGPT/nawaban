@@ -18,8 +18,9 @@ export function repoName(gitCommonDir) {
 // which CLI reads a project, "board" (`nawaban` on the Vercel Board) or "old" (nawaban/cli.py). A project
 // is read from the board once it moved there; GitHub-tracked ones, and every space on another machine,
 // stay on the old CLI. The plugin's hooks route by this same rule (hooks/route.mjs imports it).
-// ponytail: none has moved yet; the switch (NAWABAN-MIGRATE-06) fills this set.
-export const BOARD_PROJECTS = new Set();
+// Moved at the switch (NAWABAN-MIGRATE-06). nawaban/cli.py reads this one line too, to refuse writes to
+// these projects: keep it a single line of JSON strings.
+export const BOARD_PROJECTS = new Set(["nawaban", "bzkanbanv2", "huafa", "biz-report", "kanban-prod"]);
 export const cliFor = (project, machine = null) => (machine == null && BOARD_PROJECTS.has(project) ? "board" : "old");
 
 // "zh" or "en": the person's saved choice, else the system's first preferred language, read from

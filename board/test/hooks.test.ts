@@ -85,7 +85,7 @@ const idOf = async (key: string) => (await team.tasks.list({ state: 'all', label
 
 it('routes a project as the panel does: the old CLI unless it moved to the board', SLOW, async () => {
   const route = (dir: string, more: Record<string, string> = {}) => spawn(['node', join(HOOKS, 'route.mjs'), dir], '', more)
-  // BOARD_PROJECTS is empty: every project stays on the old CLI.
+  // proj isn't in BOARD_PROJECTS: it stays on the old CLI.
   expect((await route(repo, { NAWABAN_CLI: '' })).out).toBe('old\n')
   expect((await route(repo)).out).toBe('board proj\n')
   expect((await route(join(repo, 'docs/agents'))).out).toBe('board proj\n')

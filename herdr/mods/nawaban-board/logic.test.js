@@ -13,16 +13,12 @@ test("a folder's project is its repository's main checkout name, when the board 
 });
 
 test("while both boards run, a project is read from the board only once it moved there, and only on this computer", () => {
-  assert.equal(cliFor("nawaban"), "old"); // nothing has moved yet
-  BOARD_PROJECTS.add("nawaban");
-  try {
-    assert.equal(cliFor("nawaban"), "board");
-    assert.equal(cliFor("roubao"), "old"); // GitHub-tracked, or not moved
-    assert.equal(cliFor(null), "old"); // a folder in no repository
-    assert.equal(cliFor("nawaban", "mbp"), "old"); // a space on another machine
-  } finally {
-    BOARD_PROJECTS.delete("nawaban");
-  }
+  assert.deepEqual([...BOARD_PROJECTS].sort(), ["biz-report", "bzkanbanv2", "huafa", "kanban-prod", "nawaban"]);
+  assert.equal(cliFor("nawaban"), "board");
+  assert.equal(cliFor("roubao"), "old"); // GitHub-tracked
+  assert.equal(cliFor("agent-center"), "old"); // not moved
+  assert.equal(cliFor(null), "old"); // a folder in no repository
+  assert.equal(cliFor("nawaban", "mbp"), "old"); // a space on another machine
 });
 
 test("the saved language wins, else the system's first preferred language: Chinese or English", () => {

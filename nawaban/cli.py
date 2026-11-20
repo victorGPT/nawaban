@@ -1623,6 +1623,42 @@ def index_text(data: dict, name: str) -> str:
     return "\n".join(out + ["", f"48 小时内关了 {closed} 个。"])
 
 
+# ── moved to the Vercel Board ─────────────────────────────────────
+
+_PLUGIN = Path(__file__).resolve().parents[1]
+# The one list of moved projects, which the hooks and the Herdr panel route by too (cliFor in logic.js).
+_MOVED_FILE = _PLUGIN / "herdr" / "mods" / "nawaban-board" / "logic.js"
+_MOVED = re.compile(r"^export const BOARD_PROJECTS = new Set\((\[[^\]\n]*\])?\);$", re.M)
+
+
+def moved_projects() -> set[str]:
+    """The projects moved to the Vercel Board. Unreadable refuses the write: a write that lands here after the
+    move is lost to the board."""
+    import json
+    try:
+        m = _MOVED.search(_MOVED_FILE.read_text(encoding="utf-8"))
+    except OSError:
+        m = None
+    if not m:
+        raise Refused(f"读不到 {_MOVED_FILE} 里的 BOARD_PROJECTS,不知道哪些项目已迁到 Board,不写")
+    return set(json.loads(m.group(1) or "[]"))
+
+
+def refuse_moved(project: str | None, argv: list[str]) -> None:
+    """A write to a moved project goes to the board: this file keeps it read-only (spec board-migration, 阶段 1)."""
+    if project and project in moved_projects():
+        raise Refused(f"项目 {project} 已迁到 Board:nawaban {shlex.join(argv)}"
+                      f"(nawaban 即 node {_PLUGIN / 'board' / 'src' / 'cli.ts'});旧库对它只读")
+
+
+def _write_project(path: Path, a) -> str | None:
+    """The project a create, block, claim, close, or event writes to."""
+    with closing(open_board(path)) as con:
+        if a.verb == "create":
+            return a.project or (_task(con, a.parent)["project"] if a.parent else default_project(path))
+        return _task(con, a.id)["project"]
+
+
 # ── entry ─────────────────────────────────────────────────────────
 
 def _parser() -> argparse.ArgumentParser:
@@ -1689,8 +1725,11 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
     a = _parser().parse_args(argv)
     path = resolve_db(a.db)
+    # What to run on the board instead: the same words, but the old board's path.
+    words = [w for i, w in enumerate(argv) if w != "--db" and not w.startswith("--db=") and (i == 0 or argv[i - 1] != "--db")]
     try:
         if a.verb == "init":
             print(f"✓ init → {path}" if init(path) else f"✓ 看板已存在:{path}")
@@ -1702,6 +1741,7 @@ def main(argv: list[str] | None = None) -> int:
             if r.returncode != 0:
                 raise Refused("okr 要在 git 仓库里跑")
             top = Path(r.stdout.strip())
+            refuse_moved((_repo_root(top) or top).name, words)
             text, readings, full = okr_run(top)
             print(text)
             if not path.exists() and a.accept is None:  # no board here: print only, never create one
@@ -1731,10 +1771,15 @@ def main(argv: list[str] | None = None) -> int:
                 raise Refused("dispatch 要在 worker 改的 git 仓库里跑")
             con = open_board(path)
             try:
+                if a.id:
+                    refuse_moved(_task(con, a.id)["project"], words)
                 print(dispatch(root, a, con))
             finally:
                 con.close()
             return 0
+        if a.verb in ("create", "block", "claim", "close", "event") and not (
+                a.verb != "create" and _GH_ISSUE.fullmatch(a.id) and github_root()):
+            refuse_moved(_write_project(path, a), words)
         if a.verb == "close" and a.done:
             impact_lock(path, a.id)
         if a.verb in ("claim", "close", "event") and _GH_ISSUE.fullmatch(a.id) and (root := github_root()):
