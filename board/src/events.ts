@@ -106,8 +106,7 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
       const held = await blocked(team, id)
       if (held && 'error' in held) return held.error
       if (held && held.kind !== 'needs_input') return refuse(`#${id} is held for a decision: resolve it with --kind resolve`)
-      const posted = await reply(a.body)
-      return posted || !held ? posted : unblock()
+      return (held && (await unblock())) || reply(a.body)
     }
     return reply(a.body)
   }
@@ -149,5 +148,8 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
   const held = await blocked(team, id)
   if (held && 'error' in held) return held.error
   if (held?.kind !== 'awaiting_approval') return refuse(`#${id} has no decision waiting`)
-  return (await reply(words.text)) || unblock()
+  // Lift first, then answer: a second resolve that read the same hold finds none by its reply.
+  // ponytail: the board has no unblock-if-still-this-hold, so a resolve and a new ask landing between
+  // this read and the unblock would lift the new one; one orchestrator resolves, so that window stays narrow.
+  return (await unblock()) || reply(words.text)
 }

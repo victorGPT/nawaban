@@ -144,6 +144,34 @@ it('says an unknown task is unknown, as a refusal', async () => {
   expect(resolve.err).toMatch(/^error: Couldn't read task #9999/)
 })
 
+it("won't let a stale resolve lift the next decision", async () => {
+  const id = await newTask()
+  await nawaban('event', id, '--kind', 'ask', ...CARD, '--rec', 'ship')
+  vi.stubEnv('BOARD_URL', url)
+  vi.stubEnv('BOARD_TOKEN', SECRET)
+  const app = createApp({ appName: 'nawaban' })
+  const quiet = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+  const quieter = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  const run = (args: string[]) => app.run(args)
+  // Another window resolves the same card and asks again while this resolve is under way.
+  const racing = async (args: string[]) => {
+    const code = await run(args)
+    if (args[0] === 'reply') {
+      await event([id, '--kind', 'resolve', '--body', 'go'], run, board())
+      await event([id, '--kind', 'ask', ...CARD, '--rec', 'wait'], run, board())
+    }
+    return code
+  }
+  try {
+    await event([id, '--kind', 'resolve', '--body', 'go'], racing, board())
+  } finally {
+    quiet.mockRestore()
+    quieter.mockRestore()
+    vi.unstubAllEnvs()
+  }
+  expect(await task(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'awaiting_approval' } })
+})
+
 it('refuses a resolve with no decision waiting', async () => {
   const id = await newTask()
   expect((await nawaban('event', id, '--kind', 'resolve', '--body', 'yes')).code).toBe(1)
