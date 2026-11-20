@@ -61,4 +61,15 @@ def test_a_continuation_after_a_block_passes(tmp_path):
 
 def test_a_worker_or_a_missing_transcript_passes_quietly(tmp_path):
     assert _hook(tmp_path, QUESTION, _transcript(tmp_path), role="worker") is None
-    assert _hook(tmp_path, QUESTION, str(tmp_path / "nope.jsonl"))["decision"] == "block"  # no transcript: nothing recorded
+    assert _hook(tmp_path, QUESTION, str(tmp_path / "nope.jsonl")) is None  # unreadable: never hold the session
+
+
+def test_quoted_or_split_ask_arguments_count(tmp_path):
+    for cmd in ('nawaban event 7 --kind "ask" --body x', "nawaban event 7 --kind=ask --body x"):
+        assert _hook(tmp_path, QUESTION, _transcript(tmp_path, cmd)) is None, cmd
+    p = tmp_path / "r.jsonl"  # a Code Mode REPL call passing the arguments as an array
+    p.write_text("\n".join(json.dumps(x) for x in [
+        {"type": "user", "message": {"content": "go"}},
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "REPL",
+            "input": {"code": "await $`nawaban ${['event', '#7', '--kind', 'ask']}`"}}]}}]))
+    assert _hook(tmp_path, QUESTION, str(p)) is None
