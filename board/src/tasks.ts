@@ -25,13 +25,14 @@ class Refused extends Error {
 
 /** The profile this window claims as: cc-<first 8 of the session>, or NAWABAN_OWNER outside Claude Code. */
 export function profile(session = process.env.CLAUDE_CODE_SESSION_ID): string {
-  if (session) return `cc-${session.slice(0, 8)}`
+  // Board keeps profile names lowercase, so claim.actor compares only with a lowercase name.
+  if (session) return `cc-${session.slice(0, 8)}`.toLowerCase()
   const owner = process.env.NAWABAN_OWNER
   if (!owner) throw new Refused('no identity: set CLAUDE_CODE_SESSION_ID, or NAWABAN_OWNER outside Claude Code', 2)
   if (!/^[A-Za-z][A-Za-z0-9-]{0,31}$/.test(owner)) {
     throw new Refused(`NAWABAN_OWNER ${owner} isn't a profile name: a letter, then up to 31 letters, numbers, and hyphens`, 2)
   }
-  return owner
+  return owner.toLowerCase()
 }
 
 const key = (m: MessageView) => m.labels.key ?? `#${m.id}`
@@ -235,7 +236,8 @@ const renew: Verb = async (argv) => {
   let code = 0
   for (const task of await all({ state: 'claimed' })) {
     const claim = live(task)
-    if (claim?.actor.endsWith(`+${as}`)) code ||= await vb(['tasks', 'renew', task.id, '--as', as, '--lease', LEASE, ...(values.json ? ['--json'] : [])])
+    // Every claim gets its renewal, whichever failed before it.
+    if (claim?.actor.endsWith(`+${as}`)) code = (await vb(['tasks', 'renew', task.id, '--as', as, '--lease', LEASE, ...(values.json ? ['--json'] : [])])) || code
   }
   return code
 }

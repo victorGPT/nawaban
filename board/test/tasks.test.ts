@@ -113,6 +113,29 @@ it('closes a task as done only from the window holding it, or when no one does',
   expect((await nawaban(['show', 'D-1'])).json.task.task.state).toBe('completed')
 })
 
+it('renews every claim the window holds, though one of them fails', async () => {
+  await nawaban(['create', 'R-1', '--title', 'no local claim', '--project', 'nawaban'])
+  await nawaban(['create', 'R-2', '--title', 'local claim', '--project', 'nawaban'])
+  const r1 = (await nawaban(['show', 'R-1'])).json.task.id
+  vi.stubEnv('BOARD_URL', url)
+  vi.stubEnv('BOARD_TOKEN', SECRET)
+  await board().as('cc-cccc3333').tasks.claim(r1, { lease: 3600 })
+  vi.unstubAllEnvs()
+  const C = 'cccc3333-0000'
+  expect((await nawaban(['claim', 'R-2'], C)).code).toBe(0)
+  const before = (await nawaban(['show', 'R-2'])).json.task.task.claim.until
+  later(10 * 60_000)
+  expect((await nawaban(['renew', '--session', C])).code).toBe(1)
+  expect(Date.parse((await nawaban(['show', 'R-2'])).json.task.task.claim.until)).toBeGreaterThan(Date.parse(before))
+})
+
+it('closes and renews for a NAWABAN_OWNER written in capitals', async () => {
+  const owner = { NAWABAN_OWNER: 'Agent-A' }
+  await nawaban(['create', 'O-1', '--title', 'owner', '--project', 'nawaban'])
+  expect((await nawaban(['claim', 'O-1'], '', owner)).code).toBe(0)
+  expect((await nawaban(['close', 'O-1', '--done'], '', owner)).code).toBe(0)
+})
+
 it('refuses a NAWABAN_OWNER that is no profile name', async () => {
   const r = await nawaban(['claim', 'D-1'], '', { NAWABAN_OWNER: '1 bad' })
   expect(r.code).toBe(2)
