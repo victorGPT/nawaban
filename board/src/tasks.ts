@@ -15,7 +15,7 @@ const LEASE = '1h'
 const person = () => board().as(null)
 const vb = (argv: string[]) => createApp({ appName: 'nawaban' }).run(argv)
 
-class Refused extends Error {
+export class Refused extends Error {
   code: number
   constructor(message: string, code = 1) {
     super(message)
@@ -60,7 +60,7 @@ async function all(query: Parameters<ReturnType<typeof board>['tasks']['list']>[
 }
 
 /** A task by its key, or else by its board ID. */
-async function resolve(ref: string): Promise<MessageView> {
+export async function resolve(ref: string): Promise<MessageView> {
   const [found] = await all({ state: 'all', label: { key: ref } })
   if (found) return found
   const message = await person()
