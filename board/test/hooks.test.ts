@@ -41,6 +41,9 @@ beforeAll(async () => {
   await writeFile(join(repo, 'docs/agents/orchestrator.md'), '规矩正文\n')
   await writeFile(join(repo, 'docs/agents/okr.toml'), '')
   await sh('git', ['init', '-q', '-b', 'main', repo])
+  // The board knows proj's checkout, so its merge gate reads proj's okr.toml.
+  await mkdir(join(tmp, 'board'))
+  await writeFile(join(tmp, 'board/repos.json'), JSON.stringify({ proj: repo }))
   env = {
     PATH: `${join(tmp, 'bin')}:${process.env.PATH}`,
     HOME: tmp,
@@ -140,13 +143,13 @@ it('runs one impact guard per repository: the board\'s where the project moved, 
   const merge = call('gh pr merge 7')
   const log = () => readFile(join(tmp, 'gh.log'), 'utf8').catch(() => '')
 
-  // A tab between gh pr and merge reaches the JSON as \\t: the board's guard still sees a merge.
-  const tabbed = await hook('board-impact-guard.sh', call('gh pr\tmerge 7'))
-  expect(tabbed.code).toBe(2)
   const boardClose = await hook('board-impact-guard.sh', close)
   expect([boardClose.code, boardClose.err]).toEqual([2, expect.stringContaining('nawaban close')])
   expect((await hook('impact-guard.sh', merge)).code).toBe(0)
   expect(await log()).toBe('') // the old guard never asked GitHub
+  // A tab between gh pr and merge reaches the hook's JSON as \\t: the board's guard still sees a merge.
+  const tabbed = await hook('board-impact-guard.sh', call('gh pr\tmerge 7'))
+  expect([tabbed.code, tabbed.err]).toEqual([2, expect.stringContaining('核不了 KR 影响声明')])
 
   const old = { NAWABAN_CLI: 'old' }
   expect((await hook('board-impact-guard.sh', close, old)).code).toBe(0)
