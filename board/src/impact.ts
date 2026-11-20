@@ -45,6 +45,15 @@ async function objectives(repo: string): Promise<Map<string, string[]> | null> {
   return new Map((doc.objective ?? []).map((o) => [String(o.name), (o.kr ?? []).map((kr) => String(kr.name))]))
 }
 
+/** The project whose repository (in repos.json) is the checkout at top, or undefined when none is. */
+export async function projectOf(dir: string, top: string) {
+  const real = (path: string) => realpath(path).catch(() => path)
+  const here = await real(top)
+  let project
+  for (const [name, path] of Object.entries(await repos(dir))) if ((await real(path)) === here) project = name
+  return project
+}
+
 /** The Objectives of a project's channel, or null when its repository isn't known or keeps no okr.toml. */
 export async function okrOf(dir: string, channel: string) {
   const repo = (await repos(dir))[channel]
@@ -136,10 +145,7 @@ export async function mergeGate(cmd: string, cwd: string, team: Team, dir: strin
   const common = (await run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd }).catch(() => null))?.stdout.trim()
   if (!common) return null
   const top = resolve(common, '..')
-  const real = (path: string) => realpath(path).catch(() => path)
-  const here = await real(top)
-  let project
-  for (const [name, path] of Object.entries(await repos(dir))) if ((await real(path)) === here) project = name
+  const project = await projectOf(dir, top)
   if (!project || !(await objectives(top))) return null
   for (const m of merges) {
     const end = m.index + m[0].length

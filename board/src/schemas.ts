@@ -79,6 +79,20 @@ export const SCHEMAS = {
       },
     },
   },
+  'nawaban-kr-reading@1': {
+    description:
+      "One KR's reading as its measure printed it: the value verbatim, the as-of date and what it was read from, with the okr.toml commit it was measured under. The message's time is its round.",
+    schema: {
+      type: 'object',
+      required: ['kr', 'value', 'as_of', 'source'],
+      additionalProperties: false,
+      properties: { objective: text, kr: text, value: text, as_of: text, source: { type: 'string' }, commit: text },
+    },
+  },
+  'nawaban-okr-accept@1': {
+    description: "The decision-maker's sign-off on an Objective whose KRs were all met when it was given; the message's time is when.",
+    schema: { type: 'object', required: ['objective'], additionalProperties: false, properties: { objective: text } },
+  },
   'nawaban-dispatch@1': {
     description: 'A task handed to a worker: who, in which terminal, and what counts as done.',
     schema: {
