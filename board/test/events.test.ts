@@ -172,6 +172,34 @@ it("won't let a stale resolve lift the next decision", async () => {
   expect(await task(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'awaiting_approval' } })
 })
 
+it('answers a decision once when two windows resolve it at once', async () => {
+  const id = await newTask()
+  await nawaban('event', id, '--kind', 'ask', ...CARD, '--rec', 'ship')
+  vi.stubEnv('BOARD_URL', url)
+  vi.stubEnv('BOARD_TOKEN', SECRET)
+  const app = createApp({ appName: 'nawaban' })
+  const quiet = [vi.spyOn(process.stdout, 'write').mockImplementation(() => true), vi.spyOn(process.stderr, 'write').mockImplementation(() => true)]
+  const run = (args: string[]) => app.run(args)
+  let raced = false
+  // The other window answers between this one's read and its reply.
+  const racing = async (args: string[]) => {
+    if (args[0] === 'reply' && !raced) {
+      raced = true
+      await event([id, '--kind', 'resolve', '--body', 'first'], run, board())
+    }
+    return run(args)
+  }
+  let code
+  try {
+    code = await event([id, '--kind', 'resolve', '--body', 'second'], racing, board())
+  } finally {
+    for (const spy of quiet) spy.mockRestore()
+    vi.unstubAllEnvs()
+  }
+  expect(code).toBe(1)
+  expect(await task(id)).toMatchObject({ state: 'ready', replies: ['nawaban-ask@1', 'nawaban-resolve@1'] })
+})
+
 it('keeps the decision waiting when its answer is refused', async () => {
   const id = await newTask()
   await nawaban('event', id, '--kind', 'ask', ...CARD, '--rec', 'ship')

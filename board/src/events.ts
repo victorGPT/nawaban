@@ -26,11 +26,12 @@ function option(words: string) {
   return { choice, tradeoff, door }
 }
 
-/** What holds the task, null for nothing, or the board's error said as a refusal. */
-async function blocked(team: Team, id: string) {
+/** What holds the task (null for nothing) and the thread's newest message, or the board's error said as a refusal. */
+type Thread = Awaited<ReturnType<Team['thread']>>
+async function blocked(team: Team, id: string): Promise<{ error: number } | { hold: NonNullable<Thread['message']['task']>['blocked']; newest: Thread['message'] }> {
   try {
-    const { message } = await team.thread(id)
-    return message.task?.blocked ?? null
+    const { message, replies } = await team.thread(id)
+    return { hold: message.task?.blocked ?? null, newest: replies.at(-1) ?? message }
   } catch (error) {
     if (error instanceof BoardError) return { error: refuse(`Couldn't read task #${id}: ${error.message}`) }
     throw error
@@ -85,13 +86,23 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
     process.stdout.write(`unblocked ${id}\n`)
     return 0
   }
-  /** Lifts the hold, then replies; a reply that fails puts the same hold back, so the answer isn't lost. */
-  const unblockThenReply = async (was: { kind: string | null; reason: string }, text: string) => {
-    const lifted = await unblock()
-    if (lifted) return lifted
-    const posted = await reply(text)
-    if (posted) await team.as(null).tasks.block(id, was.reason, { kind: was.kind ?? undefined })
-    return posted
+  /**
+   * Answers a hold of `kind`, then lifts it. The answer goes in only while the message read is still
+   * the newest (`--after`), and the hold is lifted only while the answer is still the newest, so a
+   * new hold raised meanwhile stays. A refused answer changes nothing.
+   * ponytail: the board has no unblock-if-still-held, so a resolve and a new ask both landing between
+   * the last read and the unblock (back-to-back calls) would still lift the new one.
+   */
+  const answer = async (kind: string, text: string, ours: (newest: { blocks: { schema: string }[]; text: string }) => boolean) => {
+    const before = await blocked(team, id)
+    if ('error' in before) return before.error
+    if (before.hold?.kind !== kind) return null
+    const posted = await run(['reply', id, text, '--after', before.newest.id, ...as])
+    if (posted) return posted
+    const after = await blocked(team, id)
+    if ('error' in after) return after.error
+    if (after.hold?.kind !== kind || !ours(after.newest)) return refuse(`#${id} changed while answering: answered, hold left as it is`)
+    return unblock()
   }
   /** The hold, then the reply; a reply that fails lifts the hold again, so no hold waits on nothing. */
   const holdThenReply = async (reason: string, kind: string, text: string) => {
@@ -112,9 +123,10 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
     }
     if (triage === 'ready-for-agent') {
       const held = await blocked(team, id)
-      if (held && 'error' in held) return held.error
-      if (held && held.kind !== 'needs_input') return refuse(`#${id} is held for a decision: resolve it with --kind resolve`)
-      return held ? unblockThenReply(held, a.body) : reply(a.body)
+      if ('error' in held) return held.error
+      if (held.hold && held.hold.kind !== 'needs_input') return refuse(`#${id} is held for a decision: resolve it with --kind resolve`)
+      if (!held.hold) return reply(a.body)
+      return (await answer('needs_input', a.body, (newest) => newest.text === a.body)) ?? reply(a.body)
     }
     return reply(a.body)
   }
@@ -153,11 +165,8 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
 
   const words = data('nawaban-resolve@1', { words: a.body })
   if ('why' in words) return refuse(words.why)
-  const held = await blocked(team, id)
-  if (held && 'error' in held) return held.error
-  if (held?.kind !== 'awaiting_approval') return refuse(`#${id} has no decision waiting`)
-  // Lift first, then answer: a second resolve that read the same hold finds none by its reply.
-  // ponytail: the board has no unblock-if-still-this-hold, so a resolve and a new ask landing between
-  // this read and the unblock would lift the new one; one orchestrator resolves, so that window stays narrow.
-  return unblockThenReply(held, words.text)
+  return (
+    (await answer('awaiting_approval', words.text, (newest) => newest.blocks.some((b) => b.schema === 'nawaban-resolve'))) ??
+    refuse(`#${id} has no decision waiting`)
+  )
 }
