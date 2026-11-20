@@ -1361,15 +1361,18 @@ def _save_json(p: Path, obj) -> None:
 
 def inbox_save(root: Path, data: dict, started: float) -> None:
     """Cache data's pending decisions, stamped with when its read started; a read older than the cache is dropped."""
-    import json
+    import fcntl, json
     p = _inbox_cache(root)
     try:
-        try:
-            if json.loads(p.read_text())["at"] > started:
-                return  # ponytail: check-then-replace, no lock; two reads finishing within the same instant may still swap
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-        _save_json(p, {"at": started, "items": [{"id": t["id"], "title": t["title"]} for t in _pending(data)]})
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p.with_suffix(".lock"), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)  # compare and write as one step against other writers
+            try:
+                if json.loads(p.read_text())["at"] > started:
+                    return
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+            _save_json(p, {"at": started, "items": [{"id": t["id"], "title": t["title"]} for t in _pending(data)]})
     except OSError:
         pass  # the cache only speeds up the Stop hook: a read must not fail on it
 
