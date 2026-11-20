@@ -14,3 +14,18 @@ jobs:
           node-version: '22'
       - run: node --test herdr/mods/nawaban-board/*.test.js
       - run: uv run --no-project --python 3.12 --with pytest python -m pytest -q tests
+  board:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: board
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: board/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
