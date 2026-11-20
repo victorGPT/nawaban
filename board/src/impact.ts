@@ -105,10 +105,11 @@ export async function undeclared(team: Team, id: string, dir: string): Promise<s
 
 // Merge commands in command position (line start, after ; & | ( or $(, past VAR=value prefixes), as the
 // old merge gate reads them: on the command with quoted strings blanked, so a quoted mention is never one.
-const MERGE = /(?:^|[;&|(\n])\s*(?:\w+=(?:\$\([^)]*\)|\S*)\s+)*(?:gh\s+pr\s+merge|(?:(?:ba|z)?sh\s+)?(?:\S*\/)?scripts\/merge\.sh)(?=[\s;&|)]|$)/g
-// The board's CLI closing a task: vb, board, vercel board, or nawaban (which hands `tasks` to it).
+const MERGE = /(?:^|[;&|(\n])\s*(?:\w+=(?:\$\([^)]*\)|\S*)\s+)*(?:gh(?:\s+(?:-R|--repo)(?:\s+|=)\S+)*\s+pr\s+merge|(?:(?:ba|z)?sh\s+)?(?:\S*\/)?scripts\/merge\.sh)(?=[\s;&|)]|$)/g
+// The board's CLI closing a task anywhere in one command (npx --yes @vercel/board, vercel board, nawaban, which hands
+// `tasks` to it): what launches it and with which flags doesn't matter.
 const CLOSE =
-  /(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:(?:npx|pnpm(?:\s+(?:exec|dlx))?|node|vercel)\s+)?(?:\S*\/)?(?:vb|board|nawaban|cli\.ts|@vercel\/board(?:@\S*)?)\s+(?:[^;&|\n)]*\s)?tasks\s+(?:complete|fail|cancel)(?=[\s;&|)]|$)/
+  /(?:^|[;&|(\n])[^;&|\n)]*?(?:^|[\s/])(?:vb|board|nawaban|cli\.ts|@vercel\/board(?:@\S*)?)\s+(?:[^;&|\n)]*\s)?tasks\s+(?:complete|fail|cancel)(?=[\s;&|)]|$)/
 const GH_VALUE_FLAGS = new Set(['-R', '--repo', '-b', '--body', '-F', '--body-file', '-t', '--subject', '-A', '--author-email', '--match-head-commit'])
 
 const blank = (cmd: string) => cmd.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, (q) => "'" + 'x'.repeat(q.length - 2) + "'")
@@ -145,7 +146,8 @@ export async function mergeGate(cmd: string, cwd: string, team: Team, dir: strin
     const stop = flat.slice(end).search(/[;&|\n)]|$/)
     const args = words(cmd.slice(end, end + stop))
     let sel: string | undefined
-    let repo: string | undefined
+    // gh's own -R goes before `pr merge` too.
+    let repo = /(?:-R|--repo)(?:\s+|=)(\S+)/.exec(cmd.slice(m.index, end))?.[1]
     for (let i = 0; i < args.length; i++) {
       if (GH_VALUE_FLAGS.has(args[i]!)) {
         if (args[i] === '-R' || args[i] === '--repo') repo = args[i + 1]
@@ -161,7 +163,7 @@ export async function mergeGate(cmd: string, cwd: string, team: Team, dir: strin
       return `查不到这个 PR,核不了 KR 影响声明:${(error as Error).message.trim()}`
     }
     const text = [pr.title, pr.body, pr.headRefName].join(' ')
-    const named = (await openTasks(team, project)).filter((t) => {
+    const named = (await liveTasks(team, project)).filter((t) => {
       const key = t.labels.key
       return key && new RegExp(`(?<![\\w-])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'i').test(text)
     })
@@ -173,11 +175,12 @@ export async function mergeGate(cmd: string, cwd: string, team: Team, dir: strin
   return null
 }
 
-async function openTasks(team: Team, channel: string) {
+async function liveTasks(team: Team, channel: string) {
   const out = []
   for (let after: string | undefined; ; ) {
-    const page = await team.tasks.list({ channel, state: 'open', after, limit: 50 })
-    out.push(...page.tasks.map((t) => t.message))
+    // ponytail: every task of the project but the canceled, each merge; a done task keeps its declaration.
+    const page = await team.tasks.list({ channel, state: 'all', after, limit: 50 })
+    out.push(...page.tasks.map((t) => t.message).filter((m) => m.task?.state !== 'canceled'))
     if (page.tasks.length < 50) return out
     after = page.cursor
   }

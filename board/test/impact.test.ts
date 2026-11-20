@@ -163,7 +163,7 @@ function hook(command: string, cwd = worktree, pr = {}): Promise<{ code: number 
 }
 
 it("stops an agent closing a task with the board's CLI", async () => {
-  for (const cmd of ['vb tasks complete 12', 'cd x && npx vb tasks fail 3 boom', 'nawaban --as cc-1 tasks cancel 4', 'vercel board tasks complete 5']) {
+  for (const cmd of ['vb tasks complete 12', 'cd x && npx vb tasks fail 3 boom', 'nawaban --as cc-1 tasks cancel 4', 'vercel board tasks complete 5', 'npx --yes @vercel/board tasks complete 12', 'pnpm --silent dlx @vercel/board@0.53.0 tasks fail 1 x']) {
     expect([cmd, closeGate(cmd)]).toEqual([cmd, expect.stringMatching(/nawaban close/)])
   }
   for (const cmd of ['nawaban close NAWABAN-X --done', 'vb tasks list', 'echo "vb tasks complete 1"', 'git commit -m "tasks complete"']) {
@@ -186,4 +186,16 @@ it('refuses a merge whose task declares no impact, from a worktree of the reposi
   expect((await hook('gh pr merge 7 --squash', worktree, pr)).code).toBe(0)
   expect((await hook('gh pr merge 7', worktree, { ...pr, body: 'no key' })).code).toBe(2)
   expect((await hook('echo "gh pr merge 7"', worktree, pr)).code).toBe(0)
+
+  // Done, it still has its declaration.
+  await (await team.tasks.claim(id)).complete('done')
+  expect((await hook('gh pr merge 7 --squash', worktree, pr)).code).toBe(0)
+})
+
+it("reads gh's -R before pr merge as a merge", async () => {
+  await newTask('nawaban', 'NAWABAN-T-02')
+  const pr = { number: 8, title: 'NAWABAN-T-02', body: '', headRefName: 'x' }
+  const refused = await hook('gh -R acme/web pr merge 8 --squash', worktree, pr)
+  expect(refused.code).toBe(2)
+  expect(refused.err).toMatch(/NAWABAN-T-02/)
 })
