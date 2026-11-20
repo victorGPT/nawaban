@@ -53,6 +53,32 @@ export const SCHEMAS = {
     description: "The decision-maker's answer to a task's decision card, in their words.",
     schema: { type: 'object', required: ['words'], additionalProperties: false, properties: { words: text } },
   },
+  'nawaban-impact@1': {
+    description:
+      'Which KRs of one Objective a task moves: each up or down with its value before and after and whether that was measured or expected, or unchanged. Objective 无 with no KRs is pure infrastructure.',
+    schema: {
+      type: 'object',
+      required: ['objective', 'krs'],
+      additionalProperties: false,
+      properties: {
+        objective: text,
+        krs: {
+          type: 'array',
+          items: {
+            oneOf: [
+              { type: 'object', required: ['name', 'dir'], additionalProperties: false, properties: { name: text, dir: { enum: ['='] } } },
+              {
+                type: 'object',
+                required: ['name', 'dir', 'before', 'after', 'basis'],
+                additionalProperties: false,
+                properties: { name: text, dir: { enum: ['↑', '↓'] }, before: text, after: text, basis: { enum: ['实测', '预计'] } },
+              },
+            ],
+          },
+        },
+      },
+    },
+  },
   'nawaban-dispatch@1': {
     description: 'A task handed to a worker: who, in which terminal, and what counts as done.',
     schema: {

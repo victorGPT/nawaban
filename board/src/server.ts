@@ -8,8 +8,11 @@ import { board } from '@vercel/board'
 import type { CallerRequest } from '@vercel/board/access'
 import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from './schemas.ts'
+import { impactNames } from './impact.ts'
 
-export const DIR = process.env.NAWABAN_BOARD_DIR ?? join(homedir(), '.nawaban', 'board')
+/** The board's directory: its log, token, and repos.json. Read when asked, so a test can point it elsewhere. */
+export const boardDir = () => process.env.NAWABAN_BOARD_DIR ?? join(homedir(), '.nawaban', 'board')
+export const DIR = boardDir()
 export const PORT = Number(process.env.NAWABAN_BOARD_PORT ?? 4100)
 export const urlFor = (port: number) => `http://127.0.0.1:${port}/api/board`
 
@@ -76,7 +79,7 @@ export function listen(fetch: (request: Request) => Promise<Response>, port: num
 /** `nawaban serve`: the board in `dir`, at `url`, for whoever holds `dir/token`. */
 export async function serve(dir = DIR, port = PORT) {
   const url = urlFor(port)
-  const team = board({ backend: local({ dir }), authenticate: verifier(await token(dir)), url })
+  const team = board({ backend: local({ dir }), authenticate: verifier(await token(dir)), url, middleware: [impactNames(dir)] })
   await registerSchemas(team)
   const server = await listen(team.fetch, port)
   console.log(`serving the board at ${url}, its log in ${dir.replace(homedir(), '~')}`)

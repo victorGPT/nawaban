@@ -14,7 +14,8 @@
     "check": "tsc --noEmit && vitest run"
   },
   "dependencies": {
-    "@vercel/board": "0.53.0"
+    "@vercel/board": "0.53.0",
+    "smol-toml": "1.9.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

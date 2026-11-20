@@ -2,12 +2,15 @@ import { parseArgs } from 'node:util'
 import { BoardError, block, type board } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
 import { SCHEMAS, type SchemaId } from './schemas.ts'
+import { IMPACT_FORMAT } from './impact.ts'
 
 /** The embedded CLI: runs argv as `nawaban …` would, and answers its exit code. */
 type Run = (argv: string[]) => Promise<number>
 type Team = ReturnType<typeof board>
 
-const KINDS = ['note', 'decision', 'link', 'ask', 'resolve'] as const
+const KINDS = ['note', 'decision', 'link', 'ask', 'resolve', 'impact'] as const
+// `<KR>=↑ 3→5 实测`, as the old CLI takes it: a KR not listed is =.
+const IMPACT = /^(.+)=([↑↓=])(?:\s+(-?\d+(?:\.\d+)?%?)\s*→\s*(-?\d+(?:\.\d+)?%?)\s+(实测|预计))?\s*$/
 
 function refuse(headline: string, code = 1) {
   process.stderr.write(`error: ${headline}\n`)
@@ -52,7 +55,8 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
         kind: { type: 'string' },
         body: { type: 'string' },
         by: { type: 'string' },
-        kr: { type: 'string' },
+        kr: { type: 'string', multiple: true },
+        o: { type: 'string' },
         question: { type: 'string' },
         verdict: { type: 'string' },
         rejected: { type: 'string', multiple: true },
@@ -72,6 +76,9 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
     return refuse(`usage: nawaban event <id> --kind ${KINDS.join('|')} …`, 2)
   }
   if (a.by !== undefined && (kind !== 'decision' || a.by !== 'user')) return refuse('--by user goes only with --kind decision', 2)
+  if ((a.o !== undefined) !== (kind === 'impact')) return refuse('an impact takes --o "<O 名>" (纯基础设施写 --o 无), and only an impact does', 2)
+  if (kind !== 'impact' && (a.kr?.length ?? 0) > 1) return refuse('--kr goes once, but for an impact', 2)
+  const kr = a.kr?.[0]
   const as = a.as ? ['--as', a.as] : []
   const reply = (text: string) => run(['reply', id, text, ...as])
   const hold = (reason: string, kind: string) => run(['tasks', 'block', id, reason, '--kind', kind, ...as])
@@ -139,7 +146,7 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
       verdict: a.verdict ?? line('Verdict')[0],
       rejected: a.rejected ?? line('Rejected'),
       by: a.by === 'user' ? 'user' : 'agent',
-      ...(a.kr ? { kr: a.kr } : {}),
+      ...(kr ? { kr } : {}),
     })
     return 'why' in value ? refuse(`${value.why} (--question, --verdict, --rejected; or --body with Question:, Verdict:, Rejected: lines)`) : reply(value.text)
   }
@@ -153,7 +160,7 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
   if (kind === 'ask') {
     const card = data('nawaban-ask@1', {
       decision: a.body,
-      kr: a.kr,
+      kr,
       context: a.context,
       options: (a.option ?? []).map(option),
       recommendation: a.rec,
@@ -161,6 +168,19 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
     if ('why' in card) return refuse(card.why)
     // The hold is the pending decision: a task already held refuses a second one, before the card lands.
     return holdThenReply(a.body!, 'awaiting_approval', card.text)
+  }
+
+  if (kind === 'impact') {
+    if (a.body || a.context || a.option || a.rec || a.question || a.verdict || a.rejected) return refuse('an impact takes only --o and --kr', 2)
+    const krs = []
+    for (const spec of a.kr ?? []) {
+      const [, name, dir, before, after, basis] = IMPACT.exec(spec) ?? []
+      if (!name) return refuse(`--kr is ${IMPACT_FORMAT}, numbers before→after: ${spec}`, 2)
+      krs.push(Object.fromEntries(Object.entries({ name: name.trim(), dir, before, after, basis }).filter(([, v]) => v !== undefined)))
+    }
+    // The names are the board's to check (impactNames), so vb's writes are held to them too.
+    const value = data('nawaban-impact@1', { objective: a.o, krs })
+    return 'why' in value ? refuse(`${value.why} (↑↓ need numbers before→after and 实测|预计)`) : reply(value.text)
   }
 
   const words = data('nawaban-resolve@1', { words: a.body })
