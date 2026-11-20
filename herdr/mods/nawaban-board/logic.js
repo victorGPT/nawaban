@@ -4,10 +4,22 @@
 // a worktree), from `git rev-parse --path-format=absolute --git-common-dir` run there. null (show
 // every project) when the folder is in no repository or the board has no such project.
 export function projectFor(gitCommonDir, projects) {
-  const parts = gitCommonDir.trim().split("/").filter(Boolean);
-  const name = parts.length >= 2 ? parts[parts.length - 2] : null;
+  const name = repoName(gitCommonDir);
   return (projects?.projects ?? []).some((p) => p.name === name) ? name : null;
 }
+
+// The repository's name from its git common dir (`/x/nawaban/.git` is nawaban), or null outside one.
+export function repoName(gitCommonDir) {
+  const parts = gitCommonDir.trim().split("/").filter(Boolean);
+  return parts.length >= 2 ? parts[parts.length - 2] : null;
+}
+
+// While the old board and the new one run side by side (docs/specs/board-migration.md, 迁移与并行期):
+// which CLI reads a project, "board" (`nawaban` on the Vercel Board) or "old" (nawaban/cli.py). A project
+// is read from the board once it moved there; GitHub-tracked ones, and every space on another machine,
+// stay on the old CLI. ponytail: none has moved yet; the switch (NAWABAN-MIGRATE-06) fills this set.
+export const BOARD_PROJECTS = new Set();
+export const cliFor = (project, machine = null) => (machine == null && BOARD_PROJECTS.has(project) ? "board" : "old");
 
 // "zh" or "en": the person's saved choice, else the system's first preferred language, read from
 // `defaults read -g AppleLanguages` on macOS or $LANG elsewhere.

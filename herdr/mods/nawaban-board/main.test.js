@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { leadersView, pendingView, okrView, OKR_WORDS } from "./logic.js";
+import { leadersView, pendingView, okrView, OKR_WORDS, BOARD_PROJECTS } from "./logic.js";
 
 const called = new Set();
 let onSize = null;
@@ -252,6 +252,35 @@ test("a space on another machine is read there: the CLI under that machine's hom
     assert.equal(view.board.tracker, "github");
   } finally {
     where = here;
+    execImpl = async () => ({ code: 1 });
+  }
+});
+
+test("a project moved to the board is read with the board's CLI, every json verb; the rest with the old one", async () => {
+  const calls = [];
+  execImpl = async (cmd, args = [], opts = {}) => {
+    if (cmd === "git") return { code: 0, stdout: `${opts.cwd}/.git\n` };
+    calls.push([cmd, args[0], args[2]]);
+    return { code: 0, stdout: JSON.stringify(args[2] === "board" ? board : args[2] === "db" ? { db: "/b/local.db" } : { projects: [{ name: "x" }] }) };
+  };
+  const quiet = { spawn() {}, notify() {} };
+  const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+  const settle = () => new Promise((r) => setImmediate(r));
+  try {
+    for (const moved of [false, true]) {
+      if (moved) BOARD_PROJECTS.add("x");
+      calls.length = 0;
+      const view = new NawabanBoard();
+      view.init({}, cx);
+      await settle();
+      const [cmd, cli] = moved ? ["node", "/h/nawaban/board/src/cli.ts"] : ["python3", "/h/nawaban/nawaban/cli.py"];
+      assert.deepEqual(calls.filter(([c]) => c !== "defaults" && c !== "sh").sort(),
+        ["board", "db", "okr", "projects"].map((v) => [cmd, cli, v]).sort());
+      assert.equal(view.project, "x");
+      assert.equal(view.db, "/b/local.db");
+    }
+  } finally {
+    BOARD_PROJECTS.delete("x");
     execImpl = async () => ({ code: 1 });
   }
 });
