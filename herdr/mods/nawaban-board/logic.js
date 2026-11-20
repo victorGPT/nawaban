@@ -17,7 +17,8 @@ export function repoName(gitCommonDir) {
 // While the old board and the new one run side by side (docs/specs/board-migration.md, 迁移与并行期):
 // which CLI reads a project, "board" (`nawaban` on the Vercel Board) or "old" (nawaban/cli.py). A project
 // is read from the board once it moved there; GitHub-tracked ones, and every space on another machine,
-// stay on the old CLI. ponytail: none has moved yet; the switch (NAWABAN-MIGRATE-06) fills this set.
+// stay on the old CLI. The plugin's hooks route by this same rule (hooks/route.mjs imports it).
+// ponytail: none has moved yet; the switch (NAWABAN-MIGRATE-06) fills this set.
 export const BOARD_PROJECTS = new Set();
 export const cliFor = (project, machine = null) => (machine == null && BOARD_PROJECTS.has(project) ? "board" : "old");
 

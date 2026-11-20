@@ -31,11 +31,11 @@ const closed = (t: Task | undefined) => t?.state === 'completed' || t?.state ===
 const data = (m: MessageView, name: string) =>
   m.blocks.find((b) => b.schema === name && b.data)?.data as Record<string, unknown> | undefined
 
-/** Every task, all states, of one channel (undefined: every channel). */
-async function tasksOf(team: Team, channel?: string) {
+/** Every task in `state` (all of them by default) of one channel (undefined: every channel). */
+export async function tasksOf(team: Team, channel?: string, state: 'all' | 'blocked' = 'all') {
   const out: MessageView[] = []
   for (let after: string | undefined; ; ) {
-    const page = await team.tasks.list({ channel, state: 'all', after, limit: 50 })
+    const page = await team.tasks.list({ channel, state, after, limit: 50 })
     out.push(...page.tasks.map((t) => t.message))
     if (page.tasks.length < 50) return out
     after = page.cursor

@@ -163,7 +163,7 @@ it('refuses to close as done a task with no impact, where the project keeps an o
 function hook(command: string, cwd = worktree, pr = {}): Promise<{ code: number | null; err: string }> {
   return new Promise((done) => {
     const child = execFile('sh', [HOOK], {
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, BOARD_URL: url, BOARD_TOKEN: SECRET, NAWABAN_BOARD_DIR: dir, GH_PR: JSON.stringify(pr) },
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, BOARD_URL: url, BOARD_TOKEN: SECRET, NAWABAN_BOARD_DIR: dir, NAWABAN_CLI: 'board', GH_PR: JSON.stringify(pr) },
     }, (error, _out, err) => done({ code: error ? (error.code as number) : 0, err }))
     child.stdin!.end(JSON.stringify({ cwd, tool_input: { command } }))
   })

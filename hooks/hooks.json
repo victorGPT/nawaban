@@ -27,6 +27,12 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/leader-gap.sh\"",
             "timeout": 10,
             "onFailure": "continue"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/renew.sh\"",
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }
@@ -51,6 +57,24 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/impact-guard.sh\"",
             "timeout": 60,
+            "onFailure": "continue"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/board-impact-guard.sh\"",
+            "timeout": 60,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/renew.sh\"",
+            "timeout": 10,
             "onFailure": "continue"
           }
         ]
