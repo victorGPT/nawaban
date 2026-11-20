@@ -8,8 +8,14 @@ printf '%s' "$info" | python3 -c '
 import json, sys
 sys.exit(0 if (json.load(sys.stdin).get("labels") or {}).get("role") == "orchestrator" else 1)' 2>/dev/null || exit 0
 echo "nawaban index（现状索引，SessionStart 钩子注入；你是编排者，先读它再凭记忆补）："
-python3 "$(dirname "$0")/../nawaban/cli.py" index
 dir="${CLAUDE_PROJECT_DIR:-.}"
+# A project moved to the board reads its index there (hooks/route.mjs); every other one, from the old CLI.
+set -- $(node "$(dirname "$0")/route.mjs" "$dir" 2>/dev/null)
+if [ "$1" = board ]; then
+  node "$(dirname "$0")/../board/src/cli.ts" index --project "$2"
+else
+  python3 "$(dirname "$0")/../nawaban/cli.py" index
+fi
 branch=$(git -C "$dir" branch --show-current 2>/dev/null)
 [ -n "$branch" ] && [ "$branch" != main ] && echo "注意：${dir} 在分支 ${branch}，不在 main，下面读到的规矩可能是旧的；先查是谁切的，收拾后切回 main。"
 rules="$dir/docs/agents/orchestrator.md"

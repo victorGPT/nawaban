@@ -1,6 +1,6 @@
 {
   "name": "nawaban",
-  "version": "0.1.15",
+  "version": "0.2.0",
   "description": "Task tracker and read-only board shared by agents and people.",
   "author": {
     "name": "victor-wu"
