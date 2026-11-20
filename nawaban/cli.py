@@ -1329,7 +1329,89 @@ def task_detail(path: Path | str, task_id: str) -> dict:
 def any_board(path: Path, project: str | None) -> tuple[dict, str]:
     """json board's data and its name: the repository's GitHub issues when it is GitHub-tracked, else the board."""
     gh = github_root()  # a GitHub-tracked repository has no board: --project is moot there
-    return (github_board_data(gh), gh.name) if gh else (board_data(path, project), project or "看板")
+    if not gh:
+        return board_data(path, project), project or "看板"
+    data = github_board_data(gh)
+    inbox_save(gh, data)  # every GitHub read (index, brief, json board) refreshes the inbox cache
+    return data, gh.name
+
+
+# ── inbox: the Stop hook's line of what waits on the decision-maker (spec NAWABAN-INBOX) ──
+
+INBOX_STALE = 300  # seconds; an older cache is still shown, with its age, while a refresh runs in the background
+
+
+def _inbox_file(name: str) -> Path:
+    return Path.home() / ".nawaban" / "inbox" / name
+
+
+def _inbox_cache(root: Path) -> Path:
+    import hashlib
+    return _inbox_file(hashlib.sha1(str(root).encode()).hexdigest()[:16] + ".json")
+
+
+def _save_json(p: Path, obj) -> None:
+    import json
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f"{p.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False))
+    os.replace(tmp, p)  # atomic: a reader never sees half a file; concurrent writers, the last one wins
+
+
+def inbox_save(root: Path, data: dict) -> None:
+    try:
+        _save_json(_inbox_cache(root), {"at": int(time.time()),
+                                        "items": [{"id": t["id"], "title": t["title"]} for t in _pending(data)]})
+    except OSError:
+        pass  # the cache only speeds up the Stop hook: a read must not fail on it
+
+
+def inbox_refresh_later(root: Path) -> None:
+    """Rebuild root's inbox cache in a detached `nawaban index` (it writes the cache); failures stay silent."""
+    subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "index"], cwd=root, start_new_session=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def inbox_items(path: Path) -> tuple[list[dict], float | None]:
+    """What waits on the decision-maker here, and the age of the GitHub cache it came from (None on the board)."""
+    import json
+    if root := github_root():
+        try:
+            c = json.loads(_inbox_cache(root).read_text())
+        except (OSError, ValueError):
+            c = None
+        age = time.time() - c["at"] if c else None
+        if age is None or age > INBOX_STALE:
+            inbox_refresh_later(root)
+        return (c["items"], age) if c else ([], None)
+    if not path.exists():
+        return [], None
+    project = default_project(path)
+    with closing(open_readonly(path)) as con:
+        rows = [r for r in _triage_notes(con)
+                if waiting_question(r["body"]) is not None and (project is None or r["project"] == project)]
+        return [{"id": r["task"], "title": _task(con, r["task"])["title"]} for r in rows], None
+
+
+def inbox_line(path: Path, session: str) -> str | None:
+    """`待你决定 N 件：<the new ones>｜说「同步」看卡`, or `（无变化）` when this session was shown the same set last; None for none."""
+    import json
+    items, age = inbox_items(path)
+    seen_file = _inbox_file(f"seen-{re.sub(r'[^\w-]', '_', session)}.json")
+    try:
+        seen = set(json.loads(seen_file.read_text()))
+    except (OSError, ValueError, TypeError):
+        seen = None
+    ids = [i["id"] for i in items]
+    _save_json(seen_file, ids)
+    if not items:
+        return None
+    stale = f" · {int(age // 60)} 分钟前" if age is not None and age > INBOX_STALE else ""
+    if seen == set(ids):
+        return f"待你决定 {len(items)} 件（无变化）{stale}"
+    new = [i for i in items if i["id"] not in (seen or ())] or items  # only some left: list what is left
+    listed = _short(" · ".join(f"{i['id']} {_short(i['title'], 24)}" for i in new), 90)
+    return f"待你决定 {len(items)} 件：{listed}{stale}｜说「同步」看卡"
 
 
 def json_out(path: Path, a) -> int:
@@ -1589,6 +1671,8 @@ def main(argv: list[str] | None = None) -> int:
                         print(impact(con, a, root))
                     return 0
             print(gh_write(root, a))
+            if a.verb == "event" and a.kind in ("ask", "resolve"):
+                inbox_refresh_later(root)
             return 0
         if getattr(a, "kind", None) in ("ask", "resolve"):
             raise Refused("ask / resolve 只用于 GitHub 记账的仓库(#N)")

@@ -66,6 +66,8 @@ In a repository whose `docs/agents/issue-tracker.md` names GitHub, write an issu
 
 On GitHub, `nawaban brief` gathers the raw material for decision cards: for each pending decision, oldest first, its issue number, title, when it was raised (`MM-DD HH:MM 提出`) and URL, its text verbatim (`原文：`), and its issue's last 3 `进展：` comments (`近期进展：`). When the user says 同步, run it and turn that material into decision cards yourself; it is not for pasting as it is. It is refused on the board.
 
+As the orchestrator you also get the inbox (收件箱): after each of your replies the plugin's Stop hook shows the decision-maker one line, `待你决定 N 件：<new items>｜说「同步」看卡` (or `待你决定 N 件（无变化）`), counted from the tracker only: the pending decisions on GitHub, the 等你 tasks on the board. A question you ask only in chat is not in it; record it as an `ask` (GitHub) or a `triage: needs-info — 等你：` note (board). On GitHub the line reads a cache that `index`, `brief`, `json board`, `ask` and `resolve` refresh; past 5 minutes it carries its age while the hook refreshes it in the background.
+
 ## Frontier
 
 ```
