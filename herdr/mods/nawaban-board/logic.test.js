@@ -13,7 +13,7 @@ test("a folder's project is its repository's main checkout name, when the board 
 });
 
 test("while both boards run, a project is read from the board only once it moved there, and only on this computer", () => {
-  assert.deepEqual([...BOARD_PROJECTS].sort(), ["biz-report", "bzkanbanv2", "huafa", "kanban-prod", "nawaban"]);
+  assert.deepEqual([...BOARD_PROJECTS].sort(), ["bzkanbanv2", "huafa", "nawaban"]);
   assert.equal(cliFor("nawaban"), "board");
   assert.equal(cliFor("roubao"), "old"); // GitHub-tracked
   assert.equal(cliFor("agent-center"), "old"); // not moved

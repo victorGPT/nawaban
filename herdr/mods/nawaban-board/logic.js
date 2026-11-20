@@ -20,7 +20,7 @@ export function repoName(gitCommonDir) {
 // stay on the old CLI. The plugin's hooks route by this same rule (hooks/route.mjs imports it).
 // Moved at the switch (NAWABAN-MIGRATE-06). nawaban/cli.py reads this one line too, to refuse writes to
 // these projects: keep it a single line of JSON strings.
-export const BOARD_PROJECTS = new Set(["nawaban", "bzkanbanv2", "huafa", "biz-report", "kanban-prod"]);
+export const BOARD_PROJECTS = new Set(["nawaban", "bzkanbanv2", "huafa"]);
 export const cliFor = (project, machine = null) => (machine == null && BOARD_PROJECTS.has(project) ? "board" : "old");
 
 // "zh" or "en": the person's saved choice, else the system's first preferred language, read from

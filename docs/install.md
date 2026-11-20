@@ -64,7 +64,7 @@ A leader reads `nawaban index` when it starts or after its context is compacted:
 
 ## Herdr panel
 
-The [Herdr](https://herdr.dev) app can show the board as a read-only panel beside your terminals. It shows the windows (agent terminals) of the focused space waiting on you, and what each leader and the workers it dispatched are doing on the board of the project that space is in; it runs `python3 ~/nawaban/nawaban/cli.py json ...` in the space's folder, or, for a project already moved to the Vercel Board (`cliFor` in the mod's `logic.js`: nawaban, bzkanbanv2, huafa, biz-report, kanban-prod), `node ~/nawaban/board/src/cli.ts json ...`, which needs Node 22.18 or later and `pnpm install` in `~/nawaban/board`. So it needs the checkout at `~/nawaban` (step 2 above) and `python3`.
+The [Herdr](https://herdr.dev) app can show the board as a read-only panel beside your terminals. It shows the windows (agent terminals) of the focused space waiting on you, and what each leader and the workers it dispatched are doing on the board of the project that space is in; it runs `python3 ~/nawaban/nawaban/cli.py json ...` in the space's folder, or, for a project already moved to the Vercel Board (`cliFor` in the mod's `logic.js`: nawaban, bzkanbanv2, huafa), `node ~/nawaban/board/src/cli.ts json ...`, which needs Node 22.18 or later and `pnpm install` in `~/nawaban/board`. So it needs the checkout at `~/nawaban` (step 2 above) and `python3`.
 
 1. Copy the mod into Herdr. Copy rather than symlink: Herdr does not reload a symlinked mod when it changes. Run the same command again after pulling to update it.
 
