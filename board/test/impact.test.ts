@@ -90,6 +90,13 @@ it('takes an impact whose names are in the okr.toml', async () => {
   expect(replies[0]!.blocks[0]!.data).toEqual({ objective: 'O1', krs: [{ name: 'KR1', dir: '↑', before: '3', after: '5', basis: '实测' }, { name: 'KR2', dir: '=' }] })
 })
 
+it('keeps the values an = declaration expects to hold', async () => {
+  const id = await newTask()
+  expect((await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1== 83.3→83.3 预计')).code).toBe(0)
+  const { replies } = await team.thread(id)
+  expect(replies[0]!.blocks[0]!.data).toEqual({ objective: 'O1', krs: [{ name: 'KR1', dir: '=', before: '83.3', after: '83.3', basis: '预计' }] })
+})
+
 it('refuses a KR or an O the okr.toml does not have', async () => {
   const id = await newTask()
   const kr = await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR9=↑ 3→5 实测')
