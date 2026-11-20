@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { board } from '@vercel/board'
 import type { CallerRequest } from '@vercel/board/access'
 import { local } from '@vercel/board/backend-local'
+import { registerSchemas } from './schemas.ts'
 
 export const DIR = process.env.NAWABAN_BOARD_DIR ?? join(homedir(), '.nawaban', 'board')
 export const PORT = Number(process.env.NAWABAN_BOARD_PORT ?? 4100)
@@ -76,6 +77,7 @@ export function listen(fetch: (request: Request) => Promise<Response>, port: num
 export async function serve(dir = DIR, port = PORT) {
   const url = urlFor(port)
   const team = board({ backend: local({ dir }), authenticate: verifier(await token(dir)), url })
+  await registerSchemas(team)
   const server = await listen(team.fetch, port)
   console.log(`serving the board at ${url}, its log in ${dir.replace(homedir(), '~')}`)
   return server
