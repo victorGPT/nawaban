@@ -7,7 +7,7 @@ import { beforeAll, expect, it, vi } from 'vitest'
 import { block, board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from '../src/schemas.ts'
-import { judge, jsonOkr, okr, run, type Declared, type Kr, type Objective, type Row } from '../src/okr.ts'
+import { judge, jsonOkr, okr, record, run, type Declared, type Kr, type Objective, type Row } from '../src/okr.ts'
 
 // Ported from tests/test_okr.py. The migration tests of the old SQLite board aren't: the board keeps no schema of ours.
 const OKR = `
@@ -522,4 +522,22 @@ it('prints the counts and the mismatches after okr', async () => {
   expect(code).toBe(0)
   expect(out).toContain('O O · 声明 ↑0 ↓1 =0')
   expect(out).toContain('预期不符 K：#7 声明 ↑')
+})
+
+it('orders a reading after an accept in the same millisecond by the board, not by the clock', async () => {
+  const p = await project('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\n')
+  const now = new Date('2026-11-21T00:00:00.000Z')
+  vi.useFakeTimers({ now, toFake: ['Date'] })
+  try {
+    const keep = (value: string, as_of: string) => record(team, p.name, [{ objective: 'O', kr: 'K', value, as_of, source: '' }])
+    await keep('2', '2026-11-01')
+    await team.post(`okr/${p.name}`, block('nawaban-okr-accept@1', { objective: 'O' }))
+    await keep('0', '2026-11-02')
+    await keep('3', '2026-11-03')
+  } finally {
+    vi.useRealTimers()
+  }
+  const { data } = await jokr(p)
+  expect(data.last_measured_at).toBe(now.toISOString())
+  expect(kinds(data)).toEqual([['accept', null]])
 })

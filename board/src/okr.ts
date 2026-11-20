@@ -12,7 +12,7 @@ import { Refused } from './tasks.ts'
  * OKR progress, ported from the old nawaban/cli.py (okr_run, okr_record, okr_data): each KR's measure
  * runs here, its reading lands on the board in okr/<project>, one thread per KR, and json okr judges
  * what the board holds against the okr.toml as it is now. A reading's round, an accept's time, and a
- * declaration's time are all their message's createdAt, so they read off one clock.
+ * declaration's time are all when their message landed (when()), so they read off one clock.
  */
 type Team = ReturnType<typeof board>
 export type Kr = { name: string; target: string; unit?: string; measure?: string; wait?: string; max_age_days?: number }
@@ -195,7 +195,7 @@ function impacts(op: string, goal: Dec, readings: Row[], declared: Declared[]) {
   const last = times.at(-1) ?? ''
   const pending = declared
     .filter((i) => i.declared_at >= last)
-    .map((i) => ({ ticket: i.ticket, dir: i.dir, before: i.before, after: i.after, basis: i.basis, at: i.declared_at }))
+    .map((i) => ({ ticket: i.ticket, dir: i.dir, before: i.before, after: i.after, basis: i.basis, at: shown(i.declared_at) }))
   if (times.length < 2) return { pending, mismatch: [] }
   const prev = times.at(-2)!
   const moved = closer(op, goal, dec(rounds.get(prev)!.value), dec(rounds.get(last)!.value))
@@ -208,6 +208,8 @@ function impacts(op: string, goal: Dec, readings: Row[], declared: Declared[]) {
 
 type Attention = { kind: 'five' | 'stuck' | 'wait' | 'accept'; objective: string; kr: string | null; text: string }
 const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+/** A board time as json okr shows it, without when()'s tie-break. */
+const shown = (at: string) => at.split('~')[0]!
 
 /**
  * json okr's document: the kept readings judged against the okr.toml as it is now; it never runs a
@@ -220,7 +222,7 @@ export function judge(objectives: Objective[], rows: Row[], accepts: Map<string,
   const out = {
     repo,
     def_commit: defCommit,
-    last_measured_at: rows.reduce<string | null>((m, r) => (m === null || r.measured_at > m ? r.measured_at : m), null),
+    last_measured_at: rows.reduce<string | null>((m, r) => (m === null || r.measured_at > m ? r.measured_at : m), null)?.split('~')[0] ?? null,
     met: 0,
     total: 0,
     objectives: [] as { name: string; met: number; total: number; accept_pending: boolean; impacts: Record<string, number>; krs: { name: string; mismatch: { ticket: string; dir: string }[] }[] }[],
@@ -294,6 +296,12 @@ export function impactText(data: ReturnType<typeof judge>) {
 }
 
 export const okrChannel = (project: string) => `okr/${project}`
+/**
+ * When a message landed, in an order every reading, accept, and declaration shares: its createdAt, with
+ * its ID after a ~ to break a tie within the millisecond. A local board's ID is its log index (SPEC.md,
+ * Message), so it rises with every write.
+ */
+const when = (m: MessageView) => `${m.createdAt}~${m.id.padStart(20, '0')}`
 const key = (...parts: string[]) => 'okr-' + createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 32)
 const blocksOf = (m: MessageView, schema: string) =>
   m.deleted ? [] : m.blocks.filter((b) => b.schema === schema && b.version === 1 && b.data).map((b) => b.data as Record<string, unknown>)
@@ -317,10 +325,10 @@ export async function load(team: Team, project: string) {
   const accepts = new Map<string, string>()
   for (const thread of await threads(team, okrChannel(project))) {
     for (const m of thread) {
-      for (const d of blocksOf(m, 'nawaban-kr-reading')) rows.push({ kr: d.kr, value: d.value, as_of: d.as_of, source: d.source, measured_at: m.createdAt } as Row)
+      for (const d of blocksOf(m, 'nawaban-kr-reading')) rows.push({ kr: d.kr, value: d.value, as_of: d.as_of, source: d.source, measured_at: when(m) } as Row)
       for (const d of blocksOf(m, 'nawaban-okr-accept')) {
         const o = d.objective as string
-        if (m.createdAt > (accepts.get(o) ?? '')) accepts.set(o, m.createdAt)
+        if (when(m) > (accepts.get(o) ?? '')) accepts.set(o, when(m))
       }
     }
   }
@@ -331,7 +339,7 @@ export async function load(team: Team, project: string) {
         for (const kr of d.krs as { name: string; dir: string; before?: string; after?: string; basis?: string }[]) {
           const k = `${d.objective}\0${kr.name}`
           const ticket = root!.labels.key ?? `#${root!.id}`
-          declared.set(k, [...(declared.get(k) ?? []), { ticket, dir: kr.dir, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, declared_at: m.createdAt }])
+          declared.set(k, [...(declared.get(k) ?? []), { ticket, dir: kr.dir, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, declared_at: when(m) }])
         }
       }
     }
