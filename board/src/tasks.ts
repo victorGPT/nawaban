@@ -2,6 +2,8 @@ import { parseArgs } from 'node:util'
 import { readFileSync } from 'node:fs'
 import { board, type MessageView } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
+import { undeclared } from './impact.ts'
+import { boardDir } from './server.ts'
 
 /**
  * nawaban's task verbs on the board: a task's key is its `key` label, its project its channel, its spec
@@ -198,6 +200,9 @@ const close: Verb = async (argv) => {
   const json = values.json ? ['--json'] : []
   const team = person()
   if (values.done) {
+    // Before the claim, so a refusal leaves nothing behind.
+    const why = await undeclared(team, task.id, boardDir())
+    if (why) throw new Refused(why)
     const as = profile()
     const held = live(task)
     if (held && !held.actor.endsWith(`+${as}`)) {

@@ -14,12 +14,14 @@ const B_SESSION = 'bbbb2222-0000-0000-0000-000000000000'
 let team: ReturnType<typeof board>
 let server: Awaited<ReturnType<typeof listen>>
 let url = ''
+let boardDir = ''
 
 beforeAll(async () => {
   server = await listen((request) => team.fetch(request), 0)
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/board`
   team = board({ backend: local({ memory: true }), authenticate: verifier(SECRET, 'victor'), url })
   process.env.XDG_CONFIG_HOME = await mkdtemp(join(tmpdir(), 'nawaban-tasks-'))
+  boardDir = await mkdtemp(join(tmpdir(), 'nawaban-tasks-board-'))
 })
 afterAll(() => server.close())
 afterEach(() => vi.useRealTimers())
@@ -31,6 +33,7 @@ async function nawaban(argv: string[], session = A_SESSION, env: Record<string, 
   vi.stubEnv('BOARD_PROFILE', '')
   vi.stubEnv('CLAUDE_CODE_SESSION_ID', session)
   vi.stubEnv('HC_TERMINAL_ID', '')
+  vi.stubEnv('NAWABAN_BOARD_DIR', boardDir)
   for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v)
   let out = ''
   let err = ''

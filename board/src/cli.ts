@@ -5,6 +5,7 @@ import { board } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
 import { dispatch } from './dispatch.ts'
 import { event } from './events.ts'
+import { guard } from './guard.ts'
 import { DIR, PORT, serve, urlFor } from './server.ts'
 import { run } from './tasks.ts'
 
@@ -21,9 +22,12 @@ if (argv[0] === 'serve') {
     }
   }
   const app = createApp({ appName: 'nawaban' })
-  process.exitCode = argv[0] === 'event'
-    ? await event(argv.slice(1), (args) => app.run(args), board())
-    : argv[0] === 'dispatch'
-      ? await dispatch(argv.slice(1))
-      : (await run(argv)) ?? (await app.run(argv))
+  process.exitCode =
+    argv[0] === 'event'
+      ? await event(argv.slice(1), (args) => app.run(args), board())
+      : argv[0] === 'dispatch'
+        ? await dispatch(argv.slice(1))
+        : argv[0] === 'guard'
+          ? await guard(board(), DIR)
+          : (await run(argv)) ?? (await app.run(argv))
 }
