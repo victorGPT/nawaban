@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AddressInfo } from 'node:net'
@@ -6,7 +6,7 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest'
 import { board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { createApp } from '@vercel/board/cli'
-import { listen, verifier } from '../src/server.ts'
+import { listen, token, verifier } from '../src/server.ts'
 
 const SECRET = 'test-secret'
 let team: ReturnType<typeof board>
@@ -36,6 +36,15 @@ async function nawaban(argv: string[], token = SECRET) {
     vi.unstubAllEnvs()
   }
 }
+
+it('makes one token, 0600, however many first runs race for it', async () => {
+  const dir = join(await mkdtemp(join(tmpdir(), 'nawaban-token-')), 'board')
+  const secrets = await Promise.all([token(dir), token(dir), token(dir)])
+  expect(new Set(secrets).size).toBe(1)
+  expect(secrets[0]).toMatch(/^[0-9a-f]{64}$/)
+  expect((await stat(join(dir, 'token'))).mode & 0o777).toBe(0o600)
+  expect(await token(dir)).toBe(secrets[0])
+})
 
 it('knows the token holder as the OS user, a person', async () => {
   const me = await nawaban(['whoami'])
