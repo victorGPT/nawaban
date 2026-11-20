@@ -189,8 +189,8 @@ _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`.
 
 **Index**(索引)
-The md text an orchestrator reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), stopped (no activity for 24 hours, with on whom) and moving, each with its spec, latest progress and next step; the user's decisions of the last 48 hours; the untouched; and a count of the closed. On GitHub it opens with the pending decisions, oldest first, by issue number and title. It is printed from `json board`'s data each time and never stored.
-索引是编排者开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、停了（24 小时没动静，写明停在谁身上）、在推分组，每件带所属的 spec、最新进展和下一步；48 小时内用户拍的板；没动的；关掉的个数。在 GitHub 上最上面先列待决，按提出先后，只写 issue 号和标题。每次从 `json board` 的数据现打，从不存。
+The md text an orchestrator reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), stopped (no activity for 24 hours, with on whom) and moving, each with its spec, latest progress and next step; the user's decisions of the last 48 hours; the untouched; and a count of the closed. On GitHub it opens with the pending decisions, oldest first, by issue number and title. It is printed from `json board`'s data each time and never stored (on GitHub the same read rewrites the inbox cache).
+索引是编排者开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、停了（24 小时没动静，写明停在谁身上）、在推分组，每件带所属的 spec、最新进展和下一步；48 小时内用户拍的板；没动的；关掉的个数。在 GitHub 上最上面先列待决，按提出先后，只写 issue 号和标题。每次从 `json board` 的数据现打，从不存（GitHub 上同一次读取会重写收件箱缓存）。
 _Avoid_: wiki, summary file, status report.
 _Current identifiers_: CLI `index`; `NAWABAN_OWNER_NAMES`.
 

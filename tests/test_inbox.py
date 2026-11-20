@@ -88,6 +88,32 @@ def test_index_writes_the_cache(tmp_path, monkeypatch):
     assert json.loads(cli._inbox_cache(repo).read_text())["items"] == [{"id": "#7", "title": "要你定"}]
 
 
+def test_an_ask_rewrites_the_cache_before_the_turn_ends(tmp_path, monkeypatch):
+    repo = _github_repo(tmp_path); monkeypatch.chdir(repo); _cache(repo, [])
+    data = {"tracker": "github", "columns": [{"key": "open", "tasks": [{"id": "#7", "title": "要你定", "pending": {"at": 1}}]}]}
+    monkeypatch.setattr(cli, "gh_write", lambda root, a: "✓ event")
+    monkeypatch.setattr(cli, "github_board_data", lambda root: data)
+    assert cli.main(["event", "#7", "--kind", "ask", "--body", "定 A", "--kr", "K", "--context", "c",
+                     "--option", "A", "--option", "B", "--rec", "A"]) == 0
+    assert cli.inbox_line(cli.resolve_db(None), "s").startswith("待你决定 1 件：#7 要你定")
+
+
+def test_a_slower_older_read_does_not_overwrite_a_newer_cache(tmp_path):
+    repo = _github_repo(tmp_path)
+    data = lambda ids: {"columns": [{"tasks": [{"id": i, "title": "t", "pending": {"at": 1}} for i in ids]}]}
+    cli.inbox_save(repo, data([]), 200.0)
+    cli.inbox_save(repo, data(["#7"]), 100.0)  # started earlier, finished later
+    assert json.loads(cli._inbox_cache(repo).read_text())["items"] == []
+
+
+def test_refreshes_start_at_most_once_a_minute(tmp_path, monkeypatch):
+    repo = _github_repo(tmp_path); started = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda *a, **k: started.append(a))
+    for _ in range(5):
+        cli.inbox_refresh_later(repo)
+    assert len(started) == 1
+
+
 def test_on_the_board_the_waiting_tasks_are_the_inbox(tmp_path, monkeypatch):
     db = tmp_path / "b.db"
     assert cli.main(["--db", str(db), "init"]) == 0

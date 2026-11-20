@@ -1072,10 +1072,10 @@ def gh_post(root: Path, number: str, kind: str, body: str, kr: str | None = None
 
 def _role(terminal: str) -> str | None:
     import json
-    r = subprocess.run(["hc", "get", terminal, "--json"], capture_output=True, text=True)
-    try:
+    try:  # a hung hc must not stall every Stop hook
+        r = subprocess.run(["hc", "get", terminal, "--json"], capture_output=True, text=True, timeout=3)
         return (json.loads(r.stdout).get("labels") or {}).get("role") if r.returncode == 0 else None
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError, OSError, subprocess.SubprocessError):
         return None
 
 
@@ -1331,8 +1331,9 @@ def any_board(path: Path, project: str | None) -> tuple[dict, str]:
     gh = github_root()  # a GitHub-tracked repository has no board: --project is moot there
     if not gh:
         return board_data(path, project), project or "看板"
+    started = time.time()
     data = github_board_data(gh)
-    inbox_save(gh, data)  # every GitHub read (index, brief, json board) refreshes the inbox cache
+    inbox_save(gh, data, started)  # every GitHub read (index, brief, json board) refreshes the inbox cache
     return data, gh.name
 
 
@@ -1358,16 +1359,32 @@ def _save_json(p: Path, obj) -> None:
     os.replace(tmp, p)  # atomic: a reader never sees half a file; concurrent writers, the last one wins
 
 
-def inbox_save(root: Path, data: dict) -> None:
+def inbox_save(root: Path, data: dict, started: float) -> None:
+    """Cache data's pending decisions, stamped with when its read started; a read older than the cache is dropped."""
+    import json
+    p = _inbox_cache(root)
     try:
-        _save_json(_inbox_cache(root), {"at": int(time.time()),
-                                        "items": [{"id": t["id"], "title": t["title"]} for t in _pending(data)]})
+        try:
+            if json.loads(p.read_text())["at"] > started:
+                return  # ponytail: check-then-replace, no lock; two reads finishing within the same instant may still swap
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        _save_json(p, {"at": started, "items": [{"id": t["id"], "title": t["title"]} for t in _pending(data)]})
     except OSError:
         pass  # the cache only speeds up the Stop hook: a read must not fail on it
 
 
 def inbox_refresh_later(root: Path) -> None:
-    """Rebuild root's inbox cache in a detached `nawaban index` (it writes the cache); failures stay silent."""
+    """Rebuild root's inbox cache in a detached `nawaban index` (it writes the cache); failures stay silent.
+    At most one start a minute per repository, so a slow or failing GitHub does not pile up refreshes."""
+    mark = _inbox_cache(root).with_suffix(".refreshing")
+    try:
+        if time.time() - mark.stat().st_mtime < 60:
+            return
+    except OSError:
+        pass
+    mark.parent.mkdir(parents=True, exist_ok=True)
+    mark.touch()
     subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "index"], cwd=root, start_new_session=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -1672,7 +1689,11 @@ def main(argv: list[str] | None = None) -> int:
                     return 0
             print(gh_write(root, a))
             if a.verb == "event" and a.kind in ("ask", "resolve"):
-                inbox_refresh_later(root)
+                try:  # now, not in the background: this turn's Stop hook must already see it
+                    started = time.time()
+                    inbox_save(root, github_board_data(root), started)
+                except (Refused, ValueError, KeyError, TypeError):
+                    pass  # the write went through; the inbox catches up on its next refresh
             return 0
         if getattr(a, "kind", None) in ("ask", "resolve"):
             raise Refused("ask / resolve 只用于 GitHub 记账的仓库(#N)")
