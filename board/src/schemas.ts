@@ -66,7 +66,13 @@ export const SCHEMAS = {
           type: 'array',
           items: {
             oneOf: [
-              { type: 'object', required: ['name', 'dir'], additionalProperties: false, properties: { name: text, dir: { enum: ['='] } } },
+              {
+                type: 'object',
+                required: ['name', 'dir'],
+                additionalProperties: false,
+                // ponytail: = may carry the reading it expects to hold (old db #1396: 83.3→83.3 预计); nothing judges it.
+                properties: { name: text, dir: { enum: ['='] }, before: text, after: text, basis: { enum: ['实测', '预计'] } },
+              },
               {
                 type: 'object',
                 required: ['name', 'dir', 'before', 'after', 'basis'],
