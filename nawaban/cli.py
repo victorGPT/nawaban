@@ -1337,6 +1337,49 @@ def any_board(path: Path, project: str | None) -> tuple[dict, str]:
     return data, gh.name
 
 
+# ── ask guard: a decision asked only in chat is sent back to the tracker (spec NAWABAN-INBOX-02) ──
+
+# ponytail: keywords on the reply text, not meaning. It misses a decision asked in other words, and blocks
+# "要不要我继续？" though no decision is asked. A wrong block costs one ask (or one continuation: a block's
+# own continuation is let through); upgrade to a structured "asks the owner" field if either bites.
+_ASKING = re.compile(r"你定|你点头|批不批|批准吗|要不要|你选|请拍板")
+_RECORDED = re.compile(r"\bevent\b.*?--kind[\s=]+['\"]?ask\b|triage:\s*needs-info", re.S)
+
+
+def _turn_tool_inputs(transcript: str | None) -> list[str]:
+    """Each tool call's input, as text, since the user's latest prompt in a Claude Code JSONL transcript."""
+    import json
+    out = []
+    try:
+        lines = Path(transcript).read_text().splitlines() if transcript else []
+    except OSError:
+        return []
+    for ln in lines:
+        try:
+            d = json.loads(ln)
+            content = d["message"]["content"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        if d.get("type") == "user" and not d.get("isMeta") and (
+                isinstance(content, str) or not any(c.get("type") == "tool_result" for c in content)):
+            out = []  # a prompt from the user starts the turn
+        elif d.get("type") == "assistant" and isinstance(content, list):
+            out += [json.dumps(c.get("input"), ensure_ascii=False) for c in content if c.get("type") == "tool_use"]
+    return out
+
+
+def unrecorded_ask(message: str, transcript: str | None) -> str | None:
+    """Why the turn must go on: message asks the decision-maker to decide, and no ask was recorded this turn."""
+    m = message.strip()
+    if not (_ASKING.search(m) and (m.endswith(("？", "?")) or "要你" in m)):
+        return None
+    if any(_RECORDED.search(s) for s in _turn_tool_inputs(transcript)):
+        return None
+    return ("这轮在向决策者要决定，却没记成待决，收件箱里看不到它。先把问题记成决策卡："
+            "nawaban event '#N' --kind ask --body <要定的事> --kr <KR> --context <事实> --option <A> --option <B> --rec <推荐>"
+            "（本地看板：nawaban event <ID> --kind note --body 'triage: needs-info — 等你：<问题>'），问法不用改。")
+
+
 # ── inbox: the Stop hook's line of what waits on the decision-maker (spec NAWABAN-INBOX) ──
 
 INBOX_STALE = 300  # seconds; an older cache is still shown, with its age, while a refresh runs in the background

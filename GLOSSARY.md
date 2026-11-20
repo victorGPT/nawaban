@@ -198,7 +198,7 @@ _Current identifiers_: CLI `index`; `NAWABAN_OWNER_NAMES`.
 The one line under each of the orchestrator's replies that says what waits on the decision-maker: `待你决定 N 件：<id title> · …｜说「同步」看卡`. Its items are the repository's pending decisions on GitHub, and the 等你 tasks of the repository's project on the board; nothing else, and never read from the chat. It lists the items this session has not been shown yet, says only `（无变化）` when the set is the same as last time, and is absent when there are none. On GitHub it reads a cache file that every `index`, `brief`, `json board` and `event --kind ask|resolve` rewrites; a cache older than 5 minutes is still shown, marked `· x 分钟前`, while a refresh runs in the background. Only the terminal labelled orchestrator shows it.
 收件箱是编排者每轮回复下方的那一行，写要决策者定的事：`待你决定 N 件：<号 标题> · …｜说「同步」看卡`。条目只来自 tracker：GitHub 上是本仓库的待决，本地看板上是本仓库项目的等你；不从聊天里读。只列这个窗口还没看过的条目，集合和上次相同时只写 `（无变化）`，没有就不出。GitHub 上读缓存文件，每次 `index`、`brief`、`json board` 和 `event --kind ask|resolve` 都会重写它；缓存超过 5 分钟照样显示，标上 `· x 分钟前`，同时在后台刷新。只在打了编排者标签的终端出现。
 _Avoid_: notification, reminder, todo list.
-_Current identifiers_: `hooks/inbox.sh` (Stop hook); `~/.nawaban/inbox/`.
+_Current identifiers_: `hooks/inbox.sh` (Stop hook); `~/.nawaban/inbox/`; `hooks/ask-guard.sh` (sends back a decision asked only in chat).
 
 **Herdr panel**(Herdr 面板)
 A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each orchestrator and its workers are doing. On GitHub the top shows the blocked windows' waiting cards, when there are any, then the pending decisions, each opening its issue, with the window groups folded under them. Claiming, closing and dispatching stay with agents and the CLI.
