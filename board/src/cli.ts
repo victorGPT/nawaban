@@ -6,6 +6,7 @@ import { createApp } from '@vercel/board/cli'
 import { dispatch } from './dispatch.ts'
 import { event } from './events.ts'
 import { guard } from './guard.ts'
+import { jsonOkr, okr } from './okr.ts'
 import { DIR, PORT, serve, urlFor } from './server.ts'
 import { run } from './tasks.ts'
 
@@ -29,5 +30,9 @@ if (argv[0] === 'serve') {
         ? await dispatch(argv.slice(1))
         : argv[0] === 'guard'
           ? await guard(board(), DIR)
-          : (await run(argv)) ?? (await app.run(argv))
+          : argv[0] === 'okr'
+            ? await okr(argv.slice(1), board(), DIR)
+            : argv[0] === 'json' && argv[1] === 'okr'
+              ? await jsonOkr(argv.slice(2), board(), DIR)
+              : (await run(argv)) ?? (await app.run(argv))
 }
