@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { board } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
+import { dispatch } from './dispatch.ts'
 import { event } from './events.ts'
 import { DIR, PORT, serve, urlFor } from './server.ts'
 import { run } from './tasks.ts'
@@ -22,5 +23,7 @@ if (argv[0] === 'serve') {
   const app = createApp({ appName: 'nawaban' })
   process.exitCode = argv[0] === 'event'
     ? await event(argv.slice(1), (args) => app.run(args), board())
-    : (await run(argv)) ?? (await app.run(argv))
+    : argv[0] === 'dispatch'
+      ? await dispatch(argv.slice(1))
+      : (await run(argv)) ?? (await app.run(argv))
 }
