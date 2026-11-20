@@ -172,6 +172,18 @@ it("won't let a stale resolve lift the next decision", async () => {
   expect(await task(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'awaiting_approval' } })
 })
 
+it('keeps the decision waiting when its answer is refused', async () => {
+  const id = await newTask()
+  await nawaban('event', id, '--kind', 'ask', ...CARD, '--rec', 'ship')
+  expect((await nawaban('event', id, '--kind', 'resolve', '--body', 'x'.repeat(10_001))).code).toBe(1)
+  expect(await task(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'awaiting_approval', reason: 'ship it?' }, replies: ['nawaban-ask@1'] })
+  expect((await nawaban('event', id, '--kind', 'resolve', '--body', 'go')).code).toBe(0)
+
+  await nawaban('event', id, '--kind', 'note', '--body', 'triage: needs-info — 等你：region?')
+  expect((await nawaban('event', id, '--kind', 'note', '--body', 'triage: ready-for-agent ' + 'x'.repeat(10_001))).code).toBe(1)
+  expect(await task(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'needs_input', reason: 'region?' } })
+})
+
 it('refuses a resolve with no decision waiting', async () => {
   const id = await newTask()
   expect((await nawaban('event', id, '--kind', 'resolve', '--body', 'yes')).code).toBe(1)

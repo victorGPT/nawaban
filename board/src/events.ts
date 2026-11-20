@@ -85,6 +85,14 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
     process.stdout.write(`unblocked ${id}\n`)
     return 0
   }
+  /** Lifts the hold, then replies; a reply that fails puts the same hold back, so the answer isn't lost. */
+  const unblockThenReply = async (was: { kind: string | null; reason: string }, text: string) => {
+    const lifted = await unblock()
+    if (lifted) return lifted
+    const posted = await reply(text)
+    if (posted) await team.as(null).tasks.block(id, was.reason, { kind: was.kind ?? undefined })
+    return posted
+  }
   /** The hold, then the reply; a reply that fails lifts the hold again, so no hold waits on nothing. */
   const holdThenReply = async (reason: string, kind: string, text: string) => {
     const held = await hold(reason, kind)
@@ -106,7 +114,7 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
       const held = await blocked(team, id)
       if (held && 'error' in held) return held.error
       if (held && held.kind !== 'needs_input') return refuse(`#${id} is held for a decision: resolve it with --kind resolve`)
-      return (held && (await unblock())) || reply(a.body)
+      return held ? unblockThenReply(held, a.body) : reply(a.body)
     }
     return reply(a.body)
   }
@@ -151,5 +159,5 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
   // Lift first, then answer: a second resolve that read the same hold finds none by its reply.
   // ponytail: the board has no unblock-if-still-this-hold, so a resolve and a new ask landing between
   // this read and the unblock would lift the new one; one orchestrator resolves, so that window stays narrow.
-  return (await unblock()) || reply(words.text)
+  return unblockThenReply(held, words.text)
 }
