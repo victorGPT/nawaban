@@ -5,6 +5,7 @@ import { board } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
 import { event } from './events.ts'
 import { DIR, PORT, serve, urlFor } from './server.ts'
+import { run } from './tasks.ts'
 
 const argv = process.argv.slice(2)
 if (argv[0] === 'serve') {
@@ -19,5 +20,7 @@ if (argv[0] === 'serve') {
     }
   }
   const app = createApp({ appName: 'nawaban' })
-  process.exitCode = argv[0] === 'event' ? await event(argv.slice(1), (args) => app.run(args), board()) : await app.run(argv)
+  process.exitCode = argv[0] === 'event'
+    ? await event(argv.slice(1), (args) => app.run(args), board())
+    : (await run(argv)) ?? (await app.run(argv))
 }
