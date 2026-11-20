@@ -60,6 +60,13 @@ async function newTask() {
 
 const CARD = ['--body', 'ship it?', '--kr', 'O1 / KR1', '--context', 'tests pass', '--option', 'ship｜fast｜two-way', '--option', 'wait｜safe｜two-way']
 
+it('finds a task by its key, as the old CLI and the other verbs name it', async () => {
+  const { task } = await team.tasks.create('nawaban', { id: 'EV-KEY-1', text: 'by key', labels: { key: 'EV-KEY-1' } })
+  expect((await nawaban('event', 'EV-KEY-1', '--kind', 'note', '--body', 'by its key')).code).toBe(0)
+  expect((await team.thread(task.id)).replies.map((r) => r.text)).toEqual(['by its key'])
+  expect((await nawaban('event', 'NO-SUCH-KEY', '--kind', 'note', '--body', 'x')).err).toContain('no task NO-SUCH-KEY')
+})
+
 it('records a note, a decision, and a link as replies, the last two as blocks', async () => {
   const id = await newTask()
   expect((await nawaban('event', id, '--kind', 'note', '--body', 'halfway')).code).toBe(0)
@@ -141,7 +148,7 @@ it("holds the board's own writers to the card, not only nawaban event", async ()
 it('says an unknown task is unknown, as a refusal', async () => {
   const resolve = await nawaban('event', '9999', '--kind', 'resolve', '--body', 'yes')
   expect(resolve.code).toBe(1)
-  expect(resolve.err).toMatch(/^error: Couldn't read task #9999/)
+  expect(resolve.err).toMatch(/^error: no task 9999/)
 })
 
 it("won't let a stale resolve lift the next decision", async () => {

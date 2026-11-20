@@ -3,6 +3,7 @@ import { BoardError, block, type board } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
 import { SCHEMAS, type SchemaId } from './schemas.ts'
 import { IMPACT_FORMAT } from './impact.ts'
+import { Refused, resolve } from './tasks.ts'
 
 /** The embedded CLI: runs argv as `nawaban …` would, and answers its exit code. */
 type Run = (argv: string[]) => Promise<number>
@@ -70,10 +71,17 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
     return refuse((error as Error).message, 2)
   }
   const { values: a, positionals } = parsed
-  const id = positionals[0]
+  let id = positionals[0]
   const kind = a.kind as (typeof KINDS)[number]
   if (!id || positionals.length > 1 || !KINDS.includes(kind)) {
-    return refuse(`usage: nawaban event <id> --kind ${KINDS.join('|')} …`, 2)
+    return refuse(`usage: nawaban event <key|id> --kind ${KINDS.join('|')} …`, 2)
+  }
+  // A task by its key (NAWABAN-X-01), as the other verbs and the old CLI take it, or by its board ID.
+  try {
+    id = (await resolve(id)).id
+  } catch (error) {
+    if (error instanceof Refused) return refuse(error.message)
+    throw error
   }
   if (a.by !== undefined && (kind !== 'decision' || a.by !== 'user')) return refuse('--by user goes only with --kind decision', 2)
   if ((a.o !== undefined) !== (kind === 'impact')) return refuse('an impact takes --o "<O 名>" (纯基础设施写 --o 无), and only an impact does', 2)
