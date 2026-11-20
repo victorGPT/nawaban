@@ -69,6 +69,18 @@ it('readies what waited for a cancelled task, and nothing behind that', async ()
   expect(c.json.needs.map((t: { labels: { key: string } }) => t.labels.key)).toEqual(['S1-B'])
 })
 
+it('readies what waited for two tasks cancelled at once', async () => {
+  await nawaban(['create', 'X-A', '--title', 'A', '--project', 'nawaban'])
+  await nawaban(['create', 'X-B', '--title', 'B', '--project', 'nawaban'])
+  await nawaban(['create', 'X-D', '--title', 'D', '--project', 'nawaban', '--blocked-by', 'X-A', '--blocked-by', 'X-B'])
+  const id = (k: string) => nawaban(['show', k]).then((r) => r.json.task.id)
+  const a = await id('X-A')
+  const b = await id('X-B')
+  await Promise.all([team.tasks.cancel(a, 'raced'), team.tasks.cancel(b, 'raced')])
+  expect((await nawaban(['close', 'X-A', '--cancelled'])).code).toBe(0)
+  expect((await nawaban(['show', 'X-D'])).json.task.task.state).toBe('ready')
+})
+
 it('hands back a task its window left idle past the lease, and keeps it for a window that renews', async () => {
   await nawaban(['create', 'L-1', '--title', 'idle', '--project', 'nawaban', '--parent', 'S1'])
   await nawaban(['create', 'L-2', '--title', 'busy', '--project', 'nawaban', '--parent', 'S1'])

@@ -219,7 +219,13 @@ const close: Verb = async (argv) => {
   const stuck: string[] = []
   for (const down of await all({ state: 'open', needs: task.id })) {
     try {
-      await team.tasks.needs(down.id, (down.task?.needs ?? []).filter((id) => id !== task.id))
+      // Board takes no canceled needs, so drop every canceled one: another close may have canceled one first.
+      const kept = await Promise.all(
+        (down.task?.needs ?? []).map(async (id) =>
+          id === task.id || (await team.thread(id, { limit: 1 })).message.task?.state === 'canceled' ? null : id,
+        ),
+      )
+      await team.tasks.needs(down.id, kept.filter((id) => id !== null))
     } catch (error) {
       stuck.push(`${key(down)} (${(error as Error).message})`)
     }
