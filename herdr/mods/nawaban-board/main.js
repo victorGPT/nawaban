@@ -9,7 +9,7 @@ import { View, div, svg, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Popover, HoverCard, Collapsible, Accordion, AccordionItem, AccordionHeader, AccordionTrigger,
   AccordionPanel, Progress, ProgressTrack, ProgressIndicator } from "gpui-base";
 import { spaces, focused, agents, terminals, run, exec, theme, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
-import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, leadersView, itemLabel, decisionDate,
+import { projectFor, repoName, cliFor, resolveLang, moveSelection, keyCommand, boardChanged, leadersView, itemLabel, decisionDate,
   WINDOW_WORDS, pendingView, okrView, OKR_WORDS } from "./logic.js";
 
 const POLL_MS = 5000;      // re-read the board this often when it cannot be watched
@@ -19,7 +19,8 @@ const NARROW_W = 400;      // a narrower panel drops a spec's progress segments
 const OKR_MS = 5000;       // `json okr` only reads the board and okr.toml: one slower than this is given up
 const ICON = (name) => `mods/nawaban-board/${name}.svg`;
 const CHROME = (name) => `mods/workspace-chrome/${name}.svg`; // Herdr's shipped icons
-const cli = () => `${home()}/nawaban/nawaban/cli.py`;
+// The two CLIs while both boards run (cliFor in logic.js): the board's, and the old one.
+const CLI = { board: () => ["node", `${home()}/nawaban/board/src/cli.ts`], old: () => ["python3", `${home()}/nawaban/nawaban/cli.py`] };
 
 // Where the shown space's board is read: its machine (null: this computer) and folder there. A
 // space on another machine (Herdr.app on one Mac driving another) is read on that machine through
@@ -34,11 +35,13 @@ function place() {
 // The focused space's id.
 const spaceId = () => focused()?.space ?? spaces().find((s) => s.active)?.id;
 
-// On another machine the CLI is that machine's ~/nawaban checkout, so $HOME is expanded there.
-async function nawaban(args, at, timeout) {
+// `via` is cliFor's "board" or "old". On another machine the CLI is that machine's ~/nawaban checkout
+// (the old one, as cliFor says there), so $HOME is expanded there.
+async function nawaban(args, at, timeout, via = "old") {
+  const [cmd, path] = CLI[via]();
   const r = at.on
     ? await exec("sh", ["-c", 'exec python3 "$HOME/nawaban/nawaban/cli.py" "$@"', "sh", ...args], { cwd: at.cwd, on: at.on, timeout })
-    : await exec("python3", [cli(), ...args], { cwd: at.cwd, timeout });
+    : await exec(cmd, [path, ...args], { cwd: at.cwd, timeout });
   let out = null;
   try { out = JSON.parse(r.stdout || "null"); } catch {}
   if (r.code !== 0 || !out || out.error) throw new Error(out?.error || r.stderr?.trim().split("\n").pop() || `exit ${r.code}`);
@@ -55,6 +58,7 @@ export default class NawabanBoard extends View {
     this.projectsOut = null;    // `nawaban json projects`, for the other projects' waiting count
     this.error = null;
     this.projects = new Map();  // folder -> its project (null: none), resolved once per folder
+    this.gits = new Map();      // folder -> its git common dir ("": none), asked once per folder
     this.dbs = new Map();       // folder -> the board file its CLI reads (null: unknown)
     this.watched = new Set();   // board files being watched
     this.github = new Map();    // folder -> its last GitHub board and when it was read
@@ -109,13 +113,13 @@ export default class NawabanBoard extends View {
     this.context = key;
     cx.spawn(async (cx) => {
       try {
-        const projects = await nawaban(["json", "projects"], at);
+        const git = await this.gitOf(at), via = cliFor(repoName(git), at.on);
+        const projects = await nawaban(["json", "projects"], at, undefined, via);
         if (!this.projects.has(key)) {
-          const git = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: at.cwd, on: at.on });
           // null with a CLI older than `json db`, or on another machine (its files can't be watched
           // from here): the panel then polls every POLL_MS.
-          this.dbs.set(key, at.on ? null : await nawaban(["json", "db"], at).then((out) => out.db, () => null));
-          this.projects.set(key, projectFor(git.code === 0 ? git.stdout : "", projects));
+          this.dbs.set(key, at.on ? null : await nawaban(["json", "db"], at, undefined, via).then((out) => out.db, () => null));
+          this.projects.set(key, projectFor(git, projects));
         }
         this.db = this.dbs.get(key);
         if (this.db) this.watch(this.db, cx);
@@ -127,7 +131,7 @@ export default class NawabanBoard extends View {
         let board = gh && started - gh.at < GITHUB_MS ? gh.board : null;
         if (!board) {
           if (gh) gh.at = started;
-          board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], at);
+          board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], at, undefined, via);
           if (board.tracker === "github") this.github.set(key, { board, at: started });
         }
         if (place().key !== key) return; // the space changed meanwhile: the next refresh reads it
@@ -140,6 +144,15 @@ export default class NawabanBoard extends View {
         if (this.again) { this.again = false; this.refresh(cx); }
       }
     });
+  }
+
+  // The git common dir of a place's folder, "" outside a repository: asked once per place.
+  gitOf(at) {
+    if (!this.gits.has(at.key)) {
+      this.gits.set(at.key, exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: at.cwd, on: at.on })
+        .then((r) => (r.code === 0 ? r.stdout : ""), () => ""));
+    }
+    return this.gits.get(at.key);
   }
 
   // Reads the board again when it changes, not on a clock: watches the board file's folder for as
@@ -166,7 +179,8 @@ export default class NawabanBoard extends View {
     const gen = ++this.okrGen;
     this.okrFlight.set(at.key, gen);
     cx.spawn(async (cx) => {
-      const okr = await nawaban(["json", "okr"], at, OKR_MS).catch(() => null);
+      const via = cliFor(repoName(await this.gitOf(at)), at.on);
+      const okr = await nawaban(["json", "okr"], at, OKR_MS, via).catch(() => null);
       if (this.okrFlight.get(at.key) !== gen) return; // a newer read of this place owns it
       this.okrFlight.delete(at.key);
       if (place().key !== at.key) return;

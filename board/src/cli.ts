@@ -9,6 +9,7 @@ import { guard } from './guard.ts'
 import { jsonOkr, okr } from './okr.ts'
 import { DIR, PORT, serve, urlFor } from './server.ts'
 import { run } from './tasks.ts'
+import { json } from './views.ts'
 
 const argv = process.argv.slice(2)
 if (argv[0] === 'serve') {
@@ -32,7 +33,9 @@ if (argv[0] === 'serve') {
           ? await guard(board(), DIR)
           : argv[0] === 'okr'
             ? await okr(argv.slice(1), board(), DIR)
-            : argv[0] === 'json' && argv[1] === 'okr'
-              ? await jsonOkr(argv.slice(2), board(), DIR)
+            : argv[0] === 'json'
+              ? argv[1] === 'okr'
+                ? await jsonOkr(argv.slice(2), board(), DIR)
+                : await json(argv.slice(1), board(), DIR)
               : (await run(argv)) ?? (await app.run(argv))
 }
