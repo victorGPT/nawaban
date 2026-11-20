@@ -18,6 +18,7 @@ const SECRET = 'test-secret'
 const SESSION = 'aaaa1111-0000-0000-0000-000000000000'
 const AS = 'cc-aaaa1111'
 const sh = promisify(execFile)
+const SLOW = { timeout: 60_000 } // every step starts a node or a shell
 let team: ReturnType<typeof board>
 let server: Awaited<ReturnType<typeof listen>>
 let env: Record<string, string> = {}
@@ -53,7 +54,7 @@ beforeAll(async () => {
     NAWABAN_CLI: 'board',
     ROLE: 'orchestrator',
   }
-})
+}, SLOW)
 afterAll(() => server.close())
 
 /** Runs `what` with the hooks' environment plus `more`, `input` on its stdin; answers its exit code and output. */
@@ -86,7 +87,7 @@ it('routes a project as the panel does: the old CLI unless it moved to the board
   expect((await route(repo)).out).toBe('board proj\n')
   expect((await route(join(repo, 'docs/agents'))).out).toBe('board proj\n')
   expect((await route(tmp)).out).toBe('old\n') // no repository, no project
-})
+}, SLOW)
 
 it('prints the index off the board when an orchestrator window starts, and nothing in any other window', async () => {
   await nawaban('create', 'K1', '--title', '要密钥', '--project', 'proj')
@@ -101,7 +102,7 @@ it('prints the index off the board when an orchestrator window starts, and nothi
   expect(start.out).toContain('- K1 要密钥')
   expect(start.out).toContain('规矩正文')
   expect((await hook('leader-index.sh', '', { ROLE: 'worker' })).out).toBe('')
-})
+}, SLOW)
 
 it('shows what waits on the decision-maker under each reply, new items first, then that nothing changed', async () => {
   expect(await inbox('s1')).toBeNull() // nothing waits yet
@@ -127,11 +128,11 @@ it('shows what waits on the decision-maker under each reply, new items first, th
   await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: ready-for-agent')
   await nawaban('event', await idOf('K2'), '--kind', 'resolve', '--body', '发')
   expect(await inbox('s1')).toBeNull()
-})
+}, SLOW)
 
 it('stays silent when the board is down', async () => {
   expect(await inbox('s1', { BOARD_URL: 'http://127.0.0.1:9/api/board' })).toBeNull()
-})
+}, SLOW)
 
 it('runs one impact guard per repository: the board\'s where the project moved, the old one elsewhere', async () => {
   const call = (command: string) => ({ cwd: repo, tool_input: { command } })
@@ -149,7 +150,7 @@ it('runs one impact guard per repository: the board\'s where the project moved, 
   const oldMerge = await hook('impact-guard.sh', merge, old)
   expect([oldMerge.code, oldMerge.err]).toEqual([2, expect.stringContaining('核不了 KR 影响声明')])
   expect(await log()).toContain('pr view 7')
-})
+}, SLOW)
 
 it('registers the renewal on every prompt and tool call, and both impact guards before Bash', async () => {
   const { hooks } = JSON.parse(await readFile(join(HOOKS, 'hooks.json'), 'utf8'))
@@ -157,4 +158,4 @@ it('registers the renewal on every prompt and tool call, and both impact guards 
   expect(names('UserPromptSubmit')).toContain('renew.sh')
   expect(names('PostToolUse')).toContain('renew.sh')
   expect(names('PreToolUse')).toEqual(expect.arrayContaining(['impact-guard.sh', 'board-impact-guard.sh']))
-})
+}, SLOW)
