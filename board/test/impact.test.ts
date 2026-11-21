@@ -45,7 +45,7 @@ beforeAll(async () => {
   git('worktree', 'add', '-q', worktree)
   await mkdir(dir)
   await writeFile(join(dir, 'repos.json'), JSON.stringify({ nawaban: repo }))
-  // gh answers `pr view` with $GH_PR, the pull request a test merges.
+
   bin = join(root, 'bin')
   await mkdir(bin)
   await writeFile(join(bin, 'gh'), '#!/bin/sh\nprintf "%s" "$GH_PR"\n')
@@ -69,7 +69,7 @@ async function nawaban(...argv: string[]) {
   try {
     const app = createApp({ appName: 'nawaban', onError: (f) => void (failure = f) })
     const code = argv[0] === 'event' ? await event(argv.slice(1), (args) => app.run(args), board()) : await app.run(argv)
-    // What the board's middleware said when it dropped the write.
+
     const dropped = failure?.data?.error?.code === 'dropped' ? failure.data.error.message : undefined
     return { code, err, failure, dropped }
   } finally {
@@ -159,7 +159,6 @@ it('refuses to close as done a task with no impact, where the project keeps an o
   expect((await close('PLAIN-C-01')).code).toBe(0)
 })
 
-/** Runs the PreToolUse hook on a Bash call, as Claude Code does; async, since the board it reads is this process. */
 function hook(command: string, cwd = worktree, pr = {}): Promise<{ code: number | null; err: string }> {
   return new Promise((done) => {
     const child = execFile('sh', [HOOK], {
@@ -194,7 +193,6 @@ it('refuses a merge whose task declares no impact, from a worktree of the reposi
   expect((await hook('gh pr merge 7', worktree, { ...pr, body: 'no key' })).code).toBe(2)
   expect((await hook('echo "gh pr merge 7"', worktree, pr)).code).toBe(0)
 
-  // Done, it still has its declaration.
   await (await team.tasks.claim(id)).complete('done')
   expect((await hook('gh pr merge 7 --squash', worktree, pr)).code).toBe(0)
 })

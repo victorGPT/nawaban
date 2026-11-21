@@ -8,20 +8,14 @@ import { parse } from 'smol-toml'
 import { OKR_FILE, projectOf } from './impact.ts'
 import { Refused } from './tasks.ts'
 
-/**
- * OKR progress, ported from the old nawaban/cli.py (okr_run, okr_record, okr_data): each KR's measure
- * runs here, its reading lands on the board in okr/<project>, one thread per KR, and json okr judges
- * what the board holds against the okr.toml as it is now. A reading's round, an accept's time, and a
- * declaration's time are all when their message landed (when()), so they read off one clock.
- */
 type Team = ReturnType<typeof board>
 export type Kr = { name: string; target: string; unit?: string; measure?: string; wait?: string; max_age_days?: number }
 export type Objective = { name: string; kr?: Kr[] }
-/** A kept reading: its value as measured, verbatim, and when it was kept (its round). */
+
 export type Row = { kr: string; value: string; as_of: string; source: string; measured_at: string }
 export type Declared = { ticket: string; dir: string; before: string | null; after: string | null; basis: string | null; declared_at: string }
 
-export const MEASURE_TIMEOUT = 60_000 // a measure reads results already produced, it never runs an eval
+export const MEASURE_TIMEOUT = 60_000
 const TARGET = /^(>=|<=|>|<|==)\s*(-?\d+(?:\.\d+)?)$/
 const READING = /^(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s+(\S.*)$/
 const AS_OF = /^(\d{4}-\d\d-\d\d\S*)\s*(.*)$/s
@@ -30,12 +24,11 @@ const LINES = /\r\n|[\n\r\v\f\x1c-\x1e\x85\u{2028}\u{2029}]/u
 const REPLACED = '\u{fffd}'
 const exec = promisify(execFile)
 
-// Decimals compared exactly, as the old CLI's Decimal did: a float meets ">= 9007199254740993" with 9007199254740992.
 type Dec = { n: bigint; e: number }
 export function dec(s: string): Dec {
   const m = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([-+]?\d+))?$/.exec(s.trim())
   const e = Number(m?.[4] ?? 0) - (m?.[3] ?? '').length
-  // ponytail: an exponent past 1000 isn't a KR reading; refusing it keeps 10n ** e cheap.
+
   if (!m || Math.abs(e) > 1000) throw new Refused(`不是数值:${s}`)
   return { n: BigInt(m[1]! + m[2]! + (m[3] ?? '')), e }
 }
@@ -51,7 +44,7 @@ const meets = (op: string, v: Dec, goal: Dec) => {
   const c = cmp(v, goal)
   return op === '>=' ? c >= 0 : op === '<=' ? c <= 0 : op === '>' ? c > 0 : op === '<' ? c < 0 : c === 0
 }
-/** Whether cur is closer to the target than prev: >= and > want more, <= and < less, == the nearer. */
+
 function closer(op: string, goal: Dec, prev: Dec, cur: Dec) {
   const dist = (v: Dec): Dec => {
     if (op === '>=' || op === '>') return { n: -v.n, e: v.e }
@@ -66,7 +59,6 @@ const target = (kr: Kr) => TARGET.exec(kr.target.trim())!.slice(1) as [string, s
 
 const plain = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x) && !(x instanceof Date)
 
-/** The Objectives of root's okr.toml, checked; a malformed file is refused whole, never a KR skipped. */
 export async function defs(root: string): Promise<Objective[]> {
   let bytes
   try {
@@ -101,7 +93,6 @@ export async function defs(root: string): Promise<Objective[]> {
   return objectives as Objective[]
 }
 
-/** [value, as-of] from the measure's last stdout line, "<number> <as-of>", or why it couldn't be read. */
 export async function measure(root: string, cmd: string, timeout = MEASURE_TIMEOUT): Promise<[string, string] | string> {
   const text = (b: Buffer) => new TextDecoder().decode(b)
   let stdout: string
@@ -112,7 +103,7 @@ export async function measure(root: string, cmd: string, timeout = MEASURE_TIMEO
     if (e.killed) return `超时（${timeout / 1000}s）`
     if (typeof e.code !== 'number' && !e.signal) throw error
     const err = text(e.stderr ?? Buffer.alloc(0)).trim().split(LINES)
-    // The first error header (ValueError: …, Error [ERR_X]: …) beats a runtime footer like "Node.js v26".
+
     return `退出码 ${e.code ?? e.signal}：` + (err.find((l) => ERR_HEAD.test(l)) ?? err.at(-1)!).trim().slice(0, 120)
   }
   if (stdout.includes(REPLACED)) return '输出不是 UTF-8'
@@ -129,7 +120,6 @@ export async function measure(root: string, cmd: string, timeout = MEASURE_TIMEO
 
 const ymd = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
 
-/** Why a reading is too old to count (its measurement window, by the local date), or '' when it's fresh. */
 function stale(asOf: string, maxDays: number) {
   const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(asOf)
   const day = m && new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
@@ -142,10 +132,8 @@ function stale(asOf: string, maxDays: number) {
 
 const git = (cwd: string, ...args: string[]) => exec('git', args, { cwd }).then((r) => r.stdout.trim(), () => '')
 
-/** A reading worth keeping: one whose as-of starts with a date. */
 export type Reading = { objective: string; kr: string; value: string; as_of: string; source: string }
 
-/** Each Objective with its KRs measured now; only a measured value meeting its target counts as met. */
 export async function run(root: string, timeout = MEASURE_TIMEOUT) {
   const objectives = await defs(root)
   const head = (await git(root, 'log', '-1', '--format=%h %cs', '--', OKR_FILE)) || '未提交'
@@ -162,9 +150,9 @@ export async function run(root: string, timeout = MEASURE_TIMEOUT) {
       const want = `${op} ${goal}${unit}`
       const got = kr.measure ? await measure(root, kr.measure, timeout) : null
       const d = Array.isArray(got) ? AS_OF.exec(got[1]) : null
-      // ponytail: a dateless as-of isn't kept: keyed on (as-of, source), it would pin its first value forever.
+
       if (Array.isArray(got) && d) readings.push({ objective: o.name, kr: kr.name, value: got[0], as_of: d[1]!, source: d[2]! })
-      // ponytail: toFixed rounds half up where the old Decimal format rounded half even; display only.
+
       const shown = (v: string) => `${Number(v).toFixed(1)}${unit}`
       let why
       if (got === null) rows.push(`  · ${kr.name}  未测 / ${want}`)
@@ -182,15 +170,9 @@ export async function run(root: string, timeout = MEASURE_TIMEOUT) {
   return { text: out.join('\n'), readings, full, commit: head === '未提交' ? undefined : head.split(' ')[0] }
 }
 
-/**
- * (the declarations since the KR's last round, the tickets that round found off their word). A round is
- * one measured_at; its reading the one with the latest as-of. Only a declaration's first round judges it,
- * against the round before the declaration: ↑ must come closer to the target, = not move away; ↓ said
- * it would move away, so no round can catch it overclaiming.
- */
 function impacts(op: string, goal: Dec, readings: Row[], declared: Declared[]) {
   const rounds = new Map<string, Row>()
-  for (const r of readings) rounds.set(r.measured_at, r) // readings come by as-of: the last one per round wins
+  for (const r of readings) rounds.set(r.measured_at, r)
   const times = [...rounds.keys()].sort()
   const last = times.at(-1) ?? ''
   const pending = declared
@@ -208,13 +190,9 @@ function impacts(op: string, goal: Dec, readings: Row[], declared: Declared[]) {
 
 type Attention = { kind: 'five' | 'stuck' | 'wait' | 'accept'; objective: string; kr: string | null; text: string }
 const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
-/** A board time as json okr shows it, without when()'s tie-break. */
+
 const shown = (at: string) => at.split('~')[0]!
 
-/**
- * json okr's document: the kept readings judged against the okr.toml as it is now; it never runs a
- * measure. accepts maps an Objective to its latest accept; declared is keyed by objective and KR.
- */
 export function judge(objectives: Objective[], rows: Row[], accepts: Map<string, string>, declared: Map<string, Declared[]>, repo: string, defCommit: string | null) {
   rows = [...rows].sort((a, b) => order(a.as_of, b.as_of) || order(a.measured_at, b.measured_at))
   const byKr = new Map<string, Row[]>()
@@ -244,7 +222,7 @@ export function judge(objectives: Objective[], rows: Row[], accepts: Map<string,
         missed++
       }
       const last = rs.at(-1)
-      // Only the latest reading goes stale; history is judged by value.
+
       const status = !last ? 'untested' : kr.max_age_days !== undefined && stale(last.as_of, kr.max_age_days) ? 'stale' : missed ? 'missed' : 'met'
       const trends = rs.slice(1).map((r, i) => closer(op, goal, dec(rs[i]!.value), dec(r.value)))
       const accepted = accepts.get(name)
@@ -267,7 +245,7 @@ export function judge(objectives: Objective[], rows: Row[], accepts: Map<string,
         mismatch,
       })
       const seen = rs.slice(-3).map((r) => r.value).join('、')
-      // A stale KR still counts: five missed rounds then silence is what to flag.
+
       if (missed >= 5) out.attention.push({ kind: 'five', objective: name, kr: kr.name, text: `连续 ${missed} 轮未达标（${op} ${goalText}），最近三次 ${seen}` })
       else if (status === 'missed' && trends.length >= 2 && !trends.slice(-2).includes('closer')) {
         out.attention.push({ kind: 'stuck', objective: name, kr: kr.name, text: `两轮没往目标走（${op} ${goalText}），最近三次 ${seen}` })
@@ -284,7 +262,6 @@ export function judge(objectives: Objective[], rows: Row[], accepts: Map<string,
   return out
 }
 
-/** okr's lines for the declarations: each Objective's ↑ ↓ = since the last round, each KR off its word. */
 export function impactText(data: ReturnType<typeof judge>) {
   const out = []
   for (const o of data.objectives) {
@@ -296,22 +273,16 @@ export function impactText(data: ReturnType<typeof judge>) {
 }
 
 export const okrChannel = (project: string) => `okr/${project}`
-/**
- * When a message landed, in an order every reading, accept, and declaration shares: its createdAt, with
- * its ID after a ~ to break a tie within the millisecond. A local board's ID is its log index (SPEC.md,
- * Message), so it rises with every write.
- */
+
 const when = (m: MessageView) => `${m.createdAt}~${m.id.padStart(20, '0')}`
 const key = (...parts: string[]) => 'okr-' + createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 32)
 const blocksOf = (m: MessageView, schema: string) =>
   m.deleted ? [] : m.blocks.filter((b) => b.schema === schema && b.version === 1 && b.data).map((b) => b.data as Record<string, unknown>)
 
-/** Every whole thread in a channel that has a message matching text, root first. */
 async function threads(team: Team, channel: string, text?: string) {
   const out: MessageView[][] = []
   for (let page = await team.threads({ channel, text, limit: 500 }); ; page = await team.threads({ channel, text, limit: 500, before: page.older! })) {
     for (const t of page.threads) {
-      // ponytail: thread() answers the whole thread; a KR with thousands of rounds would want its pages.
       const { message, replies } = await team.thread(t.message.id)
       out.push([message, ...replies])
     }
@@ -319,7 +290,6 @@ async function threads(team: Team, channel: string, text?: string) {
   }
 }
 
-/** What the board holds for a project: its kept readings, each Objective's latest accept, and the declarations. */
 export async function load(team: Team, project: string) {
   const rows: Row[] = []
   const accepts = new Map<string, string>()
@@ -348,7 +318,6 @@ export async function load(team: Team, project: string) {
   return { rows, accepts, declared }
 }
 
-/** Keeps each new reading once, keyed as the old table was on (KR, as-of, source); answers how many were new. */
 export async function record(team: Team, project: string, readings: Reading[], commit?: string) {
   let n = 0
   for (const r of readings) {
@@ -368,13 +337,11 @@ export async function record(team: Team, project: string, readings: Reading[], c
   return n
 }
 
-/** The main checkout of the repository cwd is in (a worktree maps to it), or null outside one. */
 export async function checkout(cwd: string) {
   const common = await git(cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir')
   return common ? realpath(join(common, '..')) : null
 }
 
-/** nawaban okr [--accept <O>]: measures every KR in this repository, keeps the readings, prints where each stands. */
 export async function okr(argv: string[], team: Team, dir: string, { cwd = process.cwd(), timeout = MEASURE_TIMEOUT } = {}): Promise<number> {
   try {
     const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { accept: { type: 'string' } } })
@@ -392,13 +359,13 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
       }
       throw new Refused(`仓库 ${repo} 不在 ${join(dir, 'repos.json')},记不了 accept`)
     }
-    // The readings are kept even when the accept below is refused.
+
     const n = await record(team, project, readings, commit)
     if (values.accept !== undefined) {
       if (!full.get(values.accept)) {
         throw new Refused(`${full.has(values.accept) ? `${values.accept} 还没全 ✓,不收 accept` : `没有这个 O:${values.accept}`}(读数新记 ${n} 条)`)
       }
-      // After this run's readings, so none of them counts as a miss since.
+
       await team.post(okrChannel(project), block('nawaban-okr-accept@1', { objective: values.accept }))
     }
     process.stdout.write(`读数新记 ${n} 条${values.accept !== undefined ? ` · ✓ accept ${values.accept}` : ''}\n`)
@@ -414,7 +381,6 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
   }
 }
 
-/** nawaban json okr [--repo <path>]: the board's readings for the repository, judged; never measures. Errors are JSON too. */
 export async function jsonOkr(argv: string[], team: Team, dir: string, cwd = process.cwd()): Promise<number> {
   let out
   try {

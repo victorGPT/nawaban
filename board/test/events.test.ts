@@ -24,7 +24,6 @@ beforeAll(async () => {
 })
 afterAll(() => server.close())
 
-/** Runs `nawaban <argv>` as the CLI does, `event` included; answers its exit code and the failure the board's CLI reported. */
 async function nawaban(...argv: string[]) {
   return nawabanWith({}, ...argv)
 }
@@ -48,7 +47,6 @@ async function nawabanWith(env: Record<string, string>, ...argv: string[]) {
   }
 }
 
-/** The task as the board has it, with every reply's blocks. */
 async function task(id: string) {
   const thread = await team.thread(id)
   return { ...thread.message.task!, replies: thread.replies.map((r) => r.blocks.map((b) => `${b.schema}@${b.version}`).join() || r.text) }
@@ -160,7 +158,7 @@ it("won't let a stale resolve lift the next decision", async () => {
   const quiet = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
   const quieter = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
   const run = (args: string[]) => app.run(args)
-  // Another window resolves the same card and asks again while this resolve is under way.
+
   const racing = async (args: string[]) => {
     const code = await run(args)
     if (args[0] === 'reply') {
@@ -188,7 +186,7 @@ it('answers a decision once when two windows resolve it at once', async () => {
   const quiet = [vi.spyOn(process.stdout, 'write').mockImplementation(() => true), vi.spyOn(process.stderr, 'write').mockImplementation(() => true)]
   const run = (args: string[]) => app.run(args)
   let raced = false
-  // The other window answers between this one's read and its reply.
+
   const racing = async (args: string[]) => {
     if (args[0] === 'reply' && !raced) {
       raced = true
@@ -232,7 +230,6 @@ it('hands the claim back while waiting on the user, and lets any profile take it
   expect(wait.code).toBe(0)
   expect(await task(id)).toMatchObject({ state: 'blocked', claim: null, blocked: { kind: 'needs_input', reason: 'which region?' } })
 
-  // The window that held it is gone: the person lifts the hold, with no claim and no profile.
   expect((await nawaban('event', id, '--kind', 'note', '--body', 'triage: ready-for-agent')).code).toBe(0)
   expect(await task(id)).toMatchObject({ state: 'ready', blocked: null })
   expect((await nawaban('tasks', 'claim', id, '--as', 'cc-bbbb2222')).code).toBe(0)

@@ -10,7 +10,6 @@ import { local } from '@vercel/board/backend-local'
 import { listen, verifier } from '../src/server.ts'
 import { registerSchemas } from '../src/schemas.ts'
 
-// The plugin's hooks, run as Claude Code runs them (sh, the hook's JSON on stdin), against a board in memory.
 const ROOT = new URL('../..', import.meta.url).pathname
 const HOOKS = join(ROOT, 'hooks')
 const CLI = join(ROOT, 'board/src/cli.ts')
@@ -18,7 +17,7 @@ const SECRET = 'test-secret'
 const SESSION = 'aaaa1111-0000-0000-0000-000000000000'
 const AS = 'cc-aaaa1111'
 const sh = promisify(execFile)
-const SLOW = { timeout: 60_000 } // every step starts a node or a shell
+const SLOW = { timeout: 60_000 }
 let team: ReturnType<typeof board>
 let server: Awaited<ReturnType<typeof listen>>
 let env: Record<string, string> = {}
@@ -31,7 +30,7 @@ beforeAll(async () => {
   team = board({ backend: local({ memory: true }), authenticate: verifier(SECRET, 'victor'), url })
   await registerSchemas(team)
   tmp = await mkdtemp(join(tmpdir(), 'nawaban-hooks-'))
-  // A fake hc: the terminal's role label is $ROLE. A fake gh: records its calls, reaches no GitHub.
+
   await mkdir(join(tmp, 'bin'))
   await writeFile(join(tmp, 'bin/hc'), '#!/bin/sh\necho "{\\"labels\\":{\\"role\\":\\"$ROLE\\"}}"\n')
   await writeFile(join(tmp, 'bin/gh'), `#!/bin/sh\necho "$@" >> ${tmp}/gh.log\necho gh down >&2\nexit 1\n`)
@@ -41,7 +40,7 @@ beforeAll(async () => {
   await writeFile(join(repo, 'docs/agents/orchestrator.md'), '规矩正文\n')
   await writeFile(join(repo, 'docs/agents/okr.toml'), '')
   await sh('git', ['init', '-q', '-b', 'main', repo])
-  // The board knows proj's checkout, so its merge gate reads proj's okr.toml.
+
   await mkdir(join(tmp, 'board'))
   await writeFile(join(tmp, 'board/repos.json'), JSON.stringify({ proj: repo }))
   env = {
@@ -60,7 +59,6 @@ beforeAll(async () => {
 })
 afterAll(() => server.close())
 
-/** Runs `what` with the hooks' environment plus `more`, `input` on its stdin; answers its exit code and output. */
 async function spawn(what: string[], input = '', more: Record<string, string> = {}) {
   return new Promise<{ code: number; out: string; err: string }>((resolve) => {
     const child = execFile(what[0]!, what.slice(1), { cwd: repo, env: { ...env, ...more } }, (error, out, err) =>
@@ -85,11 +83,11 @@ const idOf = async (key: string) => (await team.tasks.list({ state: 'all', label
 
 it('routes a project as the panel does: the old CLI unless it moved to the board', SLOW, async () => {
   const route = (dir: string, more: Record<string, string> = {}) => spawn(['node', join(HOOKS, 'route.mjs'), dir], '', more)
-  // proj isn't in BOARD_PROJECTS: it stays on the old CLI.
+
   expect((await route(repo, { NAWABAN_CLI: '' })).out).toBe('old\n')
   expect((await route(repo)).out).toBe('board proj\n')
   expect((await route(join(repo, 'docs/agents'))).out).toBe('board proj\n')
-  expect((await route(tmp)).out).toBe('old\n') // no repository, no project
+  expect((await route(tmp)).out).toBe('old\n')
 })
 
 it('prints the index off the board when an orchestrator window starts, and nothing in any other window', SLOW, async () => {
@@ -108,11 +106,11 @@ it('prints the index off the board when an orchestrator window starts, and nothi
 })
 
 it('shows what waits on the decision-maker under each reply, new items first, then that nothing changed', SLOW, async () => {
-  expect(await inbox('s1')).toBe('待你决定 0 件') // nothing waits yet: said once
+  expect(await inbox('s1')).toBe('待你决定 0 件')
   expect(await inbox('s1')).toBeNull()
   await nawaban('claim', 'K1')
   await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: needs-info — 等你：给密钥', '--as', AS)
-  // Another project's 等你 is not this repository's.
+
   await nawaban('create', 'O1', '--title', '别的项目', '--project', 'other')
   await nawaban('claim', 'O1')
   await nawaban('event', await idOf('O1'), '--kind', 'note', '--body', 'triage: needs-info — 等你：别处', '--as', AS)
@@ -122,13 +120,11 @@ it('shows what waits on the decision-maker under each reply, new items first, th
   expect(await inbox('s1')).toBe('待你决定 1 件（无变化）')
   expect(await inbox('s1', { ROLE: 'worker' })).toBeNull()
 
-  // A decision card waits too; only the new one is listed, to a session that saw the old.
   const card = ['--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '发']
   await nawaban('event', await idOf('K2'), ...card, '--as', AS)
   expect(await inbox('s1')).toBe('待你决定 2 件：K2 在干的｜说「同步」看卡')
   expect(await inbox('s2')).toMatch(/^待你决定 2 件：K\d .* · K\d /)
 
-  // Answered, nothing waits: said once, then no line.
   await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: ready-for-agent')
   await nawaban('event', await idOf('K2'), '--kind', 'resolve', '--body', '发')
   expect(await inbox('s1')).toBe('待你决定 0 件')
@@ -148,8 +144,8 @@ it('runs one impact guard per repository: the board\'s where the project moved, 
   const boardClose = await hook('board-impact-guard.sh', close)
   expect([boardClose.code, boardClose.err]).toEqual([2, expect.stringContaining('nawaban close')])
   expect((await hook('impact-guard.sh', merge)).code).toBe(0)
-  expect(await log()).toBe('') // the old guard never asked GitHub
-  // A tab between gh pr and merge reaches the hook's JSON as \\t: the board's guard still sees a merge.
+  expect(await log()).toBe('')
+
   const tabbed = await hook('board-impact-guard.sh', call('gh pr\tmerge 7'))
   expect([tabbed.code, tabbed.err]).toEqual([2, expect.stringContaining('核不了 KR 影响声明')])
 

@@ -15,7 +15,6 @@ let dir = ''
 let old = ''
 let repos = ''
 
-/** An old nawaban.db, its tables as cli.py made them, with what import has to carry and what it has to leave. */
 function oldBoard(path: string) {
   const db = new DatabaseSync(path)
   db.exec(`
@@ -75,7 +74,6 @@ beforeAll(async () => {
   await writeFile(repos, '- proj: a project. `~/src/proj` · remote\n- other: `~/src/other`\n')
 })
 
-/** Runs nawaban import of proj; answers its exit code and output. */
 async function importProj(...more: string[]) {
   let out = ''
   let err = ''
@@ -92,7 +90,7 @@ async function importProj(...more: string[]) {
 }
 const task = async (key: string) => (await team.tasks.list({ state: 'all', label: { key } })).tasks[0]!.message
 const replies = async (key: string) => (await team.thread((await task(key)).id)).replies
-/** Every message of every task in proj and of its OKR channel, as the board keeps them. */
+
 async function everything() {
   const out = []
   for (const channel of ['proj', okrChannel('proj')]) {
@@ -115,18 +113,18 @@ it('carries the open tasks of a project, their blockers, holders, latest word, a
   const [a, b, c, w, spec] = await Promise.all(['P-A', 'P-B', 'P-C', 'P-W', 'P-SPEC'].map(task))
   expect(b!.task?.needs).toEqual([a!.id])
   expect(b!.labels.parent).toBe('P-SPEC')
-  // A blocker already done or cancelled holds nothing.
+
   expect(c!.task?.needs).toEqual([])
   expect(c!.task?.state).toBe('ready')
-  // Held: no claim comes along, only who held it.
+
   expect(a!.task?.state).toBe('ready')
   expect(a!.labels['held-by']).toBe('sess-held')
   expect(w!.task?.blocked).toMatchObject({ kind: 'needs_input', reason: 'which port?' })
-  // Behind an open blocker, it waits on the user all the same.
+
   const wb = await task('P-WB')
   expect(wb.task?.needs).toEqual([a!.id])
   expect(wb.task?.blocked).toMatchObject({ kind: 'needs_input', reason: 'which host?' })
-  // A needs-info since answered (ready-for-agent after it) waits on no one.
+
   expect(b!.task?.blocked).toBeFalsy()
   expect(spec!.text.length).toBeLessThanOrEqual(10_000)
   expect(spec!.attachments).toHaveLength(1)
@@ -140,7 +138,7 @@ it('carries the open tasks of a project, their blockers, holders, latest word, a
     rejected: ['that way - slower'],
     by: 'user',
   })
-  // A decision with no Question/Verdict lines keeps its words, as a plain reply.
+
   expect((await replies('P-B')).some((m) => m.text.endsWith('a decision in prose, no lines'))).toBe(true)
   expect(JSON.parse(await readFile(join(dir, 'repos.json'), 'utf8'))).toEqual({ proj: '~/src/proj' })
 })
@@ -151,7 +149,7 @@ it('carries the OKR tables of the project, in the order they were made, and noth
   expect([...accepts.keys()]).toEqual(['O1'])
   expect(declared.get('O1\0K1')?.map((d) => [d.ticket, d.dir, d.before, d.after, d.basis])).toEqual([['P-A', '↑', '1', '2', '实测']])
   expect(declared.get('O1\0K2')?.map((d) => d.dir)).toEqual(['='])
-  // The round of a reading is when it landed: the accept came after both, the declaration between them.
+
   expect(rows[0]!.measured_at < declared.get('O1\0K1')![0]!.declared_at).toBe(true)
   expect(declared.get('O1\0K1')![0]!.declared_at < rows[1]!.measured_at).toBe(true)
   expect(rows[1]!.measured_at < accepts.get('O1')!).toBe(true)

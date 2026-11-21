@@ -11,7 +11,6 @@ import { profile, Refused, resolve } from './tasks.ts'
 const exec = promisify(execFile)
 const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
 
-/** A command's stdout, or null when it fails. */
 async function out(cmd: string, args: string[]): Promise<string | null> {
   try {
     return (await exec(cmd, args, { timeout: 10_000 })).stdout
@@ -20,10 +19,9 @@ async function out(cmd: string, args: string[]): Promise<string | null> {
   }
 }
 
-/** The main checkout of the git repository `dir` is in: a worktree maps to it. */
 async function repoRoot(dir: string): Promise<string | null> {
   const common = await out('git', ['-C', dir, 'rev-parse', '--git-common-dir'])
-  // Real paths, so /var and /private/var (macOS) name one repository.
+
   return common === null ? null : dirname(await realpath(absolute(dir, common.trim())))
 }
 
@@ -36,7 +34,6 @@ async function role(terminal: string): Promise<string | undefined> {
   }
 }
 
-/** This terminal if the owner labelled it role=orchestrator, else a live one in `root`'s repository so labelled. */
 async function orchestrator(root: string): Promise<string | null> {
   const me = process.env.HC_TERMINAL_ID
   if (me && (await role(me)) === 'orchestrator') return me
@@ -52,11 +49,6 @@ async function orchestrator(root: string): Promise<string | null> {
   return null
 }
 
-/**
- * `nawaban dispatch <key> --brief … --accept …`: a worker in its own worktree off origin/main, run with
- * `hc run`, briefed to report to the repository's orchestrator; the task gets a `nawaban-dispatch@1`
- * reply written as this window's profile, which is how the panel finds the task's orchestrator.
- */
 export async function dispatch(argv: string[]): Promise<number> {
   try {
     const { values: a, positionals } = parseArgs({
@@ -68,7 +60,7 @@ export async function dispatch(argv: string[]): Promise<number> {
     if (positionals.length > 1 || !(ref || a.name) || !a.brief || !a.accept) {
       throw new Refused('usage: nawaban dispatch [<key>] --brief "<goal, scope>" --accept "<what counts as done>" [--name <worker>] [--model opus]; no key (a nightly retro, say) takes --name and records nothing', 2)
     }
-    const as = profile() // refuse before anything starts
+    const as = profile()
     const task = ref ? await resolve(ref) : null
     if (task && ['completed', 'canceled', 'failed'].includes(task.task?.state ?? '')) throw new Refused(`${ref} is ${task.task?.state}, not open`)
     const root = await repoRoot(process.cwd())
@@ -99,7 +91,7 @@ export async function dispatch(argv: string[]): Promise<number> {
       `  hc send ${orch} "回报：${who} 受阻 | 卡在什么 | 要谁做什么"`,
       '只发这两种：中途进展、阶段结果记在票上的「进展」里，不发给编排者（每条消息都会叫醒它，留在它的上下文里）。',
     ].join('\n')
-    // The worker reaches the board this one does. ponytail: a token given only as BOARD_TOKEN isn't passed on (it'd show in ps); it reads the token file.
+
     const env = ['NAWABAN_BOARD_DIR', 'NAWABAN_BOARD_PORT', 'BOARD_URL'].flatMap((k) => (process.env[k] ? [`${k}=${process.env[k]}`] : []))
     let address: string
     try {

@@ -26,7 +26,6 @@ beforeAll(async () => {
 afterAll(() => server.close())
 afterEach(() => vi.useRealTimers())
 
-/** Runs a nawaban verb as the window of `session`, with --json; answers its exit code, document, and stderr. */
 async function nawaban(argv: string[], session = A_SESSION, env: Record<string, string> = {}) {
   vi.stubEnv('BOARD_URL', url)
   vi.stubEnv('BOARD_TOKEN', SECRET)

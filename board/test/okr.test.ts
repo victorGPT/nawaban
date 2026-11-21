@@ -9,7 +9,6 @@ import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from '../src/schemas.ts'
 import { judge, jsonOkr, okr, record, run, type Declared, type Kr, type Objective, type Row } from '../src/okr.ts'
 
-// Ported from tests/test_okr.py. The migration tests of the old SQLite board aren't: the board keeps no schema of ours.
 const OKR = `
 [[objective]]
 name = "听得懂需求"
@@ -77,7 +76,7 @@ const text = async (root: string, timeout?: number) => (await run(root, timeout)
 
 type Project = { root: string; dir: string; name: string }
 let projects = 0
-/** A repository on the board: a project of its own, in its own board directory's repos.json. */
+
 async function project(text: string = OKR): Promise<Project> {
   const root = await repo(text)
   const dir = await mkdtemp(join(tmpdir(), 'nawaban-okr-board-'))
@@ -104,14 +103,12 @@ async function jokr(p: Project, ...argv: string[]) {
   const { code, out } = await capture(() => jsonOkr(argv, team, p.dir, p.root))
   return { code, data: JSON.parse(out) }
 }
-/** Declares, on a task of the project keyed ticket, that it moves kr of O in dir. */
+
 async function declare(p: Project, ticket: string, kr: string, dir: string) {
   const { task } = await team.tasks.create(p.name, { text: ticket, labels: { key: ticket } })
   const numbers = dir === '=' ? {} : { before: '1', after: '2', basis: '预计' }
   await team.reply(task.id, block('nawaban-impact@1', { objective: 'O', krs: [{ name: kr, dir, ...numbers }] }))
 }
-
-// ── okr: measures each KR, never narrates ──
 
 it('counts a KR as met only when its measured value meets the target', async () => {
   const out = await text(await repo())
@@ -237,7 +234,7 @@ it('never counts a reading with bad bytes or a compact date', async () => {
 })
 
 it('refuses the file for a NUL in a measure', async () => {
-  const nul = '\\' + 'u0000' // TOML's escape for NUL
+  const nul = '\\' + 'u0000'
   await expect(run(await repo(`[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nmeasure = "echo ${nul}"\n`))).rejects.toThrow(/measure/)
 })
 
@@ -245,9 +242,6 @@ it('reads a reading in scientific notation', async () => {
   expect(await text(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = "> 0"\nmeasure = "echo 1e-05 today"\n'))).toContain('1/1 达标')
 })
 
-// ── readings kept on the board ──
-
-/** The readings the board keeps for the project: [kr, value, as_of, source]. */
 async function kept(p: Project) {
   const out: string[][] = []
   for (const { message } of (await team.threads({ channel: `okr/${p.name}` })).threads) {
@@ -327,10 +321,8 @@ it('answers json okr in a repository with no okr.toml with a JSON error', async 
   expect(data.error).toContain('okr.toml')
 })
 
-// ── json okr's judgement, on rows with their rounds given ──
-
 const objectives = (krs: [string, string, Partial<Kr>?][]): Objective[] => [{ name: 'O', kr: krs.map(([name, target, more]) => ({ name, target, ...more })) }]
-/** KR names to readings [value, as_of], oldest first; each reading its own round, a second apart from at. */
+
 const seed = (readings: Record<string, [number, string][]>, at = '2026-11-19T00:00:00'): Row[] =>
   Object.entries(readings).flatMap(([kr, rs]) => rs.map(([v, as_of], i) => ({ kr, value: String(v), as_of, source: '', measured_at: `${at.slice(0, -2)}${String(i).padStart(2, '0')}` })))
 const reading = (kr: string, value: number, at: string, as_of = at.slice(0, 10)): Row => ({ kr, value: String(value), as_of, source: '', measured_at: at })
@@ -449,16 +441,14 @@ it('flags accept again for a miss right after an accept', async () => {
   expect(kinds((await jokr(p)).data)).toEqual([['accept', null]])
 })
 
-// ── declarations against readings ──
-
 it('counts the declarations since each KR’s last round', () => {
   const data = judged(objectives([['K', '>= 95'], ['J', '<= 5']]), [reading('K', 80, '2026-11-10T00:00:00')], {}, [
-    decl('#1', 'K', '↑', '2026-11-09T00:00:00'), // before the last round: no longer counted
+    decl('#1', 'K', '↑', '2026-11-09T00:00:00'),
     decl('#2', 'K', '↑', '2026-11-11T00:00:00'),
     decl('#3', 'K', '=', '2026-11-11T00:00:01'),
-    decl('#4', 'J', '↓', '2026-11-11T00:00:02'), // J has no reading yet: every declaration counts
+    decl('#4', 'J', '↓', '2026-11-11T00:00:02'),
     decl('#5', 'J', '↑', '2026-11-01T00:00:00'),
-    decl('#6', '', '=', '2026-11-11T00:00:03'), // O only, no KR: not in the counts
+    decl('#6', '', '=', '2026-11-11T00:00:03'),
   ])
   expect(data.objectives[0]!.impacts).toEqual({ '↑': 2, '↓': 1, '=': 1 })
   expect(krOf(data, 'K').impacts.map((i) => i.ticket)).toEqual(['#2', '#3'])
@@ -484,7 +474,7 @@ it.each([
 ] as const)('judges a declaration by the first round after it: %s %d→%d declared %s, mismatch %s', (target, before, after, dir, mismatch) => {
   const data = judged(objectives([['K', target]]), [reading('K', before, '2026-11-10T00:00:00'), reading('K', after, '2026-11-12T00:00:00')], {}, [decl('#7', 'K', dir, '2026-11-11T00:00:00')])
   expect(krOf(data, 'K').mismatch).toEqual(mismatch ? [{ ticket: '#7', dir }] : [])
-  expect(krOf(data, 'K').impacts).toEqual([]) // a round has come since: no longer pending
+  expect(krOf(data, 'K').impacts).toEqual([])
 })
 
 it('judges a declaration only by its first round, and never one with no round before it', () => {
@@ -505,7 +495,7 @@ it('gives no verdict without a new round', async () => {
   await define(p.root, [['K', '>= 95', 'measure = "echo 80 2026-11-10"']])
   await nawabanOkr(p)
   await declare(p, '#7', 'K', '↑')
-  await nawabanOkr(p) // the same as-of again: no reading kept, no new round
+  await nawabanOkr(p)
   const k = (await jokr(p)).data.objectives[0].krs[0]
   expect(k.mismatch).toEqual([])
   expect(k.impacts.map((i: { ticket: string }) => i.ticket)).toEqual(['#7'])

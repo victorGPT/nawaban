@@ -22,7 +22,6 @@ if (argv[0] === 'serve') {
     try {
       process.env.BOARD_TOKEN = readFileSync(join(DIR, 'token'), 'utf8').trim()
     } catch {
-      // ponytail: no token yet means no server yet; the board's own 401 says so.
     }
   }
   const app = createApp({ appName: 'nawaban' })

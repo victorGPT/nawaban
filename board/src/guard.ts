@@ -2,11 +2,6 @@ import { text } from 'node:stream/consumers'
 import type { board } from '@vercel/board'
 import { closeGate, mergeGate } from './impact.ts'
 
-/**
- * `nawaban guard`: the PreToolUse hook's check of one Bash call, its JSON on stdin. Exit 2 with the
- * reason on stderr refuses it: an agent closing a task with the board's CLI, or a merge whose tasks
- * declare no impact.
- */
 export async function guard(team: ReturnType<typeof board>, dir: string): Promise<number> {
   const call = JSON.parse(await text(process.stdin)) as { cwd?: string; tool_input?: { command?: string } }
   const cmd = call.tool_input?.command ?? ''

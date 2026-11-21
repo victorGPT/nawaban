@@ -21,7 +21,6 @@ beforeAll(async () => {
 })
 afterAll(() => server.close())
 
-/** Runs the embedded CLI as `nawaban` against the server, with --json; answers its exit code, output, and failure. */
 async function nawaban(argv: string[], token = SECRET) {
   vi.stubEnv('BOARD_URL', url)
   vi.stubEnv('BOARD_TOKEN', token)
