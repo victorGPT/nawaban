@@ -20,7 +20,7 @@ let url = ''
 let tmp = ''
 let repo = ''
 
-const HC = `#!/bin/sh
+const HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_STARTING_T99 = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HC_LOG"
 case "$1" in
   get) if [ -n "$HC_ORCH" ] && [ "$2" = "$HC_ORCH" ]; then echo '{"labels":{"role":"orchestrator"}}'; else echo '{"labels":{}}'; fi ;;
@@ -37,7 +37,7 @@ beforeAll(async () => {
   team = board({ backend: local({ memory: true }), authenticate: verifier(SECRET, 'victor'), url })
   await registerSchemas(team)
   tmp = await realpath(await mkdtemp(join(tmpdir(), 'nawaban-dispatch-')))
-  await writeFile(join(tmp, 'hc'), HC)
+  await writeFile(join(tmp, 'hc'), HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_STARTING_T99)
   await chmod(join(tmp, 'hc'), 0o755)
   await exec('git', ['init', '-q', '--bare', '-b', 'main', join(tmp, 'origin.git')])
   repo = join(tmp, 'repo')
@@ -47,7 +47,7 @@ beforeAll(async () => {
 })
 afterAll(() => server.close())
 
-async function dispatch(argv: string[], hc: Record<string, string>) {
+async function dispatchInTheRepositoryAsWindowAaaa1111(argv: string[], hc: Record<string, string>) {
   const log = join(tmp, `hc-${Math.random()}.log`)
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -63,9 +63,7 @@ async function dispatch(argv: string[], hc: Record<string, string>) {
     HC_RUN_FAIL: '',
     ...hc,
   }
-
-  delete env.NAWABAN_BOARD_DIR
-  delete env.NAWABAN_BOARD_PORT
+  for (const thisMachinesBoardSetting of ['NAWABAN_BOARD_DIR', 'NAWABAN_BOARD_PORT']) delete env[thisMachinesBoardSetting]
   const r = await exec('node', [CLI, 'dispatch', ...argv], { cwd: repo, env }).then(
     (ok) => ({ code: 0, ...ok }),
     (error) => ({ code: error.code as number, stdout: error.stdout as string, stderr: error.stderr as string }),
@@ -78,7 +76,7 @@ const replies = async (id: string) => (await team.thread(id)).replies
 
 it('refuses to dispatch with no live orchestrator, and starts nothing', async () => {
   const id = await newTask('D-NONE')
-  const r = await dispatch(['D-NONE', '--brief', 'b', '--accept', 'a'], {})
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-NONE', '--brief', 'b', '--accept', 'a'], {})
   expect(r.code).toBe(1)
   expect(r.stderr).toContain('no live orchestrator')
   expect(r.hc).not.toMatch(/^run/m)
@@ -88,7 +86,7 @@ it('refuses to dispatch with no live orchestrator, and starts nothing', async ()
 
 it('starts the worker in its own worktree, briefed to report to the orchestrator, and records it as this window', async () => {
   const id = await newTask('D-GO')
-  const r = await dispatch(['D-GO', '--brief', 'do it', '--accept', 'it is done'], { HC_ORCH: 'to1' })
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-GO', '--brief', 'do it', '--accept', 'it is done'], { HC_ORCH: 'to1' })
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
   const run = r.hc.slice(r.hc.indexOf('run --bg'))
@@ -102,7 +100,7 @@ it('starts the worker in its own worktree, briefed to report to the orchestrator
 
 it('removes the worktree and records nothing when hc run fails', async () => {
   const id = await newTask('D-FAIL')
-  const r = await dispatch(['D-FAIL', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1', HC_RUN_FAIL: '1' })
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-FAIL', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1', HC_RUN_FAIL: '1' })
   expect(r.code).toBe(1)
   expect(r.stderr).toContain('hc run failed, worktree removed')
   expect(existsSync(join(tmp, 'repo-d-fail'))).toBe(false)
@@ -111,7 +109,7 @@ it('removes the worktree and records nothing when hc run fails', async () => {
 })
 
 it('dispatches with no task, under --name, and records nothing', async () => {
-  const r = await dispatch(['--name', 'retro', '--brief', 'nightly retro', '--accept', 'a retro'], { HC_ORCH: 'to1' })
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'retro', '--brief', 'nightly retro', '--accept', 'a retro'], { HC_ORCH: 'to1' })
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
   expect(r.hc).toContain('/pstack:poteto-mode 任务：retro\n')

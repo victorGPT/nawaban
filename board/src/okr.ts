@@ -11,68 +11,73 @@ import { Refused } from './tasks.ts'
 type Team = ReturnType<typeof board>
 export type Kr = { name: string; target: string; unit?: string; measure?: string; wait?: string; max_age_days?: number }
 export type Objective = { name: string; kr?: Kr[] }
-
-export type Row = { kr: string; value: string; as_of: string; source: string; measured_at: string }
+export type KeptReading = { kr: string; value: string; as_of: string; source: string; measured_at: Round }
 export type Declared = { ticket: string; dir: string; before: string | null; after: string | null; basis: string | null; declared_at: string }
+export type Reading = { objective: string; kr: string; value: string; as_of: string; source: string }
+type Round = string
+type Movement = 'closer' | 'away' | 'flat'
 
-export const MEASURE_TIMEOUT = 60_000
+export const MEASURE_READS_RESULTS_NEVER_RUNS_AN_EVAL_TIMEOUT = 60_000
+const MEASURE_STDOUT_MAX = 64 << 20
+const FAILURE_LINE_MAX = 120
+const UNREADABLE_LAST_LINE_SHOWN = 60
+const UNDATED_AS_OF_SHOWN = 30
+const EXPONENT_CAP_KEEPING_POW10_CHEAP = 1000
+const MISSED_ROUNDS_TO_FLAG = 5
+const ROUNDS_WITHOUT_PROGRESS_TO_FLAG = 2
+const READINGS_SHOWN = 3
+const DAY_MS = 86_400_000
+const THREADS_PAGE = 500
+const ID_HASH_LENGTH = 32
+const BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT = 20
+const NOT_COMMITTED = '未提交'
+
 const TARGET = /^(>=|<=|>|<|==)\s*(-?\d+(?:\.\d+)?)$/
 const READING = /^(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s+(\S.*)$/
-const AS_OF = /^(\d{4}-\d\d-\d\d\S*)\s*(.*)$/s
-const ERR_HEAD = /^\s*[\w.]*(?:Error|Exception)(?:\s*\[[^\]]*\])?:/
+const DATED_AS_OF = /^(\d{4}-\d\d-\d\d\S*)\s*(.*)$/s
+const ERROR_HEADER_NOT_RUNTIME_FOOTER = /^\s*[\w.]*(?:Error|Exception)(?:\s*\[[^\]]*\])?:/
 const LINES = /\r\n|[\n\r\v\f\x1c-\x1e\x85\u{2028}\u{2029}]/u
 const REPLACED = '\u{fffd}'
 const exec = promisify(execFile)
 
-type Dec = { n: bigint; e: number }
-export function dec(s: string): Dec {
+type ExactDecimalAsTheOldClisDecimal = { n: bigint; e: number }
+export function dec(s: string): ExactDecimalAsTheOldClisDecimal {
   const m = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([-+]?\d+))?$/.exec(s.trim())
   const e = Number(m?.[4] ?? 0) - (m?.[3] ?? '').length
-
-  if (!m || Math.abs(e) > 1000) throw new Refused(`不是数值:${s}`)
+  if (!m || Math.abs(e) > EXPONENT_CAP_KEEPING_POW10_CHEAP) throw new Refused(`不是数值:${s}`)
   return { n: BigInt(m[1]! + m[2]! + (m[3] ?? '')), e }
 }
-const align = (a: Dec, b: Dec): [bigint, bigint, number] => {
+const align = (a: ExactDecimalAsTheOldClisDecimal, b: ExactDecimalAsTheOldClisDecimal): [bigint, bigint, number] => {
   const e = Math.min(a.e, b.e)
   return [a.n * 10n ** BigInt(a.e - e), b.n * 10n ** BigInt(b.e - e), e]
 }
-const cmp = (a: Dec, b: Dec) => {
+const cmp = (a: ExactDecimalAsTheOldClisDecimal, b: ExactDecimalAsTheOldClisDecimal) => {
   const [x, y] = align(a, b)
   return x < y ? -1 : x > y ? 1 : 0
 }
-const meets = (op: string, v: Dec, goal: Dec) => {
+const meets = (op: string, v: ExactDecimalAsTheOldClisDecimal, goal: ExactDecimalAsTheOldClisDecimal) => {
   const c = cmp(v, goal)
   return op === '>=' ? c >= 0 : op === '<=' ? c <= 0 : op === '>' ? c > 0 : op === '<' ? c < 0 : c === 0
 }
 
-function closer(op: string, goal: Dec, prev: Dec, cur: Dec) {
-  const dist = (v: Dec): Dec => {
-    if (op === '>=' || op === '>') return { n: -v.n, e: v.e }
-    if (op === '<=' || op === '<') return v
-    const [x, y, e] = align(v, goal)
-    return { n: x > y ? x - y : y - x, e }
-  }
-  const c = cmp(dist(cur), dist(prev))
+function distanceToTarget(op: string, goal: ExactDecimalAsTheOldClisDecimal, v: ExactDecimalAsTheOldClisDecimal): ExactDecimalAsTheOldClisDecimal {
+  const wantsMore = op === '>=' || op === '>'
+  const wantsLess = op === '<=' || op === '<'
+  if (wantsMore) return { n: -v.n, e: v.e }
+  if (wantsLess) return v
+  const [x, y, e] = align(v, goal)
+  return { n: x > y ? x - y : y - x, e }
+}
+
+function movementTowardTarget(op: string, goal: ExactDecimalAsTheOldClisDecimal, prev: ExactDecimalAsTheOldClisDecimal, cur: ExactDecimalAsTheOldClisDecimal): Movement {
+  const c = cmp(distanceToTarget(op, goal, cur), distanceToTarget(op, goal, prev))
   return c < 0 ? 'closer' : c > 0 ? 'away' : 'flat'
 }
 const target = (kr: Kr) => TARGET.exec(kr.target.trim())!.slice(1) as [string, string]
 
 const plain = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x) && !(x instanceof Date)
 
-export async function defs(root: string): Promise<Objective[]> {
-  let bytes
-  try {
-    bytes = await readFile(join(root, OKR_FILE))
-  } catch {
-    throw new Refused(`没有 ${OKR_FILE}:KR 定义写在仓库里,O 由决策者定、KR 由决策者点头`)
-  }
-  let doc
-  try {
-    doc = parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes), { integersAsBigInt: true })
-  } catch (error) {
-    throw new Refused(`${OKR_FILE} 不是合法的 UTF-8 TOML:${(error as Error).message.split('\n')[0]}`)
-  }
-  const objectives = doc.objective ?? []
+function refuseWholeFileNeverSkipAKr(objectives: unknown): asserts objectives is Objective[] {
   if (!Array.isArray(objectives) || !objectives.every((o) => plain(o) && Array.isArray(o.kr ?? []) && ((o.kr ?? []) as unknown[]).every(plain))) {
     throw new Refused(`${OKR_FILE} 要写成 [[objective]] 下挂 [[objective.kr]]`)
   }
@@ -90,26 +95,47 @@ export async function defs(root: string): Promise<Objective[]> {
       if (typeof kr.target !== 'string' || !TARGET.test(kr.target.trim())) throw new Refused(`${OKR_FILE}:${o.name} / ${kr.name} 的 target 要写成「>= 95」这样`)
     }
   }
-  return objectives as Objective[]
 }
 
-export async function measure(root: string, cmd: string, timeout = MEASURE_TIMEOUT): Promise<[string, string] | string> {
-  const text = (b: Buffer) => new TextDecoder().decode(b)
+export async function defs(root: string): Promise<Objective[]> {
+  let bytes
+  try {
+    bytes = await readFile(join(root, OKR_FILE))
+  } catch {
+    throw new Refused(`没有 ${OKR_FILE}:KR 定义写在仓库里,O 由决策者定、KR 由决策者点头`)
+  }
+  let doc
+  try {
+    doc = parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes), { integersAsBigInt: true })
+  } catch (error) {
+    throw new Refused(`${OKR_FILE} 不是合法的 UTF-8 TOML:${(error as Error).message.split('\n')[0]}`)
+  }
+  const objectives = doc.objective ?? []
+  refuseWholeFileNeverSkipAKr(objectives)
+  return objectives
+}
+
+const utf8 = (b: Buffer) => new TextDecoder().decode(b)
+
+function failureLine(code: unknown, stderr: Buffer | undefined) {
+  const err = utf8(stderr ?? Buffer.alloc(0)).trim().split(LINES)
+  return `退出码 ${code}：` + (err.find((l) => ERROR_HEADER_NOT_RUNTIME_FOOTER.test(l)) ?? err.at(-1)!).trim().slice(0, FAILURE_LINE_MAX)
+}
+
+export async function measure(root: string, cmd: string, timeout = MEASURE_READS_RESULTS_NEVER_RUNS_AN_EVAL_TIMEOUT): Promise<[string, string] | string> {
   let stdout: string
   try {
-    stdout = text((await exec('/bin/sh', ['-c', cmd], { cwd: root, timeout, encoding: 'buffer', maxBuffer: 64 << 20 })).stdout)
+    stdout = utf8((await exec('/bin/sh', ['-c', cmd], { cwd: root, timeout, encoding: 'buffer', maxBuffer: MEASURE_STDOUT_MAX })).stdout)
   } catch (error) {
     const e = error as { killed?: boolean; code?: unknown; signal?: string; stderr?: Buffer }
     if (e.killed) return `超时（${timeout / 1000}s）`
     if (typeof e.code !== 'number' && !e.signal) throw error
-    const err = text(e.stderr ?? Buffer.alloc(0)).trim().split(LINES)
-
-    return `退出码 ${e.code ?? e.signal}：` + (err.find((l) => ERR_HEAD.test(l)) ?? err.at(-1)!).trim().slice(0, 120)
+    return failureLine(e.code ?? e.signal, e.stderr)
   }
   if (stdout.includes(REPLACED)) return '输出不是 UTF-8'
   const last = stdout.trim().split(LINES).at(-1)!.trim()
   const m = READING.exec(last)
-  if (!m) return `最后一行不是「数值 截至」：'${last.slice(0, 60)}'`
+  if (!m) return `最后一行不是「数值 截至」：'${last.slice(0, UNREADABLE_LAST_LINE_SHOWN)}'`
   try {
     dec(m[1]!)
   } catch (error) {
@@ -120,23 +146,40 @@ export async function measure(root: string, cmd: string, timeout = MEASURE_TIMEO
 
 const ymd = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
 
-function stale(asOf: string, maxDays: number) {
+function whyTooOldByLocalDate(asOf: string, maxDays: number) {
   const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(asOf)
   const day = m && new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
   if (!m || !day || day.getFullYear() !== Number(m[1]) || day.getMonth() !== Number(m[2]) - 1 || day.getDate() !== Number(m[3])) {
-    return `测量失败：设了 max_age_days，截至要以 YYYY-MM-DD 开头：'${asOf.slice(0, 30)}'`
+    return `测量失败：设了 max_age_days，截至要以 YYYY-MM-DD 开头：'${asOf.slice(0, UNDATED_AS_OF_SHOWN)}'`
   }
-  const old = (ymd(new Date()) - ymd(day)) / 86_400_000
+  const old = (ymd(new Date()) - ymd(day)) / DAY_MS
   return old > maxDays ? `测量过期：截至 ${asOf.slice(0, 10)}，已 ${old} 天，超过 ${maxDays} 天` : ''
 }
 
 const git = (cwd: string, ...args: string[]) => exec('git', args, { cwd }).then((r) => r.stdout.trim(), () => '')
 
-export type Reading = { objective: string; kr: string; value: string; as_of: string; source: string }
+function keptOnlyWithADatedAsOfElseItsFirstValueStaysForever(o: Objective, kr: Kr, got: [string, string] | string | null): Reading | null {
+  const d = Array.isArray(got) ? DATED_AS_OF.exec(got[1]) : null
+  return Array.isArray(got) && d ? { objective: o.name, kr: kr.name, value: got[0], as_of: d[1]!, source: d[2]! } : null
+}
 
-export async function run(root: string, timeout = MEASURE_TIMEOUT) {
+const shownRoundedHalfUpForDisplayOnly = (v: string, unit: string) => `${Number(v).toFixed(1)}${unit}`
+
+function measuredRow(kr: Kr, got: [string, string] | string | null): { row: string; met: boolean } {
+  const [op, goal] = target(kr)
+  const unit = kr.unit ?? ''
+  const want = `${op} ${goal}${unit}`
+  if (got === null) return { row: `  · ${kr.name}  未测 / ${want}`, met: false }
+  if (typeof got === 'string') return { row: `  ! ${kr.name}  测量失败：${got}`, met: false }
+  const why = kr.max_age_days !== undefined ? whyTooOldByLocalDate(got[1], kr.max_age_days) : ''
+  if (why) return { row: `  ⌛ ${kr.name}  ${shownRoundedHalfUpForDisplayOnly(got[0], unit)} / ${want}  ${why}`, met: false }
+  const met = meets(op, dec(got[0]), dec(goal))
+  return { row: `  ${met ? '✓' : '✗'} ${kr.name}  ${shownRoundedHalfUpForDisplayOnly(got[0], unit)} / ${want}  截至 ${got[1]}`, met }
+}
+
+export async function run(root: string, timeout = MEASURE_READS_RESULTS_NEVER_RUNS_AN_EVAL_TIMEOUT) {
   const objectives = await defs(root)
-  const head = (await git(root, 'log', '-1', '--format=%h %cs', '--', OKR_FILE)) || '未提交'
+  const head = (await git(root, 'log', '-1', '--format=%h %cs', '--', OKR_FILE)) || NOT_COMMITTED
   const dirty = (await git(root, 'status', '--porcelain', '--', OKR_FILE)) ? '（有未提交改动）' : ''
   const out = [`OKR · 定义 ${OKR_FILE} @ ${head}${dirty}`]
   const readings: Reading[] = []
@@ -145,57 +188,79 @@ export async function run(root: string, timeout = MEASURE_TIMEOUT) {
     const rows = []
     let met = 0
     for (const kr of o.kr ?? []) {
-      const [op, goal] = target(kr)
-      const unit = kr.unit ?? ''
-      const want = `${op} ${goal}${unit}`
       const got = kr.measure ? await measure(root, kr.measure, timeout) : null
-      const d = Array.isArray(got) ? AS_OF.exec(got[1]) : null
-
-      if (Array.isArray(got) && d) readings.push({ objective: o.name, kr: kr.name, value: got[0], as_of: d[1]!, source: d[2]! })
-
-      const shown = (v: string) => `${Number(v).toFixed(1)}${unit}`
-      let why
-      if (got === null) rows.push(`  · ${kr.name}  未测 / ${want}`)
-      else if (typeof got === 'string') rows.push(`  ! ${kr.name}  测量失败：${got}`)
-      else if (kr.max_age_days !== undefined && (why = stale(got[1], kr.max_age_days))) rows.push(`  ⌛ ${kr.name}  ${shown(got[0])} / ${want}  ${why}`)
-      else {
-        const ok = meets(op, dec(got[0]), dec(goal))
-        met += Number(ok)
-        rows.push(`  ${ok ? '✓' : '✗'} ${kr.name}  ${shown(got[0])} / ${want}  截至 ${got[1]}`)
-      }
+      const kept = keptOnlyWithADatedAsOfElseItsFirstValueStaysForever(o, kr, got)
+      if (kept) readings.push(kept)
+      const r = measuredRow(kr, got)
+      met += Number(r.met)
+      rows.push(r.row)
     }
     out.push(`O ${o.name} · ${met}/${rows.length} 达标`, ...rows)
     full.set(o.name, rows.length > 0 && met === rows.length)
   }
-  return { text: out.join('\n'), readings, full, commit: head === '未提交' ? undefined : head.split(' ')[0] }
+  return { text: out.join('\n'), readings, full, commit: head === NOT_COMMITTED ? undefined : head.split(' ')[0] }
 }
 
-function impacts(op: string, goal: Dec, readings: Row[], declared: Declared[]) {
-  const rounds = new Map<string, Row>()
-  for (const r of readings) rounds.set(r.measured_at, r)
+function latestAsOfPerRound(readingsByAsOf: KeptReading[]) {
+  const rounds = new Map<Round, KeptReading>()
+  for (const r of readingsByAsOf) rounds.set(r.measured_at, r)
+  return rounds
+}
+
+const judgedOnlyByItsFirstRound = (i: Declared, prev: Round, last: Round) => prev <= i.declared_at && i.declared_at < last
+const offItsWord = (dir: string, moved: Movement) => (dir === '↑' ? moved !== 'closer' : dir === '=' && moved === 'away')
+
+function declarationsSinceLastRoundAndOffTheirWord(op: string, goal: ExactDecimalAsTheOldClisDecimal, readings: KeptReading[], declared: Declared[]) {
+  const rounds = latestAsOfPerRound(readings)
   const times = [...rounds.keys()].sort()
   const last = times.at(-1) ?? ''
   const pending = declared
     .filter((i) => i.declared_at >= last)
-    .map((i) => ({ ticket: i.ticket, dir: i.dir, before: i.before, after: i.after, basis: i.basis, at: shown(i.declared_at) }))
+    .map((i) => ({ ticket: i.ticket, dir: i.dir, before: i.before, after: i.after, basis: i.basis, at: withoutTieBreak(i.declared_at) }))
   if (times.length < 2) return { pending, mismatch: [] }
   const prev = times.at(-2)!
-  const moved = closer(op, goal, dec(rounds.get(prev)!.value), dec(rounds.get(last)!.value))
+  const moved = movementTowardTarget(op, goal, dec(rounds.get(prev)!.value), dec(rounds.get(last)!.value))
   const off = new Map<string, string>()
   for (const i of declared) {
-    if (prev <= i.declared_at && i.declared_at < last && (i.dir === '↑' ? moved !== 'closer' : i.dir === '=' && moved === 'away')) off.set(i.ticket, i.dir)
+    if (judgedOnlyByItsFirstRound(i, prev, last) && offItsWord(i.dir, moved)) off.set(i.ticket, i.dir)
   }
   return { pending, mismatch: [...off].map(([ticket, dir]) => ({ ticket, dir })) }
 }
 
 type Attention = { kind: 'five' | 'stuck' | 'wait' | 'accept'; objective: string; kr: string | null; text: string }
 const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const withoutTieBreak = (at: string) => at.split('~')[0]!
 
-const shown = (at: string) => at.split('~')[0]!
+function missedRoundsSinceLastMet(rs: KeptReading[], ok: (r: KeptReading) => boolean) {
+  let missed = 0
+  for (const r of [...rs].reverse()) {
+    if (ok(r)) break
+    missed++
+  }
+  return missed
+}
 
-export function judge(objectives: Objective[], rows: Row[], accepts: Map<string, string>, declared: Map<string, Declared[]>, repo: string, defCommit: string | null) {
+function statusOnlyTheLatestReadingGoesStale(kr: Kr, last: KeptReading | undefined, missed: number) {
+  if (!last) return 'untested'
+  if (kr.max_age_days !== undefined && whyTooOldByLocalDate(last.as_of, kr.max_age_days)) return 'stale'
+  return missed ? 'missed' : 'met'
+}
+
+function attentionEvenWhenStale(name: string, kr: Kr, op: string, goalText: string, status: string, missed: number, trends: Movement[], rs: KeptReading[]): Attention[] {
+  const out: Attention[] = []
+  const seen = rs.slice(-READINGS_SHOWN).map((r) => r.value).join('、')
+  const noRecentProgress = trends.length >= ROUNDS_WITHOUT_PROGRESS_TO_FLAG && !trends.slice(-ROUNDS_WITHOUT_PROGRESS_TO_FLAG).includes('closer')
+  if (missed >= MISSED_ROUNDS_TO_FLAG) out.push({ kind: 'five', objective: name, kr: kr.name, text: `连续 ${missed} 轮未达标（${op} ${goalText}），最近三次 ${seen}` })
+  else if (status === 'missed' && noRecentProgress) {
+    out.push({ kind: 'stuck', objective: name, kr: kr.name, text: `两轮没往目标走（${op} ${goalText}），最近三次 ${seen}` })
+  }
+  if (kr.wait && !kr.measure) out.push({ kind: 'wait', objective: name, kr: kr.name, text: kr.wait })
+  return out
+}
+
+export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map<string, string>, declared: Map<string, Declared[]>, repo: string, defCommit: string | null) {
   rows = [...rows].sort((a, b) => order(a.as_of, b.as_of) || order(a.measured_at, b.measured_at))
-  const byKr = new Map<string, Row[]>()
+  const byKr = new Map<string, KeptReading[]>()
   for (const r of rows) byKr.set(r.kr, [...(byKr.get(r.kr) ?? []), r])
   const out = {
     repo,
@@ -210,24 +275,19 @@ export function judge(objectives: Objective[], rows: Row[], accepts: Map<string,
     const name = o.name
     const krs = []
     const counts = { '↑': 0, '↓': 0, '=': 0 }
-    let lateMiss = false
+    let missedSinceAccept = false
     for (const kr of o.kr ?? []) {
       const [op, goalText] = target(kr)
       const goal = dec(goalText)
       const rs = byKr.get(kr.name) ?? []
-      const ok = (r: Row) => meets(op, dec(r.value), goal)
-      let missed = 0
-      for (const r of [...rs].reverse()) {
-        if (ok(r)) break
-        missed++
-      }
+      const ok = (r: KeptReading) => meets(op, dec(r.value), goal)
+      const missed = missedRoundsSinceLastMet(rs, ok)
       const last = rs.at(-1)
-
-      const status = !last ? 'untested' : kr.max_age_days !== undefined && stale(last.as_of, kr.max_age_days) ? 'stale' : missed ? 'missed' : 'met'
-      const trends = rs.slice(1).map((r, i) => closer(op, goal, dec(rs[i]!.value), dec(r.value)))
+      const status = statusOnlyTheLatestReadingGoesStale(kr, last, missed)
+      const trends = rs.slice(1).map((r, i) => movementTowardTarget(op, goal, dec(rs[i]!.value), dec(r.value)))
       const accepted = accepts.get(name)
-      lateMiss ||= accepted !== undefined && rs.some((r) => r.measured_at > accepted && !ok(r))
-      const { pending, mismatch } = impacts(op, goal, rs, declared.get(`${name}\0${kr.name}`) ?? [])
+      missedSinceAccept ||= accepted !== undefined && rs.some((r) => r.measured_at > accepted && !ok(r))
+      const { pending, mismatch } = declarationsSinceLastRoundAndOffTheirWord(op, goal, rs, declared.get(`${name}\0${kr.name}`) ?? [])
       for (const i of pending) counts[i.dir as keyof typeof counts]++
       krs.push({
         name: kr.name,
@@ -237,23 +297,17 @@ export function judge(objectives: Objective[], rows: Row[], accepts: Map<string,
         value: last ? Number(last.value) : null,
         as_of: last?.as_of ?? null,
         source: last?.source ?? null,
-        history: rs.slice(-3).map((r) => ({ value: Number(r.value), as_of: r.as_of })),
+        history: rs.slice(-READINGS_SHOWN).map((r) => ({ value: Number(r.value), as_of: r.as_of })),
         trend: trends.at(-1) ?? null,
         missed_rounds: missed,
         wait: kr.wait ?? null,
         impacts: pending,
         mismatch,
       })
-      const seen = rs.slice(-3).map((r) => r.value).join('、')
-
-      if (missed >= 5) out.attention.push({ kind: 'five', objective: name, kr: kr.name, text: `连续 ${missed} 轮未达标（${op} ${goalText}），最近三次 ${seen}` })
-      else if (status === 'missed' && trends.length >= 2 && !trends.slice(-2).includes('closer')) {
-        out.attention.push({ kind: 'stuck', objective: name, kr: kr.name, text: `两轮没往目标走（${op} ${goalText}），最近三次 ${seen}` })
-      }
-      if (kr.wait && !kr.measure) out.attention.push({ kind: 'wait', objective: name, kr: kr.name, text: kr.wait })
+      out.attention.push(...attentionEvenWhenStale(name, kr, op, goalText, status, missed, trends, rs))
     }
     const met = krs.filter((k) => k.status === 'met').length
-    const pending = krs.length > 0 && met === krs.length && (!accepts.has(name) || lateMiss)
+    const pending = krs.length > 0 && met === krs.length && (!accepts.has(name) || missedSinceAccept)
     if (pending) out.attention.push({ kind: 'accept', objective: name, kr: null, text: `${name} 全 ✓，待你验收（nawaban okr --accept）` })
     out.objectives.push({ name, met, total: krs.length, accept_pending: pending, impacts: counts, krs })
     out.met += met
@@ -274,14 +328,14 @@ export function impactText(data: ReturnType<typeof judge>) {
 
 export const okrChannel = (project: string) => `okr/${project}`
 
-const when = (m: MessageView) => `${m.createdAt}~${m.id.padStart(20, '0')}`
-const key = (...parts: string[]) => 'okr-' + createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 32)
+const onTheOneClock = (m: MessageView): Round => `${m.createdAt}~${m.id.padStart(BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT, '0')}`
+const key = (...parts: string[]) => 'okr-' + createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, ID_HASH_LENGTH)
 const blocksOf = (m: MessageView, schema: string) =>
   m.deleted ? [] : m.blocks.filter((b) => b.schema === schema && b.version === 1 && b.data).map((b) => b.data as Record<string, unknown>)
 
-async function threads(team: Team, channel: string, text?: string) {
+async function wholeThreadsRootFirst(team: Team, channel: string, text?: string) {
   const out: MessageView[][] = []
-  for (let page = await team.threads({ channel, text, limit: 500 }); ; page = await team.threads({ channel, text, limit: 500, before: page.older! })) {
+  for (let page = await team.threads({ channel, text, limit: THREADS_PAGE }); ; page = await team.threads({ channel, text, limit: THREADS_PAGE, before: page.older! })) {
     for (const t of page.threads) {
       const { message, replies } = await team.thread(t.message.id)
       out.push([message, ...replies])
@@ -291,38 +345,38 @@ async function threads(team: Team, channel: string, text?: string) {
 }
 
 export async function load(team: Team, project: string) {
-  const rows: Row[] = []
-  const accepts = new Map<string, string>()
-  for (const thread of await threads(team, okrChannel(project))) {
+  const rows: KeptReading[] = []
+  const latestAccept = new Map<string, string>()
+  for (const thread of await wholeThreadsRootFirst(team, okrChannel(project))) {
     for (const m of thread) {
-      for (const d of blocksOf(m, 'nawaban-kr-reading')) rows.push({ kr: d.kr, value: d.value, as_of: d.as_of, source: d.source, measured_at: when(m) } as Row)
+      for (const d of blocksOf(m, 'nawaban-kr-reading')) rows.push({ kr: d.kr, value: d.value, as_of: d.as_of, source: d.source, measured_at: onTheOneClock(m) } as KeptReading)
       for (const d of blocksOf(m, 'nawaban-okr-accept')) {
         const o = d.objective as string
-        if (when(m) > (accepts.get(o) ?? '')) accepts.set(o, when(m))
+        if (onTheOneClock(m) > (latestAccept.get(o) ?? '')) latestAccept.set(o, onTheOneClock(m))
       }
     }
   }
   const declared = new Map<string, Declared[]>()
-  for (const [root, ...replies] of await threads(team, project, 'nawaban-impact')) {
+  for (const [root, ...replies] of await wholeThreadsRootFirst(team, project, 'nawaban-impact')) {
     for (const m of [root!, ...replies]) {
       for (const d of blocksOf(m, 'nawaban-impact')) {
         for (const kr of d.krs as { name: string; dir: string; before?: string; after?: string; basis?: string }[]) {
           const k = `${d.objective}\0${kr.name}`
           const ticket = root!.labels.key ?? `#${root!.id}`
-          declared.set(k, [...(declared.get(k) ?? []), { ticket, dir: kr.dir, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, declared_at: when(m) }])
+          declared.set(k, [...(declared.get(k) ?? []), { ticket, dir: kr.dir, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, declared_at: onTheOneClock(m) }])
         }
       }
     }
   }
   for (const list of declared.values()) list.sort((a, b) => order(a.declared_at, b.declared_at))
-  return { rows, accepts, declared }
+  return { rows, accepts: latestAccept, declared }
 }
 
-export async function record(team: Team, project: string, readings: Reading[], commit?: string) {
+export async function keepEachNewReadingOnce(team: Team, project: string, readings: Reading[], commit?: string) {
   let n = 0
   for (const r of readings) {
-    const id = key(project, r.kr, r.as_of, r.source)
-    const kept = await team.posted(id).then(
+    const keyedAsTheOldTableOnKrAsOfSource = key(project, r.kr, r.as_of, r.source)
+    const kept = await team.posted(keyedAsTheOldTableOnKrAsOfSource).then(
       () => true,
       (error) => {
         if (error instanceof BoardError && error.code === 'post_not_found') return false
@@ -330,19 +384,33 @@ export async function record(team: Team, project: string, readings: Reading[], c
       },
     )
     if (kept) continue
-    const root = await team.post(okrChannel(project), { id: key(project, r.kr), text: r.kr })
-    await team.reply(root.id, { id, text: block('nawaban-kr-reading@1', { ...r, ...(commit ? { commit } : {}) }) })
+    const oneThreadPerKr = await team.post(okrChannel(project), { id: key(project, r.kr), text: r.kr })
+    await team.reply(oneThreadPerKr.id, { id: keyedAsTheOldTableOnKrAsOfSource, text: block('nawaban-kr-reading@1', { ...r, ...(commit ? { commit } : {}) }) })
     n++
   }
   return n
 }
 
-export async function checkout(cwd: string) {
+export async function mainCheckout(cwd: string) {
   const common = await git(cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir')
   return common ? realpath(join(common, '..')) : null
 }
 
-export async function okr(argv: string[], team: Team, dir: string, { cwd = process.cwd(), timeout = MEASURE_TIMEOUT } = {}): Promise<number> {
+async function acceptAfterThisRunsReadingsSoNoneCountsAsAMissSince(team: Team, project: string, objective: string, full: Map<string, boolean>, kept: number) {
+  if (!full.get(objective)) {
+    throw new Refused(`${full.has(objective) ? `${objective} 还没全 ✓,不收 accept` : `没有这个 O:${objective}`}(读数新记 ${kept} 条)`)
+  }
+  await team.post(okrChannel(project), block('nawaban-okr-accept@1', { objective }))
+}
+
+const exitCodeOfRefusalOrBoardError = (error: unknown) => {
+  const misuse = (error as { code?: unknown }).code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION'
+  if (!(error instanceof Refused || error instanceof BoardError || misuse)) throw error
+  process.stderr.write(`error: ${(error as Error).message}\n`)
+  return error instanceof Refused ? error.code : misuse ? 2 : 1
+}
+
+export async function okr(argv: string[], team: Team, dir: string, { cwd = process.cwd(), timeout = MEASURE_READS_RESULTS_NEVER_RUNS_AN_EVAL_TIMEOUT } = {}): Promise<number> {
   try {
     const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { accept: { type: 'string' } } })
     if (positionals.length) throw new Refused('usage: nawaban okr [--accept <O>]', 2)
@@ -350,7 +418,7 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
     if (!top) throw new Refused('okr 要在 git 仓库里跑')
     const { text, readings, full, commit } = await run(top, timeout)
     process.stdout.write(text + '\n')
-    const repo = (await checkout(top))!
+    const repo = (await mainCheckout(top))!
     const project = await projectOf(dir, repo)
     if (!project) {
       if (values.accept === undefined) {
@@ -359,25 +427,15 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
       }
       throw new Refused(`仓库 ${repo} 不在 ${join(dir, 'repos.json')},记不了 accept`)
     }
-
-    const n = await record(team, project, readings, commit)
-    if (values.accept !== undefined) {
-      if (!full.get(values.accept)) {
-        throw new Refused(`${full.has(values.accept) ? `${values.accept} 还没全 ✓,不收 accept` : `没有这个 O:${values.accept}`}(读数新记 ${n} 条)`)
-      }
-
-      await team.post(okrChannel(project), block('nawaban-okr-accept@1', { objective: values.accept }))
-    }
-    process.stdout.write(`读数新记 ${n} 条${values.accept !== undefined ? ` · ✓ accept ${values.accept}` : ''}\n`)
+    const keptEvenIfTheAcceptIsRefused = await keepEachNewReadingOnce(team, project, readings, commit)
+    if (values.accept !== undefined) await acceptAfterThisRunsReadingsSoNoneCountsAsAMissSince(team, project, values.accept, full, keptEvenIfTheAcceptIsRefused)
+    process.stdout.write(`读数新记 ${keptEvenIfTheAcceptIsRefused} 条${values.accept !== undefined ? ` · ✓ accept ${values.accept}` : ''}\n`)
     const { rows, accepts, declared } = await load(team, project)
     const lines = impactText(judge(await defs(repo), rows, accepts, declared, repo, null))
     if (lines) process.stdout.write(lines + '\n')
     return 0
   } catch (error) {
-    const misuse = (error as { code?: unknown }).code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION'
-    if (!(error instanceof Refused || error instanceof BoardError || misuse)) throw error
-    process.stderr.write(`error: ${(error as Error).message}\n`)
-    return error instanceof Refused ? error.code : misuse ? 2 : 1
+    return exitCodeOfRefusalOrBoardError(error)
   }
 }
 
@@ -386,7 +444,7 @@ export async function jsonOkr(argv: string[], team: Team, dir: string, cwd = pro
   try {
     const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { repo: { type: 'string' } } })
     if (positionals.length) throw new Refused('usage: nawaban json okr [--repo <path>]', 2)
-    const repo = await checkout(values.repo ?? cwd)
+    const repo = await mainCheckout(values.repo ?? cwd)
     if (!repo) throw new Refused('json okr 要在 git 仓库里跑,或给 --repo')
     const objectives = await defs(repo)
     const project = await projectOf(dir, repo)

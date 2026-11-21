@@ -15,7 +15,7 @@ let dir = ''
 let old = ''
 let repos = ''
 
-function oldBoard(path: string) {
+function oldNawabanDbWithWhatImportCarriesAndWhatItLeaves(path: string) {
   const db = new DatabaseSync(path)
   db.exec(`
     CREATE TABLE tasks (id TEXT PRIMARY KEY, project TEXT, parent TEXT, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '',
@@ -70,7 +70,7 @@ beforeAll(async () => {
   dir = join(tmp, 'board')
   old = join(tmp, 'nawaban.db')
   repos = join(tmp, 'repos.md')
-  oldBoard(old)
+  oldNawabanDbWithWhatImportCarriesAndWhatItLeaves(old)
   await writeFile(repos, '- proj: a project. `~/src/proj` · remote\n- other: `~/src/other`\n')
 })
 
@@ -91,7 +91,7 @@ async function importProj(...more: string[]) {
 const task = async (key: string) => (await team.tasks.list({ state: 'all', label: { key } })).tasks[0]!.message
 const replies = async (key: string) => (await team.thread((await task(key)).id)).replies
 
-async function everything() {
+async function everyMessageOfProjAndItsOkrChannel() {
   const out = []
   for (const channel of ['proj', okrChannel('proj')]) {
     for (const t of (await team.threads({ channel, limit: 500 })).threads) out.push(await team.thread(t.message.id))
@@ -107,28 +107,22 @@ it('carries the open tasks of a project, their blockers, holders, latest word, a
   expect(r.code).toBe(0)
   expect(r.out).toContain('✓ the board agrees with the old one')
   expect(await sha(old)).toBe(before)
-
   const keys = (await team.tasks.list({ channel: 'proj', state: 'all' })).tasks.map((t) => t.message.labels.key).sort()
   expect(keys).toEqual(['P-A', 'P-B', 'P-C', 'P-SPEC', 'P-W', 'P-WB'])
-  const [a, b, c, w, spec] = await Promise.all(['P-A', 'P-B', 'P-C', 'P-W', 'P-SPEC'].map(task))
-  expect(b!.task?.needs).toEqual([a!.id])
-  expect(b!.labels.parent).toBe('P-SPEC')
-
-  expect(c!.task?.needs).toEqual([])
-  expect(c!.task?.state).toBe('ready')
-
-  expect(a!.task?.state).toBe('ready')
-  expect(a!.labels['held-by']).toBe('sess-held')
-  expect(w!.task?.blocked).toMatchObject({ kind: 'needs_input', reason: 'which port?' })
-
-  const wb = await task('P-WB')
-  expect(wb.task?.needs).toEqual([a!.id])
-  expect(wb.task?.blocked).toMatchObject({ kind: 'needs_input', reason: 'which host?' })
-
-  expect(b!.task?.blocked).toBeFalsy()
+  const [heldNoClaimCameAlong, needsInfoAnsweredSince, blockerDoneHoldsNothing, asksTheUser, spec] = await Promise.all(['P-A', 'P-B', 'P-C', 'P-W', 'P-SPEC'].map(task))
+  expect(needsInfoAnsweredSince!.task?.needs).toEqual([heldNoClaimCameAlong!.id])
+  expect(needsInfoAnsweredSince!.labels.parent).toBe('P-SPEC')
+  expect(blockerDoneHoldsNothing!.task?.needs).toEqual([])
+  expect(blockerDoneHoldsNothing!.task?.state).toBe('ready')
+  expect(heldNoClaimCameAlong!.task?.state).toBe('ready')
+  expect(heldNoClaimCameAlong!.labels['held-by']).toBe('sess-held')
+  expect(asksTheUser!.task?.blocked).toMatchObject({ kind: 'needs_input', reason: 'which port?' })
+  const asksTheUserWhileBehindAnOpenBlocker = await task('P-WB')
+  expect(asksTheUserWhileBehindAnOpenBlocker.task?.needs).toEqual([heldNoClaimCameAlong!.id])
+  expect(asksTheUserWhileBehindAnOpenBlocker.task?.blocked).toMatchObject({ kind: 'needs_input', reason: 'which host?' })
+  expect(needsInfoAnsweredSince!.task?.blocked).toBeFalsy()
   expect(spec!.text.length).toBeLessThanOrEqual(10_000)
   expect(spec!.attachments).toHaveLength(1)
-
   const ra = await replies('P-A')
   expect(ra.map((m) => m.text.split('\n\n').at(-1))).not.toContain('old progress')
   expect(ra.some((m) => m.text.endsWith('newest progress'))).toBe(true)
@@ -138,8 +132,8 @@ it('carries the open tasks of a project, their blockers, holders, latest word, a
     rejected: ['that way - slower'],
     by: 'user',
   })
-
-  expect((await replies('P-B')).some((m) => m.text.endsWith('a decision in prose, no lines'))).toBe(true)
+  const decisionInProseKeepsItsWordsAsAPlainReply = (await replies('P-B')).some((m) => m.text.endsWith('a decision in prose, no lines'))
+  expect(decisionInProseKeepsItsWordsAsAPlainReply).toBe(true)
   expect(JSON.parse(await readFile(join(dir, 'repos.json'), 'utf8'))).toEqual({ proj: '~/src/proj' })
 })
 
@@ -149,20 +143,20 @@ it('carries the OKR tables of the project, in the order they were made, and noth
   expect([...accepts.keys()]).toEqual(['O1'])
   expect(declared.get('O1\0K1')?.map((d) => [d.ticket, d.dir, d.before, d.after, d.basis])).toEqual([['P-A', '↑', '1', '2', '实测']])
   expect(declared.get('O1\0K2')?.map((d) => d.dir)).toEqual(['='])
-
-  expect(rows[0]!.measured_at < declared.get('O1\0K1')![0]!.declared_at).toBe(true)
-  expect(declared.get('O1\0K1')![0]!.declared_at < rows[1]!.measured_at).toBe(true)
-  expect(rows[1]!.measured_at < accepts.get('O1')!).toBe(true)
+  const [firstRoundLanded, declarationLandedBetween, secondRoundLanded, acceptLandedAfterBoth] = [rows[0]!.measured_at, declared.get('O1\0K1')![0]!.declared_at, rows[1]!.measured_at, accepts.get('O1')!]
+  expect(firstRoundLanded < declarationLandedBetween).toBe(true)
+  expect(declarationLandedBetween < secondRoundLanded).toBe(true)
+  expect(secondRoundLanded < acceptLandedAfterBoth).toBe(true)
   const r = await importProj()
   expect(r.out).toContain('declarations of tasks not imported, not kept: P-DONE(1)')
 })
 
 it('adds nothing the second time', async () => {
-  const before = await everything()
+  const before = await everyMessageOfProjAndItsOkrChannel()
   const r = await importProj()
   expect(r.code).toBe(0)
   expect(r.out).not.toMatch(/new [1-9]/)
-  expect(await everything()).toBe(before)
+  expect(await everyMessageOfProjAndItsOkrChannel()).toBe(before)
 })
 
 it('refuses a project whose tasks wait for an open task of one not imported', async () => {

@@ -7,19 +7,19 @@ import { Refused } from './tasks.ts'
 type Team = ReturnType<typeof board>
 type Task = NonNullable<MessageView['task']>
 
-const DONE_LIMIT = 12
-const DONE_RECENT = 24 * 3600
-const DECISIONS_RECENT = 48 * 3600
-const PENDING_NOTES = 3
-
-const ASKS = new Set(['needs_input', 'awaiting_approval'])
+const HOUR = 3600
+const DONE_ALWAYS_SHOWN_LATEST = 12
+const DONE_ALSO_SHOWN_WITHIN = 24 * HOUR
+const DECISIONS_SHOWN_WITHIN_OPEN_OR_CLOSED = 48 * HOUR
+const NOTES_CARRIED_BY_A_PENDING_DECISION = 3
+const PAGE = 50
+const HOLDS_THE_DECISION_MAKER_ANSWERS = new Set(['needs_input', 'awaiting_approval'])
 
 const secs = (iso: string) => Math.floor(Date.parse(iso) / 1000)
 const key = (m: MessageView) => m.labels.key ?? `#${m.id}`
 const title = (m: MessageView) => m.text.split('\n')[0]!
 const body = (m: MessageView) => m.text.split('\n').slice(2).join('\n').trim()
-
-const who = (actor: string) => (actor.includes('+') ? actor.slice(actor.lastIndexOf('+') + 1) : actor.slice(actor.lastIndexOf(':') + 1))
+const windowProfileElseName = (actor: string) => (actor.includes('+') ? actor.slice(actor.lastIndexOf('+') + 1) : actor.slice(actor.lastIndexOf(':') + 1))
 const live = (t: Task | undefined) => (t?.claim && Date.parse(t.claim.until) > Date.now() ? t.claim : null)
 const closed = (t: Task | undefined) => t?.state === 'completed' || t?.state === 'canceled' || t?.state === 'failed'
 const data = (m: MessageView, name: string) =>
@@ -28,9 +28,9 @@ const data = (m: MessageView, name: string) =>
 export async function tasksOf(team: Team, channel?: string, state: 'all' | 'blocked' = 'all') {
   const out: MessageView[] = []
   for (let after: string | undefined; ; ) {
-    const page = await team.tasks.list({ channel, state, after, limit: 50 })
+    const page = await team.tasks.list({ channel, state, after, limit: PAGE })
     out.push(...page.tasks.map((t) => t.message))
-    if (page.tasks.length < 50) return out
+    if (page.tasks.length < PAGE) return out
     after = page.cursor
   }
 }
@@ -38,15 +38,15 @@ export async function tasksOf(team: Team, channel?: string, state: 'all' | 'bloc
 type Reply = { message: MessageView; at: number; by: string }
 type History = { replies: Reply[]; claims: { at: number; by: string }[]; done: number | null; active: number }
 
-async function histories(team: Team, tasks: MessageView[], channel?: string) {
+async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: MessageView[], channel?: string) {
   const out = new Map<string, History>(tasks.map((t) => [t.id, { replies: [], claims: [], done: null, active: secs(t.createdAt) }]))
   if (!tasks.length) return out
   const seen = new Set<string>()
   let after = tasks.reduce((a, t) => (Number(t.id) < Number(a) ? t.id : a), tasks[0]!.id)
   for (;;) {
     const { events, cursor } = await team.poll({ channel, after })
-
-    if (cursor === after) return out
+    const feedEndsWhereTheCursorStaysNotAtAnEmptyPage = cursor === after
+    if (feedEndsWhereTheCursorStaysNotAtAnEmptyPage) return out
     after = cursor
     for (const e of events as BoardEventView[]) {
       const p = e.payload as { id?: string; by?: { actor: string } }
@@ -58,12 +58,15 @@ async function histories(team: Team, tasks: MessageView[], channel?: string) {
       h.active = Math.max(h.active, at)
       if (e.type === 'message.posted' && m && !m.deleted && !seen.has(m.id)) {
         seen.add(m.id)
-        h.replies.push({ message: m, at, by: who(p.by?.actor ?? '') })
-      } else if (e.type === 'task.claimed') h.claims.push({ at, by: who(p.by!.actor) })
+        h.replies.push({ message: m, at, by: windowProfileElseName(p.by?.actor ?? '') })
+      } else if (e.type === 'task.claimed') h.claims.push({ at, by: windowProfileElseName(p.by!.actor) })
       else if (e.type === 'task.completed') h.done = at
     }
   }
 }
+
+const orchestratorAsTheGlossaryDefinesIt = (latestDispatch: Reply | undefined, holder: string | null, lastClaimer: string | null) =>
+  latestDispatch?.by ?? holder ?? lastClaimer
 
 const isNote = (r: Reply) => r.message.blocks.length === 0
 const progress = (r: Reply | undefined) => (r ? { body: r.message.text, at: r.at } : null)
@@ -71,10 +74,10 @@ const progress = (r: Reply | undefined) => (r ? { body: r.message.text, at: r.at
 function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
   const t = m.task!
   const claim = live(t)
-  const ask = t.blocked && ASKS.has(t.blocked.kind ?? '') ? t.blocked : null
+  const ask = t.blocked && HOLDS_THE_DECISION_MAKER_ANSWERS.has(t.blocked.kind ?? '') ? t.blocked : null
   const lastClaimer = h.claims.at(-1)?.by ?? null
-
-  const session = claim ? who(claim.actor) : ask ? lastClaimer : null
+  const holderElseTheWindowThatAskedSinceAHoldEndsTheClaim = claim ? windowProfileElseName(claim.actor) : ask ? lastClaimer : null
+  const session = holderElseTheWindowThatAskedSinceAHoldEndsTheClaim
   const done = t.state === 'completed'
   const notes = h.replies.filter(isNote)
   const latest = (name: string) => h.replies.findLast((r) => data(r.message, name))
@@ -93,8 +96,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
     active_at: h.active,
     open_blockers: open.length,
     terminal: session ? (m.labels.terminal ?? null) : null,
-
-    leader: dispatch?.by ?? session ?? lastClaimer,
+    leader: orchestratorAsTheGlossaryDefinesIt(dispatch, session, lastClaimer),
     claimed_at: h.claims[0]?.at ?? null,
   }
   if (done) return { ...out, done_at: h.done }
@@ -109,22 +111,24 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
         ? {
             brief: String(card ? data(card.message, 'nawaban-ask')!.decision : t.blocked.reason),
             at: card?.at ?? h.active,
-            progress: notes.slice(-PENDING_NOTES).map(progress),
+            progress: notes.slice(-NOTES_CARRIED_BY_A_PENDING_DECISION).map(progress),
           }
         : null,
   }
 }
 
-async function withNeeds(team: Team, tasks: MessageView[]) {
+async function withNeedsOfOtherProjectsSoABlockerReadsItsRealState(team: Team, tasks: MessageView[]) {
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const missing = [...new Set(tasks.flatMap((t) => t.task?.needs ?? []))].filter((id) => !byId.has(id))
   for (const m of await Promise.all(missing.map((id) => team.thread(id, { limit: 1 }).then((t) => t.message)))) byId.set(m.id, m)
   return byId
 }
 
+const underAnOpenSpecThePanelTicks = (parent: MessageView | undefined) => !!parent && !closed(parent.task)
+
 export async function boardData(team: Team, project?: string, now = Date.now() / 1000) {
   const tasks = (await tasksOf(team, project)).filter((m) => m.task && m.task.state !== 'canceled' && m.task.state !== 'failed')
-  const [byId, hist] = await Promise.all([withNeeds(team, tasks), histories(team, tasks, project)])
+  const [byId, hist] = await Promise.all([withNeedsOfOtherProjectsSoABlockerReadsItsRealState(team, tasks), historiesFromTheFeedSinceTheOldestTask(team, tasks, project)])
   const byKey = new Map(tasks.map((t) => [key(t), t]))
   const rows = tasks
     .map((m) => ({ m, h: hist.get(m.id)! }))
@@ -133,15 +137,15 @@ export async function boardData(team: Team, project?: string, now = Date.now() /
   for (const { m, h } of rows) {
     const r = row(m, h, byId)
     const parent = m.labels.parent ? byKey.get(m.labels.parent) : undefined
-
-    if (r.status === 'done' && columns.done!.length >= DONE_LIMIT && !(parent && !closed(parent.task)) && (h.done ?? 0) < now - DONE_RECENT) continue
+    const doneStillShown = columns.done!.length < DONE_ALWAYS_SHOWN_LATEST || underAnOpenSpecThePanelTicks(parent) || (h.done ?? 0) >= now - DONE_ALSO_SHOWN_WITHIN
+    if (r.status === 'done' && !doneStillShown) continue
     columns[r.status]!.push(r)
   }
   const decisions = rows
     .flatMap(({ m, h }) =>
       h.replies.flatMap((r) => {
         const d = data(r.message, 'nawaban-decision')
-        return d && r.at >= now - DECISIONS_RECENT ? [{ task: key(m), at: r.at, verdict: String(d.verdict), owner: d.by === 'user' }] : []
+        return d && r.at >= now - DECISIONS_SHOWN_WITHIN_OPEN_OR_CLOSED ? [{ task: key(m), at: r.at, verdict: String(d.verdict), owner: d.by === 'user' }] : []
       }),
     )
     .sort((a, b) => b.at - a.at)
@@ -155,14 +159,14 @@ export async function projectsData(team: Team) {
     p.total++
     if (!closed(m.task)) {
       p.open++
-      if (ASKS.has(m.task?.blocked?.kind ?? '')) p.waiting++
+      if (HOLDS_THE_DECISION_MAKER_ANSWERS.has(m.task?.blocked?.kind ?? '')) p.waiting++
     }
     counts.set(m.channel, p)
   }
   return { projects: [...counts.values()].sort((a, b) => (a.name < b.name ? -1 : 1)) }
 }
 
-function event(r: Reply) {
+function eventAsTheOldCliWroteIt(r: Reply) {
   const [b] = r.message.blocks
   const kind = b ? b.schema.replace(/^nawaban-/, '') : 'note'
   const d = (b?.data ?? {}) as Record<string, unknown>
@@ -182,11 +186,11 @@ export async function taskDetail(team: Team, ref: string) {
   const task = m ?? (await team.thread(ref.replace(/^#/, ''), { limit: 1 }).then((t) => t.message, () => null))
   if (!task?.task) throw new Refused(`任务不存在:${ref}`)
   const all = await tasksOf(team)
-  const byId = await withNeeds(team, all)
+  const byId = await withNeedsOfOtherProjectsSoABlockerReadsItsRealState(team, all)
   const status = (x: MessageView) => (x.task!.state === 'completed' ? 'done' : x.task!.state === 'canceled' ? 'cancelled' : live(x.task) ? 'in_progress' : 'open')
   const ref_ = (x: MessageView) => ({ id: key(x), title: title(x), status: status(x) })
-  const h = (await histories(team, [task], task.channel)).get(task.id)!
-  const events = h.replies.map(event).reverse()
+  const h = (await historiesFromTheFeedSinceTheOldestTask(team, [task], task.channel)).get(task.id)!
+  const events = h.replies.map(eventAsTheOldCliWroteIt).reverse()
   const parent = all.find((x) => key(x) === task.labels.parent)
   return {
     id: key(task),
@@ -194,7 +198,7 @@ export async function taskDetail(team: Team, ref: string) {
     body: body(task),
     status: status(task),
     project: task.channel,
-    session: live(task.task) ? who(task.task.claim!.actor) : null,
+    session: live(task.task) ? windowProfileElseName(task.task.claim!.actor) : null,
     created_at: secs(task.createdAt),
     parent: parent ? ref_(parent) : null,
     children: all.filter((x) => x.labels.parent === key(task)).map(ref_),

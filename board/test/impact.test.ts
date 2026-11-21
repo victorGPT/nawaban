@@ -45,10 +45,10 @@ beforeAll(async () => {
   git('worktree', 'add', '-q', worktree)
   await mkdir(dir)
   await writeFile(join(dir, 'repos.json'), JSON.stringify({ nawaban: repo }))
-
+  const ghAnsweringPrViewWithThePullRequestATestMerges = '#!/bin/sh\nprintf "%s" "$GH_PR"\n'
   bin = join(root, 'bin')
   await mkdir(bin)
-  await writeFile(join(bin, 'gh'), '#!/bin/sh\nprintf "%s" "$GH_PR"\n')
+  await writeFile(join(bin, 'gh'), ghAnsweringPrViewWithThePullRequestATestMerges)
   await chmod(join(bin, 'gh'), 0o755)
 
   server = await listen((request) => team.fetch(request), 0)
@@ -69,9 +69,8 @@ async function nawaban(...argv: string[]) {
   try {
     const app = createApp({ appName: 'nawaban', onError: (f) => void (failure = f) })
     const code = argv[0] === 'event' ? await event(argv.slice(1), (args) => app.run(args), board()) : await app.run(argv)
-
-    const dropped = failure?.data?.error?.code === 'dropped' ? failure.data.error.message : undefined
-    return { code, err, failure, dropped }
+    const whatTheMiddlewareSaidDroppingTheWrite = failure?.data?.error?.code === 'dropped' ? failure.data.error.message : undefined
+    return { code, err, failure, dropped: whatTheMiddlewareSaidDroppingTheWrite }
   } finally {
     out.mockRestore()
     stderr.mockRestore()
@@ -159,7 +158,7 @@ it('refuses to close as done a task with no impact, where the project keeps an o
   expect((await close('PLAIN-C-01')).code).toBe(0)
 })
 
-function hook(command: string, cwd = worktree, pr = {}): Promise<{ code: number | null; err: string }> {
+function preToolUseHookOnBashAsClaudeCodeRunsIt(command: string, cwd = worktree, pr = {}): Promise<{ code: number | null; err: string }> {
   return new Promise((done) => {
     const child = execFile('sh', [HOOK], {
       env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, BOARD_URL: url, BOARD_TOKEN: SECRET, NAWABAN_BOARD_DIR: dir, NAWABAN_CLI: 'board', GH_PR: JSON.stringify(pr) },
@@ -175,32 +174,33 @@ it("stops an agent closing a task with the board's CLI", async () => {
   for (const cmd of ['nawaban close NAWABAN-X --done', 'vb tasks list', 'echo "vb tasks complete 1"', 'git commit -m "tasks complete"', 'echo board tasks complete', 'printf "%s\\n" nawaban tasks complete']) {
     expect([cmd, closeGate(cmd)]).toEqual([cmd, null])
   }
-  const refused = await hook('vb tasks complete 12')
+  const refused = await preToolUseHookOnBashAsClaudeCodeRunsIt('vb tasks complete 12')
   expect(refused.code).toBe(2)
   expect(refused.err).toMatch(/nawaban close/)
-  expect((await hook('ls')).code).toBe(0)
+  expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('ls')).code).toBe(0)
 })
 
 it('refuses a merge whose task declares no impact, from a worktree of the repository', async () => {
   const id = await newTask('nawaban', 'NAWABAN-T-01')
   const pr = { number: 7, title: 'feat: x', body: 'NAWABAN-T-01', headRefName: 'feat/x' }
-  const refused = await hook('gh pr merge 7 --squash', worktree, pr)
+  const refused = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 7 --squash', worktree, pr)
   expect(refused.code).toBe(2)
   expect(refused.err).toMatch(/NAWABAN-T-01/)
 
   await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1==')
-  expect((await hook('gh pr merge 7 --squash', worktree, pr)).code).toBe(0)
-  expect((await hook('gh pr merge 7', worktree, { ...pr, body: 'no key' })).code).toBe(2)
-  expect((await hook('echo "gh pr merge 7"', worktree, pr)).code).toBe(0)
+  expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 7 --squash', worktree, pr)).code).toBe(0)
+  expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 7', worktree, { ...pr, body: 'no key' })).code).toBe(2)
+  expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('echo "gh pr merge 7"', worktree, pr)).code).toBe(0)
 
   await (await team.tasks.claim(id)).complete('done')
-  expect((await hook('gh pr merge 7 --squash', worktree, pr)).code).toBe(0)
+  const doneStillHasItsDeclaration = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 7 --squash', worktree, pr)
+  expect(doneStillHasItsDeclaration.code).toBe(0)
 })
 
 it("reads gh's -R before pr merge as a merge", async () => {
   await newTask('nawaban', 'NAWABAN-T-02')
   const pr = { number: 8, title: 'NAWABAN-T-02', body: '', headRefName: 'x' }
-  const refused = await hook('gh -R acme/web pr merge 8 --squash', worktree, pr)
+  const refused = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh -R acme/web pr merge 8 --squash', worktree, pr)
   expect(refused.code).toBe(2)
   expect(refused.err).toMatch(/NAWABAN-T-02/)
 })
