@@ -127,10 +127,10 @@ export async function index(argv: string[], team: Team): Promise<number> {
 
 /**
  * `待你决定 N 件：<the ones this session wasn't shown>｜说「同步」看卡`, `待你决定 N 件（无变化）` when it was
- * shown the same set last, or null for none. `seen` is that last set.
+ * shown the same set last, `待你决定 0 件` once when none waits (so a quiet inbox reads as working), then null. `seen` is that last set.
  */
 export function inboxLine(items: { id: string; title: string }[], seen: string[] | null): string | null {
-  if (!items.length) return null
+  if (!items.length) return seen && !seen.length ? null : '待你决定 0 件'
   const ids = items.map((i) => i.id)
   if (seen && seen.length === ids.length && ids.every((id) => seen.includes(id))) return `待你决定 ${items.length} 件（无变化）`
   const fresh = items.filter((i) => !seen?.includes(i.id))

@@ -108,7 +108,8 @@ it('prints the index off the board when an orchestrator window starts, and nothi
 })
 
 it('shows what waits on the decision-maker under each reply, new items first, then that nothing changed', SLOW, async () => {
-  expect(await inbox('s1')).toBeNull() // nothing waits yet
+  expect(await inbox('s1')).toBe('待你决定 0 件') // nothing waits yet: said once
+  expect(await inbox('s1')).toBeNull()
   await nawaban('claim', 'K1')
   await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: needs-info — 等你：给密钥', '--as', AS)
   // Another project's 等你 is not this repository's.
@@ -127,9 +128,10 @@ it('shows what waits on the decision-maker under each reply, new items first, th
   expect(await inbox('s1')).toBe('待你决定 2 件：K2 在干的｜说「同步」看卡')
   expect(await inbox('s2')).toMatch(/^待你决定 2 件：K\d .* · K\d /)
 
-  // Answered, nothing waits: no line.
+  // Answered, nothing waits: said once, then no line.
   await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: ready-for-agent')
   await nawaban('event', await idOf('K2'), '--kind', 'resolve', '--body', '发')
+  expect(await inbox('s1')).toBe('待你决定 0 件')
   expect(await inbox('s1')).toBeNull()
 })
 
