@@ -1,13 +1,19 @@
 #!/bin/sh
-# UserPromptSubmit and PostToolUse hook: renew the board claims this window holds (lease 1h), so a working window keeps
-# its tasks and an idle one hands them back. ponytail: at most every 30 min (half the lease), so most calls cost a find.
-# The renewal runs in the background and stamps only when it succeeds, so a board that is down or slow never holds up
-# the session and is tried again on the next call. With no board here yet, it does nothing.
+LEASE_MINUTES=60
+RENEW_EVERY_MINUTES=$((LEASE_MINUTES / 2))
 sid=$(sed -n 's/.*"session_id" *: *"\([^"]*\)".*/\1/p' | head -n 1)
 dir="${NAWABAN_BOARD_DIR:-$HOME/.nawaban/board}"
-[ -n "$sid" ] && [ -f "$dir/token" ] || exit 0
 stamp="$dir/renewed/$sid"
-[ -n "$(find "$stamp" -mmin -30 2>/dev/null)" ] && exit 0
+
+no_board_here_yet() { [ -z "$sid" ] || [ ! -f "$dir/token" ]; }
+renewed_within_half_the_lease() { [ -n "$(find "$stamp" -mmin -"$RENEW_EVERY_MINUTES" 2>/dev/null)" ]; }
+
+renew_in_background_stamping_only_on_success() {
+  (node "$(dirname "$0")/../board/src/cli.ts" renew --session "$sid" && touch "$stamp") </dev/null >/dev/null 2>&1 &
+}
+
+no_board_here_yet && exit 0
+renewed_within_half_the_lease && exit 0
 mkdir -p "$dir/renewed" || exit 0
-(node "$(dirname "$0")/../board/src/cli.ts" renew --session "$sid" && touch "$stamp") </dev/null >/dev/null 2>&1 &
+renew_in_background_stamping_only_on_success
 exit 0
