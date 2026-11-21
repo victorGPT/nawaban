@@ -1,310 +1,415 @@
-// Pure logic of the nawaban-board mod: no "herdr" or "gpui-kit" imports, so `node --test` runs it.
+const MINUTE = 60;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+const MS_PER_SECOND = 1000;
+const MS_PER_DAY = DAY * MS_PER_SECOND;
+const DONE_STAYS_IN_GROUP_FOR = DAY;
+const ISSUE_STILL_MOVING_FOR = DAY;
 
-// The project a folder belongs to, as the CLI names it (its repository's main checkout, also from
-// a worktree), from `git rev-parse --path-format=absolute --git-common-dir` run there. null (show
-// every project) when the folder is in no repository or the board has no such project.
 export function projectFor(gitCommonDir, projects) {
   const name = repoName(gitCommonDir);
   return (projects?.projects ?? []).some((p) => p.name === name) ? name : null;
 }
 
-// The repository's name from its git common dir (`/x/nawaban/.git` is nawaban), or null outside one.
 export function repoName(gitCommonDir) {
-  const parts = gitCommonDir.trim().split("/").filter(Boolean);
-  return parts.length >= 2 ? parts[parts.length - 2] : null;
+  const [checkout, gitDir] = gitCommonDir.trim().split("/").filter(Boolean).slice(-2);
+  return gitDir ? checkout : null;
 }
 
-// While the old board and the new one run side by side (docs/specs/board-migration.md, 迁移与并行期):
-// which CLI reads a project, "board" (`nawaban` on the Vercel Board) or "old" (nawaban/cli.py). A project
-// is read from the board once it moved there; GitHub-tracked ones, and every space on another machine,
-// stay on the old CLI. The plugin's hooks route by this same rule (hooks/route.mjs imports it).
-// Moved at the switch (NAWABAN-MIGRATE-06). nawaban/cli.py reads this one line too, to refuse writes to
-// these projects: keep it a single line of JSON strings.
 export const BOARD_PROJECTS = new Set(["nawaban", "bzkanbanv2", "huafa"]);
-export const cliFor = (project, machine = null) => (machine == null && BOARD_PROJECTS.has(project) ? "board" : "old");
+const onThisComputer = (machine) => machine == null;
+export const cliFor = (project, machine = null) => (onThisComputer(machine) && BOARD_PROJECTS.has(project) ? "board" : "old");
 
-// "zh" or "en": the person's saved choice, else the system's first preferred language, read from
-// `defaults read -g AppleLanguages` on macOS or $LANG elsewhere.
+const SUPPORTED_LANGS = ["zh", "en"];
+const prefersChinese = (system) => /^zh/i.test(String(system ?? "").replace(/[\s("]/g, ""));
 export function resolveLang(saved, system) {
-  if (saved === "zh" || saved === "en") return saved;
-  return /^zh/i.test(String(system ?? "").replace(/[\s("]/g, "")) ? "zh" : "en";
+  if (SUPPORTED_LANGS.includes(saved)) return saved;
+  return prefersChinese(system) ? "zh" : "en";
 }
 
-// Whether paths `watchFolder` reported on the board's folder mean the board changed: the board file,
-// its write-ahead log, or the folder itself (the watcher gave up listing). Not `-shm`: every reader,
-// this panel's own refresh included, writes it, so counting it would refresh in a loop.
-export const boardChanged = (paths, db) =>
-  paths.some((p) => p === db || p === `${db}-wal` || p === db.slice(0, db.lastIndexOf("/")));
+export const folderOf = (path) => path.slice(0, path.lastIndexOf("/"));
+const WRITE_AHEAD_LOG_SUFFIX = "-wal";
+const isBoardFileOrItsLog = (path, db) => path === db || path === db + WRITE_AHEAD_LOG_SUFFIX;
+const isWatchedFolderItself = (path, db) => path === folderOf(db);
+export const boardChanged = (paths, db) => paths.some((p) => isBoardFileOrItsLog(p, db) || isWatchedFolderItself(p, db));
 
-// The focused space's Herdr agents (those of `agents`, every space's, whose `space` is `space`) joined with its project's
-// `nawaban json board`, as the panel draws them: a card per window waiting on you, a row per
-// window stopped, done or working, and the idle ones counted. A task is in the window whose
-// terminal address is its `terminal`. Each window takes the first state that holds: 等你 (it holds
-// a task asking a triage question, or Herdr says blocked), 停了 (it holds an open task and Herdr says idle), 完成, 在干,
-// 空闲. Durations run from the held task's latest event; Herdr records none of its own.
-// `otherWaiting` sums `json projects`' waiting counts of every project but `project`.
-export function windowsView({ agents, space, board, now, lang, projects, project, terminals = [] }) {
-  const nameOf = namer(terminals);
-  const open = (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? [])
-    .sort((x, y) => y.active_at - x.active_at);
+export const OKR_FOLDER_IN_REPO = "docs/agents";
+const OKR_FILE = "okr.toml";
+export const okrChanged = (paths, dir) => paths.some((p) => p === dir || p.endsWith("/" + OKR_FILE));
+
+const isDone = (t) => t.status === "done";
+const isHeld = (t) => t.session != null;
+const neverClaimed = (t) => t.claimed_at == null;
+const isAsking = (t) => t.waiting != null;
+const isLive = (k) => k.state === "live";
+const isGithubBoard = (board) => board?.tracker === "github";
+export const canGo = (x) => x.focus != null || Boolean(x.url);
+
+const allTasks = (board) => (board?.columns ?? []).flatMap((c) => c.tasks ?? []);
+const openTasks = (board) => (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? []);
+const newestActivityFirst = (x, y) => y.active_at - x.active_at;
+const newestHerdrChangeFirst = (x, y) => y.seq - x.seq;
+
+const herdrSaysBlocked = (status) => status === "blocked";
+const herdrSaysNeedsYou = (status) => status === "blocked" || status === "error";
+const herdrStateShownAsIs = (status) => status === "done" || status === "working";
+
+function windowStateOf(agent, asking, task) {
+  if (asking || herdrSaysBlocked(agent.status)) return "waiting";
+  if (task && agent.status === "idle") return "stopped";
+  if (herdrStateShownAsIs(agent.status)) return agent.status;
+  return "idle";
+}
+
+const NO_KNOWN_START = null;
+const NO_HERDR_SEQ = 0;
+
+function windowOf(agent, open, nameOf, now, lang) {
   const words = WINDOW_WORDS[lang];
-  const here = agents.filter((a) => a.space === space);
-  const windows = here.map((a) => {
-    const mine = open.filter((t) => t.terminal === a.address);
-    const asking = mine.find((t) => t.waiting != null);
-    const task = asking ?? mine[0];
-    const blocked = !asking && a.status === "blocked";
-    const state = asking || blocked ? "waiting" : task && a.status === "idle" ? "stopped"
-      : a.status === "done" || a.status === "working" ? a.status : "idle";
-    // Herdr records no time for `blocked` (`seq` only orders changes), so that wait has no length.
-    const since = blocked ? null : task?.active_at ?? null;
-    return { name: nameOf(a), ...(state === "waiting" && { question: asking?.waiting ?? words.confirm }),
-      doing: blocked ? a.title : task?.title ?? a.title, state, label: words[state], duration: since == null ? null : span(now - since, lang, !!asking),
-      focus: a.address, ...(task?.url && { url: task.url }), seq: a.seq, since };
-  });
-  // A waiting task in no window of this space still asks. Its terminal in another space: named by
-  // that window, which its button focuses. Unknown to Herdr: named by its ID, with no button.
-  const strays = open.filter((t) => t.waiting != null && !here.some((a) => a.address === t.terminal))
-    .map((t) => {
-      const away = agents.find((a) => a.address === t.terminal) ?? terminals.find((k) => k.state === "live" && k.address === t.terminal);
-      return { name: away ? nameOf(away) : t.id, question: t.waiting, doing: t.title, state: "waiting",
-        label: words.waiting, duration: span(now - t.active_at, lang, true), focus: away?.address ?? null, url: t.url ?? null, seq: 0, since: t.active_at };
-    });
-  const out = ({ seq, since, ...w }) => w;
-  // Longest-waiting first; the blocked windows, whose wait has no length, after them.
-  const waiting = [...windows, ...strays].filter((w) => w.state === "waiting")
-    .sort((x, y) => (x.since ?? Infinity) - (y.since ?? Infinity) || y.seq - x.seq).map(out);
-  const rows = ROW_ORDER.flatMap((s) => windows.filter((w) => w.state === s).sort((x, y) => y.seq - x.seq)).map(out);
-  const idle = windows.filter((w) => w.state === "idle").map((w) => w.name);
-  const otherWaiting = (projects?.projects ?? []).reduce((n, p) => n + (p.name === project ? 0 : p.waiting ?? 0), 0);
-  return { waiting, rows, idle: { count: idle.length, names: idle }, otherWaiting };
+  const mine = open.filter((t) => t.terminal === agent.address);
+  const asking = mine.find(isAsking);
+  const task = asking ?? mine[0];
+  const blockedByHerdr = !asking && herdrSaysBlocked(agent.status);
+  const state = windowStateOf(agent, asking, task);
+  const since = blockedByHerdr ? NO_KNOWN_START : task?.active_at ?? NO_KNOWN_START;
+  return { name: nameOf(agent), ...(state === "waiting" && { question: asking?.waiting ?? words.confirm }),
+    doing: blockedByHerdr ? agent.title : task?.title ?? agent.title, state, label: words[state],
+    duration: since == null ? null : span(now - since, lang, Boolean(asking)),
+    focus: agent.address, ...(task?.url && { url: task.url }), seq: agent.seq, since };
 }
 
+function strayCardOf(task, agents, terminals, nameOf, now, lang) {
+  const away = agents.find((a) => a.address === task.terminal) ?? terminals.find((k) => isLive(k) && k.address === task.terminal);
+  return { name: away ? nameOf(away) : task.id, question: task.waiting, doing: task.title, state: "waiting",
+    label: WINDOW_WORDS[lang].waiting, duration: span(now - task.active_at, lang, true), focus: away?.address ?? null,
+    url: task.url ?? null, seq: NO_HERDR_SEQ, since: task.active_at };
+}
+
+const UNTIMED_WAITS_LAST = Infinity;
+const longestWaitingFirst = (x, y) => (x.since ?? UNTIMED_WAITS_LAST) - (y.since ?? UNTIMED_WAITS_LAST) || newestHerdrChangeFirst(x, y);
+const withoutSortKeys = ({ seq, since, ...w }) => w;
 const ROW_ORDER = ["stopped", "done", "working"];
 
-// What a window is called (agents()' AgentInfo): its terminal's Herdr name (`terminals()`, as
-// `hc run --name gh-239` gives it), else its tab's name, else its terminal title; never a tab's bare
-// index ("4"), which is what Herdr calls a tab nobody named. ponytail: a tab someone named "4"
-// reads as unnamed; pass spaces()' TabInfo.named in if that matters.
-const namer = (terminals) => {
-  const names = new Map(terminals.map((k) => [k.address, k.name]));
-  return (a) => names.get(a.address) || (/^\d+$/.test(a.tab_name) ? "" : a.tab_name) || a.title;
-};
+const waitingInOtherProjects = (projects, project) =>
+  (projects?.projects ?? []).reduce((n, p) => n + (p.name === project ? 0 : p.waiting ?? 0), 0);
 
-// The line view (DESIGN.md): windowsView's waiting cards, idle row and other projects' count, and
-// in place of its rows one group per leader (GLOSSARY: Leader), as Herdr's terminal tree shows it.
-// `terminals` is Herdr's terminals(): every core terminal with its `name`, `parent` and `status`.
-export function leadersView(args) {
-  const github = args.board?.tracker === "github";
-  // The terminals the issues' claims name (`认领：… hc t5n`), before a gh-<n> name fills in the rest.
-  const claimedAt = new Map(github ? args.board.columns.flatMap((c) => c.tasks ?? []).filter((t) => t.terminal)
-    .sort((x, y) => (y.status === "done") - (x.status === "done")).map((t) => [t.terminal, t.id]) : []); // an open one over a closed one
-  if (github) args = { ...args, board: matchIssues(args.board, args.terminals ?? []) };
-  // On a GitHub board a pending decision takes needs-info's place (GLOSSARY: Pending decision), so no
-  // question makes a card there; a window Herdr says is blocked still does (GLOSSARY: Waiting on you).
-  const { waiting: asking, otherWaiting } = windowsView(!github ? args : { ...args, board: { ...args.board,
-    columns: args.board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => ({ ...t, waiting: null })) })) } });
-  const terminals = args.terminals ?? [], nameOf = namer(terminals);
-  const tasks = (args.board?.columns ?? []).flatMap((c) => c.tasks ?? []);
-  const agentAt = (terminal) => args.agents.find((a) => a.address === terminal);
-  // A window: its agent, else its live terminal (a worker started with `hc run` has no pane, so no agent).
-  const live = terminals.filter((k) => k.state === "live");
-  const windowAt = (terminal) => agentAt(terminal) ?? live.find((k) => k.address === terminal);
-  // Herdr's tree: an agent of the space with live child terminals leads its whole subtree (its
-  // workers' workers too, with a pane or not), in start order, unless it is itself in another
-  // agent's subtree: the topmost one leads. `seen` stops a cycle in `parent`.
-  // ponytail: start order is address order (Herdr numbers terminals as they start, in base 36:
-  // t9, t10, t1b); `hc ls` gives no start time.
-  const order = (k) => parseInt(k.address.split("/").pop().slice(1), 36);
-  const below = (addr, seen) => live.filter((k) => k.parent === addr && !seen.has(k.address))
-    .flatMap((k) => (seen.add(k.address), [k, ...below(k.address, seen)]));
-  const trees = args.agents.filter((a) => a.space === args.space).map((a) => [a.address, below(a.address, new Set([a.address]))]);
-  const inner = new Set(trees.flatMap(([, d]) => d.map((k) => k.address)));
-  const kids = new Map(trees.filter(([a, d]) => d.length && !inner.has(a)).map(([a, d]) => [a, d.sort((x, y) => order(x) - order(y))]));
-  const parentOf = new Map([...kids].flatMap(([p, c]) => c.map((k) => [k.address, p]))); // a terminal -> its leader
-  // A task's state, as an item or a spec's segment: done, current (held, its terminal working or
-  // unknown), stopped (held, its terminal idle or gone), todo.
-  const stateOf = (t) => {
-    if (t.status === "done") return "done";
-    if (!t.session) return "todo";
-    const a = t.terminal && windowAt(t.terminal);
-    return t.terminal && (!a || a.status === "idle") ? "stopped" : "current";
-  };
-  // Whether a task puts an item under its leader: held, or dispatched and not started (a leader but
-  // never claimed), or done in the last 24 h. A released task is in no group: nobody is on it.
-  const inGroup = (t) => t.status === "done" ? t.done_at >= args.now - DAY : t.session != null || t.claimed_at == null;
-  // A ticket stands in its spec's place: the item is the topmost task on the board above it.
-  const byId = new Map(tasks.map((t) => [t.id, t]));
-  const rootOf = (t) => { while (byId.has(t.parent)) t = byId.get(t.parent); return t; };
-  // A task's group: the Herdr leader of the window holding it (that window's parent, or the window
-  // itself); else its board leader (a board with no leader field, an older CLI: its holder), which
-  // is that leader's Herdr group when the leader's session holds a task in a leader terminal.
-  const groupOf = (t) => {
-    if (parentOf.has(t.terminal)) return parentOf.get(t.terminal);
-    if (kids.has(t.terminal)) return t.terminal;
-    if (github) return null; // a claim's text names no leader: an issue in no Herdr window is in no group
-    const leader = sessionKey(t.leader ?? t.session);
-    const home = tasks.find((x) => leader != null && sessionKey(x.session) === leader && kids.has(x.terminal))?.terminal;
-    return home ?? leader;
-  };
-  const groups = new Map([...kids.keys()].map((p) => [p, new Set()])); // leader -> the items' tasks, deduplicated
-  const atKid = new Map(); // a child terminal -> the open task it holds (a ticket, not its spec)
-  for (const t of tasks) {
-    const leader = groupOf(t);
-    if (leader == null || !inGroup(t) || (github && parentOf.has(t.terminal))) continue; // a child shows its issue by its name
-    if (!groups.has(leader)) groups.set(leader, new Set());
-    groups.get(leader).add(rootOf(t));
-    if (t.status !== "done" && t.session != null && parentOf.has(t.terminal)) atKid.set(t.terminal, t);
-  }
-  const named = (leader) => {
-    const a = agentAt(kids.has(leader) ? leader : tasks.find((x) => sessionKey(x.session) === leader && x.terminal)?.terminal);
-    return a ? nameOf(a) : leader.slice(0, 8);
-  };
-  // An item: a task, or a spec with its tickets, whose held ticket (a stopped one first) speaks for
-  // it; with none held, the spec speaks for itself.
-  const itemOf = (r, leader) => {
-    const tickets = specOrder(tasks.filter((t) => t !== r && rootOf(t) === r));
-    const states = tickets.map(stateOf), done = states.filter((s) => s === "done").length;
-    const lead = tickets[states.indexOf("stopped")] ?? tickets[states.indexOf("current")] ?? r;
-    const state = r.status === "done" || (tickets.length && done === tickets.length) ? "done" : stateOf(lead);
-    const held = state === "current" || state === "stopped";
-    // Dispatched: held by another session or window, or a task not started (only a dispatch note gives an unclaimed task a leader).
-    const self = sessionKey(lead.session) === leader || lead.terminal === leader;
-    const who = held ? (self ? "self" : "worker") : state === "todo" && !tickets.length ? "worker" : null;
-    const all = [r, ...tickets], claims = all.map((t) => t.claimed_at).filter((c) => c != null);
-    // Since when, in seconds: done, when it was done; current, its first claim; stopped, its latest event.
-    const at = state === "done" ? r.done_at ?? Math.max(...tickets.map((t) => t.done_at ?? 0))
-      : state === "current" ? lead.claimed_at : state === "stopped" ? lead.active_at : null;
-    return { id: r.id, title: r.title, state, at, gone: state === "stopped" && !windowAt(lead.terminal), who,
-      note: held ? lead.progress?.body ?? null : null, focus: held && windowAt(lead.terminal) ? lead.terminal : null,
-      spec: tickets.length ? { tickets: tickets.map((t) => t.id), segments: states, done, total: tickets.length } : null,
-      claimed: claims.length ? Math.min(...claims) : Infinity, created_at: r.created_at,
-      decisions: all.map((t) => t.decision).filter(Boolean), // the board gives open tasks only a decision
-      active: Math.max(...all.map((t) => t.active_at)) };
-  };
-  // A child terminal, keyed and focused by its terminal: the task it holds (a ticket: the ticket,
-  // so two children on one spec stay two items, and the spec is not listed again), under the
-  // child's Herdr name; holding none, what Herdr says
-  // of it: its name, its title (when it has a pane, so an agent) as the note. Its state: working is
-  // current, blocked (or error) waiting on you, anything else done, idle too: Herdr turns done into
-  // idle once you look, and a worker with no task has nothing to stop on.
-  const kidName = (k) => k.name || k.program?.name || k.address;
-  const kidItem = (k, leader) => {
-    const key = `${leader}/${k.address}`, a = agentAt(k.address), status = a?.status ?? k.status;
-    const n = github && /^gh-(\d+)/.exec(k.name ?? "");
-    const issue = github && (byId.get(claimedAt.get(k.address)) ?? (n && byId.get(`#${n[1]}`)));
-    if (issue) return { ...issueItem(issue, status, args.now), key, name: kidName(k), focus: k.address };
-    if (atKid.has(k.address)) return { ...itemOf(atKid.get(k.address), leader), key, name: kidName(k), focus: k.address };
-    return { key, id: k.address, title: kidName(k), name: kidName(k), state: status === "working" ? "current" : status === "blocked" || status === "error" ? "waiting" : "done",
-      at: null, gone: false, who: "worker", note: a?.title || null, focus: k.address, spec: null, decisions: [], active: 0 };
-  };
-  const out = [...groups].map(([leader, roots]) => {
-    const tree = kids.get(leader) ?? [], taken = new Set(tree.filter((k) => atKid.has(k.address)).map((k) => rootOf(atKid.get(k.address))));
-    // The children first, as they started; then the rest by first claim (arrival), unclaimed ones by creation.
-    const all = [...tree.map((k) => kidItem(k, leader)), ...[...roots].filter((r) => !taken.has(r)).map((r) => itemOf(r, leader))
-      .sort((x, y) => x.claimed - y.claimed || x.created_at - y.created_at)];
-    // A closed issue folds into the group's 已关 row, numbered after the rest.
-    const numbered = [...all.filter((x) => !x.closed), ...all.filter((x) => x.closed)]
-      .map(({ claimed, created_at, decisions, active, ...x }, i) => ({ key: `${leader}/${x.id}`, number: i + 1, ...x }));
-    const items = numbered.filter((x) => !x.closed), closed = numbered.filter((x) => x.closed);
-    const dispatched = numbered.filter((i) => i.who === "worker").length;
-    const last = all.flatMap((x) => x.decisions).sort((x, y) => y.at - x.at)[0];
-    return { leader, name: named(leader), self: numbered.length - dispatched, dispatched,
-      decision: last ? { at: last.at, verdict: last.verdict.split("\n")[0] } : null, items, closed,
-      stopped: items.some((i) => i.state === "stopped" || i.state === "waiting"), active: Math.max(...all.map((x) => x.active)) };
-  }).sort((x, y) => y.stopped - x.stopped || y.active - x.active).map(({ stopped, active, ...g }) => g);
-  // On a GitHub board a worker `hc run` started has no pane, so no agent and no card from windowsView:
-  // blocked, it is a card too, named and titled as its item. Only blocked, as windowsView's cards.
-  const words = WINDOW_WORDS[args.lang];
-  const items = out.flatMap((g) => [...g.items, ...g.closed]);
-  const unpaned = !github ? [] : live.filter((k) => parentOf.has(k.address) && !agentAt(k.address) && k.status === "blocked")
-    .map((k) => items.find((x) => x.focus === k.address)).filter(Boolean)
-    .map((x) => ({ name: x.name, question: words.confirm, doing: x.title, state: "waiting", label: words.waiting, duration: null,
-      focus: x.focus, ...(x.url && { url: x.url }) }));
-  const waiting = [...asking, ...unpaned];
-  // Every window of the space that is neither a card, a leader or its child, nor the terminal of an
-  // open task, named with what Herdr says it is doing unless idle: a window working without a task still shows.
-  const free = args.agents.filter((a) => a.space === args.space && !waiting.some((c) => c.focus === a.address)
-    && !kids.has(a.address) && !parentOf.has(a.address) && !tasks.some((t) => t.status !== "done" && t.terminal === a.address))
-    .map((a) => (a.status === "working" || a.status === "done" ? words.withState(nameOf(a), words[a.status]) : nameOf(a)));
-  const idle = { count: free.length, names: free };
-  // Selection keys, unique where terminals are not: a card and an item, or two items, can share one.
-  const cards = waiting.map((c, i) => ({ key: `card:${i}`, ...c }));
-  const keys = [...cards, ...out.flatMap((g) => g.items)].filter((x) => x.focus != null || x.url).map((x) => x.key);
-  return { waiting: cards, groups: out, idle, otherWaiting, keys };
+export function windowsView({ agents, space, board, now, lang, projects, project, terminals = [] }) {
+  const nameOf = namer(terminals);
+  const open = openTasks(board).sort(newestActivityFirst);
+  const here = agents.filter((a) => a.space === space);
+  const windows = here.map((a) => windowOf(a, open, nameOf, now, lang));
+  const inNoWindowHere = (t) => !here.some((a) => a.address === t.terminal);
+  const strays = open.filter((t) => isAsking(t) && inNoWindowHere(t)).map((t) => strayCardOf(t, agents, terminals, nameOf, now, lang));
+  const waiting = [...windows, ...strays].filter((w) => w.state === "waiting").sort(longestWaitingFirst).map(withoutSortKeys);
+  const rows = ROW_ORDER.flatMap((s) => windows.filter((w) => w.state === s).sort(newestHerdrChangeFirst)).map(withoutSortKeys);
+  const idle = windows.filter((w) => w.state === "idle").map((w) => w.name);
+  return { waiting, rows, idle: { count: idle.length, names: idle }, otherWaiting: waitingInOtherProjects(projects, project) };
 }
 
-// A spec's tickets in blocked-by order: the done ones first, by when each was done, then the open
-// ones each after its open blockers (the board lists no done blocker); ties keep the board's order.
+const isBareTabIndex = (tabName) => /^\d+$/.test(tabName);
+const namer = (terminals) => {
+  const names = new Map(terminals.map((k) => [k.address, k.name]));
+  return (a) => names.get(a.address) || (isBareTabIndex(a.tab_name) ? "" : a.tab_name) || a.title;
+};
+
+const issueByClaimedTerminal = (board) => new Map(allTasks(board).filter((t) => t.terminal)
+  .sort((x, y) => isDone(y) - isDone(x)).map((t) => [t.terminal, t.id]));
+
+function readClaimsBeforeMatchingNames(board, terminals) {
+  const claimedAt = issueByClaimedTerminal(board);
+  return { claimedAt, board: matchIssues(board, terminals) };
+}
+
+const withoutQuestions = (board) => ({ ...board,
+  columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => ({ ...t, waiting: null })) })) });
+
+const TERMINAL_NUMBER_RADIX = 36;
+const TERMINAL_PREFIX = "t";
+const startOrder = (k) => parseInt(k.address.split("/").pop().slice(TERMINAL_PREFIX.length), TERMINAL_NUMBER_RADIX);
+const byStartOrder = (x, y) => startOrder(x) - startOrder(y);
+
+function herdrTree(agents, space, live) {
+  const descendants = (address, seen) => live.filter((k) => k.parent === address && !seen.has(k.address))
+    .flatMap((k) => (seen.add(k.address), [k, ...descendants(k.address, seen)]));
+  const subtrees = agents.filter((a) => a.space === space).map((a) => [a.address, descendants(a.address, new Set([a.address]))]);
+  const insideSomeSubtree = new Set(subtrees.flatMap(([, below]) => below.map((k) => k.address)));
+  const isTopmostLeader = ([address, below]) => below.length && !insideSomeSubtree.has(address);
+  const childrenOf = new Map(subtrees.filter(isTopmostLeader).map(([address, below]) => [address, below.sort(byStartOrder)]));
+  const leaderOf = new Map([...childrenOf].flatMap(([leader, below]) => below.map((k) => [k.address, leader])));
+  return { childrenOf, leaderOf };
+}
+
+function boardContext(args) {
+  const github = isGithubBoard(args.board);
+  const terminals = args.terminals ?? [];
+  const { claimedAt, board } = github ? readClaimsBeforeMatchingNames(args.board, terminals) : { claimedAt: new Map(), board: args.board };
+  const live = terminals.filter(isLive);
+  const tasks = allTasks(board);
+  const agentAt = (terminal) => args.agents.find((a) => a.address === terminal);
+  return { ...args, board, github, claimedAt, terminals, live, tasks, nameOf: namer(terminals),
+    byId: new Map(tasks.map((t) => [t.id, t])), agentAt,
+    windowAt: (terminal) => agentAt(terminal) ?? live.find((k) => k.address === terminal),
+    ...herdrTree(args.agents, args.space, live) };
+}
+
+const questionsAskedOnBoard = (c) => (c.github ? { ...c, board: withoutQuestions(c.board) } : c);
+
+function taskState(c, t) {
+  if (isDone(t)) return "done";
+  if (!isHeld(t)) return "todo";
+  const window = t.terminal && c.windowAt(t.terminal);
+  return t.terminal && (!window || window.status === "idle") ? "stopped" : "current";
+}
+
+const belongsInGroup = (t, now) => (isDone(t) ? t.done_at >= now - DONE_STAYS_IN_GROUP_FOR : isHeld(t) || neverClaimed(t));
+
+const rootOf = (c, t) => {
+  while (c.byId.has(t.parent)) t = c.byId.get(t.parent);
+  return t;
+};
+
+function leaderTerminalOfSession(c, leader) {
+  return c.tasks.find((x) => leader != null && sessionKey(x.session) === leader && c.childrenOf.has(x.terminal))?.terminal;
+}
+
+function groupOf(c, t) {
+  if (c.leaderOf.has(t.terminal)) return c.leaderOf.get(t.terminal);
+  if (c.childrenOf.has(t.terminal)) return t.terminal;
+  if (c.github) return null;
+  const leader = sessionKey(t.leader ?? t.session);
+  return leaderTerminalOfSession(c, leader) ?? leader;
+}
+
+const childShowsItsIssueByName = (c, t) => c.github && c.leaderOf.has(t.terminal);
+const isOpenTicketHeldByChild = (c, t) => !isDone(t) && isHeld(t) && c.leaderOf.has(t.terminal);
+
+function collectGroups(c) {
+  const groups = new Map([...c.childrenOf.keys()].map((leader) => [leader, new Set()]));
+  const heldByChild = new Map();
+  for (const t of c.tasks) {
+    const leader = groupOf(c, t);
+    if (leader == null || !belongsInGroup(t, c.now) || childShowsItsIssueByName(c, t)) continue;
+    if (!groups.has(leader)) groups.set(leader, new Set());
+    groups.get(leader).add(rootOf(c, t));
+    if (isOpenTicketHeldByChild(c, t)) heldByChild.set(t.terminal, t);
+  }
+  return { groups, heldByChild };
+}
+
+const UNNAMED_LEADER_ID_LENGTH = 8;
+function leaderName(c, leader) {
+  const terminal = c.childrenOf.has(leader) ? leader : c.tasks.find((x) => sessionKey(x.session) === leader && x.terminal)?.terminal;
+  const agent = c.agentAt(terminal);
+  return agent ? c.nameOf(agent) : leader.slice(0, UNNAMED_LEADER_ID_LENGTH);
+}
+
+const spokesmanOf = (tickets, states, root) => tickets[states.indexOf("stopped")] ?? tickets[states.indexOf("current")] ?? root;
+const isHeldState = (state) => state === "current" || state === "stopped";
+
+function specState(c, root, tickets, states, lead) {
+  const allTicketsDone = tickets.length && states.every((s) => s === "done");
+  return isDone(root) || allTicketsDone ? "done" : taskState(c, lead);
+}
+
+function whoIsOn(lead, leader, state, tickets) {
+  const self = sessionKey(lead.session) === leader || lead.terminal === leader;
+  if (isHeldState(state)) return self ? "self" : "worker";
+  return state === "todo" && !tickets.length ? "worker" : null;
+}
+
+function sinceOf(state, root, tickets, lead) {
+  if (state === "done") return root.done_at ?? Math.max(...tickets.map((t) => t.done_at ?? 0));
+  if (state === "current") return lead.claimed_at;
+  if (state === "stopped") return lead.active_at;
+  return null;
+}
+
+const NEVER_CLAIMED_LAST = Infinity;
+
+function itemOf(c, root, leader) {
+  const tickets = specOrder(c.tasks.filter((t) => t !== root && rootOf(c, t) === root));
+  const states = tickets.map((t) => taskState(c, t));
+  const done = states.filter((s) => s === "done").length;
+  const lead = spokesmanOf(tickets, states, root);
+  const state = specState(c, root, tickets, states, lead);
+  const held = isHeldState(state);
+  const all = [root, ...tickets];
+  const claims = all.map((t) => t.claimed_at).filter((at) => at != null);
+  return { id: root.id, title: root.title, state, at: sinceOf(state, root, tickets, lead),
+    gone: state === "stopped" && !c.windowAt(lead.terminal), who: whoIsOn(lead, leader, state, tickets),
+    note: held ? lead.progress?.body ?? null : null, focus: held && c.windowAt(lead.terminal) ? lead.terminal : null,
+    spec: tickets.length ? { tickets: tickets.map((t) => t.id), segments: states, done, total: tickets.length } : null,
+    claimed: claims.length ? Math.min(...claims) : NEVER_CLAIMED_LAST, created_at: root.created_at,
+    decisions: all.map((t) => t.decision).filter(Boolean),
+    active: Math.max(...all.map((t) => t.active_at)) };
+}
+
+const ISSUE_NAME = /^gh-(\d+)/;
+const issueNamedBy = (name) => ISSUE_NAME.exec(name ?? "");
+const childName = (k) => k.name || k.program?.name || k.address;
+const herdrStatusAsItemState = (status) => (status === "working" ? "current" : herdrSaysNeedsYou(status) ? "waiting" : "done");
+
+function issueOfChild(c, k) {
+  if (!c.github) return null;
+  const named = issueNamedBy(k.name);
+  return c.byId.get(c.claimedAt.get(k.address)) ?? (named && c.byId.get("#" + named[1]));
+}
+
+function childItem(c, k, leader, heldByChild) {
+  const key = leader + "/" + k.address, agent = c.agentAt(k.address), status = agent?.status ?? k.status;
+  const placed = { key, name: childName(k), focus: k.address };
+  const issue = issueOfChild(c, k);
+  if (issue) return { ...issueItem(issue, status, c.now), ...placed };
+  if (heldByChild.has(k.address)) return { ...itemOf(c, heldByChild.get(k.address), leader), ...placed };
+  return { key, id: k.address, title: childName(k), name: childName(k), state: herdrStatusAsItemState(status),
+    at: null, gone: false, who: "worker", note: agent?.title || null, focus: k.address, spec: null, decisions: [], active: 0 };
+}
+
+const firstClaimedFirst = (x, y) => x.claimed - y.claimed || x.created_at - y.created_at;
+const closedLast = (items) => [...items.filter((x) => !x.closed), ...items.filter((x) => x.closed)];
+const newestDecision = (items) => items.flatMap((x) => x.decisions).sort((x, y) => y.at - x.at)[0];
+const firstLine = (text) => text.split("\n")[0];
+const needsAttention = (item) => item.state === "stopped" || item.state === "waiting";
+
+function groupView(c, leader, roots, heldByChild) {
+  const children = c.childrenOf.get(leader) ?? [];
+  const shownByChild = new Set(children.filter((k) => heldByChild.has(k.address)).map((k) => rootOf(c, heldByChild.get(k.address))));
+  const rest = [...roots].filter((r) => !shownByChild.has(r)).map((r) => itemOf(c, r, leader)).sort(firstClaimedFirst);
+  const all = [...children.map((k) => childItem(c, k, leader, heldByChild)), ...rest];
+  const numbered = closedLast(all)
+    .map(({ claimed, created_at, decisions, active, ...x }, i) => ({ key: leader + "/" + x.id, number: i + 1, ...x }));
+  const items = numbered.filter((x) => !x.closed), closed = numbered.filter((x) => x.closed);
+  const dispatched = numbered.filter((x) => x.who === "worker").length;
+  const last = newestDecision(all);
+  return { leader, name: leaderName(c, leader), self: numbered.length - dispatched, dispatched,
+    decision: last ? { at: last.at, verdict: firstLine(last.verdict) } : null, items, closed,
+    stopped: items.some(needsAttention), active: Math.max(...all.map((x) => x.active)) };
+}
+
+const stoppedThenMostRecentlyActive = (x, y) => y.stopped - x.stopped || y.active - x.active;
+const withoutGroupSortKeys = ({ stopped, active, ...g }) => g;
+
+function panelessBlockedCards(c, groups) {
+  if (!c.github) return [];
+  const words = WINDOW_WORDS[c.lang];
+  const items = groups.flatMap((g) => [...g.items, ...g.closed]);
+  const isPanelessBlockedChild = (k) => c.leaderOf.has(k.address) && !c.agentAt(k.address) && herdrSaysBlocked(k.status);
+  return c.live.filter(isPanelessBlockedChild).map((k) => items.find((x) => x.focus === k.address)).filter(Boolean)
+    .map((x) => ({ name: x.name, question: words.confirm, doing: x.title, state: "waiting", label: words.waiting, duration: null,
+      focus: x.focus, ...(x.url && { url: x.url }) }));
+}
+
+function idleRow(c, waiting) {
+  const words = WINDOW_WORDS[c.lang];
+  const isCard = (a) => waiting.some((card) => card.focus === a.address);
+  const isInTree = (a) => c.childrenOf.has(a.address) || c.leaderOf.has(a.address);
+  const holdsOpenTask = (a) => c.tasks.some((t) => !isDone(t) && t.terminal === a.address);
+  const free = c.agents.filter((a) => a.space === c.space && !isCard(a) && !isInTree(a) && !holdsOpenTask(a))
+    .map((a) => (herdrStateShownAsIs(a.status) ? words.withState(c.nameOf(a), words[a.status]) : c.nameOf(a)));
+  return { count: free.length, names: free };
+}
+
+const selectionKeys = (cards, groups) => [...cards, ...groups.flatMap((g) => g.items)].filter(canGo).map((x) => x.key);
+
+export function leadersView(args) {
+  const c = boardContext(args);
+  const { waiting: asking, otherWaiting } = windowsView(questionsAskedOnBoard(c));
+  const { groups: byLeader, heldByChild } = collectGroups(c);
+  const groups = [...byLeader].map(([leader, roots]) => groupView(c, leader, roots, heldByChild))
+    .sort(stoppedThenMostRecentlyActive).map(withoutGroupSortKeys);
+  const waiting = [...asking, ...panelessBlockedCards(c, groups)];
+  const cards = waiting.map((card, i) => ({ key: "card:" + i, ...card }));
+  return { waiting: cards, groups, idle: idleRow(c, waiting), otherWaiting, keys: selectionKeys(cards, groups) };
+}
+
+const openBlockersIn = (open) => (t) => (t.blocked_by ?? []).some((b) => open.some((o) => o.id === b));
+const FIRST_IN_A_CYCLE = 0;
 const specOrder = (tickets) => {
-  const out = tickets.filter((t) => t.status === "done").sort((x, y) => x.done_at - y.done_at);
-  const open = tickets.filter((t) => t.status !== "done");
+  const out = tickets.filter(isDone).sort((x, y) => x.done_at - y.done_at);
+  const open = tickets.filter((t) => !isDone(t));
   while (open.length) {
-    const free = open.findIndex((t) => !(t.blocked_by ?? []).some((b) => open.some((o) => o.id === b)));
-    out.push(...open.splice(Math.max(free, 0), 1)); // a cycle: take the first
+    const unblocked = open.findIndex((t) => !openBlockersIn(open)(t));
+    out.push(...open.splice(Math.max(unblocked, FIRST_IN_A_CYCLE), 1));
   }
   return out;
 };
 
-const DAY = 86400;
-
-// A GitHub board's top (GLOSSARY: Pending decision): the open issues holding a pending decision,
-// oldest first, a tie by issue number, as `nawaban brief` lists them.
-export const pendingView = (board) => (board?.columns ?? []).filter((c) => c.key !== "done").flatMap((c) => c.tasks ?? [])
-  .filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || x.id.slice(1) - y.id.slice(1))
+const issueNumber = (id) => id.slice(1);
+export const pendingView = (board) => openTasks(board)
+  .filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || issueNumber(x.id) - issueNumber(y.id))
   .map((t) => ({ id: t.id, title: t.title, url: t.url ?? null }));
 
-// A GitHub board's issues, each in its window: the live terminal its claim names (`hc t5n`), else the
-// live window named for it: `gh-275`, `gh-238r` (`hc run --name`) is #275, #238.
+const issueTerminalsByName = (live) => new Map(live.flatMap((k) => {
+  const named = issueNamedBy(k.name);
+  return named ? [["#" + named[1], k.address]] : [];
+}));
+
 const matchIssues = (board, terminals) => {
-  const live = terminals.filter((k) => k.state === "live"), alive = new Set(live.map((k) => k.address));
-  const at = new Map(live.flatMap((k) => {
-    const m = /^gh-(\d+)/.exec(k.name ?? "");
-    return m ? [[`#${m[1]}`, k.address]] : [];
-  }));
-  return { ...board, columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => ({ ...t, terminal: alive.has(t.terminal) ? t.terminal : at.get(t.id) ?? t.terminal })) })) };
+  const live = terminals.filter(isLive), alive = new Set(live.map((k) => k.address));
+  const byName = issueTerminalsByName(live);
+  const terminalOf = (t) => (alive.has(t.terminal) ? t.terminal : byName.get(t.id) ?? t.terminal);
+  return { ...board, columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => ({ ...t, terminal: terminalOf(t) })) })) };
 };
 
-// An issue as its window's item, in GitHub's terms: closed is done (and folds); open, waiting on you
-// (needs-info, or Herdr says blocked), current while its window works, else pushing while the issue
-// moved (any comment or edit) in the last 24 hours, else stopped since then.
+function issueState(t, status, now) {
+  if (isDone(t)) return "done";
+  if (isAsking(t) || herdrSaysNeedsYou(status)) return "waiting";
+  if (status === "working") return "current";
+  return now - t.active_at < ISSUE_STILL_MOVING_FOR ? "pushing" : "stopped";
+}
+
+const issueSince = (t, state) => (state === "done" ? t.done_at : state === "current" ? t.claimed_at : state === "stopped" ? t.active_at : null);
+
 const issueItem = (t, status, now) => {
-  const state = t.status === "done" ? "done" : t.waiting != null || status === "blocked" || status === "error" ? "waiting"
-    : status === "working" ? "current" : now - t.active_at < DAY ? "pushing" : "stopped";
-  return { id: t.id, title: t.title, state, at: state === "done" ? t.done_at : state === "current" ? t.claimed_at : state === "stopped" ? t.active_at : null,
+  const state = issueState(t, status, now);
+  return { id: t.id, title: t.title, state, at: issueSince(t, state),
     gone: false, who: "worker", note: t.progress?.body ?? null, spec: null, decisions: t.decision ? [t.decision] : [], url: t.url ?? null,
     active: t.active_at, closed: state === "done" };
 };
 
-// A session as a leader's key: agent-center authors its notes `ac:<session>`, the same session.
-const sessionKey = (s) => s?.replace(/^[a-z]+:(?=[0-9a-f]{8})/, "") ?? null;
+const AGENT_CENTER_SESSION_PREFIX = /^[a-z]+:(?=[0-9a-f]{8})/;
+const sessionKey = (s) => s?.replace(AGENT_CENTER_SESSION_PREFIX, "") ?? null;
 
-// A duration in seconds: "20m", "3h", "2d" in the table; on a card, in Chinese, "20 分钟", "1 小时".
-const span = (s, lang, card) => {
-  if (s < 60) return lang === "zh" ? "刚刚" : "now";
-  const [n, zh, en] = s < 3600 ? [s / 60, "分钟", "m"] : s < 86400 ? [s / 3600, "小时", "h"] : [s / 86400, "天", "d"];
-  return lang === "zh" && card ? `${Math.floor(n)} ${zh}` : `${Math.floor(n)}${en}`;
+const SPAN_UNITS = [
+  { below: HOUR, unit: MINUTE, zh: "分钟", en: "m" },
+  { below: DAY, unit: HOUR, zh: "小时", en: "h" },
+  { below: Infinity, unit: DAY, zh: "天", en: "d" }];
+const span = (seconds, lang, onCard) => {
+  if (seconds < MINUTE) return lang === "zh" ? "刚刚" : "now";
+  const { unit, zh, en } = SPAN_UNITS.find((u) => seconds < u.below);
+  const n = Math.floor(seconds / unit);
+  return lang === "zh" && onCard ? n + " " + zh : n + en;
 };
 
-// An item's state on its right (leadersView's `at` is seconds): "完成 09:10", "完成 昨天 18:40",
-// "在干 40 分钟", "停了 2 小时", "还没动". Local time, from Date's getters.
+const TODAY = 0;
+const YESTERDAY = 1;
+const localMidnight = (at) => new Date(at * MS_PER_SECOND).setHours(0, 0, 0, 0);
+const daysAgo = (at, now) => Math.round((localMidnight(now) - localMidnight(at)) / MS_PER_DAY);
+const clockTime = (at) => {
+  const d = new Date(at * MS_PER_SECOND);
+  return pad(d.getHours()) + ":" + pad(d.getMinutes());
+};
+const dayOf = (at, now, w) => {
+  const ago = daysAgo(at, now);
+  return ago === TODAY ? null : ago === YESTERDAY ? w.yesterday : decisionDate(at);
+};
+
 export function itemLabel({ state, at }, now, lang) {
   const w = WINDOW_WORDS[lang], label = w[ITEM_STATE[state]];
   if (at == null) return label;
-  if (state !== "done") return `${label} ${span(now - at, lang, true)}`;
-  const d = new Date(at * 1000), day = (x) => new Date(x * 1000).setHours(0, 0, 0, 0);
-  const ago = Math.round((day(now) - day(at)) / 86400000);
-  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return `${label} ${ago === 0 ? time : ago === 1 ? `${w.yesterday} ${time}` : `${decisionDate(at)} ${time}`}`;
+  if (state !== "done") return label + " " + span(now - at, lang, true);
+  return label + " " + [dayOf(at, now, w), clockTime(at)].filter(Boolean).join(" ");
 }
 
 const ITEM_STATE = { done: "done", current: "working", pushing: "pushing", stopped: "stopped", todo: "todo", waiting: "waiting" };
 const pad = (n) => String(n).padStart(2, "0");
+const calendarMonth = (d) => d.getMonth() + 1;
 
-// A decision's day, "11-05", local time.
-export const decisionDate = (at) => { const d = new Date(at * 1000); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+export const decisionDate = (at) => {
+  const d = new Date(at * MS_PER_SECOND);
+  return pad(calendarMonth(d)) + "-" + pad(d.getDate());
+};
 
-// The panel's words; WINDOW_WORDS[lang][state] is a state's label.
 export const WINDOW_WORDS = {
   zh: { waiting: "等你", pushing: "在推", closed: (n) => `已关 ${n} 个`, stopped: "停了", done: "完成", working: "在干", idle: "空闲", todo: "还没动", yesterday: "昨天", confirm: "在等你确认",
     windows: (n) => `${n} 个窗口`, elsewhere: (n) => (n ? `其他项目 ${n} 个等你` : "其他项目没有等你的"),
@@ -324,103 +429,124 @@ export const WINDOW_WORDS = {
     pending: (n) => `Pending ${n}`, windowsFold: (n) => `Window groups ${n}` },
 };
 
-// The key the up (-1) or down (+1) arrow selects from `key`, through the cards and rows in the
-// order shown; it stops at either end. With nothing selected, or a window no longer shown, down
-// starts at the top and up at the bottom.
+const FIRST = 0;
+const entryPoint = (keys, delta) => keys[delta > 0 ? FIRST : keys.length - 1];
+const clampIndex = (keys, i) => Math.min(keys.length - 1, Math.max(FIRST, i));
 export function moveSelection(keys, key, delta) {
   if (!keys.length) return null;
   const at = keys.indexOf(key);
-  if (at < 0) return keys[delta > 0 ? 0 : keys.length - 1];
-  return keys[Math.min(keys.length - 1, Math.max(0, at + delta))];
+  if (at < 0) return entryPoint(keys, delta);
+  return keys[clampIndex(keys, at + delta)];
 }
 
-// A key pressed in the panel as one of its commands (the same names `nawaban-board.<command>`
-// reaches from keys.json or `herdr-app do`), or null to leave the key alone.
 const KEYS = { down: "down", up: "up", enter: "open", escape: "back" };
 export const keyCommand = (e) => KEYS[e.keystroke] ?? null;
 
-// ── OKR (spec NAWABAN-OKRP): `nawaban json okr` as the panel draws it ──
-
-// Attention first by how hard the guardrail is: five missed rounds, two rounds no better, a KR
-// waiting on the decision-maker, an Objective ready to accept.
-const OKR_KINDS = ["five", "stuck", "wait", "accept"];
+const OKR_KINDS_HARDEST_FIRST = ["five", "stuck", "wait", "accept"];
+const KINDS_WITH_READINGS = ["five", "stuck"];
 const OKR_STATES = ["met", "missed", "stale", "untested"];
 const OPS = { ">=": "≥", "<=": "≤", ">": ">", "<": "<", "==": "=" };
-const num = (v) => String(Math.round(v * 10) / 10);
+const TENTHS = 10;
+const oneDecimal = (v) => String(Math.round(v * TENTHS) / TENTHS);
 
-// "<= 20" with "%": the comparison, the goal, and "≤ 20%" to show; null when it does not parse.
+const TARGET = /^\s*(>=|<=|==|>|<)\s*(-?\d+(?:\.\d+)?)\s*$/;
 const parseTarget = (target, unit = "") => {
-  const m = /^\s*(>=|<=|==|>|<)\s*(-?\d+(?:\.\d+)?)\s*$/.exec(target ?? "");
-  return m ? { op: m[1], goal: Number(m[2]), text: `${OPS[m[1]]} ${m[2]}${unit}` } : null;
+  const m = TARGET.exec(target ?? "");
+  return m ? { op: m[1], goal: Number(m[2]), text: OPS[m[1]] + " " + m[2] + unit } : null;
 };
 
-// The last readings as a small line: x and y as percentages of the drawn box (higher value, higher
-// up), with the goal's line on the same scale. Points are spread evenly, oldest on the left.
+const SPARK_MIDDLE = 50;
+const SPARK_TOP_MARGIN = 10;
+const SPARK_DRAWN_HEIGHT = 80;
+const SPARK_LEFT_MARGIN = 4;
+const SPARK_DRAWN_WIDTH = 92;
+
 export function okrSpark(history, goal) {
   const vs = (history ?? []).map((h) => h.value);
   if (!vs.length) return null;
   const all = goal == null ? vs : [...vs, goal], lo = Math.min(...all), hi = Math.max(...all);
-  const y = (v) => (hi === lo ? 50 : 10 + ((hi - v) / (hi - lo)) * 80);
-  const x = (i) => (vs.length === 1 ? 50 : 4 + (i / (vs.length - 1)) * 92);
-  return { points: vs.map((v, i) => [x(i), y(v)]), goal: goal == null ? null : y(goal), labels: vs.map(num) };
+  const y = (v) => (hi === lo ? SPARK_MIDDLE : SPARK_TOP_MARGIN + ((hi - v) / (hi - lo)) * SPARK_DRAWN_HEIGHT);
+  const x = (i) => (vs.length === 1 ? SPARK_MIDDLE : SPARK_LEFT_MARGIN + (i / (vs.length - 1)) * SPARK_DRAWN_WIDTH);
+  return { points: vs.map((v, i) => [x(i), y(v)]), goal: goal == null ? null : y(goal), labels: vs.map(oneDecimal) };
 }
 
-// A KR's row: its state, the value against the target, and a bar from 0 with the goal's tick on it
-// (a % unit is out of 100; any other, out of a quarter past the larger of value and goal).
+const PERCENT_FULL = 100;
+const BAR_HEADROOM = 1.25;
+const NONZERO_SCALE = 1;
+const barScale = (k, t) => (k.unit === "%" ? PERCENT_FULL
+  : Math.max(Math.abs(k.value ?? 0), Math.abs(t?.goal ?? 0)) * BAR_HEADROOM || NONZERO_SCALE);
+const isMeasured = (k) => k.value != null && k.status !== "untested";
+const hasMismatch = (k) => Array.isArray(k.mismatch) && k.mismatch.length > 0;
+
 const krRow = (k, w) => {
-  const t = parseTarget(k.target, k.unit ?? ""), has = k.value != null && k.status !== "untested";
-  const scale = k.unit === "%" ? 100 : Math.max(Math.abs(k.value ?? 0), Math.abs(t?.goal ?? 0)) * 1.25 || 1;
-  const pct = (v) => Math.min(100, Math.max(0, (v / scale) * 100));
+  const t = parseTarget(k.target, k.unit ?? ""), measured = isMeasured(k), scale = barScale(k, t);
+  const onBar = (v) => Math.min(PERCENT_FULL, Math.max(0, (v / scale) * PERCENT_FULL));
   return { name: k.name, status: OKR_STATES.includes(k.status) ? k.status : "untested",
-    value: has ? `${num(k.value)}${k.unit ?? ""}` : w.status.untested, target: t?.text ?? k.target ?? "",
-    goal: t?.goal ?? null, fill: has ? pct(k.value) : null, tick: t ? pct(t.goal) : null,
+    value: measured ? oneDecimal(k.value) + (k.unit ?? "") : w.status.untested, target: t?.text ?? k.target ?? "",
+    goal: t?.goal ?? null, fill: measured ? onBar(k.value) : null, tick: t ? onBar(t.goal) : null,
     as_of: k.as_of ?? null, source: k.source ?? null, trend: w.trend[k.trend] ?? w.trend.null,
     missed_rounds: k.missed_rounds ?? 0, wait: k.wait ?? null, history: k.history ?? [],
-    mismatch: Array.isArray(k.mismatch) && k.mismatch.length ? w.mismatch(k.mismatch.map((m) => m.ticket)) : null };
+    mismatch: hasMismatch(k) ? w.mismatch(k.mismatch.map((m) => m.ticket)) : null };
 };
 
-// An Objective's declarations since the last round as "↑2 ↓1 =3"; null when none (or an older CLI).
 const DIRS = ["↑", "↓", "="];
-const impactLine = (n) => (n && DIRS.some((d) => n[d] > 0) ? DIRS.map((d) => d + (n[d] ?? 0)).join(" ") : null);
+const declaredAny = (n) => n && DIRS.some((d) => n[d] > 0);
+const impactLine = (n) => (declaredAny(n) ? DIRS.map((d) => d + (n[d] ?? 0)).join(" ") : null);
 
-// The OKR section, or null to leave it out: no okr.toml, a CLI without `json okr`, or a reading
-// that is not the contract. Attention: one card per KR (the harder kind wins), by kind, then in the
-// order okr.toml lists them; stuck and five carry the last readings. Wait cards of one Objective
-// with the same text are one decision: one card where the first stood, its KRs listed. Each Objective: met/total, one
-// segment per KR (met, missed, stale, untested), its KR rows in okr.toml's order.
-export function okrView(okr, lang) {
-  if (!okr || !Array.isArray(okr.objectives) || !okr.objectives.length) return null;
-  const w = OKR_WORDS[lang] ?? OKR_WORDS.en;
-  const objectives = okr.objectives.map((o) => {
-    const krs = (o.krs ?? []).map((k) => krRow(k, w));
-    const counts = Object.fromEntries(OKR_STATES.map((s) => [s, krs.filter((k) => k.status === s).length]));
-    return { name: o.name, met: o.met ?? counts.met, total: o.total ?? krs.length, counts, impacts: impactLine(o.impacts),
-      segments: OKR_STATES.flatMap((s) => Array(counts[s]).fill(s)), krs, attention: false };
-  });
-  const rank = (a) => {
-    const oi = objectives.findIndex((o) => o.name === a.objective), o = objectives[oi];
-    return [OKR_KINDS.indexOf(a.kind), oi, o ? o.krs.findIndex((k) => k.name === a.kr) : -1];
-  };
+function objectiveView(o, w) {
+  const krs = (o.krs ?? []).map((k) => krRow(k, w));
+  const counts = Object.fromEntries(OKR_STATES.map((s) => [s, krs.filter((k) => k.status === s).length]));
+  return { name: o.name, met: o.met ?? counts.met, total: o.total ?? krs.length, counts, impacts: impactLine(o.impacts),
+    segments: OKR_STATES.flatMap((s) => Array(counts[s]).fill(s)), krs, attention: false };
+}
+
+const attentionRank = (objectives) => (a) => {
+  const oi = objectives.findIndex((o) => o.name === a.objective), o = objectives[oi];
+  return [OKR_KINDS_HARDEST_FIRST.indexOf(a.kind), oi, o ? o.krs.findIndex((k) => k.name === a.kr) : -1];
+};
+const byRank = ([x], [y]) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+
+const onePerKr = () => {
   const seen = new Set();
-  const attention = (okr.attention ?? []).filter((a) => OKR_KINDS.includes(a.kind))
-    .map((a) => [rank(a), a]).sort(([x], [y]) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2])
-    .filter(([, a]) => { const k = `${a.objective}\0${a.kr ?? ""}`; return !seen.has(k) && seen.add(k); })
-    .reduce((out, [, a]) => {
-      const same = a.kind === "wait" && out.find((g) => g[0].kind === "wait" && g[0].objective === a.objective && g[0].text === a.text);
-      same ? same.push(a) : out.push([a]);
-      return out;
-    }, [])
-    .map((g, i) => {
-      const a = g[0], o = objectives.find((x) => x.name === a.objective), kr = o?.krs.find((k) => k.name === a.kr);
-      if (o) o.attention = true;
-      if (g.length > 1) return { key: `okr:${i}`, kind: a.kind, label: w.kind[a.kind], title: w.waits(a.objective, g.length),
-        objective: null, text: a.text ?? "", spark: null, target: null, krs: g.map((x) => x.kr) };
-      const spark = (a.kind === "stuck" || a.kind === "five") && kr ? okrSpark(kr.history, kr.goal) : null;
-      return { key: `okr:${i}`, kind: a.kind, label: w.kind[a.kind], title: a.kr || a.objective,
-        objective: a.kr ? a.objective : null, text: a.text ?? "", spark, target: kr ? `${w.target} ${kr.target}` : null };
-    });
+  return ([, a]) => {
+    const kr = a.objective + "\0" + (a.kr ?? "");
+    return !seen.has(kr) && seen.add(kr);
+  };
+};
+
+const isSameDecision = (a) => (group) => group[0].kind === "wait" && group[0].objective === a.objective && group[0].text === a.text;
+const sameWaitsAsOneDecision = (out, [, a]) => {
+  const same = a.kind === "wait" && out.find(isSameDecision(a));
+  same ? same.push(a) : out.push([a]);
+  return out;
+};
+
+function attentionCard(group, i, objectives, w) {
+  const a = group[0], o = objectives.find((x) => x.name === a.objective), kr = o?.krs.find((k) => k.name === a.kr);
+  if (o) o.attention = true;
+  const key = "okr:" + i, base = { key, kind: a.kind, label: w.kind[a.kind], text: a.text ?? "" };
+  if (group.length > 1) return { ...base, title: w.waits(a.objective, group.length), objective: null, spark: null, target: null,
+    krs: group.map((x) => x.kr) };
+  const spark = KINDS_WITH_READINGS.includes(a.kind) && kr ? okrSpark(kr.history, kr.goal) : null;
+  return { ...base, title: a.kr || a.objective, objective: a.kr ? a.objective : null, spark, target: kr ? w.target + " " + kr.target : null };
+}
+
+export const isoMonthDay = (iso) => iso.slice(5, 10);
+const isoHourMinute = (iso) => iso.slice(11, 16);
+const isOkrReading = (okr) => okr && Array.isArray(okr.objectives) && okr.objectives.length > 0;
+
+export function okrView(okr, lang) {
+  if (!isOkrReading(okr)) return null;
+  const w = OKR_WORDS[lang] ?? OKR_WORDS.en;
+  const objectives = okr.objectives.map((o) => objectiveView(o, w));
+  const rank = attentionRank(objectives);
+  const attention = (okr.attention ?? []).filter((a) => OKR_KINDS_HARDEST_FIRST.includes(a.kind))
+    .map((a) => [rank(a), a]).sort(byRank)
+    .filter(onePerKr())
+    .reduce(sameWaitsAsOneDecision, [])
+    .map((group, i) => attentionCard(group, i, objectives, w));
   const at = okr.last_measured_at;
-  return { met: okr.met, total: okr.total, measured: at ? `${at.slice(5, 10)} ${at.slice(11, 16)}` : null, attention, objectives };
+  return { met: okr.met, total: okr.total, measured: at ? isoMonthDay(at) + " " + isoHourMinute(at) : null, attention, objectives };
 }
 
 export const OKR_WORDS = {

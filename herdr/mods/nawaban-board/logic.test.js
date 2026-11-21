@@ -6,42 +6,47 @@ import { readFileSync } from "node:fs";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
   const projects = { projects: [{ name: "nawaban" }, { name: "roubao" }] };
-  // `git rev-parse --path-format=absolute --git-common-dir`, run in a worktree or the checkout
   assert.equal(projectFor("/Users/v/nawaban/.git\n", projects), "nawaban");
   assert.equal(projectFor("/Users/v/elsewhere/.git\n", projects), null);
-  assert.equal(projectFor("", projects), null); // not in a git repository
+  assert.equal(projectFor("", projects), null);
 });
 
 test("while both boards run, a project is read from the board only once it moved there, and only on this computer", () => {
   assert.deepEqual([...BOARD_PROJECTS].sort(), ["bzkanbanv2", "huafa", "nawaban"]);
   assert.equal(cliFor("nawaban"), "board");
-  assert.equal(cliFor("roubao"), "old"); // GitHub-tracked
-  assert.equal(cliFor("agent-center"), "old"); // not moved
-  assert.equal(cliFor(null), "old"); // a folder in no repository
-  assert.equal(cliFor("nawaban", "mbp"), "old"); // a space on another machine
+  assert.equal(cliFor("roubao"), "old");
+  assert.equal(cliFor("agent-center"), "old");
+  assert.equal(cliFor(null), "old");
+  assert.equal(cliFor("nawaban", "mbp"), "old");
+});
+
+test("BOARD_PROJECTS stays the one line of JSON strings nawaban/cli.py reads to refuse writes", () => {
+  const cliPyReads = /^export const BOARD_PROJECTS = new Set\((\[[^\]\n]*\])?\);$/m;
+  const line = readFileSync(new URL("./logic.js", import.meta.url), "utf8").match(cliPyReads);
+  assert.deepEqual(JSON.parse(line[1]).sort(), [...BOARD_PROJECTS].sort());
 });
 
 test("the saved language wins, else the system's first preferred language: Chinese or English", () => {
-  const apple = (...langs) => `(\n${langs.map((l) => `    "${l}"`).join(",\n")}\n)\n`; // defaults read -g AppleLanguages
+  const apple = (...langs) => `(\n${langs.map((l) => `    "${l}"`).join(",\n")}\n)\n`;
   assert.equal(resolveLang(null, apple("zh-Hans-JP")), "zh");
   assert.equal(resolveLang(null, apple("en-US", "zh-Hans")), "en");
   assert.equal(resolveLang(null, apple("ja-JP")), "en");
-  assert.equal(resolveLang(null, "zh_CN.UTF-8"), "zh"); // $LANG, off macOS
+  assert.equal(resolveLang(null, "zh_CN.UTF-8"), "zh");
   assert.equal(resolveLang(null, ""), "en");
   assert.equal(resolveLang("en", apple("zh-Hans")), "en");
   assert.equal(resolveLang("zh", "en_US.UTF-8"), "zh");
-  assert.equal(resolveLang("fr", "zh_CN.UTF-8"), "zh"); // an unknown saved value is ignored
+  assert.equal(resolveLang("fr", "zh_CN.UTF-8"), "zh");
 });
 
 test("the arrow keys move the selection through cards and rows together, and stop at either end", () => {
   const keys = ["card", "row1", "row2"];
-  assert.equal(moveSelection(keys, null, 1), "card"); // nothing picked yet: down starts at the top
-  assert.equal(moveSelection(keys, null, -1), "row2"); // and up at the bottom
+  assert.equal(moveSelection(keys, null, 1), "card");
+  assert.equal(moveSelection(keys, null, -1), "row2");
   assert.equal(moveSelection(keys, "card", 1), "row1");
   assert.equal(moveSelection(keys, "row1", -1), "card");
   assert.equal(moveSelection(keys, "row2", 1), "row2");
   assert.equal(moveSelection(keys, "card", -1), "card");
-  assert.equal(moveSelection(keys, "GONE", 1), "card"); // a window that left the panel
+  assert.equal(moveSelection(keys, "GONE", 1), "card");
   assert.equal(moveSelection([], null, 1), null);
 });
 
@@ -51,8 +56,8 @@ test("keys become the panel's commands: arrows move, Enter goes to the window, E
   assert.equal(press("up"), "up");
   assert.equal(press("enter"), "open");
   assert.equal(press("escape"), "back");
-  assert.equal(press("/", "/"), null); // no filter box any more
-  assert.equal(press("cmd-down"), null); // chords stay Herdr's
+  assert.equal(press("/", "/"), null);
+  assert.equal(press("cmd-down"), null);
   assert.equal(press("a", "a"), null);
 });
 
@@ -60,13 +65,12 @@ test("a change under the board's folder counts when it is the board or its write
   const db = "/u/.nawaban/nawaban.db";
   assert.equal(boardChanged(["/u/.nawaban/nawaban.db-wal"], db), true);
   assert.equal(boardChanged(["/u/.nawaban/nawaban.db"], db), true);
-  assert.equal(boardChanged(["/u/.nawaban"], db), true); // the watched folder itself: anything may have changed
-  assert.equal(boardChanged(["/u/.nawaban/nawaban.db-shm"], db), false); // readers, the panel too, touch this
+  assert.equal(boardChanged(["/u/.nawaban"], db), true);
+  assert.equal(boardChanged(["/u/.nawaban/nawaban.db-shm"], db), false);
   assert.equal(boardChanged(["/u/.nawaban/backups/nawaban-1.db", "/u/.nawaban/nawaban.old.db"], db), false);
   assert.equal(boardChanged([], db), false);
 });
 
-// Herdr agents (AgentInfo) and `nawaban json board` tasks, as windowsView reads them.
 const agent = (address, status, title, tab_name = "", seq = 0, space = "here") => ({ address, pane: `p-${address}`, status, title, tab_name, seq, space });
 const held = (id, terminal, { status = "in_progress", waiting = null, active_at = 0, title = id } = {}) =>
   ({ id, title, status, terminal, waiting, session: null, active_at });
@@ -91,7 +95,6 @@ test("an idle window holding an open task is 停了 on that task, for as long as
 test("a window that finished unseen is 完成; one idle with no open task is 空闲, collapsed into the idle row", () => {
   const tasks = [held("OLD", "t2", { status: "done" })];
   const v = view([agent("t1", "done", "知识库重试", "13"), agent("t2", "idle", "zsh", "7"), agent("t3", "idle", "~", "")], tasks);
-  // a tab nobody named is called by its index ("13"): never a name, the terminal title instead
   assert.deepEqual(v.rows.map((r) => [r.name, r.doing, r.state, r.label]), [["知识库重试", "知识库重试", "done", "完成"]]);
   assert.deepEqual(v.idle, { count: 2, names: ["zsh", "~"] });
 });
@@ -124,7 +127,6 @@ test("a window Herdr reports blocked is 等你 on its terminal title, asking for
     label: "等你", duration: null, focus: "t1" }]);
   assert.deepEqual(v.rows, []);
   assert.equal(view([agent("t1", "blocked", "x")], [], { lang: "en" }).waiting[0].question, "Waiting for you to confirm");
-  // the terminal title says what it asks to confirm, so it stays on the card when the window holds a task
   const card = view([agent("t1", "blocked", "rm -rf build?", "清理flag")], [held("A", "t1", { title: "清理" })]).waiting[0];
   assert.deepEqual([card.name, card.doing, card.duration], ["清理flag", "rm -rf build?", null]);
 });
@@ -142,7 +144,6 @@ test("a waiting task in no window of this space still gets a card: it focuses it
     ["NOWHERE", "哪个目录？", "补文档", "10 分钟", null],
     ["GONE", "清哪个？", "清缓存", "5 分钟", null],
     ["确认删除？", "在等你确认", "确认删除？", null, "t2"]]);
-  // the windows listed are this space's only
   assert.deepEqual(v.rows.map((r) => r.focus), []);
   assert.deepEqual(v.idle, { count: 0, names: [] });
 });
@@ -153,8 +154,6 @@ test("the header counts what waits on you in the other projects of `json project
   assert.equal(view([]).otherWaiting, 0);
 });
 
-// `nawaban json board` tasks as leadersView reads them: open ones carry progress, blocked_by (open
-// blockers only), waiting and decision; done ones carry done_at and none of those.
 const task = (id, { status = "open", session = null, leader = session, terminal = null, parent = null, created_at = 0,
   claimed_at = null, active_at = 0, done_at = null, progress = null, blocked_by = [], decision = null, title = id } = {}) =>
   status === "done"
@@ -167,8 +166,8 @@ const leaders = (agents, tasks, extra = {}) =>
 test("a leader's items are numbered by first claim, not by id; unclaimed ones after, by creation", () => {
   const v = leaders([agent("t1", "working", "claude", "入职")], [
     task("A-9", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 100 }),
-    task("A-1", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 500 }), // added later
-    task("A-5", { leader: "L", created_at: 50 }), // dispatched, no worker on it yet
+    task("A-1", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 500 }),
+    task("A-5", { leader: "L", created_at: 50 }),
     task("A-2", { leader: "L", created_at: 40 })]);
   assert.deepEqual(v.groups.map((g) => [g.name, g.items.map((i) => [i.number, i.id])]),
     [["入职", [[1, "A-9"], [2, "A-1"], [3, "A-2"], [4, "A-5"]]]]);
@@ -178,10 +177,9 @@ test("a dispatched task sits in its leader's group, done by a worker, with the w
   const L = "d9194652-1420-4755", W = "eb2f6c83-4582-41e5";
   const v = leaders([agent("t1", "working", "claude", "入职"), agent("t2", "working", "claude", "w")], [
     task("OWN", { status: "in_progress", session: L, terminal: "t1", claimed_at: 1, progress: "verify：3814 个测试通过" }),
-    // agent-center writes its dispatch notes as `ac:<session>`: the same leader
     task("SENT", { status: "in_progress", session: W, leader: `ac:${L}`, terminal: "t2", claimed_at: 2, progress: "handoff：原件兜底" }),
-    task("QUEUED", { leader: `ac:${L}`, created_at: 3 }), // dispatched, not started
-    task("PUT-BACK", { leader: W, claimed_at: 4 })]); // released: nobody is on it, so it is in no group
+    task("QUEUED", { leader: `ac:${L}`, created_at: 3 }),
+    task("PUT-BACK", { leader: W, claimed_at: 4 })]);
   assert.equal(v.groups.length, 1);
   const g = v.groups[0];
   assert.deepEqual([g.name, g.self, g.dispatched], ["入职", 1, 2]);
@@ -193,15 +191,15 @@ test("a dispatched task sits in its leader's group, done by a worker, with the w
 
 test("a spec is one item in its tickets' place, its segments in blocked-by order: done ones first, then the open ones", () => {
   const v = leaders([agent("t2", "working", "claude", "w"), agent("t9", "working", "claude", "报表")], [
-    task("S-03", { parent: "S", leader: "L", blocked_by: ["S-02"], created_at: 3 }), // dispatched, waits on S-02
-    task("S-04", { parent: "S", leader: "L", created_at: 4 }), // its blocker S-01 is done, so none listed
+    task("S-03", { parent: "S", leader: "L", blocked_by: ["S-02"], created_at: 3 }),
+    task("S-04", { parent: "S", leader: "L", created_at: 4 }),
     task("S-02", { parent: "S", status: "in_progress", session: "W", leader: "L", terminal: "t2", claimed_at: 20, progress: "第 3 张" }),
     task("S-01", { parent: "S", status: "done", leader: "L", claimed_at: 10, done_at: NOW - 3600 }),
-    task("S", { title: "报表迁到新底座" }), // a spec nobody claims
+    task("S", { title: "报表迁到新底座" }),
     task("T", { status: "in_progress", session: "L", terminal: "t9", claimed_at: 15 })]);
   const g = v.groups[0];
   assert.deepEqual(v.groups.map((x) => x.leader), ["L"]);
-  assert.deepEqual(g.items.map((i) => [i.number, i.id]), [[1, "S"], [2, "T"]]); // the spec arrived with its first claim
+  assert.deepEqual(g.items.map((i) => [i.number, i.id]), [[1, "S"], [2, "T"]]);
   const spec = g.items[0];
   assert.deepEqual([spec.title, spec.state, spec.who, spec.note, spec.focus], ["报表迁到新底座", "current", "worker", "第 3 张", "t2"]);
   assert.deepEqual(spec.spec, { tickets: ["S-01", "S-04", "S-02", "S-03"], segments: ["done", "todo", "current", "todo"], done: 1, total: 4 });
@@ -212,15 +210,15 @@ test("a held item whose terminal is idle or gone is stopped; gone, it has no win
   const v = leaders([agent("t1", "idle", "zsh", "入职"), agent("o1", "working", "claude", "别处", 0, "other")], [
     task("IDLE", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 1, active_at: NOW - 7200 }),
     task("GONE", { status: "in_progress", session: "W", leader: "L", terminal: "closed", claimed_at: 2, progress: "handoff" }),
-    task("AWAY", { status: "in_progress", session: "W2", leader: "L", terminal: "o1", claimed_at: 3 }), // another space: not gone
-    task("NO-TERMINAL", { status: "in_progress", session: "W3", leader: "L", claimed_at: 4 })]); // unknown: taken as working
+    task("AWAY", { status: "in_progress", session: "W2", leader: "L", terminal: "o1", claimed_at: 3 }),
+    task("NO-TERMINAL", { status: "in_progress", session: "W3", leader: "L", claimed_at: 4 })]);
   assert.deepEqual(v.groups[0].items.map((i) => [i.id, i.state, i.gone, i.focus, i.note]), [
     ["IDLE", "stopped", false, "t1", null],
     ["GONE", "stopped", true, null, "handoff"],
     ["AWAY", "current", false, "o1", null],
     ["NO-TERMINAL", "current", false, null, null]]);
-  assert.equal(v.groups[0].items[0].at, NOW - 7200); // stopped since its latest event
-  assert.equal(v.groups[0].items[2].at, 3); // current since its first claim
+  assert.equal(v.groups[0].items[0].at, NOW - 7200);
+  assert.equal(v.groups[0].items[2].at, 3);
 });
 
 test("a done item stays for 24 hours after it was done, then leaves; a leader with nothing else leaves with it", () => {
@@ -255,14 +253,14 @@ test("the arrows walk the cards, then the items with a window, each once, though
   const asking = { ...task("Q", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 1 }), waiting: "放行吗？" };
   const v = leaders([agent("t1", "working", "claude", "入职")], [asking,
     task("R", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 2 }),
-    task("NOWHERE", { status: "in_progress", session: "L", claimed_at: 3 })]); // no terminal: nothing to go to
+    task("NOWHERE", { status: "in_progress", session: "L", claimed_at: 3 })]);
   assert.deepEqual(v.keys, ["card:0", "L/Q", "L/R"]);
   assert.deepEqual([v.waiting[0].key, ...v.groups[0].items.map((i) => i.key)], ["card:0", "L/Q", "L/R", "L/NOWHERE"]);
   assert.equal(moveSelection(v.keys, "L/Q", 1), "L/R");
 });
 
 test("an item's state says since when: done at a time of day, today or yesterday; current and stopped for how long", () => {
-  const at = (d, h, m) => new Date(2026, 10, d, h, m).getTime() / 1000; // local time, as the panel shows it
+  const at = (d, h, m) => new Date(2026, 10, d, h, m).getTime() / 1000;
   const now = at(6, 12, 0);
   const label = (state, when, lang = "zh") => itemLabel({ state, at: when }, now, lang);
   assert.equal(label("done", at(6, 9, 10)), "完成 09:10");
@@ -273,7 +271,7 @@ test("an item's state says since when: done at a time of day, today or yesterday
   assert.equal(label("current", now - 30), "在干 刚刚");
   assert.equal(label("stopped", now - 2 * 3600 - 59), "停了 2 小时");
   assert.equal(label("stopped", now - 2 * 3600, "en"), "Stopped 2h");
-  assert.equal(label("current", null), "在干"); // claimed with no claim event
+  assert.equal(label("current", null), "在干");
   assert.equal(label("todo", null), "还没动");
   assert.equal(decisionDate(at(5, 23, 59)), "11-05");
 });
@@ -283,8 +281,7 @@ test("every window of the space holding no task is in the last row, whatever Her
     agent("t3", "working", "claude", "入职"), agent("t4", "blocked", "rm?", "确认"), agent("t5", "done", "claude", "13"),
     agent("o1", "working", "claude", "别处", 0, "other")],
   [task("A", { status: "in_progress", session: "L", terminal: "t3", claimed_at: 1 })]);
-  // t3 is its task's item, t4 a card, o1 another space's
-  assert.deepEqual(v.idle, { count: 3, names: ["部署（在干）", "闲聊", "claude（完成）"] }); // tab "13": unnamed
+  assert.deepEqual(v.idle, { count: 3, names: ["部署（在干）", "闲聊", "claude（完成）"] });
   assert.equal(WINDOW_WORDS.zh.idleRow(v.idle.count, v.idle.names), "没认领 3 · 部署（在干）、闲聊、claude（完成）");
   const en = leaders([agent("t1", "working", "claude", "deploy"), agent("t2", "idle", "zsh", "chat")], [], { lang: "en" });
   assert.equal(WINDOW_WORDS.en.idleRow(en.idle.count, en.idle.names), "No task 2 · deploy (working), chat");
@@ -302,7 +299,7 @@ test("a held task the board gives no leader is led by its holder: it never vanis
 
 test("a spec held itself, none of its tickets held, speaks for itself: current or stopped, its note, its window", () => {
   const spec = (status) => [task("S", { status: "in_progress", session: "L", terminal: "t1", claimed_at: 1, active_at: 5, progress: "拆票中" }),
-    task("S-01", { parent: "S", leader: "L", created_at: 2 })]; // dispatched, not started
+    task("S-01", { parent: "S", leader: "L", created_at: 2 })];
   for (const [herdr, state] of [["working", "current"], ["idle", "stopped"]]) {
     const v = leaders([agent("t1", herdr, "claude", "入职")], spec());
     assert.deepEqual(v.groups[0].items.map((i) => [i.id, i.state, i.who, i.note, i.focus]),
@@ -311,8 +308,6 @@ test("a spec held itself, none of its tickets held, speaks for itself: current o
   }
 });
 
-// Herdr's terminal tree (`terminals()`): a leader started its workers with `hc run`, so they are its
-// children and have no pane, hence no AgentInfo. As in the roubao space on 2026-11-06.
 const kid = (address, name, status, parent = "t23") => ({ address, name, parent, status, state: "live" });
 const roubao = [{ address: "t23", name: null, parent: null, status: "idle", state: "live" },
   kid("t4r", "gh-256", "working"), kid("t4n", "gh-239", "done"), kid("t4p", "gh-238r", "idle")];
@@ -320,15 +315,13 @@ const roubao = [{ address: "t23", name: null, parent: null, status: "idle", stat
 test("a leader terminal's children are its items, by Herdr name, in start order, none in the last row", () => {
   const terminals = [...roubao, { ...kid("t4s", "ended", "done"), state: "finished" }, kid("t4u", "gh-260", "blocked")];
   const v = leaders([agent("t23", "idle", "claude", "leader agent"), agent("t1z", "idle", "claude", "4")], [], { terminals });
-  // holding no task, a child Herdr says is idle has finished: Herdr turns done into idle once you look
   assert.deepEqual(v.groups.map((g) => [g.leader, g.name, g.self, g.dispatched,
     g.items.map((i) => [i.number, i.title, i.state, i.who, i.focus])]), [["t23", "leader agent", 0, 4, [
     [1, "gh-239", "done", "worker", "t4n"], [2, "gh-238r", "done", "worker", "t4p"], [3, "gh-256", "current", "worker", "t4r"],
-    [4, "gh-260", "waiting", "worker", "t4u"]]]]); // blocked: it waits on you
+    [4, "gh-260", "waiting", "worker", "t4u"]]]]);
   assert.equal(itemLabel(v.groups[0].items[3], NOW, "zh"), "等你");
-  assert.deepEqual(v.idle, { count: 1, names: ["claude"] }); // t1z: neither the leader nor its children
+  assert.deepEqual(v.idle, { count: 1, names: ["claude"] });
   assert.deepEqual(v.keys, ["t23/t4n", "t23/t4p", "t23/t4r", "t23/t4u"]);
-  // a terminal with no children and no task stays in the last row, under its Herdr name when it has one
   const named = leaders([agent("t1z", "idle", "claude", "4")], [], { terminals: [{ address: "t1z", name: "kb", parent: null, state: "live" }] });
   assert.deepEqual([named.groups, named.idle], [[], { count: 1, names: ["kb"] }]);
 });
@@ -336,7 +329,6 @@ test("a leader terminal's children are its items, by Herdr name, in start order,
 test("a leader's whole subtree is its items, in start order: a worker's own workers too, whether or not they have a pane", () => {
   const terminals = [kid("t1", "lead", "idle", null), kid("t2", "w", "idle", "t1"), kid("t3", "ww", "working", "t2"),
     kid("t5", "www", "idle", "t3"), kid("t4", "w2", "idle", "t1")];
-  // t3 has a pane (an agent of the space) and leads t5; it is still t1's
   const v = leaders([agent("t1", "idle", "lead"), agent("t3", "working", "ww")], [], { terminals });
   assert.deepEqual(v.groups.map((g) => [g.leader, g.items.map((i) => i.focus)]), [["t1", ["t2", "t3", "t4", "t5"]]]);
   assert.deepEqual(v.idle, { count: 0, names: [] });
@@ -357,21 +349,18 @@ test("a child holding a nawaban task shows the task and its note; the leader's o
   const v = leaders([agent("t23", "working", "claude", "leader agent")], [
     task("OWN", { status: "in_progress", session: "L", terminal: "t23", claimed_at: 5, progress: "拆票" }),
     task("GH", { status: "in_progress", session: "W", leader: "L", terminal: "t4n", claimed_at: 9, progress: "第 2 步" }),
-    task("QUEUED", { leader: "L", created_at: 3 }), // dispatched, not started: only the board knows its leader
+    task("QUEUED", { leader: "L", created_at: 3 }),
     task("IDLE", { status: "in_progress", session: "W2", leader: "L", terminal: "t4p", claimed_at: 7, active_at: 50 }),
     task("ELSE", { status: "in_progress", session: "M", claimed_at: 1 })], { terminals: roubao });
   assert.deepEqual(v.groups.map((g) => [g.leader, g.name, g.self, g.dispatched]), [["t23", "leader agent", 1, 4], ["M", "M", 1, 0]]);
   assert.deepEqual(v.groups[0].items.map((i) => [i.number, i.title, i.name, i.state, i.who, i.note, i.focus]), [
-    [1, "GH", "gh-239", "current", "worker", "第 2 步", "t4n"], // t4n is Herdr-done: the task is still held
-    [2, "IDLE", "gh-238r", "stopped", "worker", null, "t4p"], // idle, holding an open task: stopped
+    [1, "GH", "gh-239", "current", "worker", "第 2 步", "t4n"],
+    [2, "IDLE", "gh-238r", "stopped", "worker", null, "t4p"],
     [3, "gh-256", "gh-256", "current", "worker", null, "t4r"],
     [4, "OWN", undefined, "current", "self", "拆票", "t23"],
     [5, "QUEUED", undefined, "todo", "worker", null, null]]);
 });
 
-// `nawaban json board` in a GitHub-tracked repository (NAWABAN-INDEX-01): issues as tasks `#<n>`,
-// no leader, the claim's first line as session. Workers are named `gh-<n>…` by `hc run --name`.
-// As in roubao on 2026-11-07.
 const issue = (n, x = {}) => ({ ...task(`#${n}`, { title: `issue ${n}`, ...x }), ...(x.waiting && { waiting: x.waiting }), url: `https://github.com/o/r/issues/${n}` });
 const github = (...tasks) => ({ tracker: "github", ...boardOf(...tasks) });
 const ghTree = [{ address: "t23", name: null, parent: null, status: "working", state: "live" },
@@ -379,12 +368,12 @@ const ghTree = [{ address: "t23", name: null, parent: null, status: "working", s
   kid("t4e", "gh-292", "idle"), kid("t4f", "speed", "done"), kid("t4g", "plump", "idle")];
 const ghIssues = [
   issue(275, { status: "in_progress", session: "gh-275（hc t52）", terminal: "t52", claimed_at: NOW - 3600, active_at: NOW - 600, progress: "第 2 步" }),
-  issue(264, { active_at: NOW - 26 * 3600 }), // open, nobody claimed it, quiet for a day
+  issue(264, { active_at: NOW - 26 * 3600 }),
   issue(238, { status: "in_progress", session: "1dfeb4dd", claimed_at: NOW - 9000, active_at: NOW - 2 * 3600, progress: "等判官放行", parent: "#236" }),
   issue(236, { title: "spec: 第 2 轮" }),
   issue(239, { status: "done", done_at: NOW - 3600 }),
   issue(292, { active_at: NOW - 3600, waiting: "等负责人审 ADR 0030" }),
-  issue(307, { status: "in_progress", session: "rel（claude-code 84cb7b76）", terminal: "t4g", claimed_at: NOW - 7200, active_at: NOW - 3 * 3600 }), // 认领：… hc t4g
+  issue(307, { status: "in_progress", session: "rel（claude-code 84cb7b76）", terminal: "t4g", claimed_at: NOW - 7200, active_at: NOW - 3 * 3600 }),
   issue(237, { status: "done", done_at: NOW - 7200 })];
 const ghView = (extra = {}) => leaders([agent("t23", "working", "claude", "leader agent")], ghIssues, { terminals: ghTree, board: github(...ghIssues), ...extra });
 
@@ -393,10 +382,9 @@ test("on a GitHub board a child is the issue whose claim names its terminal, els
   assert.deepEqual([g.leader, g.name], ["t23", "leader agent"]);
   const at = (focus) => [...g.items, ...g.closed].find((i) => i.focus === focus);
   assert.deepEqual([at("t4a").title, at("t4a").name, at("t4a").note], ["issue 275", "gh-275", "第 2 步"]);
-  assert.equal(at("t4c").title, "issue 238"); // gh-238r: the number is enough; the issue itself, not its spec #236
-  assert.deepEqual([at("t4g").title, at("t4g").name], ["issue 307", "plump"]); // named by topic, linked by the claim's `hc t4g`
-  assert.deepEqual([at("t4f").title, at("t4f").name, at("t4f").state], ["speed", "speed", "done"]); // neither: as before
-  // on the nawaban board a gh- name means nothing
+  assert.equal(at("t4c").title, "issue 238");
+  assert.deepEqual([at("t4g").title, at("t4g").name], ["issue 307", "plump"]);
+  assert.deepEqual([at("t4f").title, at("t4f").name, at("t4f").state], ["speed", "speed", "done"]);
   const plain = leaders([agent("t23", "working", "claude", "leader agent")], [task("#275", { title: "x" })], { terminals: ghTree });
   assert.equal(plain.groups[0].items[0].title, "gh-275");
 });
@@ -404,10 +392,10 @@ test("on a GitHub board a child is the issue whose claim names its terminal, els
 test("on a GitHub board an issue's state is GitHub's: closed is 完成, open is 在干 while its window works, else 在推 within 24 hours of its last activity, else 停了", () => {
   const items = ghView().groups[0].items;
   assert.deepEqual(items.map((i) => [i.focus, i.state, itemLabel(i, NOW, "zh")]), [
-    ["t4a", "current", "在干 1 小时"], // since its claim
-    ["t4b", "stopped", "停了 1 天"], // Herdr says done, but #264 is open
-    ["t4c", "pushing", "在推"], // Herdr says idle; the issue moved 2 hours ago
-    ["t4e", "waiting", "等你"], // needs-info
+    ["t4a", "current", "在干 1 小时"],
+    ["t4b", "stopped", "停了 1 天"],
+    ["t4c", "pushing", "在推"],
+    ["t4e", "waiting", "等你"],
     ["t4f", "done", "完成"],
     ["t4g", "pushing", "在推"]]);
   assert.equal(itemLabel(items[2], NOW, "en"), "Moving");
@@ -419,18 +407,17 @@ test("on a GitHub board the closed issues of a group fold into one 已关 row, l
   assert.equal(WINDOW_WORDS.zh.closed(1), "已关 1 个");
   assert.equal(WINDOW_WORDS.en.closed(2), "2 closed");
   assert.deepEqual(v.keys, ["t23/t4a", "t23/t4b", "t23/t4c", "t23/t4e", "t23/t4f", "t23/t4g"]);
-  assert.deepEqual(ghView({ board: github() }).groups[0].closed, []); // nothing to match: nothing folded
+  assert.deepEqual(ghView({ board: github() }).groups[0].closed, []);
 });
 
 test("on a GitHub board with no window blocked there is no waiting card: needs-info is no card there; an issue in no Herdr window is in no group", () => {
   const v = ghView();
   assert.deepEqual(v.waiting, []);
-  assert.deepEqual(v.groups.map((g) => g.leader), ["t23"]); // not one group per claimant (#307, #275's stale t52)
+  assert.deepEqual(v.groups.map((g) => g.leader), ["t23"]);
   assert.deepEqual([v.groups[0].self, v.groups[0].dispatched], [0, 7]);
 });
 
 test("on a GitHub board a window Herdr reports blocked is still a 等你 card (GLOSSARY: Waiting on you), a worker with no pane too, its issue closed or not", () => {
-  // t4c (gh-238r, open #238) and t4d (gh-239, closed #239) wait for a permission; t4e's needs-info (#292) makes no card
   const terminals = ghTree.map((k) => (k.address === "t4c" || k.address === "t4d" ? { ...k, status: "blocked" } : k));
   const v = ghView({ terminals });
   assert.deepEqual(v.waiting, [
@@ -439,10 +426,8 @@ test("on a GitHub board a window Herdr reports blocked is still a 等你 card (G
     { key: "card:1", name: "gh-239", question: "在等你确认", doing: "issue 239", state: "waiting", label: "等你", duration: null,
       focus: "t4d", url: "https://github.com/o/r/issues/239" }]);
   assert.deepEqual(v.keys.slice(0, 2), ["card:0", "card:1"]);
-  assert.equal(v.groups[0].items.find((i) => i.focus === "t4c").state, "waiting"); // still in its group too, as on the local board
-  // error is not blocked: no card, as on the local board
+  assert.equal(v.groups[0].items.find((i) => i.focus === "t4c").state, "waiting");
   assert.deepEqual(ghView({ terminals: ghTree.map((k) => (k.address === "t4c" ? { ...k, status: "error" } : k)) }).waiting, []);
-  // a window with a pane: its agent's status, its terminal title what it asks
   const pane = leaders([agent("t23", "blocked", "rm -rf build?", "leader agent")], ghIssues, { terminals: ghTree, board: github(...ghIssues) });
   assert.deepEqual(pane.waiting.map((c) => [c.name, c.question, c.doing, c.focus]), [["leader agent", "在等你确认", "rm -rf build?", "t23"]]);
 });
@@ -458,7 +443,6 @@ test("on a GitHub board a claim's terminal comes before a gh-<n> name", () => {
   assert.deepEqual(v.groups[0].items.map((i) => [i.title, i.name, i.focus]), [["claimed", "gh-238r", "t4c"]]);
 });
 
-// A GitHub board's pending decisions (`json board`, spec NAWABAN-PENDING): open issues' `pending`.
 const pend = (id, at, x) => ({ id, title: `issue ${id}`, status: "open", parent: null, url: `https://gh/${id.slice(1)}`,
   active_at: at, pending: { brief: `待决：${id} 定不定？`, at, progress: [] }, ...x });
 const pendBoard = (tasks) => ({ tracker: "github",
@@ -469,7 +453,7 @@ test("pending decisions run oldest first, a tie by issue number as a number, eac
     pend("#7", 300),
     pend("#12", 100),
     pend("#10", 200),
-    pend("#9", 200), // raised at the same time: #9 before #10
+    pend("#9", 200),
     { id: "#8", title: "无待决", status: "open", pending: null },
     pend("#5", 50, { status: "done" }),
   ]));
@@ -487,15 +471,14 @@ test("on a GitHub board with pending decisions the window groups are still there
   assert.deepEqual(pendingView(board).map((p) => p.id), ["#239"]);
 });
 
-// `nawaban json okr` as spec NAWABAN-OKRP gives it; okr.fixture.json stands in until the CLI has it.
 const okrFixture = JSON.parse(readFileSync(new URL("./okr.fixture.json", import.meta.url), "utf8"));
 
 test("OKR attention: the harder guardrail first, one card per KR, then okr.toml's order; stuck and five carry their readings", () => {
   const v = okrView(okrFixture, "zh");
   assert.deepEqual(v.attention.map((a) => [a.kind, a.label, a.title, a.objective]), [
-    ["five", "5 轮未达标", "长对话换题多带旧条件", "听得懂需求"], // stuck on the same KR folds into it
+    ["five", "5 轮未达标", "长对话换题多带旧条件", "听得懂需求"],
     ["wait", "等你做", "邀请率", "用户愿意拉人"],
-    ["accept", "等你验收", "推荐能减少筛选", null]]); // an Objective's card is titled by it
+    ["accept", "等你验收", "推荐能减少筛选", null]]);
   assert.equal(v.attention[0].text, "连续 5 轮未达标");
   assert.equal(v.attention[0].target, "目标 ≤ 20%");
   assert.deepEqual(v.attention[0].spark.labels, ["83.3", "84.1", "84.6"]);
@@ -504,7 +487,6 @@ test("OKR attention: the harder guardrail first, one card per KR, then okr.toml'
   assert.equal(OKR_WORDS.en.headline(1), "1 thing for you");
   assert.equal(okrView(okrFixture, "en").attention[0].label, "Missed 5 rounds");
   assert.deepEqual(v.objectives.map((o) => o.attention), [true, true, true]);
-  // an unknown kind is left out
   assert.deepEqual(okrView({ ...okrFixture, attention: [{ kind: "later", objective: "x", text: "" }] }, "zh").attention, []);
 });
 
@@ -520,9 +502,9 @@ test("OKR wait cards: one per Objective and wait text, its KRs listed; other kin
   const v = okrView(okr, "zh");
   assert.deepEqual(v.attention.map((x) => [x.kind, x.title, x.text, x.objective, x.krs ?? null]), [
     ["stuck", "g", "两轮没变好", "O4", null],
-    ["wait", "O3：4 条 KR 等你批", "批准读生产数据", null, ["a", "b", "c", "d"]], // roubao: O3's four alike, one card
-    ["wait", "e", "定口径", "O3", null], // same O, another wait text: its own card
-    ["wait", "f", "批准读生产数据", "O4", null]]); // same text, another O: its own card
+    ["wait", "O3：4 条 KR 等你批", "批准读生产数据", null, ["a", "b", "c", "d"]],
+    ["wait", "e", "定口径", "O3", null],
+    ["wait", "f", "批准读生产数据", "O4", null]]);
   assert.equal(OKR_WORDS.zh.headline(v.attention.length), "4 件要你盯");
   assert.equal(okrView(okr, "en").attention[1].title, "O3: 4 KRs waiting on you");
   assert.deepEqual(v.attention.map((x) => x.key), ["okr:0", "okr:1", "okr:2", "okr:3"]);
@@ -542,9 +524,9 @@ test("OKR KR rows: status, value against target, and the bar with the goal's tic
   const rows = okrView(okrFixture, "zh").objectives[0].krs;
   assert.deepEqual(rows.map((k) => [k.status, k.value, k.target]), [
     ["missed", "84.6%", "≤ 20%"], ["met", "90.1%", "≥ 90%"], ["met", "97.5%", "≥ 95%"], ["stale", "640ms", "< 800ms"], ["untested", "未测", "≤ 2%"]]);
-  assert.deepEqual([rows[0].fill, rows[0].tick], [84.6, 20]); // a % is out of 100
-  assert.deepEqual([rows[3].fill, rows[3].tick], [64, 80]); // ms: out of a quarter past the larger
-  assert.equal(rows[4].fill, null); // nothing measured, no bar
+  assert.deepEqual([rows[0].fill, rows[0].tick], [84.6, 20]);
+  assert.deepEqual([rows[3].fill, rows[3].tick], [64, 80]);
+  assert.equal(rows[4].fill, null);
   assert.deepEqual(rows.map((k) => k.trend), ["在变差", "首次读数", "在变好", "没动", "首次读数"]);
   const odd = okrView({ ...okrFixture, objectives: [{ name: "O", krs: [{ name: "k", target: ">= 1", status: "bogus", value: 3 }] }] }, "en");
   assert.equal(odd.objectives[0].krs[0].status, "untested");
@@ -574,7 +556,7 @@ test("OKR declarations: an Objective's ↑ ↓ = since the last round, a KR off 
   assert.deepEqual(v.objectives.map((o) => o.impacts), ["↑2 ↓1 =0", null]);
   assert.deepEqual(v.objectives[0].krs.map((k) => k.mismatch), ["预期不符 #5 KRI-07", null]);
   assert.equal(okrView(okr, "en").objectives[0].krs[0].mismatch, "Not as declared #5 KRI-07");
-  const old = okrView(okrFixture, "zh"); // the fixture predates impacts and mismatch
+  const old = okrView(okrFixture, "zh");
   assert.ok(old.objectives.every((o) => o.impacts === null && o.krs.every((k) => k.mismatch === null)));
-  assert.deepEqual(old.attention.map((a) => a.kind), ["five", "wait", "accept"]); // no new card kind
+  assert.deepEqual(old.attention.map((a) => a.kind), ["five", "wait", "accept"]);
 });

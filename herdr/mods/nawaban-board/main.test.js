@@ -1,6 +1,3 @@
-// Render smoke test: main.js's view drawn against stand-ins for Herdr's "gpui-kit", "gpui-base" and
-// "herdr" modules, which record every element method called. Each name must exist in Herdr's API,
-// gpui-kit.d.ts, which herdr-app writes into ~/.config/herdr-app and into a mod folder it loads.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
@@ -11,10 +8,8 @@ import { leadersView, pendingView, okrView, OKR_WORDS, BOARD_PROJECTS } from "./
 const called = new Set();
 let onSize = null;
 let lastId = null;
-const clicks = new Map(); // an element's id -> its click handler
-const texts = []; // every string drawn as a child
-// An element: any method records its name and returns the element. `when` and `hover` run their
-// builder, as gpui does, so the branches they add are drawn too.
+const clicks = new Map();
+const texts = [];
 const el = new Proxy({}, {
   get: (_, name) => typeof name === "symbol" ? undefined : (...args) => {
     called.add(name);
@@ -36,7 +31,6 @@ const open = (id, x) => ({ id, title: `${id} 的标题`, status: "open", parent:
 const note = (body) => ({ body, at: now - 600 });
 const agents = [agent("t1", "working", "入职"), agent("t2", "working", "w"), agent("t3", "idle", "问"),
   agent("t4", "idle", "闲聊"), agent("t5", "working", "部署"), agent("t6", "idle", "leader agent")];
-// Herdr's tree: t6 started two workers with `hc run`; they have no pane, so no AgentInfo.
 const kid = (address, name, status) => ({ address, name, parent: "t6", status, state: "live" });
 let terminals = [...agents.map((a) => ({ address: a.address, name: null, parent: null, status: a.status, state: "live" })),
   kid("t7", "gh-239", "working"), kid("t8", "gh-256", "done"), kid("t9", "gh-260", "blocked")];
@@ -56,7 +50,6 @@ const board = { columns: [
     { id: "S-01", title: "S-01", status: "done", parent: "S", session: null, leader: "L", terminal: null, claimed_at: now - 5000,
       created_at: 0, active_at: now - 3000, done_at: now - 3000 }] }] };
 
-// The same space on a GitHub-tracked project: t6's children are issues by their gh-<n> names.
 const issue = (n, x) => open(`#${n}`, { title: `issue ${n}`, ...x });
 const ghBoard = { tracker: "github", columns: [
   { key: "in_progress", tasks: [issue(239, { status: "in_progress", session: "gh-239", claimed_at: now - 600, progress: note("第 2 步") })] },
@@ -77,7 +70,7 @@ const stubs = {
     run: (...a) => runImpl(...a), exec: (...a) => execImpl(...a), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}), props: () => null, closeOverlay: () => null },
 };
 globalThis.__nawabanStubs = stubs;
-globalThis.window = { paint_path: make("paint_path") }; // Herdr's global window
+globalThis.window = { paint_path: make("paint_path") };
 registerHooks({
   resolve: (specifier, context, next) => specifier in stubs ? { url: `stub:${specifier}`, shortCircuit: true } : next(specifier, context),
   load: (url, context, next) => !url.startsWith("stub:") ? next(url, context) : { format: "module", shortCircuit: true,
@@ -89,10 +82,8 @@ const dts = [`${homedir()}/.config/herdr-app/gpui-kit.d.ts`, new URL("./gpui-kit
   .map((p) => { try { return readFileSync(p, "utf8"); } catch { return null; } }).find(Boolean);
 
 test("the panel draws every item state, at 420 and 380 px, in Chinese and English, with Herdr's API only", () => {
-  // the fixture covers what the panel can show
   const v = leadersView({ agents, terminals, space: "here", board, now, lang: "zh" });
   const items = v.groups.flatMap((g) => g.items);
-  // a leader terminal's group: a child holding a task, under its Herdr name, and one holding none
   assert.deepEqual(v.groups.find((g) => g.leader === "t6")?.items.map((i) => [i.title, i.name]), [["GH 的标题", "gh-239"], ["gh-256", "gh-256"], ["gh-260", "gh-260"]]);
   assert.deepEqual(new Set(items.map((i) => i.state)), new Set(["done", "current", "stopped", "todo", "waiting"]));
   assert.ok(items.some((i) => i.gone) && items.some((i) => i.spec) && v.groups.some((g) => g.decision));
@@ -118,7 +109,6 @@ test("on a GitHub board the panel draws issue titles, 在推, and the 已关 row
   assert.deepEqual(g.items.map((i) => [i.title, i.name, i.state]), [["issue 239", "gh-239", "current"], ["issue 256", "gh-256", "pushing"]]);
   assert.deepEqual(g.closed.map((i) => [i.title, i.state]), [["issue 260", "done"]]);
   const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
-  // with pending decisions: the windows folded and not; a click on one opens its issue
   const pending = { brief: "待决：发吗？", at: now - 3600, progress: [] };
   const withPending = { ...ghBoard, columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: c.tasks.map((x) => ({ ...x, url: "https://gh/256", pending })) }) };
   assert.deepEqual(pendingView(withPending).map((p) => p.id), ["#256"]);
@@ -153,7 +143,7 @@ test("on a GitHub board a blocked worker is a 等你 card above the pending deci
     texts.length = 0;
     const view = new NawabanBoard();
     view.init({}, cx);
-    Object.assign(view, { lang: "zh", board: withPending, okr }); // the groups folded
+    Object.assign(view, { lang: "zh", board: withPending, okr });
     view.render(cx);
     return { view, v: leadersView({ agents, terminals, space: "here", board: withPending, now, lang: "zh" }) };
   };
@@ -162,17 +152,14 @@ test("on a GitHub board a blocked worker is a 等你 card above the pending deci
   const o = okrView(okr, "zh"), summary = OKR_WORDS.zh.summary(o.met, o.total, o.measured);
   const at = (s) => texts.findIndex((x) => x.startsWith(s));
   try {
-    // t9 (gh-260, no pane) is blocked
     let { view, v } = draw();
     assert.deepEqual(v.waiting.map((c) => c.focus), ["t9"]);
-    assert.deepEqual(view.keys, ["card:0"]); // the card is in the arrow keys while the groups are folded
-    // needed or not first: the cards, the pending decisions, the OKR section, the folded groups
+    assert.deepEqual(view.keys, ["card:0"]);
     const order = ["1 个窗口在等你", "待决 1", summary, "窗口分组"].map(at);
     assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join(","));
-    assert.ok(texts.includes(`窗口分组 ${v.groups.length + (v.idle.count > 0 ? 1 : 0)}`)); // the card is not counted in the fold
+    assert.ok(texts.includes(`窗口分组 ${v.groups.length + (v.idle.count > 0 ? 1 : 0)}`));
     clicks.get("nawaban-card-0")({}, cx);
     assert.deepEqual(focused, [["agent.focus", { terminal: "t9" }]]);
-    // nothing blocked: no card, no keys while folded, the fold counts what it did before
     terminals = saved.map((k) => (k.status === "blocked" ? { ...k, status: "done" } : k));
     ({ view, v } = draw());
     assert.deepEqual([v.waiting, view.keys, clicks.has("nawaban-card-0")], [[], [], false]);
@@ -183,7 +170,6 @@ test("on a GitHub board a blocked worker is a 等你 card above the pending deci
     terminals = saved;
     runImpl = async () => {};
   }
-  // the local board too: its waiting cards above the OKR section, the groups under it
   texts.length = 0;
   const view = new NawabanBoard();
   view.init({}, cx);
@@ -214,11 +200,11 @@ test("a GitHub board is read from GitHub at most once a minute, whatever asks fo
     await settle();
     assert.equal(boards(), 1);
     assert.equal(view.board.tracker, "github");
-    clock += 30000; // a window changed state, the board file changed: the last board serves
+    clock += 30000;
     view.refresh(cx);
     await settle();
     assert.equal(boards(), 1);
-    assert.equal(reads.filter((x) => x === "projects").length, 2); // the local board still is read
+    assert.equal(reads.filter((x) => x === "projects").length, 2);
     clock += 31000;
     view.refresh(cx);
     await settle();
@@ -327,7 +313,7 @@ test("json okr failing (no okr.toml, an older CLI) leaves the OKR section out an
     const quiet = { spawn() {}, notify() {} };
     const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
     const view = new NawabanBoard();
-    view.okr = okrFixture; // a repository that had one
+    view.okr = okrFixture;
     view.init({}, cx);
     await new Promise((r) => setImmediate(r));
     assert.equal(view.okr, null);
@@ -343,7 +329,7 @@ test("a json okr that hangs holds up neither the board nor the next refresh, and
   execImpl = (_cmd, args = [], opts = {}) => {
     if (args[1] !== "json") return Promise.resolve({ code: 1, stdout: "" });
     reads.push([args[2], opts.timeout]);
-    if (args[2] === "okr") return new Promise(() => {}); // never answers
+    if (args[2] === "okr") return new Promise(() => {});
     return Promise.resolve({ code: 0, stdout: JSON.stringify(args[2] === "board" ? board : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) });
   };
   try {
@@ -357,7 +343,7 @@ test("a json okr that hangs holds up neither the board nor the next refresh, and
     view.refresh(cx);
     await settle();
     assert.equal(reads.filter(([v]) => v === "board").length, 2);
-    assert.deepEqual(reads.filter(([v]) => v === "okr"), [["okr", 5000]]); // in flight: not asked again; with its own timeout
+    assert.deepEqual(reads.filter(([v]) => v === "okr"), [["okr", 5000]]);
     assert.equal(view.okr, null);
   } finally {
     execImpl = async () => ({ code: 1 });
@@ -365,7 +351,7 @@ test("a json okr that hangs holds up neither the board nor the next refresh, and
 });
 
 test("A, then B, then back to A: a late answer never overwrites a newer one, nor another space's", async () => {
-  const asked = []; // [folder, resolve] per json okr
+  const asked = [];
   execImpl = (_cmd, args = [], opts = {}) => {
     if (args[1] !== "json") return Promise.resolve({ code: 1, stdout: "" });
     if (args[2] === "okr") return new Promise((r) => asked.push([opts.cwd, (x) => r({ code: 0, stdout: JSON.stringify(x) })]));
@@ -379,30 +365,30 @@ test("A, then B, then back to A: a late answer never overwrites a newer one, nor
     const settle = () => new Promise((r) => setImmediate(r));
     where = at("A");
     const view = new NawabanBoard();
-    view.init({}, cx); // A1 in flight
+    view.init({}, cx);
     await settle();
     where = at("B");
-    view.refresh(cx); // B1
+    view.refresh(cx);
     await settle();
     where = at("A");
-    view.refresh(cx); // A1 still in flight: not asked again
+    view.refresh(cx);
     await settle();
     assert.deepEqual(asked.map(([cwd]) => cwd), ["/A", "/B"]);
-    assert.equal(view.okr, null); // B's answer is not A's, A's not come yet
-    asked[1][1](okrOf("/b", "B1")); // B answers late, while A is shown
+    assert.equal(view.okr, null);
+    asked[1][1](okrOf("/b", "B1"));
     await settle();
     assert.equal(view.okr, null);
     asked[0][1](okrOf("/a", "A1"));
     await settle();
     assert.equal(view.okr.def_commit, "A1");
-    view.refresh(cx); // A2
+    view.refresh(cx);
     await settle();
     asked[2][1](okrOf("/a", "A2"));
     await settle();
     assert.equal(view.okr.def_commit, "A2");
-    view.refresh(cx); // A3
+    view.refresh(cx);
     await settle();
-    view.okrFlight.set("|/A", view.okrGen + 1); // a newer read of A took over before A3 answered
+    view.okrFlight.set("|/A", view.okrGen + 1);
     asked[3][1](okrOf("/a", "A3-late"));
     await settle();
     assert.equal(view.okr.def_commit, "A2");
