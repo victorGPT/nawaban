@@ -21,7 +21,7 @@ beforeAll(async () => {
 })
 afterAll(() => server.close())
 
-async function nawaban(argv: string[], token = SECRET) {
+async function embeddedCliAgainstTheServer(argv: string[], token = SECRET) {
   vi.stubEnv('BOARD_URL', url)
   vi.stubEnv('BOARD_TOKEN', token)
   let out = ''
@@ -46,34 +46,34 @@ it('makes one token, 0600, however many first runs race for it', async () => {
 })
 
 it('knows the token holder as the OS user, a person', async () => {
-  const me = await nawaban(['whoami'])
+  const me = await embeddedCliAgainstTheServer(['whoami'])
   expect(me.code).toBe(0)
   expect(me.json).toMatchObject({ actor: 'local:user:victor', kind: 'person', handle: 'victor' })
 })
 
 it('turns away a wrong token', async () => {
-  const me = await nawaban(['whoami'], 'not-the-secret')
+  const me = await embeddedCliAgainstTheServer(['whoami'], 'not-the-secret')
   expect(me.code).toBe(1)
   expect(me.failure).toBeDefined()
 })
 
 it('hands a task whose lease ran out to another profile, and fences the first', async () => {
-  const created = await nawaban(['tasks', 'create', 'nawaban', 'lease flow'])
+  const created = await embeddedCliAgainstTheServer(['tasks', 'create', 'nawaban', 'lease flow'])
   expect(created.code).toBe(0)
   const id: string = created.json.task.id
 
-  const first = await nawaban(['tasks', 'claim', id, '--as', 'cc-aaaa1111', '--lease', '30s'])
+  const first = await embeddedCliAgainstTheServer(['tasks', 'claim', id, '--as', 'cc-aaaa1111', '--lease', '30s'])
   expect(first.json.task.task.claim.actor).toBe('local:user:victor+cc-aaaa1111')
-  expect((await nawaban(['tasks', 'claim', id, '--as', 'cc-bbbb2222'])).failure?.reason).toBe('task_claimed')
+  expect((await embeddedCliAgainstTheServer(['tasks', 'claim', id, '--as', 'cc-bbbb2222'])).failure?.reason).toBe('task_claimed')
 
   vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 31_000 })
   try {
-    expect((await nawaban(['tasks', 'claim', id, '--as', 'cc-bbbb2222'])).code).toBe(0)
-    expect((await nawaban(['tasks', 'complete', id, '--as', 'cc-aaaa1111', 'stale'])).failure?.reason).toBe('claim_lost')
-    expect((await nawaban(['tasks', 'complete', id, '--as', 'cc-bbbb2222', 'done'])).code).toBe(0)
+    expect((await embeddedCliAgainstTheServer(['tasks', 'claim', id, '--as', 'cc-bbbb2222'])).code).toBe(0)
+    expect((await embeddedCliAgainstTheServer(['tasks', 'complete', id, '--as', 'cc-aaaa1111', 'stale'])).failure?.reason).toBe('claim_lost')
+    expect((await embeddedCliAgainstTheServer(['tasks', 'complete', id, '--as', 'cc-bbbb2222', 'done'])).code).toBe(0)
   } finally {
     vi.useRealTimers()
   }
-  const done = await nawaban(['tasks', 'nawaban', '--state', 'completed'])
+  const done = await embeddedCliAgainstTheServer(['tasks', 'nawaban', '--state', 'completed'])
   expect(done.json.tasks.map((t: { message: { id: string; task: { result: string } } }) => [t.message.id, t.message.task.result])).toEqual([[id, 'done']])
 })

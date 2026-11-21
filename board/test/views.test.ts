@@ -12,13 +12,13 @@ import { event } from '../src/events.ts'
 import { run } from '../src/tasks.ts'
 import { json } from '../src/views.ts'
 
-const LOGIC = new URL('../../herdr/mods/nawaban-board/logic.js', import.meta.url).href
-const { leadersView } = await import(LOGIC)
+const PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS = new URL('../../herdr/mods/nawaban-board/logic.js', import.meta.url).href
+const { leadersView } = await import(PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS)
 
 const SECRET = 'test-secret'
-const A = 'aaaa1111-0000-0000-0000-000000000000'
-const B = 'bbbb2222-0000-0000-0000-000000000000'
-const C = 'cccc3333-0000-0000-0000-000000000000'
+const ORCHESTRATOR_WINDOW_IN_T1 = 'aaaa1111-0000-0000-0000-000000000000'
+const WORKER_WINDOW_IN_T3 = 'bbbb2222-0000-0000-0000-000000000000'
+const OTHER_WORKER_WINDOW_IN_T4 = 'cccc3333-0000-0000-0000-000000000000'
 let team: ReturnType<typeof board>
 let server: Awaited<ReturnType<typeof listen>>
 let url = ''
@@ -64,47 +64,56 @@ const ok = async (session: string, terminal: string, ...argv: string[]) => {
   expect(r.code, argv.join(' ')).toBe(0)
   return argv[0] === 'json' ? JSON.parse(r.out) : null
 }
-const read = (...argv: string[]) => ok(A, '', 'json', ...argv)
+const read = (...argv: string[]) => ok(ORCHESTRATOR_WINDOW_IN_T1, '', 'json', ...argv)
 
-const BASE = ['id', 'title', 'status', 'project', 'parent', 'session', 'created_at', 'active_at', 'open_blockers', 'terminal', 'leader', 'claimed_at']
-const OPEN = [...BASE, 'progress', 'blocked_by', 'waiting', 'decision', 'pending'].sort()
-const DONE = [...BASE, 'done_at'].sort()
+const OLD_BOARD_DATA_ROW_KEYS = ['id', 'title', 'status', 'project', 'parent', 'session', 'created_at', 'active_at', 'open_blockers', 'terminal', 'leader', 'claimed_at']
+const OPEN_ROW_KEYS_PLUS_PENDING = [...OLD_BOARD_DATA_ROW_KEYS, 'progress', 'blocked_by', 'waiting', 'decision', 'pending'].sort()
+const DONE_ROW_KEYS = [...OLD_BOARD_DATA_ROW_KEYS, 'done_at'].sort()
 
 it('prints the board in the shape the panel reads, and the panel draws the 等你 card and the orchestrator group from it', async () => {
-  await ok(A, 't1', 'create', 'S', '--title', '报表迁到新底座', '--project', 'nawaban')
-  await ok(A, 't1', 'create', 'S-01', '--title', '第一张', '--parent', 'S')
-  await ok(A, 't1', 'create', 'S-02', '--title', '第二张', '--parent', 'S', '--blocked-by', 'S-01')
-  await ok(A, 't1', 'create', 'Q', '--title', '要问的', '--project', 'nawaban')
-  await ok(A, 't1', 'create', 'P', '--title', '待决的', '--project', 'nawaban')
-  await ok(A, 't1', 'create', 'D', '--title', '派出去的', '--project', 'nawaban')
-
-  await ok(A, 't1', 'claim', 'S-01')
-  const s01 = (await read('task', 'S-01')).id
-  expect(s01).toBe('S-01')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'S', '--title', '报表迁到新底座', '--project', 'nawaban')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'S-01', '--title', '第一张', '--parent', 'S')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'S-02', '--title', '第二张', '--parent', 'S', '--blocked-by', 'S-01')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'Q', '--title', '要问的', '--project', 'nawaban')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'P', '--title', '待决的', '--project', 'nawaban')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'D', '--title', '派出去的', '--project', 'nawaban')
   const id = async (k: string) => (await team.tasks.list({ state: 'all', label: { key: k } })).tasks[0]!.message.id
-  await ok(A, 't1', 'close', 'S-01', '--done')
-  await ok(A, 't1', 'claim', 'S-02')
-  expect((await nawaban(A, 't1', 'event', await id('S-02'), '--kind', 'decision', '--question', '先迁哪个', '--verdict', '先只读\n第二行', '--rejected', '全迁')).code).toBe(0)
-  expect((await nawaban(A, 't1', 'event', await id('S-02'), '--kind', 'note', '--body', 'verify：测试通过')).code).toBe(0)
 
-  await ok(B, 't3', 'claim', 'Q')
-  expect((await nawaban(B, 't3', 'event', await id('Q'), '--kind', 'note', '--body', 'triage: needs-info — 等你：放行吗？', '--as', 'cc-bbbb2222')).code).toBe(0)
-
-  await ok(C, 't4', 'claim', 'P')
-  const card = ['event', await id('P'), '--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '发', '--as', 'cc-cccc3333']
-  expect((await nawaban(C, 't4', ...card)).code).toBe(0)
-
-  const d = await id('D')
-  vi.stubEnv('BOARD_URL', url)
-  vi.stubEnv('BOARD_TOKEN', SECRET)
-  await board().as('cc-aaaa1111').reply(d, block('nawaban-dispatch@1', { worker: 'd', terminal: 't9', accept: '验收' }))
-  vi.unstubAllEnvs()
+  const s01ClaimedDecidedDoneThenS02HeldByTheOrchestratorWithProgress = async () => {
+    await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'claim', 'S-01')
+    const s01 = (await read('task', 'S-01')).id
+    expect(s01).toBe('S-01')
+    await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'close', 'S-01', '--done')
+    await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'claim', 'S-02')
+    expect((await nawaban(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'event', await id('S-02'), '--kind', 'decision', '--question', '先迁哪个', '--verdict', '先只读\n第二行', '--rejected', '全迁')).code).toBe(0)
+    expect((await nawaban(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'event', await id('S-02'), '--kind', 'note', '--body', 'verify：测试通过')).code).toBe(0)
+  }
+  const qWorkerAsksTheDecisionMakerAndTheHoldEndsItsClaim = async () => {
+    await ok(WORKER_WINDOW_IN_T3, 't3', 'claim', 'Q')
+    expect((await nawaban(WORKER_WINDOW_IN_T3, 't3', 'event', await id('Q'), '--kind', 'note', '--body', 'triage: needs-info — 等你：放行吗？', '--as', 'cc-bbbb2222')).code).toBe(0)
+  }
+  const pDecisionCardFromTheOtherWorker = async () => {
+    await ok(OTHER_WORKER_WINDOW_IN_T4, 't4', 'claim', 'P')
+    const card = ['event', await id('P'), '--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '发', '--as', 'cc-cccc3333']
+    expect((await nawaban(OTHER_WORKER_WINDOW_IN_T4, 't4', ...card)).code).toBe(0)
+  }
+  const dDispatchedByTheOrchestratorNotStarted = async () => {
+    const d = await id('D')
+    vi.stubEnv('BOARD_URL', url)
+    vi.stubEnv('BOARD_TOKEN', SECRET)
+    await board().as('cc-aaaa1111').reply(d, block('nawaban-dispatch@1', { worker: 'd', terminal: 't9', accept: '验收' }))
+    vi.unstubAllEnvs()
+  }
+  await s01ClaimedDecidedDoneThenS02HeldByTheOrchestratorWithProgress()
+  await qWorkerAsksTheDecisionMakerAndTheHoldEndsItsClaim()
+  await pDecisionCardFromTheOtherWorker()
+  await dDispatchedByTheOrchestratorNotStarted()
 
   const data = await read('board', '--project', 'nawaban')
   const all = data.columns.flatMap((c: { tasks: { id: string }[] }) => c.tasks)
   const byId = Object.fromEntries(all.map((t: { id: string }) => [t.id, t]))
   expect(data.columns.map((c: { key: string }) => c.key)).toEqual(['open', 'in_progress', 'done'])
-  for (const t of all) expect(Object.keys(t).sort(), t.id).toEqual(t.status === 'done' ? DONE : OPEN)
+  for (const t of all) expect(Object.keys(t).sort(), t.id).toEqual(t.status === 'done' ? DONE_ROW_KEYS : OPEN_ROW_KEYS_PLUS_PENDING)
   expect(byId['S-02']).toMatchObject({ status: 'in_progress', session: 'cc-aaaa1111', terminal: 't1', leader: 'cc-aaaa1111', parent: 'S', blocked_by: [], open_blockers: 0, progress: { body: 'verify：测试通过' } })
   expect(byId['S-01']).toMatchObject({ status: 'done', leader: 'cc-aaaa1111' })
   expect(byId['S-01'].done_at).toBeGreaterThan(0)
@@ -143,7 +152,7 @@ it('prints a task with its parent, blockers, notes, decisions and events', async
   expect(t).toMatchObject({ id: 'S-02', status: 'in_progress', session: 'cc-aaaa1111', parent: { id: 'S', status: 'open' }, blocked_by: [{ id: 'S-01', status: 'done' }], latest_note: { kind: 'note', body: 'verify：测试通过' } })
   expect((await read('task', 'S-02')).decisions[0].body).toBe('Question: 先迁哪个\nVerdict: 先只读\n第二行\nRejected: 全迁')
   expect((await read('task', 'S')).children.map((c: { id: string }) => c.id)).toEqual(['S-01', 'S-02'])
-  const missing = await nawaban(A, '', 'json', 'task', 'NOPE')
+  const missing = await nawaban(ORCHESTRATOR_WINDOW_IN_T1, '', 'json', 'task', 'NOPE')
   expect([missing.code, JSON.parse(missing.out).error]).toEqual([1, '任务不存在:NOPE'])
 })
 

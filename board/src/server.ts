@@ -10,23 +10,31 @@ import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from './schemas.ts'
 import { impactNames } from './impact.ts'
 
-export const boardDir = () => process.env.NAWABAN_BOARD_DIR ?? join(homedir(), '.nawaban', 'board')
-export const DIR = boardDir()
-export const PORT = Number(process.env.NAWABAN_BOARD_PORT ?? 4100)
+const DEFAULT_PORT = 4100
+const TOKEN_BYTES = 32
+
+export const boardDirAsConfiguredWhenAsked = () => process.env.NAWABAN_BOARD_DIR ?? join(homedir(), '.nawaban', 'board')
+export const DIR = boardDirAsConfiguredWhenAsked()
+export const PORT = Number(process.env.NAWABAN_BOARD_PORT ?? DEFAULT_PORT)
 export const urlFor = (port: number) => `http://127.0.0.1:${port}/api/board`
+
+async function linkIntoPlaceSoTwoFirstRunsAgreeOnOne(tmp: string, path: string) {
+  try {
+    await link(tmp, path)
+  } catch (error) {
+    const anotherRunLinkedFirst = (error as NodeJS.ErrnoException).code === 'EEXIST'
+    if (!anotherRunLinkedFirst) throw error
+  } finally {
+    await unlink(tmp)
+  }
+}
 
 export async function token(dir: string): Promise<string> {
   const path = join(dir, 'token')
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const tmp = `${path}.${process.pid}.${randomBytes(4).toString('hex')}`
-  await writeFile(tmp, randomBytes(32).toString('hex') + '\n', { mode: 0o600, flag: 'wx' })
-  try {
-    await link(tmp, path)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-  } finally {
-    await unlink(tmp)
-  }
+  const writtenWholeBeforeAnyReaderSeesIt = `${path}.${process.pid}.${randomBytes(4).toString('hex')}`
+  await writeFile(writtenWholeBeforeAnyReaderSeesIt, randomBytes(TOKEN_BYTES).toString('hex') + '\n', { mode: 0o600, flag: 'wx' })
+  await linkIntoPlaceSoTwoFirstRunsAgreeOnOne(writtenWholeBeforeAnyReaderSeesIt, path)
   const secret = (await readFile(path, 'utf8')).trim()
   if (!secret) throw new Error(`${path} is empty: delete it and start again`)
   return secret
@@ -40,7 +48,8 @@ export function verifier(secret: string, user = userInfo().username) {
     if (got.length !== want.length || !timingSafeEqual(got, want)) {
       return Response.json({ error: { code: 'unauthorized', message: 'bad token' } }, { status: 401 })
     }
-    return { id: `local:user:${user}`, kind: 'person', handle: user } as const
+    const tokenHolderIsThisOsUserAsAPerson = { id: `local:user:${user}`, kind: 'person', handle: user } as const
+    return tokenHolderIsThisOsUserAsAPerson
   }
 }
 

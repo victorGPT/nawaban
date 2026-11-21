@@ -9,40 +9,46 @@ import { guard } from './guard.ts'
 import { importOld } from './import.ts'
 import { jsonOkr, okr } from './okr.ts'
 import { inbox, index } from './orchestrator.ts'
-import { boardDir, DIR, PORT, serve, urlFor } from './server.ts'
+import { boardDirAsConfiguredWhenAsked, DIR, PORT, serve, urlFor } from './server.ts'
 import { run } from './tasks.ts'
 import { json } from './views.ts'
+
+function tokenOfServedBoardElseLetItsOwn401Answer(): string | undefined {
+  try {
+    return readFileSync(join(DIR, 'token'), 'utf8').trim()
+  } catch {
+    return undefined
+  }
+}
+
+function pointAtThisMachinesBoard() {
+  process.env.BOARD_URL ??= urlFor(PORT)
+  if (process.env.BOARD_TOKEN) return
+  const token = tokenOfServedBoardElseLetItsOwn401Answer()
+  if (token !== undefined) process.env.BOARD_TOKEN = token
+}
+
+async function runCommand(argv: string[]): Promise<number> {
+  const app = createApp({ appName: 'nawaban' })
+  const [command, ...rest] = argv
+  const nawabanCommands: Record<string, () => Promise<number>> = {
+    event: () => event(rest, (args) => app.run(args), board()),
+    dispatch: () => dispatch(rest),
+    import: () => importOld(rest, board().as(null), boardDirAsConfiguredWhenAsked()),
+    guard: () => guard(board(), DIR),
+    okr: () => okr(rest, board(), DIR),
+    index: () => index(rest, board()),
+    inbox: () => inbox(rest, board(), DIR),
+    json: () => (rest[0] === 'okr' ? jsonOkr(rest.slice(1), board(), DIR) : json(rest, board(), DIR)),
+  }
+  if (command !== undefined && Object.hasOwn(nawabanCommands, command)) return nawabanCommands[command]!()
+  return (await run(argv)) ?? (await app.run(argv))
+}
 
 const argv = process.argv.slice(2)
 if (argv[0] === 'serve') {
   await serve()
 } else {
-  process.env.BOARD_URL ??= urlFor(PORT)
-  if (!process.env.BOARD_TOKEN) {
-    try {
-      process.env.BOARD_TOKEN = readFileSync(join(DIR, 'token'), 'utf8').trim()
-    } catch {
-    }
-  }
-  const app = createApp({ appName: 'nawaban' })
-  process.exitCode =
-    argv[0] === 'event'
-      ? await event(argv.slice(1), (args) => app.run(args), board())
-      : argv[0] === 'dispatch'
-        ? await dispatch(argv.slice(1))
-        : argv[0] === 'import'
-          ? await importOld(argv.slice(1), board().as(null), boardDir())
-          : argv[0] === 'guard'
-          ? await guard(board(), DIR)
-          : argv[0] === 'okr'
-            ? await okr(argv.slice(1), board(), DIR)
-            : argv[0] === 'index'
-              ? await index(argv.slice(1), board())
-              : argv[0] === 'inbox'
-                ? await inbox(argv.slice(1), board(), DIR)
-                : argv[0] === 'json'
-                  ? argv[1] === 'okr'
-                    ? await jsonOkr(argv.slice(2), board(), DIR)
-                    : await json(argv.slice(1), board(), DIR)
-                  : (await run(argv)) ?? (await app.run(argv))
+  pointAtThisMachinesBoard()
+  process.exitCode = await runCommand(argv)
 }

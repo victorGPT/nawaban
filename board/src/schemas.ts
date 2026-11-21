@@ -1,8 +1,23 @@
 import type { board } from '@vercel/board'
 
 const text = { type: 'string', minLength: 1 } as const
+const basis = { enum: ['实测', '预计'] } as const
 
-export const SCHEMAS = {
+const UNCHANGED_KR_MAY_CARRY_A_READING_NOTHING_JUDGES = {
+  type: 'object',
+  required: ['name', 'dir'],
+  additionalProperties: false,
+  properties: { name: text, dir: { enum: ['='] }, before: text, after: text, basis },
+} as const
+
+const MOVED_KR_WITH_ITS_READING_BEFORE_AND_AFTER = {
+  type: 'object',
+  required: ['name', 'dir', 'before', 'after', 'basis'],
+  additionalProperties: false,
+  properties: { name: text, dir: { enum: ['↑', '↓'] }, before: text, after: text, basis },
+} as const
+
+const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
   'nawaban-decision@1': {
     description: 'A choice taken on a task: the question, the verdict, what was turned down, and who took it.',
     schema: {
@@ -62,19 +77,8 @@ export const SCHEMAS = {
           type: 'array',
           items: {
             oneOf: [
-              {
-                type: 'object',
-                required: ['name', 'dir'],
-                additionalProperties: false,
-
-                properties: { name: text, dir: { enum: ['='] }, before: text, after: text, basis: { enum: ['实测', '预计'] } },
-              },
-              {
-                type: 'object',
-                required: ['name', 'dir', 'before', 'after', 'basis'],
-                additionalProperties: false,
-                properties: { name: text, dir: { enum: ['↑', '↓'] }, before: text, after: text, basis: { enum: ['实测', '预计'] } },
-              },
+              UNCHANGED_KR_MAY_CARRY_A_READING_NOTHING_JUDGES,
+              MOVED_KR_WITH_ITS_READING_BEFORE_AND_AFTER,
             ],
           },
         },
@@ -105,6 +109,7 @@ export const SCHEMAS = {
     },
   },
 } as const
+export const SCHEMAS = VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE
 
 export type SchemaId = keyof typeof SCHEMAS
 

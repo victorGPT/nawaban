@@ -11,13 +11,13 @@ import { listen, verifier } from '../src/server.ts'
 import { registerSchemas } from '../src/schemas.ts'
 
 const ROOT = new URL('../..', import.meta.url).pathname
-const HOOKS = join(ROOT, 'hooks')
+const PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM = join(ROOT, 'hooks')
 const CLI = join(ROOT, 'board/src/cli.ts')
 const SECRET = 'test-secret'
 const SESSION = 'aaaa1111-0000-0000-0000-000000000000'
 const AS = 'cc-aaaa1111'
 const sh = promisify(execFile)
-const SLOW = { timeout: 60_000 }
+const EVERY_STEP_STARTS_A_NODE_OR_A_SHELL = { timeout: 60_000 }
 let team: ReturnType<typeof board>
 let server: Awaited<ReturnType<typeof listen>>
 let env: Record<string, string> = {}
@@ -30,19 +30,20 @@ beforeAll(async () => {
   team = board({ backend: local({ memory: true }), authenticate: verifier(SECRET, 'victor'), url })
   await registerSchemas(team)
   tmp = await mkdtemp(join(tmpdir(), 'nawaban-hooks-'))
-
+  const fakeHcWhoseRoleLabelIsRole = '#!/bin/sh\necho "{\\"labels\\":{\\"role\\":\\"$ROLE\\"}}"\n'
+  const fakeGhRecordingCallsReachingNoGitHub = `#!/bin/sh\necho "$@" >> ${tmp}/gh.log\necho gh down >&2\nexit 1\n`
   await mkdir(join(tmp, 'bin'))
-  await writeFile(join(tmp, 'bin/hc'), '#!/bin/sh\necho "{\\"labels\\":{\\"role\\":\\"$ROLE\\"}}"\n')
-  await writeFile(join(tmp, 'bin/gh'), `#!/bin/sh\necho "$@" >> ${tmp}/gh.log\necho gh down >&2\nexit 1\n`)
+  await writeFile(join(tmp, 'bin/hc'), fakeHcWhoseRoleLabelIsRole)
+  await writeFile(join(tmp, 'bin/gh'), fakeGhRecordingCallsReachingNoGitHub)
   await Promise.all(['hc', 'gh'].map((b) => chmod(join(tmp, 'bin', b), 0o755)))
   repo = join(tmp, 'proj')
   await mkdir(join(repo, 'docs/agents'), { recursive: true })
   await writeFile(join(repo, 'docs/agents/orchestrator.md'), '规矩正文\n')
   await writeFile(join(repo, 'docs/agents/okr.toml'), '')
   await sh('git', ['init', '-q', '-b', 'main', repo])
-
+  const boardKnowsProjsCheckoutSoItsMergeGateReadsProjsOkrToml = JSON.stringify({ proj: repo })
   await mkdir(join(tmp, 'board'))
-  await writeFile(join(tmp, 'board/repos.json'), JSON.stringify({ proj: repo }))
+  await writeFile(join(tmp, 'board/repos.json'), boardKnowsProjsCheckoutSoItsMergeGateReadsProjsOkrToml)
   env = {
     PATH: `${join(tmp, 'bin')}:${process.env.PATH}`,
     HOME: tmp,
@@ -59,7 +60,7 @@ beforeAll(async () => {
 })
 afterAll(() => server.close())
 
-async function spawn(what: string[], input = '', more: Record<string, string> = {}) {
+async function runWithTheHooksEnvironment(what: string[], input = '', more: Record<string, string> = {}) {
   return new Promise<{ code: number; out: string; err: string }>((resolve) => {
     const child = execFile(what[0]!, what.slice(1), { cwd: repo, env: { ...env, ...more } }, (error, out, err) =>
       resolve({ code: error ? Number(error.code) : 0, out, err }),
@@ -68,12 +69,12 @@ async function spawn(what: string[], input = '', more: Record<string, string> = 
   })
 }
 const nawaban = async (...argv: string[]) => {
-  const r = await spawn(['node', CLI, ...argv])
+  const r = await runWithTheHooksEnvironment(['node', CLI, ...argv])
   expect(r.code, `${argv.join(' ')}: ${r.err}`).toBe(0)
   return r.out
 }
 const hook = (name: string, input: unknown = '', more: Record<string, string> = {}) =>
-  spawn(['sh', join(HOOKS, name)], typeof input === 'string' ? input : JSON.stringify(input), more)
+  runWithTheHooksEnvironment(['sh', join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, name)], typeof input === 'string' ? input : JSON.stringify(input), more)
 const inbox = async (session: string, more: Record<string, string> = {}) => {
   const r = await hook('inbox.sh', { session_id: session, cwd: repo, stop_hook_active: false }, more)
   expect(r.code).toBe(0)
@@ -81,16 +82,17 @@ const inbox = async (session: string, more: Record<string, string> = {}) => {
 }
 const idOf = async (key: string) => (await team.tasks.list({ state: 'all', label: { key } })).tasks[0]!.message.id
 
-it('routes a project as the panel does: the old CLI unless it moved to the board', SLOW, async () => {
-  const route = (dir: string, more: Record<string, string> = {}) => spawn(['node', join(HOOKS, 'route.mjs'), dir], '', more)
-
-  expect((await route(repo, { NAWABAN_CLI: '' })).out).toBe('old\n')
+it('routes a project as the panel does: the old CLI unless it moved to the board', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const route = (dir: string, more: Record<string, string> = {}) => runWithTheHooksEnvironment(['node', join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, 'route.mjs'), dir], '', more)
+  const projNotInBoardProjects = { NAWABAN_CLI: '' }
+  const noRepositoryNoProject = tmp
+  expect((await route(repo, projNotInBoardProjects)).out).toBe('old\n')
   expect((await route(repo)).out).toBe('board proj\n')
   expect((await route(join(repo, 'docs/agents'))).out).toBe('board proj\n')
-  expect((await route(tmp)).out).toBe('old\n')
+  expect((await route(noRepositoryNoProject)).out).toBe('old\n')
 })
 
-it('prints the index off the board when an orchestrator window starts, and nothing in any other window', SLOW, async () => {
+it('prints the index off the board when an orchestrator window starts, and nothing in any other window', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   await nawaban('create', 'K1', '--title', '要密钥', '--project', 'proj')
   await nawaban('create', 'K2', '--title', '在干的', '--project', 'proj')
   await nawaban('claim', 'K2')
@@ -105,37 +107,43 @@ it('prints the index off the board when an orchestrator window starts, and nothi
   expect((await hook('leader-index.sh', '', { ROLE: 'worker' })).out).toBe('')
 })
 
-it('shows what waits on the decision-maker under each reply, new items first, then that nothing changed', SLOW, async () => {
+async function dengniOfAnotherProjectNotThisRepositorys() {
+  await nawaban('create', 'O1', '--title', '别的项目', '--project', 'other')
+  await nawaban('claim', 'O1')
+  await nawaban('event', await idOf('O1'), '--kind', 'note', '--body', 'triage: needs-info — 等你：别处', '--as', AS)
+}
+
+it('shows what waits on the decision-maker under each reply, new items first, then that nothing changed', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   expect(await inbox('s1')).toBe('待你决定 0 件')
   expect(await inbox('s1')).toBeNull()
   await nawaban('claim', 'K1')
   await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: needs-info — 等你：给密钥', '--as', AS)
-
-  await nawaban('create', 'O1', '--title', '别的项目', '--project', 'other')
-  await nawaban('claim', 'O1')
-  await nawaban('event', await idOf('O1'), '--kind', 'note', '--body', 'triage: needs-info — 等你：别处', '--as', AS)
+  await dengniOfAnotherProjectNotThisRepositorys()
 
   const first = await inbox('s1')
   expect(first).toBe('待你决定 1 件：K1 要密钥｜说「同步」看卡')
   expect(await inbox('s1')).toBe('待你决定 1 件（无变化）')
   expect(await inbox('s1', { ROLE: 'worker' })).toBeNull()
 
-  const card = ['--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '发']
-  await nawaban('event', await idOf('K2'), ...card, '--as', AS)
+  const cardWaitsTooOnlyTheNewOneListedToASessionThatSawTheOld = ['--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '发']
+  await nawaban('event', await idOf('K2'), ...cardWaitsTooOnlyTheNewOneListedToASessionThatSawTheOld, '--as', AS)
   expect(await inbox('s1')).toBe('待你决定 2 件：K2 在干的｜说「同步」看卡')
   expect(await inbox('s2')).toMatch(/^待你决定 2 件：K\d .* · K\d /)
 
-  await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: ready-for-agent')
-  await nawaban('event', await idOf('K2'), '--kind', 'resolve', '--body', '发')
+  const answeredSoNothingWaits = async () => {
+    await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: ready-for-agent')
+    await nawaban('event', await idOf('K2'), '--kind', 'resolve', '--body', '发')
+  }
+  await answeredSoNothingWaits()
   expect(await inbox('s1')).toBe('待你决定 0 件')
   expect(await inbox('s1')).toBeNull()
 })
 
-it('stays silent when the board is down', SLOW, async () => {
+it('stays silent when the board is down', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   expect(await inbox('s1', { BOARD_URL: 'http://127.0.0.1:9/api/board' })).toBeNull()
 })
 
-it('runs one impact guard per repository: the board\'s where the project moved, the old one elsewhere', SLOW, async () => {
+it('runs one impact guard per repository: the board\'s where the project moved, the old one elsewhere', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   const call = (command: string) => ({ cwd: repo, tool_input: { command } })
   const close = call('vb tasks complete 5')
   const merge = call('gh pr merge 7')
@@ -144,10 +152,10 @@ it('runs one impact guard per repository: the board\'s where the project moved, 
   const boardClose = await hook('board-impact-guard.sh', close)
   expect([boardClose.code, boardClose.err]).toEqual([2, expect.stringContaining('nawaban close')])
   expect((await hook('impact-guard.sh', merge)).code).toBe(0)
-  expect(await log()).toBe('')
-
-  const tabbed = await hook('board-impact-guard.sh', call('gh pr\tmerge 7'))
-  expect([tabbed.code, tabbed.err]).toEqual([2, expect.stringContaining('核不了 KR 影响声明')])
+  const oldGuardNeverAskedGitHub = await log()
+  expect(oldGuardNeverAskedGitHub).toBe('')
+  const tabReachingHookJsonAsBackslashTStillAMerge = await hook('board-impact-guard.sh', call('gh pr\tmerge 7'))
+  expect([tabReachingHookJsonAsBackslashTStillAMerge.code, tabReachingHookJsonAsBackslashTStillAMerge.err]).toEqual([2, expect.stringContaining('核不了 KR 影响声明')])
 
   const old = { NAWABAN_CLI: 'old' }
   expect((await hook('board-impact-guard.sh', close, old)).code).toBe(0)
@@ -156,8 +164,8 @@ it('runs one impact guard per repository: the board\'s where the project moved, 
   expect(await log()).toContain('pr view 7')
 })
 
-it('registers the renewal on every prompt and tool call, and both impact guards before Bash', SLOW, async () => {
-  const { hooks } = JSON.parse(await readFile(join(HOOKS, 'hooks.json'), 'utf8'))
+it('registers the renewal on every prompt and tool call, and both impact guards before Bash', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const { hooks } = JSON.parse(await readFile(join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, 'hooks.json'), 'utf8'))
   const names = (event: string) => hooks[event].flatMap((g: { hooks: { command: string }[] }) => g.hooks.map((h) => h.command.split('/').pop()!.replace('"', '')))
   expect(names('UserPromptSubmit')).toContain('renew.sh')
   expect(names('PostToolUse')).toContain('renew.sh')

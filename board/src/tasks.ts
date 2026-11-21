@@ -3,13 +3,16 @@ import { readFileSync } from 'node:fs'
 import { board, type MessageView } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
 import { undeclared } from './impact.ts'
-import { boardDir } from './server.ts'
+import { boardDirAsConfiguredWhenAsked } from './server.ts'
 
 type Verb = (argv: string[]) => Promise<number>
 
 const LEASE = '1h'
-const person = () => board().as(null)
-const vb = (argv: string[]) => createApp({ appName: 'nawaban' }).run(argv)
+const PAGE = 50
+const PROFILE_NAME = /^[A-Za-z][A-Za-z0-9-]{0,31}$/
+const SESSION_PREFIX_LENGTH = 8
+const personOwningEveryTaskTheirProfilesMade = () => board().as(null)
+const cliWhoseClaimsTheRenewHookFinds = (argv: string[]) => createApp({ appName: 'nawaban' }).run(argv)
 
 export class Refused extends Error {
   code: number
@@ -19,14 +22,16 @@ export class Refused extends Error {
   }
 }
 
+const boardKeepsProfileNamesLowercase = (name: string) => name.toLowerCase()
+
 export function profile(session = process.env.CLAUDE_CODE_SESSION_ID): string {
-  if (session) return `cc-${session.slice(0, 8)}`.toLowerCase()
+  if (session) return boardKeepsProfileNamesLowercase(`cc-${session.slice(0, SESSION_PREFIX_LENGTH)}`)
   const owner = process.env.NAWABAN_OWNER
   if (!owner) throw new Refused('no identity: set CLAUDE_CODE_SESSION_ID, or NAWABAN_OWNER outside Claude Code', 2)
-  if (!/^[A-Za-z][A-Za-z0-9-]{0,31}$/.test(owner)) {
+  if (!PROFILE_NAME.test(owner)) {
     throw new Refused(`NAWABAN_OWNER ${owner} isn't a profile name: a letter, then up to 31 letters, numbers, and hyphens`, 2)
   }
-  return owner.toLowerCase()
+  return boardKeepsProfileNamesLowercase(owner)
 }
 
 const key = (m: MessageView) => m.labels.key ?? `#${m.id}`
@@ -35,32 +40,31 @@ const live = (m: MessageView) => {
   const claim = m.task?.claim
   return claim && Date.parse(claim.until) > Date.now() ? claim : null
 }
-
-const holder = (actor: string) => {
+const profileViaUser = (actor: string) => {
   const [who, as] = actor.slice(actor.lastIndexOf(':') + 1).split('+')
   return as ? `${as} via ${who}` : who
 }
 const state = (m: MessageView) => (m.task?.state === 'claimed' && !live(m) ? 'ready' : m.task?.state ?? 'not a task')
 
 async function all(query: Parameters<ReturnType<typeof board>['tasks']['list']>[0]) {
-  const team = person()
+  const team = personOwningEveryTaskTheirProfilesMade()
   const out: MessageView[] = []
   for (let after: string | undefined; ; ) {
-    const page = await team.tasks.list({ ...query, after, limit: 50 })
+    const page = await team.tasks.list({ ...query, after, limit: PAGE })
     out.push(...page.tasks.map((t) => t.message))
-    if (page.tasks.length < 50) return out
+    if (page.tasks.length < PAGE) return out
     after = page.cursor
   }
 }
 
-export async function resolve(ref: string): Promise<MessageView> {
-  const [found] = await all({ state: 'all', label: { key: ref } })
+export async function resolve(keyElseBoardId: string): Promise<MessageView> {
+  const [found] = await all({ state: 'all', label: { key: keyElseBoardId } })
   if (found) return found
-  const message = await person()
-    .thread(ref, { limit: 1 })
+  const message = await personOwningEveryTaskTheirProfilesMade()
+    .thread(keyElseBoardId, { limit: 1 })
     .then((t) => t.message)
     .catch(() => null)
-  if (!message?.task) throw new Refused(`no task ${ref}`)
+  if (!message?.task) throw new Refused(`no task ${keyElseBoardId}`)
   return message
 }
 
@@ -81,18 +85,17 @@ const create: Verb = async (argv) => {
       json: { type: 'boolean' },
     },
   })
-  const [id] = positionals
-  if (!id || !values.title) throw new Refused('usage: nawaban create <key> --title "<title>" [--body ...] [--parent <key>] [--project <p>] [--blocked-by <key>]...', 2)
+  const [keyAsPostIdSoCreatingAgainAnswersTheSameTask] = positionals
+  if (!keyAsPostIdSoCreatingAgainAnswersTheSameTask || !values.title) throw new Refused('usage: nawaban create <key> --title "<title>" [--body ...] [--parent <key>] [--project <p>] [--blocked-by <key>]...', 2)
   const parent = values.parent ? await resolve(values.parent) : null
   const project = values.project ?? parent?.channel
   if (!project) throw new Refused('no project: pass --project, or a --parent that has one', 2)
   const body = values['body-file'] ? readFileSync(values['body-file'], 'utf8') : values.body
   const needs = await Promise.all((values['blocked-by'] ?? []).map(async (b) => (await resolve(b)).id))
-
-  const { task } = await person().tasks.create(project, {
-    id,
+  const { task } = await personOwningEveryTaskTheirProfilesMade().tasks.create(project, {
+    id: keyAsPostIdSoCreatingAgainAnswersTheSameTask,
     text: body ? `${values.title}\n\n${body}` : values.title,
-    labels: { key: id, ...(parent ? { parent: key(parent) } : {}) },
+    labels: { key: keyAsPostIdSoCreatingAgainAnswersTheSameTask, ...(parent ? { parent: key(parent) } : {}) },
     needs,
   })
   print(!!values.json, { task }, row(task))
@@ -105,7 +108,7 @@ const block: Verb = async (argv) => {
   if (!ref || !by || positionals.length !== 2) throw new Refused('usage: nawaban block <key> <blocker>', 2)
   const [task, blocker] = await Promise.all([resolve(ref), resolve(by)])
   const needs = [...new Set([...(task.task?.needs ?? []), blocker.id])]
-  const updated = await person().tasks.needs(task.id, needs)
+  const updated = await personOwningEveryTaskTheirProfilesMade().tasks.needs(task.id, needs)
   print(!!values.json, { task: updated }, `${key(task)} blocked by ${key(blocker)}`)
   return 0
 }
@@ -129,7 +132,7 @@ const show: Verb = async (argv) => {
   const [ref] = positionals
   if (!ref || positionals.length !== 1) throw new Refused('usage: nawaban show <key>', 2)
   const task = await resolve(ref)
-  const team = person()
+  const team = personOwningEveryTaskTheirProfilesMade()
   const [needs, downstream, summary] = await Promise.all([
     Promise.all((task.task?.needs ?? []).map((id) => team.thread(id, { limit: 1 }).then((t) => t.message))),
     all({ state: 'all', needs: task.id }),
@@ -143,7 +146,7 @@ const show: Verb = async (argv) => {
     '',
     `  project     ${task.channel}`,
     task.labels.parent && `  parent      ${task.labels.parent}`,
-    `  holder      ${claim ? `${holder(claim.actor)} · until ${claim.until}` : 'none'}`,
+    `  holder      ${claim ? `${profileViaUser(claim.actor)} · until ${claim.until}` : 'none'}`,
     claim && task.labels.terminal && `  terminal    ${task.labels.terminal}`,
     task.task?.blocked && `  held        ${JSON.stringify(task.task.blocked)}`,
     `  blocked by  ${needs.map((m) => `${key(m)} ${state(m)}`).join(', ') || 'nothing'}`,
@@ -155,6 +158,11 @@ const show: Verb = async (argv) => {
 }
 
 const terminal = () => (process.env.CLAUDE_CODE_SESSION_ID ? process.env.HC_TERMINAL_ID : undefined)
+
+async function labelTerminalThePanelReadsWhileClaimed(taskId: string) {
+  const t = terminal()
+  await personOwningEveryTaskTheirProfilesMade().label(taskId, t ? { set: { terminal: t } } : { unset: ['terminal'] })
+}
 
 const claim: Verb = async (argv) => {
   const { values, positionals } = parseArgs({
@@ -168,15 +176,57 @@ const claim: Verb = async (argv) => {
   const as = profile()
   const json = values.json ? ['--json'] : []
   if (values.release) {
-    const code = await vb(['tasks', 'release', task.id, '--as', as, ...json])
-    if (code === 0) await person().label(task.id, { unset: ['terminal'] })
+    const code = await cliWhoseClaimsTheRenewHookFinds(['tasks', 'release', task.id, '--as', as, ...json])
+    if (code === 0) await personOwningEveryTaskTheirProfilesMade().label(task.id, { unset: ['terminal'] })
     return code
   }
-  const code = await vb(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE, ...json])
-
-  const t = terminal()
-  if (code === 0) await person().label(task.id, t ? { set: { terminal: t } } : { unset: ['terminal'] })
+  const code = await cliWhoseClaimsTheRenewHookFinds(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE, ...json])
+  if (code === 0) await labelTerminalThePanelReadsWhileClaimed(task.id)
   return code
+}
+
+async function refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView, json: string[]) {
+  const why = await undeclared(team, task.id, boardDirAsConfiguredWhenAsked())
+  if (why) throw new Refused(why)
+  const as = profile()
+  const held = live(task)
+  if (held && !held.actor.endsWith(`+${as}`)) {
+    throw new Refused(`${key(task)} is held by ${profileViaUser(held.actor)} until ${held.until}: let it close it, or wait out its lease`)
+  }
+  if (!held) {
+    const code = await cliWhoseClaimsTheRenewHookFinds(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE, ...json])
+    if (code !== 0) return code
+  }
+  const code = await cliWhoseClaimsTheRenewHookFinds(['tasks', 'complete', task.id, '--as', as, ...json])
+  if (code === 0) await team.label(task.id, { unset: ['terminal'] })
+  return code
+}
+
+async function needsWithoutAnyCanceledSinceBoardTakesNone(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, down: MessageView, canceled: MessageView) {
+  const kept = await Promise.all(
+    (down.task?.needs ?? []).map(async (id) =>
+      id === canceled.id || (await team.thread(id, { limit: 1 })).message.task?.state === 'canceled' ? null : id,
+    ),
+  )
+  return kept.filter((id) => id !== null)
+}
+
+async function cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView, json: boolean) {
+  if (task.task?.state !== 'canceled') await team.tasks.cancel(task.id, 'cancelled')
+  await team.label(task.id, { unset: ['terminal'] })
+  const stillWaitingRerunFinishesThem: string[] = []
+  for (const down of await all({ state: 'open', needs: task.id })) {
+    try {
+      await team.tasks.needs(down.id, await needsWithoutAnyCanceledSinceBoardTakesNone(team, down, task))
+    } catch (error) {
+      stillWaitingRerunFinishesThem.push(`${key(down)} (${(error as Error).message})`)
+    }
+  }
+  if (stillWaitingRerunFinishesThem.length) {
+    throw new Refused(`canceled ${key(task)}, but these still wait for it: ${stillWaitingRerunFinishesThem.join(', ')}. Run this again once no one holds them`)
+  }
+  print(json, { canceled: task.id }, `canceled ${key(task)}`)
+  return 0
 }
 
 const close: Verb = async (argv) => {
@@ -188,62 +238,32 @@ const close: Verb = async (argv) => {
   const [ref] = positionals
   if (!ref || positionals.length !== 1 || !!values.done === !!values.cancelled) throw new Refused('usage: nawaban close <key> (--done | --cancelled)', 2)
   const task = await resolve(ref)
-  const json = values.json ? ['--json'] : []
-  const team = person()
-  if (values.done) {
-    const why = await undeclared(team, task.id, boardDir())
-    if (why) throw new Refused(why)
-    const as = profile()
-    const held = live(task)
-    if (held && !held.actor.endsWith(`+${as}`)) {
-      throw new Refused(`${key(task)} is held by ${holder(held.actor)} until ${held.until}: let it close it, or wait out its lease`)
-    }
-    if (!held) {
-      const code = await vb(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE, ...json])
-      if (code !== 0) return code
-    }
-    const code = await vb(['tasks', 'complete', task.id, '--as', as, ...json])
-    if (code === 0) await team.label(task.id, { unset: ['terminal'] })
-    return code
-  }
-
-  if (task.task?.state !== 'canceled') await team.tasks.cancel(task.id, 'cancelled')
-  await team.label(task.id, { unset: ['terminal'] })
-  const stuck: string[] = []
-  for (const down of await all({ state: 'open', needs: task.id })) {
-    try {
-      const kept = await Promise.all(
-        (down.task?.needs ?? []).map(async (id) =>
-          id === task.id || (await team.thread(id, { limit: 1 })).message.task?.state === 'canceled' ? null : id,
-        ),
-      )
-      await team.tasks.needs(down.id, kept.filter((id) => id !== null))
-    } catch (error) {
-      stuck.push(`${key(down)} (${(error as Error).message})`)
-    }
-  }
-  if (stuck.length) throw new Refused(`canceled ${key(task)}, but these still wait for it: ${stuck.join(', ')}. Run this again once no one holds them`)
-  print(!!values.json, { canceled: task.id }, `canceled ${key(task)}`)
-  return 0
+  const team = personOwningEveryTaskTheirProfilesMade()
+  if (values.done) return refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team, task, values.json ? ['--json'] : [])
+  return cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team, task, !!values.json)
 }
 
 const renew: Verb = async (argv) => {
   const { values } = parseArgs({ args: argv, options: { session: { type: 'string' }, json: { type: 'boolean' } } })
   const as = profile(values.session)
-  let code = 0
+  let lastFailureWhileEveryClaimStillGetsItsRenewal = 0
   for (const task of await all({ state: 'claimed' })) {
     const claim = live(task)
-
-    if (claim?.actor.endsWith(`+${as}`)) code = (await vb(['tasks', 'renew', task.id, '--as', as, '--lease', LEASE, ...(values.json ? ['--json'] : [])])) || code
+    if (claim?.actor.endsWith(`+${as}`)) {
+      lastFailureWhileEveryClaimStillGetsItsRenewal =
+        (await cliWhoseClaimsTheRenewHookFinds(['tasks', 'renew', task.id, '--as', as, '--lease', LEASE, ...(values.json ? ['--json'] : [])])) || lastFailureWhileEveryClaimStillGetsItsRenewal
+    }
   }
-  return code
+  return lastFailureWhileEveryClaimStillGetsItsRenewal
 }
 
 const VERBS: Record<string, Verb> = { create, block, list, show, claim, close, renew }
 
+const LEFT_TO_THE_BOARDS_CLI = undefined
+
 export async function run(argv: string[]): Promise<number | undefined> {
   const verb = argv[0] !== undefined && Object.hasOwn(VERBS, argv[0]) ? VERBS[argv[0]] : undefined
-  if (!verb) return undefined
+  if (!verb) return LEFT_TO_THE_BOARDS_CLI
   try {
     return await verb(argv.slice(1))
   } catch (error) {

@@ -9,8 +9,9 @@ const task = (id: string, title: string, at: number, more: object = {}) => ({
   progress: null, waiting: null, decision: null, ...more,
 })
 const born = NOW - 40 * HOUR
+const decisionOvertakingTheNextStep = { at: NOW - HOUR / 2, verdict: '先不接 CLI' }
 
-const GOLDEN = `p 进行中的事 · 04-26 17:46 生成
+const OLD_CLIS_INDEX_GOLDEN_FROM_THE_SAME_JSON_BOARD_DATA = `p 进行中的事 · 04-26 17:46 生成
 等你 1 · 停了 1 · 在推 1 · 没动 2
 
 ## 等你
@@ -52,7 +53,7 @@ it('groups the open work into 等你, 停了 and 在推, then the decisions, the
           task('C1', '子任务', born + 1, {
             parent: 'SPEC', session: 'c', claimed_at: NOW - 2 * HOUR, active_at: NOW - HOUR / 2,
             progress: { body: '写完测试，下一步：接 CLI。', at: NOW - HOUR },
-            decision: { at: NOW - HOUR / 2, verdict: '先不接 CLI' },
+            decision: decisionOvertakingTheNextStep,
           }),
           task('W', '等用户', born + 2, {
             session: 'w', claimed_at: NOW - 5 * HOUR, active_at: NOW - 5 * HOUR, waiting: '选 A 还是 B？',
@@ -71,7 +72,7 @@ it('groups the open work into 等你, 停了 and 在推, then the decisions, the
       { task: 'D', at: NOW - 3 * HOUR, verdict: '发布', owner: true },
     ],
   }
-  expect(indexText(data, 'p', NOW)).toBe(GOLDEN)
+  expect(indexText(data, 'p', NOW)).toBe(OLD_CLIS_INDEX_GOLDEN_FROM_THE_SAME_JSON_BOARD_DATA)
 })
 
 it('counts a done task with no time of its own as not recently closed', () => {

@@ -25,10 +25,10 @@ beforeAll(async () => {
 afterAll(() => server.close())
 
 async function nawaban(...argv: string[]) {
-  return nawabanWith({}, ...argv)
+  return nawabanWithEventAsTheCliRunsIt({}, ...argv)
 }
 
-async function nawabanWith(env: Record<string, string>, ...argv: string[]) {
+async function nawabanWithEventAsTheCliRunsIt(env: Record<string, string>, ...argv: string[]) {
   vi.stubEnv('BOARD_URL', url)
   vi.stubEnv('BOARD_TOKEN', SECRET)
   for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value)
@@ -47,7 +47,7 @@ async function nawabanWith(env: Record<string, string>, ...argv: string[]) {
   }
 }
 
-async function task(id: string) {
+async function taskWithEachReplysBlocks(id: string) {
   const thread = await team.thread(id)
   return { ...thread.message.task!, replies: thread.replies.map((r) => r.blocks.map((b) => `${b.schema}@${b.version}`).join() || r.text) }
 }
@@ -70,7 +70,7 @@ it('records a note, a decision, and a link as replies, the last two as blocks', 
   expect((await nawaban('event', id, '--kind', 'note', '--body', 'halfway')).code).toBe(0)
   expect((await nawaban('event', id, '--kind', 'decision', '--question', 'which db?', '--verdict', 'sqlite', '--rejected', 'pg - too big', '--by', 'user')).code).toBe(0)
   expect((await nawaban('event', id, '--kind', 'link', '--body', 'pr:https://github.com/acme/web/pull/1')).code).toBe(0)
-  expect((await task(id)).replies).toEqual(['halfway', 'nawaban-decision@1', 'nawaban-link@1'])
+  expect((await taskWithEachReplysBlocks(id)).replies).toEqual(['halfway', 'nawaban-decision@1', 'nawaban-link@1'])
   const { replies } = await team.thread(id)
   expect(replies[1]!.blocks[0]!.data).toEqual({ question: 'which db?', verdict: 'sqlite', rejected: ['pg - too big'], by: 'user' })
   expect(replies[2]!.blocks[0]!.data).toEqual({ kind: 'pr', ref: 'https://github.com/acme/web/pull/1' })
@@ -90,21 +90,21 @@ it('ends the claim of the window that asks, and refuses one that holds no claim'
   expect((await nawaban('tasks', 'claim', id, '--as', 'cc-aaaa1111')).code).toBe(0)
   const other = await nawaban('event', id, '--kind', 'ask', '--as', 'cc-bbbb2222', ...CARD, '--rec', 'ship')
   expect(other.code).toBe(1)
-  expect(await task(id)).toMatchObject({ state: 'claimed', replies: [] })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'claimed', replies: [] })
 
   expect((await nawaban('event', id, '--kind', 'ask', '--as', 'cc-aaaa1111', ...CARD, '--rec', 'ship')).code).toBe(0)
-  expect(await task(id)).toMatchObject({ state: 'blocked', claim: null, blocked: { kind: 'awaiting_approval' }, replies: ['nawaban-ask@1'] })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'blocked', claim: null, blocked: { kind: 'awaiting_approval' }, replies: ['nawaban-ask@1'] })
 })
 
 it('lifts a hold as the person, whatever profile the run writes as', async () => {
   const id = (await team.as('cc-aaaa1111').tasks.create('nawaban', 'by a window')).task.id
   await nawaban('event', id, '--kind', 'ask', '--as', 'cc-aaaa1111', ...CARD, '--rec', 'ship')
-  expect((await nawabanWith({ BOARD_PROFILE: 'cc-zzzz9999' }, 'event', id, '--kind', 'resolve', '--body', 'go')).code).toBe(0)
-  expect(await task(id)).toMatchObject({ state: 'ready' })
+  expect((await nawabanWithEventAsTheCliRunsIt({ BOARD_PROFILE: 'cc-zzzz9999' }, 'event', id, '--kind', 'resolve', '--body', 'go')).code).toBe(0)
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready' })
 
   await nawaban('event', id, '--kind', 'note', '--as', 'cc-aaaa1111', '--body', 'triage: needs-info — 等你：region?')
-  expect((await nawabanWith({ BOARD_PROFILE: 'cc-zzzz9999' }, 'event', id, '--kind', 'note', '--body', 'triage: ready-for-agent')).code).toBe(0)
-  expect(await task(id)).toMatchObject({ state: 'ready' })
+  expect((await nawabanWithEventAsTheCliRunsIt({ BOARD_PROFILE: 'cc-zzzz9999' }, 'event', id, '--kind', 'note', '--body', 'triage: ready-for-agent')).code).toBe(0)
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready' })
 })
 
 it('refuses a card without --rec, and writes nothing', async () => {
@@ -112,27 +112,27 @@ it('refuses a card without --rec, and writes nothing', async () => {
   const ask = await nawaban('event', id, '--kind', 'ask', ...CARD)
   expect(ask.code).toBe(1)
   expect(ask.err).toContain('recommendation')
-  expect(await task(id)).toMatchObject({ state: 'ready', blocked: null, replies: [] })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', blocked: null, replies: [] })
 })
 
 it('refuses a card whose option names no door', async () => {
   const id = await newTask()
   const ask = await nawaban('event', id, '--kind', 'ask', ...CARD.slice(0, -1), 'wait｜safe', '--rec', 'ship')
   expect(ask.code).toBe(1)
-  expect(await task(id)).toMatchObject({ state: 'ready', replies: [] })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', replies: [] })
 })
 
 it('holds one pending decision a task, until it is resolved', async () => {
   const id = await newTask()
   expect((await nawaban('event', id, '--kind', 'ask', ...CARD, '--rec', 'ship')).code).toBe(0)
-  expect(await task(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'awaiting_approval', reason: 'ship it?' }, replies: ['nawaban-ask@1'] })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'awaiting_approval', reason: 'ship it?' }, replies: ['nawaban-ask@1'] })
 
   const again = await nawaban('event', id, '--kind', 'ask', ...CARD, '--rec', 'wait')
   expect(again.failure?.reason).toBe('task_blocked')
-  expect((await task(id)).replies).toEqual(['nawaban-ask@1'])
+  expect((await taskWithEachReplysBlocks(id)).replies).toEqual(['nawaban-ask@1'])
 
   expect((await nawaban('event', id, '--kind', 'resolve', '--body', 'ship it')).code).toBe(0)
-  expect(await task(id)).toMatchObject({ state: 'ready', replies: ['nawaban-ask@1', 'nawaban-resolve@1'] })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', replies: ['nawaban-ask@1', 'nawaban-resolve@1'] })
   expect((await nawaban('event', id, '--kind', 'ask', ...CARD, '--rec', 'ship')).code).toBe(0)
 })
 
@@ -140,7 +140,7 @@ it("holds the board's own writers to the card, not only nawaban event", async ()
   const id = await newTask()
   const card = { decision: 'ship it?', kr: 'O1 / KR1', context: 'tests pass', options: [{ choice: 'ship', tradeoff: 'fast', door: 'two-way' }, { choice: 'wait', tradeoff: 'safe', door: 'two-way' }] }
   expect((await nawaban('reply', id, '--schema', 'nawaban-ask@1', JSON.stringify(card))).failure?.reason).toBeDefined()
-  expect((await task(id)).replies).toEqual([])
+  expect((await taskWithEachReplysBlocks(id)).replies).toEqual([])
 })
 
 it('says an unknown task is unknown, as a refusal', async () => {
@@ -158,8 +158,7 @@ it("won't let a stale resolve lift the next decision", async () => {
   const quiet = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
   const quieter = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
   const run = (args: string[]) => app.run(args)
-
-  const racing = async (args: string[]) => {
+  const anotherWindowResolvesAndAsksAgainMidResolve = async (args: string[]) => {
     const code = await run(args)
     if (args[0] === 'reply') {
       await event([id, '--kind', 'resolve', '--body', 'go'], run, board())
@@ -168,13 +167,13 @@ it("won't let a stale resolve lift the next decision", async () => {
     return code
   }
   try {
-    await event([id, '--kind', 'resolve', '--body', 'go'], racing, board())
+    await event([id, '--kind', 'resolve', '--body', 'go'], anotherWindowResolvesAndAsksAgainMidResolve, board())
   } finally {
     quiet.mockRestore()
     quieter.mockRestore()
     vi.unstubAllEnvs()
   }
-  expect(await task(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'awaiting_approval' } })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'awaiting_approval' } })
 })
 
 it('answers a decision once when two windows resolve it at once', async () => {
@@ -186,8 +185,7 @@ it('answers a decision once when two windows resolve it at once', async () => {
   const quiet = [vi.spyOn(process.stdout, 'write').mockImplementation(() => true), vi.spyOn(process.stderr, 'write').mockImplementation(() => true)]
   const run = (args: string[]) => app.run(args)
   let raced = false
-
-  const racing = async (args: string[]) => {
+  const otherWindowAnswersBetweenThisReadAndReply = async (args: string[]) => {
     if (args[0] === 'reply' && !raced) {
       raced = true
       await event([id, '--kind', 'resolve', '--body', 'first'], run, board())
@@ -196,31 +194,31 @@ it('answers a decision once when two windows resolve it at once', async () => {
   }
   let code
   try {
-    code = await event([id, '--kind', 'resolve', '--body', 'second'], racing, board())
+    code = await event([id, '--kind', 'resolve', '--body', 'second'], otherWindowAnswersBetweenThisReadAndReply, board())
   } finally {
     for (const spy of quiet) spy.mockRestore()
     vi.unstubAllEnvs()
   }
   expect(code).toBe(1)
-  expect(await task(id)).toMatchObject({ state: 'ready', replies: ['nawaban-ask@1', 'nawaban-resolve@1'] })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', replies: ['nawaban-ask@1', 'nawaban-resolve@1'] })
 })
 
 it('keeps the decision waiting when its answer is refused', async () => {
   const id = await newTask()
   await nawaban('event', id, '--kind', 'ask', ...CARD, '--rec', 'ship')
   expect((await nawaban('event', id, '--kind', 'resolve', '--body', 'x'.repeat(10_001))).code).toBe(1)
-  expect(await task(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'awaiting_approval', reason: 'ship it?' }, replies: ['nawaban-ask@1'] })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'awaiting_approval', reason: 'ship it?' }, replies: ['nawaban-ask@1'] })
   expect((await nawaban('event', id, '--kind', 'resolve', '--body', 'go')).code).toBe(0)
 
   await nawaban('event', id, '--kind', 'note', '--body', 'triage: needs-info — 等你：region?')
   expect((await nawaban('event', id, '--kind', 'note', '--body', 'triage: ready-for-agent ' + 'x'.repeat(10_001))).code).toBe(1)
-  expect(await task(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'needs_input', reason: 'region?' } })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'needs_input', reason: 'region?' } })
 })
 
 it('refuses a resolve with no decision waiting', async () => {
   const id = await newTask()
   expect((await nawaban('event', id, '--kind', 'resolve', '--body', 'yes')).code).toBe(1)
-  expect((await task(id)).replies).toEqual([])
+  expect((await taskWithEachReplysBlocks(id)).replies).toEqual([])
 })
 
 it('hands the claim back while waiting on the user, and lets any profile take it after', async () => {
@@ -228,10 +226,10 @@ it('hands the claim back while waiting on the user, and lets any profile take it
   expect((await nawaban('tasks', 'claim', id, '--as', 'cc-aaaa1111')).code).toBe(0)
   const wait = await nawaban('event', id, '--kind', 'note', '--as', 'cc-aaaa1111', '--body', 'triage: needs-info — 等你：which region?')
   expect(wait.code).toBe(0)
-  expect(await task(id)).toMatchObject({ state: 'blocked', claim: null, blocked: { kind: 'needs_input', reason: 'which region?' } })
-
-  expect((await nawaban('event', id, '--kind', 'note', '--body', 'triage: ready-for-agent')).code).toBe(0)
-  expect(await task(id)).toMatchObject({ state: 'ready', blocked: null })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'blocked', claim: null, blocked: { kind: 'needs_input', reason: 'which region?' } })
+  const personLiftsHoldOfAGoneWindowWithNoClaimOrProfile = await nawaban('event', id, '--kind', 'note', '--body', 'triage: ready-for-agent')
+  expect(personLiftsHoldOfAGoneWindowWithNoClaimOrProfile.code).toBe(0)
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', blocked: null })
   expect((await nawaban('tasks', 'claim', id, '--as', 'cc-bbbb2222')).code).toBe(0)
 })
 
@@ -239,5 +237,5 @@ it("won't lift a pending decision with a triage note", async () => {
   const id = await newTask()
   await nawaban('event', id, '--kind', 'ask', ...CARD, '--rec', 'ship')
   expect((await nawaban('event', id, '--kind', 'note', '--body', 'triage: ready-for-agent')).code).toBe(1)
-  expect(await task(id)).toMatchObject({ state: 'blocked', replies: ['nawaban-ask@1'] })
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'blocked', replies: ['nawaban-ask@1'] })
 })
