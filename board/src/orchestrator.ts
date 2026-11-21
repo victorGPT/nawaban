@@ -6,11 +6,6 @@ import type { board } from '@vercel/board'
 import { Refused } from './tasks.ts'
 import { boardData, tasksOf } from './views.ts'
 
-/**
- * What the orchestrator's window reads off the board: `nawaban index` when it starts (the SessionStart
- * hook), and `nawaban inbox` under each reply (the Stop hook). Both ported from the old nawaban/cli.py's
- * board path (index_text, inbox_line); the inbox reads the board each time, with no cache.
- */
 type Team = ReturnType<typeof board>
 type Row = {
   id: string
@@ -28,14 +23,14 @@ type Row = {
 }
 type Data = { columns: { key: string; tasks: Row[] }[]; decisions?: { task: string; at: number; verdict: string; owner: boolean }[] }
 
-const STALE = 24 * 3600 // 在推 → 停了 past this long without activity
-const BOOKKEEPING = /^\s*(?:triage|wayfinder|impact):/ // notes that are labels, not progress
+const STALE = 24 * 3600
+const BOOKKEEPING = /^\s*(?:triage|wayfinder|impact):/
 const MENTION = /(?<![\p{L}\p{N}_.])@([\p{L}\p{N}_-]+)/u
 const NEXT_SPLIT = /[，,]?\s*下一步[：:]/
 const NEXT = /下一步[：:]\s*([^。\n]+)/
-// A link runs to whitespace or CJK and full-width text.
+
 const LINK = /https?:\/\/[^\s\u{3000}-\u{303f}\u{ff00}-\u{ffef}\u{4e00}-\u{9fff}]+/gu
-// A hold the decision-maker answers: 等你 (needs_input) or a decision card (awaiting_approval).
+
 const ASKS = new Set(['needs_input', 'awaiting_approval'])
 
 const ago = (now: number, at: number) => {
@@ -43,7 +38,6 @@ const ago = (now: number, at: number) => {
   return m < 60 ? `${m} 分钟` : m < 48 * 60 ? `${Math.floor(m / 60)} 小时` : `${Math.floor(m / 1440)} 天`
 }
 
-/** One line: links as (链接), no ** or backticks, whitespace collapsed, cut at n characters. */
 export function short(s: string, n: number): string {
   const one = s.replace(LINK, '(链接)').replace(/\*\*|`/g, '').replace(/\s+/g, ' ').trim()
   const chars = [...one]
@@ -56,7 +50,6 @@ const stamp = (at: number) => {
   return `${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`
 }
 
-/** The md index of `json board`'s data: 等你, 停了, 在推, the decision-maker's decisions, the untouched, the closed. */
 export function indexText(data: Data, name: string, now = Date.now() / 1000): string {
   const tasks = data.columns.flatMap((c) => c.tasks)
   const byId = new Map(tasks.map((t) => [t.id, t]))
@@ -104,7 +97,7 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
   out.push(...own.map((d) => `- ${ago(now, d.at)}前 ${d.task} ${short(d.verdict, 70)}`))
   out.push('', `## 没动 ${idle.length}（开着，从没认领也没写进展）`)
   out.push(...idle.map((t) => `- ${t.id} ${short(t.title, 40)}${belongs(t)}`))
-  // ponytail: json board keeps only the latest done tasks (12, plus those of 24 h), so this may undercount.
+
   const closed = tasks.filter((t) => t.status === 'done' && now - (t.done_at ?? 0) < 48 * 3600).length
   return [...out, '', `48 小时内关了 ${closed} 个。`].join('\n')
 }
@@ -114,7 +107,6 @@ const fail = (error: unknown) => {
   return error instanceof Refused ? error.code : 1
 }
 
-/** `nawaban index [--project <p>]`: the index on stdout; it writes nothing. */
 export async function index(argv: string[], team: Team): Promise<number> {
   try {
     const { values } = parseArgs({ args: argv, options: { project: { type: 'string' } } })
@@ -125,12 +117,8 @@ export async function index(argv: string[], team: Team): Promise<number> {
   }
 }
 
-/**
- * `待你决定 N 件：<the ones this session wasn't shown>｜说「同步」看卡`, `待你决定 N 件（无变化）` when it was
- * shown the same set last, or null for none. `seen` is that last set.
- */
 export function inboxLine(items: { id: string; title: string }[], seen: string[] | null): string | null {
-  if (!items.length) return null
+  if (!items.length) return seen && !seen.length ? null : '待你决定 0 件'
   const ids = items.map((i) => i.id)
   if (seen && seen.length === ids.length && ids.every((id) => seen.includes(id))) return `待你决定 ${items.length} 件（无变化）`
   const fresh = items.filter((i) => !seen?.includes(i.id))
@@ -138,11 +126,6 @@ export function inboxLine(items: { id: string; title: string }[], seen: string[]
   return `待你决定 ${items.length} 件：${listed}｜说「同步」看卡`
 }
 
-/**
- * `nawaban inbox [--project <p>]`: the Stop hook's line, its JSON on stdin (session_id). Prints
- * {"systemMessage": line}, or nothing when nothing waits. The project's tasks held for the
- * decision-maker are its items; what each session was shown last is kept in <dir>/inbox/.
- */
 export async function inbox(argv: string[], team: Team, dir: string): Promise<number> {
   try {
     const { values } = parseArgs({ args: argv, options: { project: { type: 'string' } } })
@@ -154,7 +137,7 @@ export async function inbox(argv: string[], team: Team, dir: string): Promise<nu
     const seen = await readFile(file, 'utf8').then((s) => JSON.parse(s) as unknown, () => null)
     await mkdir(join(dir, 'inbox'), { recursive: true })
     await writeFile(`${file}.${process.pid}`, JSON.stringify(items.map((i) => i.id)))
-    await rename(`${file}.${process.pid}`, file) // whole or not at all: a reader never sees half a file
+    await rename(`${file}.${process.pid}`, file)
     const line = inboxLine(items, Array.isArray(seen) ? seen : null)
     if (line) process.stdout.write(JSON.stringify({ systemMessage: line }) + '\n')
     return 0

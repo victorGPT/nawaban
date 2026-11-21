@@ -20,7 +20,6 @@ let url = ''
 let tmp = ''
 let repo = ''
 
-// A stand-in for Herdr's hc: logs each call, knows one orchestrator (HC_ORCH, in HC_ORCH_CWD), starts t99.
 const HC = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HC_LOG"
 case "$1" in
@@ -48,7 +47,6 @@ beforeAll(async () => {
 })
 afterAll(() => server.close())
 
-/** `nawaban dispatch …` as a process in the repository, from the window of session aaaa1111. */
 async function dispatch(argv: string[], hc: Record<string, string>) {
   const log = join(tmp, `hc-${Math.random()}.log`)
   const env: NodeJS.ProcessEnv = {
@@ -65,7 +63,7 @@ async function dispatch(argv: string[], hc: Record<string, string>) {
     HC_RUN_FAIL: '',
     ...hc,
   }
-  // The board is the one at BOARD_URL, whatever this machine's own settings.
+
   delete env.NAWABAN_BOARD_DIR
   delete env.NAWABAN_BOARD_PORT
   const r = await exec('node', [CLI, 'dispatch', ...argv], { cwd: repo, env }).then(

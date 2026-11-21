@@ -1,7 +1,6 @@
 import { expect, it } from 'vitest'
 import { indexText } from '../src/orchestrator.ts'
 
-// The old CLI's board index (tests/test_index.py, BOARD_GOLDEN), from the same json board data.
 process.env.TZ = 'UTC'
 const NOW = 10_000_000
 const HOUR = 3600
@@ -53,7 +52,7 @@ it('groups the open work into 等你, 停了 and 在推, then the decisions, the
           task('C1', '子任务', born + 1, {
             parent: 'SPEC', session: 'c', claimed_at: NOW - 2 * HOUR, active_at: NOW - HOUR / 2,
             progress: { body: '写完测试，下一步：接 CLI。', at: NOW - HOUR },
-            decision: { at: NOW - HOUR / 2, verdict: '先不接 CLI' }, // overtakes the 下一步
+            decision: { at: NOW - HOUR / 2, verdict: '先不接 CLI' },
           }),
           task('W', '等用户', born + 2, {
             session: 'w', claimed_at: NOW - 5 * HOUR, active_at: NOW - 5 * HOUR, waiting: '选 A 还是 B？',

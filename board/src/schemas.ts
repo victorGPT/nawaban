@@ -2,10 +2,6 @@ import type { board } from '@vercel/board'
 
 const text = { type: 'string', minLength: 1 } as const
 
-/**
- * nawaban's own blocks. A version never changes once a board has it (docs/04-reference/02-board.md,
- * createSchema): a change is the next version, and readers take both.
- */
 export const SCHEMAS = {
   'nawaban-decision@1': {
     description: 'A choice taken on a task: the question, the verdict, what was turned down, and who took it.',
@@ -70,7 +66,7 @@ export const SCHEMAS = {
                 type: 'object',
                 required: ['name', 'dir'],
                 additionalProperties: false,
-                // ponytail: = may carry the reading it expects to hold (old db #1396: 83.3→83.3 预计); nothing judges it.
+
                 properties: { name: text, dir: { enum: ['='] }, before: text, after: text, basis: { enum: ['实测', '预计'] } },
               },
               {
@@ -112,7 +108,6 @@ export const SCHEMAS = {
 
 export type SchemaId = keyof typeof SCHEMAS
 
-/** Registers every schema; one already there with the same definition is left as it is. */
 export async function registerSchemas(team: ReturnType<typeof board>) {
   for (const [id, { description, schema }] of Object.entries(SCHEMAS)) {
     const [name, version] = id.split('@')

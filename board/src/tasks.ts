@@ -5,12 +5,6 @@ import { createApp } from '@vercel/board/cli'
 import { undeclared } from './impact.ts'
 import { boardDir } from './server.ts'
 
-/**
- * nawaban's task verbs on the board: a task's key is its `key` label, its project its channel, its spec
- * its `parent` label. Writes made through a claim go through the embedded CLI, so the claim lands
- * in ~/.config/board/claims/ where another process (the renew hook) finds it; the rest go through a
- * handle as the person, who owns every task any of their profiles made.
- */
 type Verb = (argv: string[]) => Promise<number>
 
 const LEASE = '1h'
@@ -25,9 +19,7 @@ export class Refused extends Error {
   }
 }
 
-/** The profile this window claims as: cc-<first 8 of the session>, or NAWABAN_OWNER outside Claude Code. */
 export function profile(session = process.env.CLAUDE_CODE_SESSION_ID): string {
-  // Board keeps profile names lowercase, so claim.actor compares only with a lowercase name.
   if (session) return `cc-${session.slice(0, 8)}`.toLowerCase()
   const owner = process.env.NAWABAN_OWNER
   if (!owner) throw new Refused('no identity: set CLAUDE_CODE_SESSION_ID, or NAWABAN_OWNER outside Claude Code', 2)
@@ -43,7 +35,7 @@ const live = (m: MessageView) => {
   const claim = m.task?.claim
   return claim && Date.parse(claim.until) > Date.now() ? claim : null
 }
-/** `local:user:victor+cc-1a2b3c4d` as `cc-1a2b3c4d via victor`. */
+
 const holder = (actor: string) => {
   const [who, as] = actor.slice(actor.lastIndexOf(':') + 1).split('+')
   return as ? `${as} via ${who}` : who
@@ -61,7 +53,6 @@ async function all(query: Parameters<ReturnType<typeof board>['tasks']['list']>[
   }
 }
 
-/** A task by its key, or else by its board ID. */
 export async function resolve(ref: string): Promise<MessageView> {
   const [found] = await all({ state: 'all', label: { key: ref } })
   if (found) return found
@@ -97,7 +88,7 @@ const create: Verb = async (argv) => {
   if (!project) throw new Refused('no project: pass --project, or a --parent that has one', 2)
   const body = values['body-file'] ? readFileSync(values['body-file'], 'utf8') : values.body
   const needs = await Promise.all((values['blocked-by'] ?? []).map(async (b) => (await resolve(b)).id))
-  // ponytail: the key is the post's id too, so creating a key again answers the task it made.
+
   const { task } = await person().tasks.create(project, {
     id,
     text: body ? `${values.title}\n\n${body}` : values.title,
@@ -182,7 +173,7 @@ const claim: Verb = async (argv) => {
     return code
   }
   const code = await vb(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE, ...json])
-  // ADR 0002: the panel reads the holding window's terminal from this label while the task is claimed.
+
   const t = terminal()
   if (code === 0) await person().label(task.id, t ? { set: { terminal: t } } : { unset: ['terminal'] })
   return code
@@ -200,7 +191,6 @@ const close: Verb = async (argv) => {
   const json = values.json ? ['--json'] : []
   const team = person()
   if (values.done) {
-    // Before the claim, so a refusal leaves nothing behind.
     const why = await undeclared(team, task.id, boardDir())
     if (why) throw new Refused(why)
     const as = profile()
@@ -216,15 +206,12 @@ const close: Verb = async (argv) => {
     if (code === 0) await team.label(task.id, { unset: ['terminal'] })
     return code
   }
-  // Board readies nothing behind a canceled task; nawaban does. Cancel first, then take it out of what
-  // waits for it, so a run cut short leaves downstream waiting (and the same command finishes it), never
-  // readied early.
+
   if (task.task?.state !== 'canceled') await team.tasks.cancel(task.id, 'cancelled')
   await team.label(task.id, { unset: ['terminal'] })
   const stuck: string[] = []
   for (const down of await all({ state: 'open', needs: task.id })) {
     try {
-      // Board takes no canceled needs, so drop every canceled one: another close may have canceled one first.
       const kept = await Promise.all(
         (down.task?.needs ?? []).map(async (id) =>
           id === task.id || (await team.thread(id, { limit: 1 })).message.task?.state === 'canceled' ? null : id,
@@ -240,14 +227,13 @@ const close: Verb = async (argv) => {
   return 0
 }
 
-/** Renews every live claim this window's profile holds; the plugin's renew hook runs it. */
 const renew: Verb = async (argv) => {
   const { values } = parseArgs({ args: argv, options: { session: { type: 'string' }, json: { type: 'boolean' } } })
   const as = profile(values.session)
   let code = 0
   for (const task of await all({ state: 'claimed' })) {
     const claim = live(task)
-    // Every claim gets its renewal, whichever failed before it.
+
     if (claim?.actor.endsWith(`+${as}`)) code = (await vb(['tasks', 'renew', task.id, '--as', as, '--lease', LEASE, ...(values.json ? ['--json'] : [])])) || code
   }
   return code
@@ -255,7 +241,6 @@ const renew: Verb = async (argv) => {
 
 const VERBS: Record<string, Verb> = { create, block, list, show, claim, close, renew }
 
-/** Runs `argv` if it's one of nawaban's verbs, answering its exit code; undefined leaves it to the board's CLI. */
 export async function run(argv: string[]): Promise<number | undefined> {
   const verb = argv[0] !== undefined && Object.hasOwn(VERBS, argv[0]) ? VERBS[argv[0]] : undefined
   if (!verb) return undefined

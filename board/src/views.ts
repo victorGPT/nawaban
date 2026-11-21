@@ -4,34 +4,27 @@ import { parseArgs } from 'node:util'
 import type { board, BoardEventView, MessageView } from '@vercel/board'
 import { Refused } from './tasks.ts'
 
-/**
- * `nawaban json projects|db|board|task`: the board as the Herdr panel reads it, in the shapes the old
- * nawaban/cli.py printed (projects_data, board_data, task_detail), so herdr/mods/nawaban-board reads
- * either. Times are seconds. A task's history (claims, completion) comes off the event feed, read once
- * from the oldest task on: docs/04-reference/03-http.md, "Event feed", `after` a message ID.
- */
 type Team = ReturnType<typeof board>
 type Task = NonNullable<MessageView['task']>
 
-const DONE_LIMIT = 12 // the done column shows only the latest few
-const DONE_RECENT = 24 * 3600 // ...plus every task done this recently
-const DECISIONS_RECENT = 48 * 3600 // decisions: every one this recent, open task or closed
-const PENDING_NOTES = 3 // a pending decision carries its task's last this many notes
-// A hold the decision-maker answers: 等你 (needs_input) or a decision card (awaiting_approval).
+const DONE_LIMIT = 12
+const DONE_RECENT = 24 * 3600
+const DECISIONS_RECENT = 48 * 3600
+const PENDING_NOTES = 3
+
 const ASKS = new Set(['needs_input', 'awaiting_approval'])
 
 const secs = (iso: string) => Math.floor(Date.parse(iso) / 1000)
 const key = (m: MessageView) => m.labels.key ?? `#${m.id}`
 const title = (m: MessageView) => m.text.split('\n')[0]!
 const body = (m: MessageView) => m.text.split('\n').slice(2).join('\n').trim()
-/** An actor as the panel keys a window: its profile (`local:user:victor+cc-1a2b3c4d` is cc-1a2b3c4d), else its name. */
+
 const who = (actor: string) => (actor.includes('+') ? actor.slice(actor.lastIndexOf('+') + 1) : actor.slice(actor.lastIndexOf(':') + 1))
 const live = (t: Task | undefined) => (t?.claim && Date.parse(t.claim.until) > Date.now() ? t.claim : null)
 const closed = (t: Task | undefined) => t?.state === 'completed' || t?.state === 'canceled' || t?.state === 'failed'
 const data = (m: MessageView, name: string) =>
   m.blocks.find((b) => b.schema === name && b.data)?.data as Record<string, unknown> | undefined
 
-/** Every task in `state` (all of them by default) of one channel (undefined: every channel). */
 export async function tasksOf(team: Team, channel?: string, state: 'all' | 'blocked' = 'all') {
   const out: MessageView[] = []
   for (let after: string | undefined; ; ) {
@@ -45,11 +38,6 @@ export async function tasksOf(team: Team, channel?: string, state: 'all' | 'bloc
 type Reply = { message: MessageView; at: number; by: string }
 type History = { replies: Reply[]; claims: { at: number; by: string }[]; done: number | null; active: number }
 
-/**
- * What happened to each task: its replies, its claims, when it completed, its latest activity.
- * ponytail: reads the feed from the oldest task on, every read; a board with years of history would
- * want the views kept by a watcher instead.
- */
 async function histories(team: Team, tasks: MessageView[], channel?: string) {
   const out = new Map<string, History>(tasks.map((t) => [t.id, { replies: [], claims: [], done: null, active: secs(t.createdAt) }]))
   if (!tasks.length) return out
@@ -57,7 +45,7 @@ async function histories(team: Team, tasks: MessageView[], channel?: string) {
   let after = tasks.reduce((a, t) => (Number(t.id) < Number(a) ? t.id : a), tasks[0]!.id)
   for (;;) {
     const { events, cursor } = await team.poll({ channel, after })
-    // A page scans a stretch of the log whatever the filter keeps, so an empty one can still move on: the end is a cursor that stays.
+
     if (cursor === after) return out
     after = cursor
     for (const e of events as BoardEventView[]) {
@@ -80,13 +68,12 @@ async function histories(team: Team, tasks: MessageView[], channel?: string) {
 const isNote = (r: Reply) => r.message.blocks.length === 0
 const progress = (r: Reply | undefined) => (r ? { body: r.message.text, at: r.at } : null)
 
-/** A task as board_data's row: who holds it, in which terminal, under which orchestrator, and what waits on the decision-maker. */
 function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
   const t = m.task!
   const claim = live(t)
   const ask = t.blocked && ASKS.has(t.blocked.kind ?? '') ? t.blocked : null
   const lastClaimer = h.claims.at(-1)?.by ?? null
-  // A hold ends the claim; the window that asked still has the task, as needs-info left it held before.
+
   const session = claim ? who(claim.actor) : ask ? lastClaimer : null
   const done = t.state === 'completed'
   const notes = h.replies.filter(isNote)
@@ -106,7 +93,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
     active_at: h.active,
     open_blockers: open.length,
     terminal: session ? (m.labels.terminal ?? null) : null,
-    // GLOSSARY Orchestrator: the latest dispatch's author, else the holder, else the last claimer.
+
     leader: dispatch?.by ?? session ?? lastClaimer,
     claimed_at: h.claims[0]?.at ?? null,
   }
@@ -128,7 +115,6 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
   }
 }
 
-/** Every task needed by one in `tasks` but outside it (another project's), so a blocker reads its real state. */
 async function withNeeds(team: Team, tasks: MessageView[]) {
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const missing = [...new Set(tasks.flatMap((t) => t.task?.needs ?? []))].filter((id) => !byId.has(id))
@@ -147,7 +133,7 @@ export async function boardData(team: Team, project?: string, now = Date.now() /
   for (const { m, h } of rows) {
     const r = row(m, h, byId)
     const parent = m.labels.parent ? byKey.get(m.labels.parent) : undefined
-    // Past the latest few, done tasks stay only while recent or under an open spec (the panel ticks them).
+
     if (r.status === 'done' && columns.done!.length >= DONE_LIMIT && !(parent && !closed(parent.task)) && (h.done ?? 0) < now - DONE_RECENT) continue
     columns[r.status]!.push(r)
   }
@@ -176,7 +162,6 @@ export async function projectsData(team: Team) {
   return { projects: [...counts.values()].sort((a, b) => (a.name < b.name ? -1 : 1)) }
 }
 
-/** A reply's event body, as the old CLI wrote it: a note's text, a decision's lines, a link's `kind:ref`. */
 function event(r: Reply) {
   const [b] = r.message.blocks
   const kind = b ? b.schema.replace(/^nawaban-/, '') : 'note'
@@ -222,7 +207,6 @@ export async function taskDetail(team: Team, ref: string) {
   }
 }
 
-/** `nawaban json projects|db|board|task`: the JSON on stdout; an error is {"error": ...} with exit 1 (2 for usage). */
 export async function json(argv: string[], team: Team, dir: string): Promise<number> {
   let out
   try {

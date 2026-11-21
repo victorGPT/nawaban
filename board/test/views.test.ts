@@ -12,14 +12,13 @@ import { event } from '../src/events.ts'
 import { run } from '../src/tasks.ts'
 import { json } from '../src/views.ts'
 
-// The panel's own logic, run on what json board prints: the contract is what it draws.
 const LOGIC = new URL('../../herdr/mods/nawaban-board/logic.js', import.meta.url).href
 const { leadersView } = await import(LOGIC)
 
 const SECRET = 'test-secret'
-const A = 'aaaa1111-0000-0000-0000-000000000000' // the orchestrator's window, terminal t1
-const B = 'bbbb2222-0000-0000-0000-000000000000' // a worker's window, terminal t3
-const C = 'cccc3333-0000-0000-0000-000000000000' // another worker's, terminal t4
+const A = 'aaaa1111-0000-0000-0000-000000000000'
+const B = 'bbbb2222-0000-0000-0000-000000000000'
+const C = 'cccc3333-0000-0000-0000-000000000000'
 let team: ReturnType<typeof board>
 let server: Awaited<ReturnType<typeof listen>>
 let url = ''
@@ -35,7 +34,6 @@ beforeAll(async () => {
 })
 afterAll(() => server.close())
 
-/** Runs `nawaban <argv>` as the window of `session` in Herdr terminal `terminal`; answers its exit code and stdout. */
 async function nawaban(session: string, terminal: string, ...argv: string[]) {
   vi.stubEnv('BOARD_URL', url)
   vi.stubEnv('BOARD_TOKEN', SECRET)
@@ -68,7 +66,6 @@ const ok = async (session: string, terminal: string, ...argv: string[]) => {
 }
 const read = (...argv: string[]) => ok(A, '', 'json', ...argv)
 
-// The keys of the old cli.py board_data's rows (an open one has the five after claimed_at; done has done_at), plus pending.
 const BASE = ['id', 'title', 'status', 'project', 'parent', 'session', 'created_at', 'active_at', 'open_blockers', 'terminal', 'leader', 'claimed_at']
 const OPEN = [...BASE, 'progress', 'blocked_by', 'waiting', 'decision', 'pending'].sort()
 const DONE = [...BASE, 'done_at'].sort()
@@ -81,7 +78,6 @@ it('prints the board in the shape the panel reads, and the panel draws the 等�
   await ok(A, 't1', 'create', 'P', '--title', '待决的', '--project', 'nawaban')
   await ok(A, 't1', 'create', 'D', '--title', '派出去的', '--project', 'nawaban')
 
-  // S-01: claimed, decided, done; S-02 then held by the orchestrator in t1 with progress.
   await ok(A, 't1', 'claim', 'S-01')
   const s01 = (await read('task', 'S-01')).id
   expect(s01).toBe('S-01')
@@ -91,14 +87,13 @@ it('prints the board in the shape the panel reads, and the panel draws the 等�
   expect((await nawaban(A, 't1', 'event', await id('S-02'), '--kind', 'decision', '--question', '先迁哪个', '--verdict', '先只读\n第二行', '--rejected', '全迁')).code).toBe(0)
   expect((await nawaban(A, 't1', 'event', await id('S-02'), '--kind', 'note', '--body', 'verify：测试通过')).code).toBe(0)
 
-  // Q: the worker in t3 asks the decision-maker (等你): the hold ends its claim.
   await ok(B, 't3', 'claim', 'Q')
   expect((await nawaban(B, 't3', 'event', await id('Q'), '--kind', 'note', '--body', 'triage: needs-info — 等你：放行吗？', '--as', 'cc-bbbb2222')).code).toBe(0)
-  // P: a decision card from the other worker.
+
   await ok(C, 't4', 'claim', 'P')
   const card = ['event', await id('P'), '--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '发', '--as', 'cc-cccc3333']
   expect((await nawaban(C, 't4', ...card)).code).toBe(0)
-  // D: dispatched by the orchestrator (cc-aaaa1111), not started.
+
   const d = await id('D')
   vi.stubEnv('BOARD_URL', url)
   vi.stubEnv('BOARD_TOKEN', SECRET)

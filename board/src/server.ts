@@ -10,16 +10,11 @@ import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from './schemas.ts'
 import { impactNames } from './impact.ts'
 
-/** The board's directory: its log, token, and repos.json. Read when asked, so a test can point it elsewhere. */
 export const boardDir = () => process.env.NAWABAN_BOARD_DIR ?? join(homedir(), '.nawaban', 'board')
 export const DIR = boardDir()
 export const PORT = Number(process.env.NAWABAN_BOARD_PORT ?? 4100)
 export const urlFor = (port: number) => `http://127.0.0.1:${port}/api/board`
 
-/**
- * The bearer token in `<dir>/token`, made (0600) on first use. It's written whole to a temp file
- * and linked into place, so a reader never sees it half-written and two first runs agree on one.
- */
 export async function token(dir: string): Promise<string> {
   const path = join(dir, 'token')
   await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -37,7 +32,6 @@ export async function token(dir: string): Promise<string> {
   return secret
 }
 
-/** Whoever holds the token is the OS user, as a person: docs/01-board/01-mounting.md, "Callers of your own". */
 export function verifier(secret: string, user = userInfo().username) {
   const want = Buffer.from(secret)
   return (request: CallerRequest) => {
@@ -50,7 +44,6 @@ export function verifier(secret: string, user = userInfo().username) {
   }
 }
 
-/** Serves `team.fetch` on 127.0.0.1 with node:http. */
 export function listen(fetch: (request: Request) => Promise<Response>, port: number): Promise<Server> {
   const server = createServer(async (req, res) => {
     try {
@@ -76,7 +69,6 @@ export function listen(fetch: (request: Request) => Promise<Response>, port: num
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)))
 }
 
-/** `nawaban serve`: the board in `dir`, at `url`, for whoever holds `dir/token`. */
 export async function serve(dir = DIR, port = PORT) {
   const url = urlFor(port)
   const team = board({ backend: local({ dir }), authenticate: verifier(await token(dir)), url, middleware: [impactNames(dir)] })

@@ -7,10 +7,6 @@ import type { board, Middleware } from '@vercel/board'
 import { findBlocks } from '@vercel/board/schemas'
 import { parse } from 'smol-toml'
 
-/**
- * KR 影响声明 (nawaban-impact@1): the names it gives are checked against the okr.toml of the project's
- * repository, a task closes as done only once it has one, and so does a pull request that names it.
- */
 type Team = ReturnType<typeof board>
 type Impact = { objective: string; krs: { name: string; dir: string; before?: string; after?: string }[] }
 
@@ -21,7 +17,6 @@ const run = promisify(execFile)
 
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
 
-/** Every project's repository, from `<dir>/repos.json` (`{ "nawaban": "~/nawaban" }`): read on each use, so an edit needs no restart. */
 async function repos(dir: string): Promise<Record<string, string>> {
   try {
     const map = JSON.parse(await readFile(join(dir, 'repos.json'), 'utf8'))
@@ -32,7 +27,6 @@ async function repos(dir: string): Promise<Record<string, string>> {
   }
 }
 
-/** The Objectives in `repo`'s okr.toml, each with its KR names, or null when it has none. */
 async function objectives(repo: string): Promise<Map<string, string[]> | null> {
   let text
   try {
@@ -45,7 +39,6 @@ async function objectives(repo: string): Promise<Map<string, string[]> | null> {
   return new Map((doc.objective ?? []).map((o) => [String(o.name), (o.kr ?? []).map((kr) => String(kr.name))]))
 }
 
-/** The project whose repository (in repos.json) is the checkout at top, or undefined when none is. */
 export async function projectOf(dir: string, top: string) {
   const real = (path: string) => realpath(path).catch(() => path)
   const here = await real(top)
@@ -54,13 +47,11 @@ export async function projectOf(dir: string, top: string) {
   return project
 }
 
-/** The Objectives of a project's channel, or null when its repository isn't known or keeps no okr.toml. */
 export async function okrOf(dir: string, channel: string) {
   const repo = (await repos(dir))[channel]
   return repo ? objectives(repo) : null
 }
 
-/** Why an impact can't be declared in `channel`, or null when it can. */
 function refusal(impact: Impact, okr: Map<string, string[]> | null, channel: string, dir: string): string | null {
   const o = impact.objective
   if (o === '无') return impact.krs.length ? '--o 无 不带 --kr' : null
@@ -74,10 +65,6 @@ function refusal(impact: Impact, okr: Map<string, string[]> | null, channel: str
   return null
 }
 
-/**
- * Drops a post or edit whose nawaban-impact block names an O or KR that the project's okr.toml
- * doesn't have, whoever wrote it. The board has checked the block's shape before this runs.
- */
 export function impactNames(dir: string): Middleware {
   return async ({ write, respond, next }) => {
     const impacts = findBlocks(write.text).filter((b) => b.name === 'nawaban-impact' && b.data)
@@ -96,34 +83,25 @@ export function impactNames(dir: string): Middleware {
 
 export const howToDeclare = (ref: string) => `  nawaban event ${ref} --kind impact --o "<O 名>" --kr "${IMPACT_FORMAT}"(--kr 可重复;纯基础设施写 --o 无)`
 
-/** Whether a reply on task `id` declares its impact. */
 async function declared(team: Team, id: string) {
   const { replies } = await team.thread(id)
   return replies.some((r) => r.blocks.some((b) => b.schema === 'nawaban-impact'))
 }
 
-/**
- * Why task `id` can't close as done, or null when it can: its project keeps an okr.toml and no reply
- * on it declares an impact. `close --done` asks before it claims, so a refusal leaves nothing behind.
- */
 export async function undeclared(team: Team, id: string, dir: string): Promise<string | null> {
   const { message } = await team.thread(id, { limit: 1 })
   if (!(await okrOf(dir, message.channel)) || (await declared(team, id))) return null
   return `${message.labels.key ?? '#' + id} 没有 KR 影响声明,不能 close --done。先补:\n${howToDeclare(message.labels.key ?? id)}`
 }
 
-// Merge commands in command position (line start, after ; & | ( or $(, past VAR=value prefixes), as the
-// old merge gate reads them: on the command with quoted strings blanked, so a quoted mention is never one.
 const MERGE = /(?:^|[;&|(\n])\s*(?:\w+=(?:\$\([^)]*\)|\S*)\s+)*(?:gh(?:\s+(?:-R|--repo)(?:\s+|=)\S+)*\s+pr\s+merge|(?:(?:ba|z)?sh\s+)?(?:\S*\/)?scripts\/merge\.sh)(?=[\s;&|)]|$)/g
-// The board's CLI closing a task, in command position past its launchers and their flags (npx --yes @vercel/board,
-// pnpm --silent dlx, vercel board, nawaban, which hands `tasks` to it); as an argument (echo board …) it's text.
+
 const CLOSE =
   /(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:(?:npx|bunx|pnpm|yarn|exec|dlx|node|vercel)(?:\s+-\S+)*\s+)*(?:\S*\/)?(?:vb|board|nawaban|cli\.ts|@vercel\/board(?:@\S*)?)\s+(?:[^;&|\n)]*\s)?tasks\s+(?:complete|fail|cancel)(?=[\s;&|)]|$)/
 const GH_VALUE_FLAGS = new Set(['-R', '--repo', '-b', '--body', '-F', '--body-file', '-t', '--subject', '-A', '--author-email', '--match-head-commit'])
 
 const blank = (cmd: string) => cmd.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, (q) => "'" + 'x'.repeat(q.length - 2) + "'")
 
-/** Why an agent may not run `cmd`: it closes a board task around `nawaban close`. */
 export function closeGate(cmd: string): string | null {
   return CLOSE.test(blank(cmd))
     ? 'agent 不直接调 tasks complete|fail|cancel:关单用 nawaban close <key> --done|--cancelled(有 okr.toml 的项目,--done 要先有 KR 影响声明)'
@@ -132,13 +110,7 @@ export function closeGate(cmd: string): string | null {
 
 const words = (s: string) => s.match(/'[^']*'|"(?:\\.|[^"\\])*"|\S+/g)?.map((w) => w.replace(/^(['"])(.*)\1$/s, '$2')) ?? []
 
-/**
- * Why a merge in `cmd`, run in `cwd`, must wait: the repository keeps an okr.toml, and a task of
- * its project that the pull request names by key (title, body, or branch) has no impact declared.
- * A repository whose project isn't in repos.json isn't on this board: the old gate keeps it.
- */
 export async function mergeGate(cmd: string, cwd: string, team: Team, dir: string): Promise<string | null> {
-  // ponytail: reads the command text from the session's cwd, as the old gate does; a guardrail, not a sandbox.
   const flat = blank(cmd)
   const merges = [...flat.matchAll(MERGE)]
   if (!merges.length) return null
@@ -152,7 +124,7 @@ export async function mergeGate(cmd: string, cwd: string, team: Team, dir: strin
     const stop = flat.slice(end).search(/[;&|\n)]|$/)
     const args = words(cmd.slice(end, end + stop))
     let sel: string | undefined
-    // gh's own -R goes before `pr merge` too.
+
     let repo = /(?:-R|--repo)(?:\s+|=)(\S+)/.exec(cmd.slice(m.index, end))?.[1]
     for (let i = 0; i < args.length; i++) {
       if (GH_VALUE_FLAGS.has(args[i]!)) {
@@ -184,7 +156,6 @@ export async function mergeGate(cmd: string, cwd: string, team: Team, dir: strin
 async function liveTasks(team: Team, channel: string) {
   const out = []
   for (let after: string | undefined; ; ) {
-    // ponytail: every task of the project but the canceled, each merge; a done task keeps its declaration.
     const page = await team.tasks.list({ channel, state: 'all', after, limit: 50 })
     out.push(...page.tasks.map((t) => t.message).filter((m) => m.task?.state !== 'canceled'))
     if (page.tasks.length < 50) return out

@@ -5,12 +5,11 @@ import { SCHEMAS, type SchemaId } from './schemas.ts'
 import { IMPACT_FORMAT } from './impact.ts'
 import { Refused, resolve } from './tasks.ts'
 
-/** The embedded CLI: runs argv as `nawaban …` would, and answers its exit code. */
 type Run = (argv: string[]) => Promise<number>
 type Team = ReturnType<typeof board>
 
 const KINDS = ['note', 'decision', 'link', 'ask', 'resolve', 'impact'] as const
-// `<KR>=↑ 3→5 实测`, as the old CLI takes it: a KR not listed is =.
+
 const IMPACT = /^(.+)=([↑↓=])(?:\s+(-?\d+(?:\.\d+)?%?)\s*→\s*(-?\d+(?:\.\d+)?%?)\s+(实测|预计))?\s*$/
 
 function refuse(headline: string, code = 1) {
@@ -18,19 +17,16 @@ function refuse(headline: string, code = 1) {
   return code
 }
 
-/** The data for one of our schemas, or why it doesn't match, checked here so nothing half lands. */
 function data(id: SchemaId, value: Record<string, unknown>): { text: string } | { why: string } {
   const why = checkValue(SCHEMAS[id].schema, value)
   return why ? { why: `the ${id} block doesn't match its schema: ${why}` } : { text: block(id, value) }
 }
 
-/** `choice｜trade-off｜one-way` as an option of a card. */
 function option(words: string) {
   const [choice, tradeoff, door] = words.split(/[｜|]/).map((part) => part.trim())
   return { choice, tradeoff, door }
 }
 
-/** What holds the task (null for nothing) and the thread's newest message, or the board's error said as a refusal. */
 type Thread = Awaited<ReturnType<Team['thread']>>
 async function blocked(team: Team, id: string): Promise<{ error: number } | { hold: NonNullable<Thread['message']['task']>['blocked']; newest: Thread['message'] }> {
   try {
@@ -42,10 +38,6 @@ async function blocked(team: Team, id: string): Promise<{ error: number } | { ho
   }
 }
 
-/**
- * `nawaban event <id> --kind note|decision|link|ask|resolve`: a reply on the task, with our block,
- * and for ask, resolve, and the triage notes, the hold a person lifts.
- */
 export async function event(argv: string[], run: Run, team: Team): Promise<number> {
   let parsed
   try {
@@ -76,7 +68,7 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
   if (!id || positionals.length > 1 || !KINDS.includes(kind)) {
     return refuse(`usage: nawaban event <key|id> --kind ${KINDS.join('|')} …`, 2)
   }
-  // A task by its key (NAWABAN-X-01), as the other verbs and the old CLI take it, or by its board ID.
+
   try {
     id = (await resolve(id)).id
   } catch (error) {
@@ -90,7 +82,7 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
   const as = a.as ? ['--as', a.as] : []
   const reply = (text: string) => run(['reply', id, text, ...as])
   const hold = (reason: string, kind: string) => run(['tasks', 'block', id, reason, '--kind', kind, ...as])
-  // As the person, whatever profile the run writes as: the owner lifts a hold, whichever window wrote it.
+
   const unblock = async () => {
     try {
       await team.as(null).tasks.unblock(id)
@@ -101,13 +93,7 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
     process.stdout.write(`unblocked ${id}\n`)
     return 0
   }
-  /**
-   * Answers a hold of `kind`, then lifts it. The answer goes in only while the message read is still
-   * the newest (`--after`), and the hold is lifted only while the answer is still the newest, so a
-   * new hold raised meanwhile stays. A refused answer changes nothing.
-   * ponytail: the board has no unblock-if-still-held, so a resolve and a new ask both landing between
-   * the last read and the unblock (back-to-back calls) would still lift the new one.
-   */
+
   const answer = async (kind: string, text: string, ours: (newest: { blocks: { schema: string }[]; text: string }) => boolean) => {
     const before = await blocked(team, id)
     if ('error' in before) return before.error
@@ -119,7 +105,7 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
     if (after.hold?.kind !== kind || !ours(after.newest)) return refuse(`#${id} changed while answering: answered, hold left as it is`)
     return unblock()
   }
-  /** The hold, then the reply; a reply that fails lifts the hold again, so no hold waits on nothing. */
+
   const holdThenReply = async (reason: string, kind: string, text: string) => {
     const held = await hold(reason, kind)
     if (held) return held
@@ -132,7 +118,6 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
     if (!a.body) return refuse('a note needs --body', 2)
     const triage = /^\s*triage:\s*([\w-]+)/.exec(a.body)?.[1]
     if (triage === 'needs-info') {
-      // 等你: the hold ends the claim (docs/01-board/11-tasks.md, "Hold a task for a person").
       const question = a.body.split(/等你[：:]/)[1]?.trim() || a.body
       return holdThenReply(question, 'needs_input', a.body)
     }
@@ -147,7 +132,6 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
   }
 
   if (kind === 'decision') {
-    // The older form: --body "Question: …\nVerdict: …\nRejected: …", a line each, Rejected repeatable.
     const line = (key: string) => [...(a.body ?? '').matchAll(new RegExp(`^\\s*${key}:\\s*(.+)$`, 'gm'))].map((m) => m[1]!.trim())
     const value = data('nawaban-decision@1', {
       question: a.question ?? line('Question')[0],
@@ -174,7 +158,7 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
       recommendation: a.rec,
     })
     if ('why' in card) return refuse(card.why)
-    // The hold is the pending decision: a task already held refuses a second one, before the card lands.
+
     return holdThenReply(a.body!, 'awaiting_approval', card.text)
   }
 
@@ -186,7 +170,7 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
       if (!name) return refuse(`--kr is ${IMPACT_FORMAT}, numbers before→after: ${spec}`, 2)
       krs.push(Object.fromEntries(Object.entries({ name: name.trim(), dir, before, after, basis }).filter(([, v]) => v !== undefined)))
     }
-    // The names are the board's to check (impactNames), so vb's writes are held to them too.
+
     const value = data('nawaban-impact@1', { objective: a.o, krs })
     return 'why' in value ? refuse(`${value.why} (↑↓ need numbers before→after and 实测|预计)`) : reply(value.text)
   }

@@ -11,20 +11,14 @@ import { okrChannel, record, type Reading } from './okr.ts'
 import { SCHEMAS } from './schemas.ts'
 import { Refused } from './tasks.ts'
 
-/**
- * nawaban import --from <old nawaban.db> --project <p>…: what board-tracked projects still have open on
- * the old board, onto this one (docs/specs/board-migration.md, 迁移与并行期 阶段 1). The old file is
- * opened read-only. Every write has an ID of its own and is skipped when the board already has it, so
- * running it again adds nothing; a task is also found by its key, as nawaban create made it.
- */
 type Team = ReturnType<typeof board>
 type Task = { id: string; project: string; parent: string | null; title: string; body: string; session: string | null }
 type Event = { id: number; task: string; at: number; author: string; kind: string; body: string }
 type Impact = { repo: string; ticket: string; objective: string; kr: string; dir: string; before: string | null; after: string | null; basis: string | null; declared_at: string }
 
-const TEXT_MAX = 10_000 // a message's text (docs/01-board/04-messages.md)
-const REASON_MAX = 1_000 // a hold's reason on the local board (docs/04-reference/02-board.md, tasks)
-// cli.py's _NEEDS_INFO: a task waits on the user when its latest triage note is "triage: needs-info — 等你：<question>".
+const TEXT_MAX = 10_000
+const REASON_MAX = 1_000
+
 const NEEDS_INFO = /^triage:\s*needs-info[\s—–:：-]*(?:等你\s*[:：])?\s*/
 
 const hash = (...parts: string[]) => createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 32)
@@ -32,16 +26,14 @@ const cut = (s: string, max: number, tail: string) => (s.length <= max ? s : s.s
 const stamp = (at: number) => new Date(at * 1000).toLocaleString('sv-SE')
 const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
-/** The question a task waits on the user for, as the old panel showed it, or null when it waits on no one. */
 export function waiting(triage: string | undefined): string | null {
   const t = triage?.trim()
   const m = t ? NEEDS_INFO.exec(t) : null
   return m ? t!.slice(m[0].length) : null
 }
-/** The hold's reason for that question. */
+
 const reason = (question: string) => cut(question || '等你', REASON_MAX, '…')
 
-/** An old decision as nawaban-decision@1, from its Question/Verdict/Rejected (or 问题/结论/否决) lines; null when it has neither. */
 export function decision(body: string, author: string) {
   const lines = (...keys: string[]) => [...body.matchAll(new RegExp(`^[ \t]*(?:${keys.join('|')})[ \t]*[:：][ \t]*(.+)$`, 'gm'))].map((m) => m[1]!.trim())
   const value = {
@@ -53,7 +45,6 @@ export function decision(body: string, author: string) {
   return checkValue(SCHEMAS['nawaban-decision@1'].schema, value) ? null : value
 }
 
-/** <dir>/repos.json with a repository added for each project that has none, from paths whose folder is named after it. */
 async function writeRepos(dir: string, projects: string[], paths: string[]) {
   const file = join(dir, 'repos.json')
   const map: Record<string, string> = await readFile(file, 'utf8').then(JSON.parse, (error) => {
@@ -62,7 +53,6 @@ async function writeRepos(dir: string, projects: string[], paths: string[]) {
   })
   const added = []
   for (const p of projects) {
-    // ponytail: a project is its repository's folder name, as the old CLI and the panel's repoName() name it.
     const path = paths.find((x) => basename(x) === p)
     if (map[p] === undefined && path) {
       map[p] = path
@@ -83,7 +73,6 @@ async function posted(team: Team, id: string) {
   )
 }
 
-/** Old tasks ordered so each comes after the tasks it waits for. */
 function ordered(tasks: Task[], needs: Map<string, string[]>) {
   const out: Task[] = []
   const seen = new Set<string>()
@@ -98,7 +87,6 @@ function ordered(tasks: Task[], needs: Map<string, string[]>) {
   return out
 }
 
-/** Everything import reads off the old board, for the given projects. */
 function readOld(from: string, projects: string[]) {
   const url = pathToFileURL(from)
   url.search = 'mode=ro'
@@ -110,7 +98,7 @@ function readOld(from: string, projects: string[]) {
       ...projects,
     )
     const open = new Set(tasks.map((t) => t.id))
-    // Only an open blocker still holds: the old board readies a task once its blocker is done or cancelled.
+
     const edges = all<{ task: string; blocker: string }>(
       "SELECT b.task, b.blocker FROM blockers b JOIN tasks t ON t.id = b.blocker WHERE t.status = 'open' ORDER BY b.task, b.blocker",
     ).filter((e) => open.has(e.task))
@@ -138,7 +126,6 @@ type Old = ReturnType<typeof readOld>
 
 const usage = 'usage: nawaban import --from <old nawaban.db> --project <p> [--project <p>]… [--repos <repos.md>]'
 
-/** nawaban import: see the top of this file. Prints what it added and what was already there, then old against new. */
 export async function importOld(argv: string[], team: Team, dir: string): Promise<number> {
   try {
     const { values, positionals } = parseArgs({
@@ -153,14 +140,12 @@ export async function importOld(argv: string[], team: Team, dir: string): Promis
     const outside = old.edges.filter((e) => !ids.has(e.blocker))
     if (outside.length) throw new Refused(`these wait for open tasks of a project not imported: ${outside.map((e) => `${e.task} ← ${e.blocker}`).join(', ')}`)
 
-    // The OKR tables are keyed by repository: a project's rows are those of the repository named after it.
     const projectOf = (repo: string) => (projects.includes(basename(repo)) ? basename(repo) : null)
-    // repos.json before any declaration: the board's middleware checks a declaration's names in the repository's okr.toml.
+
     const md = await readFile(repos, 'utf8').catch(() => '')
     const paths = [...md.matchAll(/`((?:~|\/)[^`\s]+)`/g)].map((m) => m[1]!)
     const known = await writeRepos(dir, projects, [...paths, ...old.readings, ...old.accepts, ...old.impacts].map((r) => (typeof r === 'string' ? r : r.repo)))
 
-    // Each: [new, already there].
     const n: Record<'tasks' | 'replies' | '等你' | 'readings' | 'accepts' | 'impacts', [number, number]> = {
       tasks: [0, 0],
       replies: [0, 0],
@@ -181,7 +166,6 @@ export async function importOld(argv: string[], team: Team, dir: string): Promis
       let text = t.body ? `${t.title}\n\n${t.body}` : t.title
       const attachments = []
       if (text.length > TEXT_MAX) {
-        // ponytail: written only when the task is, so a run cut between the two leaves one stray file.
         attachments.push(await team.upload({ data: new TextEncoder().encode(t.body), name: 'body.md', type: 'text/markdown' }))
         text = cut(text, TEXT_MAX, '\n\n（正文超过 10,000 字，已截断；全文在附件 body.md）')
       }
@@ -215,17 +199,15 @@ export async function importOld(argv: string[], team: Team, dir: string): Promis
       if (question === null) continue
       if ((await team.thread(id, { limit: 1 })).message.task?.blocked) n['等你'][1]++
       else {
-        // 等你 is a hold for a person (docs/01-board/11-tasks.md), so it needs no claim.
         await team.tasks.block(id, reason(question), { kind: 'needs_input' })
         n['等你'][0]++
       }
     }
 
-    // Readings, accepts, and declarations in the order they were made: each one's round is when its message lands.
     const writes: { at: string; kind: 'readings' | 'accepts' | 'impacts'; write: () => Promise<boolean> }[] = []
     for (const r of old.readings) {
       const p = projectOf(r.repo)
-      // Through okr's own record, so the next nawaban okr finds these by the same IDs.
+
       const reading = { kr: r.kr, value: r.value, as_of: r.as_of, source: r.source } as Reading
       if (p) writes.push({ at: r.measured_at, kind: 'readings', write: async () => (await record(team, p, [reading])) > 0 })
     }
@@ -246,7 +228,6 @@ export async function importOld(argv: string[], team: Team, dir: string): Promis
       if (!projectOf(i.repo)) continue
       const task = ids.get(i.ticket)
       if (!task) {
-        // ponytail: a declaration on a task that's closed (or GitHub's #N) has no thread here; it's counted, not kept.
         skipped.push(`${i.ticket}(${rows.length})`)
         continue
       }
@@ -276,7 +257,6 @@ export async function importOld(argv: string[], team: Team, dir: string): Promis
   }
 }
 
-/** The old board against this one, each count read back off the board, and whether they all agree. */
 async function compare(team: Team, projects: string[], old: Old, ids: Map<string, string>, projectOf: (repo: string) => string | null) {
   const now = new Map<string, MessageView>()
   const thread = new Map<string, MessageView[]>()
@@ -310,7 +290,7 @@ async function compare(team: Team, projects: string[], old: Old, ids: Map<string
     )
     const holding = mine.filter((t) => t.session)
     check(p, 'held → held-by label', holding.length, holding.filter((t) => now.get(t.id)?.labels['held-by'] === t.session).length)
-    // Held lands unclaimed: ready, or waiting while an open blocker holds it, or blocked when it asks the user.
+
     for (const t of holding) held.push(`${t.id} ${now.get(t.id)?.task?.state}`)
     let readings = 0
     let accepts = 0
@@ -324,7 +304,7 @@ async function compare(team: Team, projects: string[], old: Old, ids: Map<string
       }
       if (!page.older) break
     }
-    // An old row is one KR of a declaration, or the whole of one that names none (--o 无).
+
     let impacts = 0
     for (const t of mine) {
       for (const r of thread.get(t.id) ?? []) {
@@ -334,7 +314,7 @@ async function compare(team: Team, projects: string[], old: Old, ids: Map<string
     const of = (table: { repo: string }[]) => table.filter((r) => projectOf(r.repo) === p).length
     check(p, 'kr_readings', of(old.readings), readings)
     check(p, 'okr_accepts', of(old.accepts), accepts)
-    // A declaration of a task not imported isn't kept (it's listed above), so it isn't counted here either.
+
     check(p, 'kr_impacts', of(old.impacts.filter((i) => ids.has(i.ticket))), impacts)
   }
   const text = [
