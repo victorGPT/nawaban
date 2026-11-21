@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""nawaban tracker: one task record and one event log per task (spec NAWABAN-LEAN).
-
-Identity comes only from the environment: CLAUDE_CODE_SESSION_ID, then NAWABAN_OWNER.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -20,14 +15,13 @@ from contextlib import closing
 from decimal import Decimal
 from pathlib import Path
 
-VERSION = 3  # PRAGMA user_version; old-schema boards read 0, a pre-OKR board 1, a pre-impact board 2 (migrated on open)
-# OKR readings (spec NAWABAN-OKRP): source '' not NULL, so UNIQUE holds for a reading with none;
-# value is TEXT, not REAL: a float would meet "== 1" with 1.0000000000000001 that okr judged missed
+VERSION = 3
+VERSIONS_MIGRATED_ON_OPEN = (1, 2)
 OKR_SCHEMA = """
 CREATE TABLE IF NOT EXISTS kr_readings (
     repo        TEXT NOT NULL,
     kr          TEXT NOT NULL,
-    value       TEXT NOT NULL,  -- the measured decimal verbatim: judged the same as okr judged it
+    value       TEXT NOT NULL,
     as_of       TEXT NOT NULL,
     source      TEXT NOT NULL DEFAULT '',
     measured_at TEXT NOT NULL,
@@ -39,13 +33,11 @@ CREATE TABLE IF NOT EXISTS okr_accepts (
     accepted_at TEXT NOT NULL
 );
 """
-# KR 影响声明 (ticket NAWABAN-KRI-01): what a ticket declares it moves; the close and merge locks read only this.
-# ticket is a local task id or a GitHub issue '#N'; repo is the main checkout, as in kr_readings.
 IMPACT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS kr_impacts (
     repo        TEXT NOT NULL,
     ticket      TEXT NOT NULL,
-    objective   TEXT NOT NULL,  -- '无' for pure infrastructure
+    objective   TEXT NOT NULL,
     kr          TEXT NOT NULL DEFAULT '',
     dir         TEXT NOT NULL CHECK (dir IN ('↑','↓','=')),
     before      TEXT,
@@ -55,6 +47,7 @@ CREATE TABLE IF NOT EXISTS kr_impacts (
 );
 CREATE INDEX IF NOT EXISTS idx_kr_impacts ON kr_impacts(repo, ticket);
 """
+TABLES_ADDED_SINCE_VERSION_1_IDEMPOTENT = OKR_SCHEMA + IMPACT_SCHEMA
 SCHEMA = OKR_SCHEMA + IMPACT_SCHEMA + """
 CREATE TABLE tasks (
     id         TEXT PRIMARY KEY,
@@ -87,31 +80,37 @@ CREATE TRIGGER events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT
 """
 
 
+
+GIT_TIMEOUT_SECONDS = 5
+BOARD_WRITE_LOCK_WAIT_SECONDS = 30
+BOARD_READ_LOCK_WAIT_SECONDS = 10
+DAY_SECONDS = 24 * 3600
+BACKUP_KEEP_DAYS = 14
+
+
 class Refused(Exception):
-    """A command refused: printed as ✗ with exit 1."""
+    pass
 
-
-# ── board location ────────────────────────────────────────────────
 
 def _repo_root(cur: Path) -> Path | None:
-    """The main checkout of the git repository cur is in (a worktree maps to it)."""
     try:
         r = subprocess.run(["git", "-C", str(cur), "rev-parse", "--git-common-dir"],
-                           capture_output=True, text=True, timeout=5)
+                           capture_output=True, text=True, timeout=GIT_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError):
         return None
-    return (cur / r.stdout.strip()).resolve().parent if r.returncode == 0 else None
+    if r.returncode != 0:
+        return None
+    return (cur / r.stdout.strip()).resolve().parent
 
 
-def _roots(cwd: Path | None = None) -> list[Path]:
-    """The shared git checkout first (so every worktree maps to it), then cwd and its ancestors."""
+def _main_checkout_then_cwd_and_ancestors(cwd: Path | None = None) -> list[Path]:
     cur = (cwd or Path.cwd()).resolve()
     repo = _repo_root(cur)
     return [*([repo] if repo else []), cur, *cur.parents]
 
 
 def _board_root() -> Path | None:
-    return next((r for r in _roots() if (r / ".nawaban").is_dir()), None)
+    return next((r for r in _main_checkout_then_cwd_and_ancestors() if (r / ".nawaban").is_dir()), None)
 
 
 def resolve_db(arg: str | None) -> Path:
@@ -119,32 +118,29 @@ def resolve_db(arg: str | None) -> Path:
         return Path(arg).expanduser()
     if os.environ.get("NAWABAN_DB"):
         return Path(os.environ["NAWABAN_DB"]).expanduser()
-    return (_board_root() or _roots()[0]) / ".nawaban" / "nawaban.db"
+    return (_board_root() or _main_checkout_then_cwd_and_ancestors()[0]) / ".nawaban" / "nawaban.db"
 
 
 def default_project(db: Path) -> str | None:
-    """The repository the command runs in, else the one holding the board.
-
-    A .nawaban directory above cwd says nothing: one in $HOME would name every task after the user.
-    """
     root = _repo_root(Path.cwd().resolve())
     if root:
         return root.name
+    return _repository_holding_the_board(db)
+
+
+def _repository_holding_the_board(db: Path) -> str | None:
     d = db.absolute().parent
     return d.parent.name if d.name == ".nawaban" else None
 
 
-# ── storage ───────────────────────────────────────────────────────
-
 def _connect(path: Path) -> sqlite3.Connection:
-    con = sqlite3.connect(str(path), timeout=30)
+    con = sqlite3.connect(str(path), timeout=BOARD_WRITE_LOCK_WAIT_SECONDS)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
     return con
 
 
 def _version(path: Path) -> int | None:
-    """user_version of a board file, None when it has old tables or is not SQLite."""
     try:
         con = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True)
         try:
@@ -154,39 +150,42 @@ def _version(path: Path) -> int | None:
             con.close()
     except sqlite3.DatabaseError:
         return None
-    return v if v in (*OLD_VERSIONS, VERSION) or not tables else None
-
-
-OLD_VERSIONS = (1, 2)  # migrated on open
+    return v if v in (*VERSIONS_MIGRATED_ON_OPEN, VERSION) or not tables else None
 
 
 def _migrate(path: Path) -> None:
-    """Version 1 or 2 → 3: back the board up, then add the OKR and impact tables (once, however many processes race)."""
     con = _connect(path)
-    con.isolation_level = None  # explicit transaction: the version check, backup and DDL under one write lock
+    con.isolation_level = None
     try:
-        con.execute("BEGIN IMMEDIATE")
-        if con.execute("PRAGMA user_version").fetchone()[0] not in OLD_VERSIONS:  # another process migrated first
-            con.execute("ROLLBACK")
-            return
-        backup(path)
-        for stmt in filter(str.strip, (OKR_SCHEMA + IMPACT_SCHEMA).split(";")):  # IF NOT EXISTS: 2 has the OKR tables
-            con.execute(stmt)
-        con.execute(f"PRAGMA user_version={VERSION}")
-        con.execute("COMMIT")
+        _migrate_once_under_one_write_lock(con, path)
     finally:
         con.close()
 
 
+def _migrate_once_under_one_write_lock(con: sqlite3.Connection, path: Path) -> None:
+    con.execute("BEGIN IMMEDIATE")
+    if _another_process_migrated_first(con):
+        con.execute("ROLLBACK")
+        return
+    backup(path)
+    for stmt in filter(str.strip, TABLES_ADDED_SINCE_VERSION_1_IDEMPOTENT.split(";")):
+        con.execute(stmt)
+    con.execute(f"PRAGMA user_version={VERSION}")
+    con.execute("COMMIT")
+
+
+def _another_process_migrated_first(con: sqlite3.Connection) -> bool:
+    return con.execute("PRAGMA user_version").fetchone()[0] not in VERSIONS_MIGRATED_ON_OPEN
+
+
 def init(path: Path) -> bool:
-    """Create an empty board; False when one already exists there."""
     if path.exists():
         v = _version(path)
         if v is None:
             raise Refused(f"不是新版看板:{path}")
-        if v in OLD_VERSIONS:
+        if v in VERSIONS_MIGRATED_ON_OPEN:
             _migrate(path)
-        if v in (*OLD_VERSIONS, VERSION):
+        if v in (*VERSIONS_MIGRATED_ON_OPEN, VERSION):
             return False
     path.parent.mkdir(parents=True, exist_ok=True)
     con = _connect(path)
@@ -202,7 +201,7 @@ def _check_board(path: Path) -> None:
     if not path.exists():
         raise Refused(f"看板不存在:{path}(建新板用 init)")
     v = _version(path)
-    if v in OLD_VERSIONS:
+    if v in VERSIONS_MIGRATED_ON_OPEN:
         _migrate(path)
     elif v != VERSION:
         raise Refused(f"不是新版看板:{path}")
@@ -214,10 +213,9 @@ def open_board(path: Path) -> sqlite3.Connection:
 
 
 def open_readonly(path: Path | str) -> sqlite3.Connection:
-    """The board opened read-only (the json verb); refuses a missing or old-schema file."""
     path = Path(path)
     _check_board(path)
-    con = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True, timeout=10)
+    con = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True, timeout=BOARD_READ_LOCK_WAIT_SECONDS)
     con.row_factory = sqlite3.Row
     return con
 
@@ -241,8 +239,8 @@ def _when(ts: int) -> str:
 
 
 def derived_status(t: sqlite3.Row) -> str:
-    """In progress is derived: a session holds an open task."""
-    return "in_progress" if t["status"] == "open" and t["session"] else t["status"]
+    held_while_open = t["status"] == "open" and t["session"]
+    return "in_progress" if held_while_open else t["status"]
 
 
 def blocked_by(con, task_id: str) -> list[sqlite3.Row]:
@@ -260,13 +258,12 @@ def add_event(con, task_id: str, author: str, kind: str, body: str) -> None:
                 (task_id, int(time.time()), author, kind, body))
 
 
+
 def _status_event(con, task_id: str, who: str, frm: str, to: str, note: str = "") -> None:
-    """Status bodies read `<from>→<to>`, the same shape migrated old events have."""
     add_event(con, task_id, who, "status", f"{frm}→{to}" + (f" · {note}" if note else ""))
 
 
 def herdr_terminal() -> str | None:
-    """The Herdr terminal a Claude Code session runs in; None outside Herdr or for NAWABAN_OWNER."""
     return os.environ.get("HC_TERMINAL_ID") if os.environ.get("CLAUDE_CODE_SESSION_ID") else None
 
 
@@ -274,13 +271,12 @@ _TERMINAL = re.compile(r" · terminal (\S+)$")
 
 
 def held_terminal(con, task_id: str, session: str | None) -> str | None:
-    """The terminal named by the holding session's latest claim (`→in_progress`) event; None if it names none."""
     if not session:
         return None
-    r = con.execute("SELECT body FROM events WHERE task=? AND kind='status' AND author=?"
-                    " AND body LIKE '%→in_progress%' ORDER BY id DESC LIMIT 1",
-                    (task_id, session)).fetchone()
-    m = _TERMINAL.search(r["body"]) if r else None
+    latest_claim = con.execute("SELECT body FROM events WHERE task=? AND kind='status' AND author=?"
+                               " AND body LIKE '%→in_progress%' ORDER BY id DESC LIMIT 1",
+                               (task_id, session)).fetchone()
+    m = _TERMINAL.search(latest_claim["body"]) if latest_claim else None
     return m.group(1) if m else None
 
 
@@ -289,16 +285,17 @@ def _add_blocker(con, task_id: str, blocker: str) -> None:
     _task(con, blocker)
     if task_id == blocker:
         raise Refused(f"任务不能被自己挡住:{task_id}")
-    # A cycle closes when walking up from the blocker through its own blockers reaches the task.
-    cycle = con.execute(
-        "WITH RECURSIVE up(id) AS (SELECT ? UNION SELECT b.blocker FROM blockers b JOIN up ON b.task=up.id)"
-        " SELECT 1 FROM up WHERE id=?", (blocker, task_id)).fetchone()
-    if cycle:
+    if _blocker_already_waits_on(con, blocker, task_id):
         raise Refused(f"会成环:{blocker} 已经(间接)被 {task_id} 挡住")
     con.execute("INSERT OR IGNORE INTO blockers (task, blocker) VALUES (?,?)", (task_id, blocker))
 
 
-# ── verbs ─────────────────────────────────────────────────────────
+def _blocker_already_waits_on(con, blocker: str, task_id: str) -> bool:
+    return con.execute(
+        "WITH RECURSIVE up(id) AS (SELECT ? UNION SELECT b.blocker FROM blockers b JOIN up ON b.task=up.id)"
+        " SELECT 1 FROM up WHERE id=?", (blocker, task_id)).fetchone() is not None
+
+
 
 def create(con, path: Path, a) -> str:
     if not re.fullmatch(r"\S+", a.id):
@@ -315,7 +312,7 @@ def create(con, path: Path, a) -> str:
                         (a.id, project, a.parent, a.title, body, int(time.time())))
             for blocker in a.blocked_by or ():
                 _add_blocker(con, a.id, blocker)
-    except sqlite3.IntegrityError:  # another session created the same id in between
+    except sqlite3.IntegrityError:
         raise Refused(f"任务已存在:{a.id}") from None
     return f"✓ create {a.id} · 项目 {project or '-'}"
 
@@ -330,21 +327,12 @@ def claim(con, a) -> str:
     t = _task(con, a.id)
     who = identity()
     holder = t["session"]
-    if holder and holder != who and not a.take:
-        raise Refused(f"{a.id} 在窗口 {holder} 手上;确要接手加 --take")
+    _refuse_another_holders_task_without_take(a, holder, who)
     if a.release:
-        if not holder:
-            return f"✓ {a.id} 本就没人认领"
-        with con:
-            con.execute("UPDATE tasks SET session=NULL WHERE id=?", (a.id,))
-            _status_event(con, a.id, who, derived_status(t), t["status"],
-                          "" if holder == who else f"释放 {holder} 的认领")
-        return f"✓ release {a.id}"
-    if t["status"] != "open":
-        raise Refused(f"{a.id} 已是 {t['status']},不能认领;要重做先 close --reopen")
+        return _release(con, a, t, holder, who)
+    _refuse_claiming_a_closed_task(a, t)
     here = herdr_terminal()
-    # The holder claiming again only records a move to another terminal.
-    if holder == who and (not here or here == held_terminal(con, a.id, who)):
+    if _holder_claims_again_from_the_same_terminal(con, a.id, holder, who, here):
         return f"✓ {a.id} 已在本窗口 {who} 手上"
     note = " · ".join(filter(None, [f"接手自 {holder}" if holder and holder != who else "",
                                      f"terminal {here}" if here else ""]))
@@ -354,6 +342,31 @@ def claim(con, a) -> str:
     return f"✓ claim {a.id} · 窗口 {who}" + (f" · terminal {here}" if here else "")
 
 
+def _refuse_another_holders_task_without_take(a, holder: str | None, who: str) -> None:
+    if holder and holder != who and not a.take:
+        raise Refused(f"{a.id} 在窗口 {holder} 手上;确要接手加 --take")
+
+
+def _release(con, a, t: sqlite3.Row, holder: str | None, who: str) -> str:
+    if not holder:
+        return f"✓ {a.id} 本就没人认领"
+    with con:
+        con.execute("UPDATE tasks SET session=NULL WHERE id=?", (a.id,))
+        _status_event(con, a.id, who, derived_status(t), t["status"],
+                      "" if holder == who else f"释放 {holder} 的认领")
+    return f"✓ release {a.id}"
+
+
+def _refuse_claiming_a_closed_task(a, t: sqlite3.Row) -> None:
+    if t["status"] != "open":
+        raise Refused(f"{a.id} 已是 {t['status']},不能认领;要重做先 close --reopen")
+
+
+def _holder_claims_again_from_the_same_terminal(con, task_id: str, holder: str | None, who: str,
+                                                here: str | None) -> bool:
+    return holder == who and (not here or here == held_terminal(con, task_id, who))
+
+
 def close(con, a) -> str:
     t = _task(con, a.id)
     who = identity()
@@ -361,43 +374,64 @@ def close(con, a) -> str:
     if t["status"] == to:
         return f"✓ {a.id} 已是 {to}"
     with con:
-        # Closing clears the session; reopening keeps none either, so the task returns to the frontier.
-        con.execute("UPDATE tasks SET status=?, session=NULL WHERE id=?", (to, a.id))
+        _set_status_returning_task_to_frontier(con, a.id, to)
         _status_event(con, a.id, who, derived_status(t), to)
     return f"✓ close {a.id} → {to}"
 
 
+def _set_status_returning_task_to_frontier(con, task_id: str, to: str) -> None:
+    con.execute("UPDATE tasks SET status=?, session=NULL WHERE id=?", (to, task_id))
+
+
 def card(a) -> None:
-    """Spec NAWABAN-OKR: an ask is a decision card hung on a KR; a decision may name the KR it serves.
-    An impact (KR 影响声明) takes --o and repeatable --kr instead of a body; impact() checks them."""
     if a.kind == "impact":
-        if a.body or a.context or a.option or a.rec or a.by:
-            raise Refused("impact 只收 --o 和 --kr")
-        if not a.o:
-            raise Refused("impact 要 --o \"<O 名>\"(纯基础设施写 --o 无)")
+        _check_impact_card(a)
         return
     if a.o:
         raise Refused("--o 只给 impact")
     if a.body is None:
         raise Refused("--body 必填(impact 除外)")
+    a.kr = _the_one_kr(a)
+    if a.kind != "ask":
+        _tag_decision_with_its_kr(a)
+        return
+    _refuse_incomplete_decision_card(a)
+    a.body = "\n".join([f"【Decision】{a.body}", f"【Objective / KR】{a.kr}", f"【Context】{a.context}",
+                        "【Options】", *(f"- {o}" for o in a.option), f"【Recommendation】{a.rec}"])
+
+
+def _check_impact_card(a) -> None:
+    if a.body or a.context or a.option or a.rec or a.by:
+        raise Refused("impact 只收 --o 和 --kr")
+    if not a.o:
+        raise Refused("impact 要 --o \"<O 名>\"(纯基础设施写 --o 无)")
+
+
+def _the_one_kr(a) -> str | None:
     if a.kr and len(a.kr) > 1:
         raise Refused("--kr 只有 impact 可重复")
-    a.kr = a.kr[0] if a.kr else None
-    if a.kr and a.kind not in ("ask", "decision"):
+    kr = a.kr[0] if a.kr else None
+    if kr and a.kind not in ("ask", "decision"):
         raise Refused("--kr 只给 ask(待决)和 decision")
-    if a.kind != "ask":
-        if a.context or a.option or a.rec:
-            raise Refused("--context / --option / --rec 只给 ask(待决)")
-        if a.kr:
-            a.body = f"[{a.kr}] {a.body}"
-        return
+    return kr
+
+
+def _tag_decision_with_its_kr(a) -> None:
+    if a.context or a.option or a.rec:
+        raise Refused("--context / --option / --rec 只给 ask(待决)")
+    if a.kr:
+        a.body = f"[{a.kr}] {a.body}"
+
+
+MIN_DECISION_OPTIONS = 2
+
+
+def _refuse_incomplete_decision_card(a) -> None:
     missing = [f for f, v in (("--kr", a.kr), ("--context", a.context), ("--rec", a.rec)) if not v]
-    if len(a.option or []) < 2:
+    if len(a.option or []) < MIN_DECISION_OPTIONS:
         missing.append("--option(至少两个)")
     if missing:
         raise Refused("决策卡缺 " + " ".join(missing))
-    a.body = "\n".join([f"【Decision】{a.body}", f"【Objective / KR】{a.kr}", f"【Context】{a.context}",
-                        "【Options】", *(f"- {o}" for o in a.option), f"【Recommendation】{a.rec}"])
 
 
 def event(con, a) -> str:
@@ -413,56 +447,66 @@ IMPACT_FORMAT = "<KR 名>=↑|↓|=[ 前→后 实测|预计]"
 
 
 def _here() -> tuple[Path, str]:
-    """(the checkout cwd is in, the key its impacts and readings are kept under: the main checkout)."""
     r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
-    top = Path(r.stdout.strip()) if r.returncode == 0 else Path.cwd().resolve()
-    return top, str(_repo_root(top) or top)
+    checkout = Path(r.stdout.strip()) if r.returncode == 0 else Path.cwd().resolve()
+    key_under_main_checkout = str(_repo_root(checkout) or checkout)
+    return checkout, key_under_main_checkout
+
+
+NO_OBJECTIVE = "无"
+
+
+def _moves_nothing(o: str) -> tuple:
+    return (o, "", "=", None, None, None)
 
 
 def _impact_rows(top: Path, o: str, krs: list[str]) -> list[tuple]:
-    """(objective, kr, dir, before, after, basis) per declared KR, checked against top's {OKR_FILE}."""
-    if o == "无":
+    if o == NO_OBJECTIVE:
         if krs:
             raise Refused("--o 无 不带 --kr")
-        return [("无", "", "=", None, None, None)]
+        return [_moves_nothing(NO_OBJECTIVE)]
     obj = next((x for x in _okr_defs(top) if x.get("name") == o), None)
     if obj is None:
         raise Refused(f"{OKR_FILE} 里没有这个 O:{o}")
     names = [k["name"] for k in obj.get("kr", [])]
-    rows = []
-    for spec in krs:
-        m = _IMPACT.fullmatch(spec)
-        if not m:
-            raise Refused(f"--kr 格式是 {IMPACT_FORMAT}(数字前→后):{spec}")
-        name, d, before, after, basis = m.groups()
-        if name not in names:
-            raise Refused(f"{o} 下没有这个 KR:{name}(有:{'、'.join(names)})")
-        if d != "=" and not basis:
-            raise Refused(f"↑↓ 要带数字和依据:{name}={d} 前→后 实测|预计")
-        rows.append((o, name, d, before, after, basis))
-    return rows or [(o, "", "=", None, None, None)]  # a KR not listed is =
+    rows = [_impact_row(o, names, spec) for spec in krs]
+    return rows or [_moves_nothing(o)]
+
+
+def _impact_row(o: str, names: list[str], spec: str) -> tuple:
+    m = _IMPACT.fullmatch(spec)
+    if not m:
+        raise Refused(f"--kr 格式是 {IMPACT_FORMAT}(数字前→后):{spec}")
+    name, d, before, after, basis = m.groups()
+    if name not in names:
+        raise Refused(f"{o} 下没有这个 KR:{name}(有:{'、'.join(names)})")
+    if d != "=" and not basis:
+        raise Refused(f"↑↓ 要带数字和依据:{name}={d} 前→后 实测|预计")
+    return (o, name, d, before, after, basis)
 
 
 def impact(con, a, gh_root: Path | None = None) -> str:
-    """Declare which KRs a ticket moves: rows in kr_impacts plus an event on the tracker, together or not at all."""
     who = identity()
     top, repo = _here()
     rows = _impact_rows(top, a.o, a.kr or [])
     if gh_root is None:
         _task(con, a.id)
     text = f"O {a.o}" + "".join(f" · {k}" for k in a.kr or [])
-    now = _iso(_dt.datetime.now())
-    with con:  # a failed GitHub post rolls the rows back
+    now = _sortable_timestamp(_dt.datetime.now())
+    with con:
         con.executemany("INSERT INTO kr_impacts VALUES (?,?,?,?,?,?,?,?,?)", [(repo, a.id, *r, now) for r in rows])
-        if gh_root is None:
-            add_event(con, a.id, who, "note", f"impact: {text}")
-        else:
-            gh_post(gh_root, _GH_ISSUE.fullmatch(a.id).group(1), "impact", text)
+        _announce_before_commit_so_a_failed_post_rolls_back(con, a, who, text, gh_root)
     return f"✓ event {a.id} · impact"
 
 
+def _announce_before_commit_so_a_failed_post_rolls_back(con, a, who: str, text: str, gh_root: Path | None) -> None:
+    if gh_root is None:
+        add_event(con, a.id, who, "note", f"impact: {text}")
+    else:
+        gh_post(gh_root, _GH_ISSUE.fullmatch(a.id).group(1), "impact", text)
+
+
 def _declared(path: Path, repo: str, tickets: list[str]) -> list[str]:
-    """The tickets with no impact declaration in repo on the board at path."""
     if not path.exists():
         return list(tickets)
     with closing(open_readonly(path)) as con:
@@ -475,44 +519,61 @@ def _how_to_declare(ticket: str) -> str:
             f"(--kr 可重复;纯基础设施写 --o 无)")
 
 
+
 def impact_lock(path: Path, ticket: str) -> None:
-    """close --done in a repository with {OKR_FILE} needs the ticket's impact declaration."""
     top, repo = _here()
     if (top / OKR_FILE).is_file() and _declared(path, repo, [ticket]):
         raise Refused(f"{ticket} 没有 KR 影响声明,不能 close --done。先补:\n{_how_to_declare(ticket)}")
 
 
-# Merge commands in command position (line start, after ; & | ( or $(, past VAR=value prefixes);
-# run on the command with quoted strings blanked, so a quoted mention is never one.
-_MERGE = re.compile(r"(?:^|[;&|(\n])\s*(?:\w+=(?:\$\([^)]*\)|\S*)\s+)*"
-                    r"(?:gh\s+pr\s+merge|(?:(?:ba|z)?sh\s+)?(?:\S*/)?scripts/merge\.sh)(?=[\s;&|)]|$)")
+
+_MERGE_IN_COMMAND_POSITION = re.compile(r"(?:^|[;&|(\n])\s*(?:\w+=(?:\$\([^)]*\)|\S*)\s+)*"
+                                        r"(?:gh\s+pr\s+merge|(?:(?:ba|z)?sh\s+)?(?:\S*/)?scripts/merge\.sh)(?=[\s;&|)]|$)")
 _GH_VALUE_FLAGS = {"-R", "--repo", "-b", "--body", "-F", "--body-file", "-t", "--subject", "-A",
                    "--author-email", "--match-head-commit"}
+_END_OF_SIMPLE_COMMAND = re.compile(r"[;&|\n)]|$")
+
+
+def _blank_quoted_strings_keeping_length(cmd: str) -> str:
+    return re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", lambda q: "'" + "x" * (len(q.group(0)) - 2) + "'", cmd)
 
 
 def merge_gate(cmd: str, path: Path) -> str | None:
-    """PreToolUse hook: why a merge command must wait for its tickets' impact declarations, or None to let it run.
-
-    GitHub closes an issue on merge (Closes #N) without nawaban close, so the lock sits on the merge.
-    """
-    # ponytail: matches the command text from the session's cwd. `cd other && …`, `bash -c "…"` and a PR of
-    # another repository through -R are judged against the cwd's repository; a guardrail, not a sandbox.
-    # quoted strings blanked to the same length: a quoted mention is never a merge, yet "2" still reads as 2
-    flat = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", lambda q: "'" + "x" * (len(q.group(0)) - 2) + "'", cmd)
-    merges = list(_MERGE.finditer(flat))
+    flat = _blank_quoted_strings_keeping_length(cmd)
+    merges = list(_MERGE_IN_COMMAND_POSITION.finditer(flat))
     if not merges:
         return None
-    top, repo = _here()
-    if not (top / OKR_FILE).is_file():
+    top_of_session_cwd, repo = _here()
+    if not (top_of_session_cwd / OKR_FILE).is_file():
         return None
-    for m in merges:  # every merge in a compound command
-        stop = re.search(r"[;&|\n)]|$", flat[m.end():]).start()
-        if why := _merge_gate_one(m.group(0), cmd[m.end():m.end() + stop], top, repo, path):
+    for m in merges:
+        stop = _END_OF_SIMPLE_COMMAND.search(flat[m.end():]).start()
+        if why := _merge_gate_one(m.group(0), cmd[m.end():m.end() + stop], top_of_session_cwd, repo, path):
             return why
     return None
 
 
 def _merge_gate_one(merge: str, rest: str, top: Path, repo: str, path: Path) -> str | None:
+    sel, gh_repo = _pr_selector_and_repo(rest)
+    if sel is None and "merge.sh" in merge:
+        return "scripts/merge.sh 没写 PR 号,核不了 KR 影响声明"
+    try:
+        pr = _gh_json(top, "pr", "view", *([sel] if sel else []), *(["--repo", gh_repo] if gh_repo else []),
+                      "--json", "number,title,body,headRefName,closingIssuesReferences")
+    except (Refused, ValueError) as e:
+        return f"查不到这个 PR 的关联票,核不了 KR 影响声明:{e}"
+    tickets = _linked_tickets(pr, path, repo)
+    if not tickets:
+        return (f"PR #{pr.get('number')} 查不到关联票(closingIssuesReferences、正文 Refs #N、看板票号都没有),"
+                f"核不了 KR 影响声明。在 PR 正文写 Closes #N 或 Refs #N")
+    missing = _declared(path, repo, tickets)
+    if missing:
+        return (f"PR #{pr.get('number')} 的关联票没有 KR 影响声明({'、'.join(missing)};看板 {path}),先补再合并:\n"
+                + "\n".join(_how_to_declare(t) for t in missing))
+    return None
+
+
+def _pr_selector_and_repo(rest: str) -> tuple[str | None, str | None]:
     try:
         args = shlex.split(rest)
     except ValueError:
@@ -524,33 +585,29 @@ def _merge_gate_one(merge: str, rest: str, top: Path, repo: str, path: Path) -> 
             gh_repo = v if t in ("-R", "--repo") else gh_repo
         elif not t.startswith("-") and sel is None:
             sel = t
-    if sel is None and "merge.sh" in merge:
-        return "scripts/merge.sh 没写 PR 号,核不了 KR 影响声明"
-    try:
-        pr = _gh_json(top, "pr", "view", *([sel] if sel else []), *(["--repo", gh_repo] if gh_repo else []),
-                      "--json", "number,title,body,headRefName,closingIssuesReferences")
-    except (Refused, ValueError) as e:
-        return f"查不到这个 PR 的关联票,核不了 KR 影响声明:{e}"
+    return sel, gh_repo
+
+
+def _linked_tickets(pr: dict, path: Path, repo: str) -> list[str]:
     tickets = [f"#{i['number']}" for i in pr.get("closingIssuesReferences") or []]
     tickets += [f"#{n}" for n in re.findall(r"\bRefs?\s+#(\d+)", pr.get("body") or "", re.I)]
-    if path.exists():  # a local board's ticket named in the title, body or branch
-        text = " ".join(str(pr.get(k) or "") for k in ("title", "body", "headRefName"))
-        with closing(open_readonly(path)) as con:
-            tickets += [r["id"] for r in con.execute("SELECT id FROM tasks WHERE status='open' AND project=?",
-                                                     (Path(repo).name,))
-                        if re.search(rf"(?<![\w-]){re.escape(r['id'])}(?![\w-])", text, re.I)]
-    tickets = list(dict.fromkeys(tickets))
-    if not tickets:
-        return (f"PR #{pr.get('number')} 查不到关联票(closingIssuesReferences、正文 Refs #N、看板票号都没有),"
-                f"核不了 KR 影响声明。在 PR 正文写 Closes #N 或 Refs #N")
-    missing = _declared(path, repo, tickets)
-    if missing:
-        return (f"PR #{pr.get('number')} 的关联票没有 KR 影响声明({'、'.join(missing)};看板 {path}),先补再合并:\n"
-                + "\n".join(_how_to_declare(t) for t in missing))
-    return None
+    if path.exists():
+        tickets += _board_tickets_named_in_title_body_or_branch(pr, path, repo)
+    return list(dict.fromkeys(tickets))
 
 
-def show(con, a, limit: int = 20) -> str:
+def _board_tickets_named_in_title_body_or_branch(pr: dict, path: Path, repo: str) -> list[str]:
+    text = " ".join(str(pr.get(k) or "") for k in ("title", "body", "headRefName"))
+    with closing(open_readonly(path)) as con:
+        return [r["id"] for r in con.execute("SELECT id FROM tasks WHERE status='open' AND project=?",
+                                             (Path(repo).name,))
+                if re.search(rf"(?<![\w-]){re.escape(r['id'])}(?![\w-])", text, re.I)]
+
+
+SHOWN_EVENTS = 20
+
+
+def show(con, a, limit: int = SHOWN_EVENTS) -> str:
     t = _task(con, a.id)
     events = con.execute("SELECT * FROM events WHERE task=? ORDER BY id DESC", (a.id,)).fetchall()
     head = [f"状态 {derived_status(t)}", f"项目 {t['project'] or '-'}"]
@@ -560,8 +617,7 @@ def show(con, a, limit: int = 20) -> str:
         head.append(f"窗口 {t['session']}")
     head.append(f"建于 {_when(t['created_at'])}")
     lines = [f"[{t['id']}] {t['title']}", "  " + " · ".join(head)]
-    # A closed task's latest note can be stale (migrated tasks keep their last progress line).
-    note = next((e for e in events if e["kind"] == "note"), None) if t["status"] == "open" else None
+    note = _progress_only_while_open(t, events)
     if note:
         lines.append(f"  当前进展:{note['body']}")
     for label, rows in (("被挡", blocked_by(con, a.id)), ("下游任务", dependents(con, a.id))):
@@ -571,6 +627,12 @@ def show(con, a, limit: int = 20) -> str:
     lines.append(f"最近事件(最新在前 · 共 {len(events)} 条):")
     lines += [f"  [{_when(e['at'])} · {e['kind']} · {e['author']}] {e['body']}" for e in events[:limit]]
     return "\n".join(lines)
+
+
+def _progress_only_while_open(t: sqlite3.Row, events: list) -> sqlite3.Row | None:
+    if t["status"] != "open":
+        return None
+    return next((e for e in events if e["kind"] == "note"), None)
 
 
 def list_tasks(con, a) -> str:
@@ -589,8 +651,8 @@ def list_tasks(con, a) -> str:
     return "\n".join(f"{t['id']}  {derived_status(t)}  {t['project'] or '-'}  {t['title']}" for t in rows)
 
 
-def backup(path: Path, keep_days: int = 14) -> Path:
-    """Online copy into <board dir>/backups/, pruning copies older than keep_days."""
+
+def backup(path: Path, keep_days: int = BACKUP_KEEP_DAYS) -> Path:
     bdir = path.parent / "backups"
     bdir.mkdir(parents=True, exist_ok=True)
     dest_path = bdir / f"nawaban-{_dt.datetime.now():%Y%m%d-%H%M%S}.db"
@@ -600,19 +662,18 @@ def backup(path: Path, keep_days: int = 14) -> Path:
     finally:
         dest.close()
         src.close()
-    cutoff = time.time() - keep_days * 86400
+    cutoff = time.time() - keep_days * DAY_SECONDS
     for old in bdir.glob("nawaban-*.db"):
         if old.stat().st_mtime < cutoff:
             old.unlink()
     return dest_path
 
 
-# ── json: read-only projections for the Herdr panel ───────────────
-
 COLUMNS = ("open", "in_progress", "done")
-DONE_LIMIT = 12  # the done column shows only the latest few
-DONE_RECENT = 24 * 3600  # ...plus every task done this recently
-DECISIONS_RECENT = 48 * 3600  # `decisions`: every decision this recent, open task or closed
+DONE_LIMIT = 12
+DONE_RECENT = DAY_SECONDS
+DECISIONS_RECENT = 2 * DAY_SECONDS
+
 
 
 def _ref(r: sqlite3.Row) -> dict:
@@ -624,7 +685,6 @@ def _event(r: sqlite3.Row) -> dict:
 
 
 def _triage_notes(con) -> list[sqlite3.Row]:
-    """Each open task's latest `triage:` note, with the task's project."""
     return con.execute(
         "SELECT e.task, NULLIF(t.project,'') AS project, e.body FROM events e JOIN tasks t ON t.id=e.task"
         " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
@@ -644,8 +704,6 @@ _NEEDS_INFO = re.compile(r"triage:\s*needs-info[\s—–:：-]*(?:等你\s*[:：
 
 
 def waiting_question(triage_note: str | None) -> str | None:
-    """What a task waits on the user for: the latest `triage:` note's question when it is
-    `triage: needs-info — 等你：<question>`, without that lead-in; None for any other label."""
     m = _NEEDS_INFO.match(triage_note.strip()) if triage_note else None
     return triage_note.strip()[m.end():] if m else None
 
@@ -653,134 +711,172 @@ def waiting_question(triage_note: str | None) -> str | None:
 _VERDICT = re.compile(r"^\s*Verdict:\s*(.*)$", re.M)
 
 
+
 def _verdict(body: str) -> str:
-    """The text after `Verdict:` on its line, else the decision's first line."""
     m = _VERDICT.search(body)
-    return m.group(1).strip() if m else body.strip().split("\n", 1)[0]
+    return m.group(1).strip() if m else _first_line(body)
+
+
+def _first_line(body: str) -> str:
+    return body.strip().split("\n", 1)[0]
+
+
+_BOARD_ROWS = ("SELECT t.*, MAX(COALESCE(e.at, t.created_at)) AS active_at,"
+               " (SELECT count(*) FROM blockers b JOIN tasks x ON x.id=b.blocker"
+               "  WHERE b.task=t.id AND x.status='open') AS open_blockers,"
+               " (SELECT at FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→in_progress%'"
+               "  ORDER BY id LIMIT 1) AS claimed_at,"
+               " (SELECT author FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→in_progress%'"
+               "  ORDER BY id DESC LIMIT 1) AS last_claimer,"
+               " (SELECT at FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→done%'"
+               "  ORDER BY id DESC LIMIT 1) AS done_at,"
+               " (SELECT status='open' FROM tasks p WHERE p.id=t.parent) AS parent_open"
+               " FROM tasks t LEFT JOIN events e ON e.task=t.id WHERE t.status!='cancelled'")
 
 
 def board_data(path: Path | str, project: str | None = None) -> dict:
-    """Tasks in three columns, latest activity first."""
-    sql = ("SELECT t.*, MAX(COALESCE(e.at, t.created_at)) AS active_at,"
-           " (SELECT count(*) FROM blockers b JOIN tasks x ON x.id=b.blocker"
-           "  WHERE b.task=t.id AND x.status='open') AS open_blockers,"
-           " (SELECT at FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→in_progress%'"
-           "  ORDER BY id LIMIT 1) AS claimed_at,"
-           " (SELECT author FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→in_progress%'"
-           "  ORDER BY id DESC LIMIT 1) AS last_claimer,"
-           " (SELECT at FROM events WHERE task=t.id AND kind='status' AND body LIKE '%→done%'"
-           "  ORDER BY id DESC LIMIT 1) AS done_at,"
-           " (SELECT status='open' FROM tasks p WHERE p.id=t.parent) AS parent_open"
-           " FROM tasks t LEFT JOIN events e ON e.task=t.id WHERE t.status!='cancelled'")
-    args: dict = {}
+    sql, args = _BOARD_ROWS, {}
     if project is not None:
         sql += " AND COALESCE(t.project,'')=:project"
         args["project"] = project
     with closing(open_readonly(path)) as con:
         rows = con.execute(sql + " GROUP BY t.id ORDER BY active_at DESC, t.id", args).fetchall()
-        # Open tasks only: the latest note that is not `coord:` bookkeeping (current progress),
-        # and the open tasks in their way.
-        notes = {r["task"]: {"body": r["body"], "at": r["at"]} for r in con.execute(
-            "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
-            " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
-            " WHERE task=e.task AND kind='note' AND ltrim(body) NOT LIKE 'coord:%' AND ltrim(body) NOT LIKE 'impact:%')")}
-        # GLOSSARY Leader: the author of the latest dispatch note (agent-center writes `coord: dispatch …`).
-        dispatchers = {r["task"]: r["author"] for r in con.execute(
-            "SELECT e.task, e.author FROM events e WHERE e.id=(SELECT MAX(id) FROM events"
-            " WHERE task=e.task AND kind='note'"
-            " AND (ltrim(body) LIKE 'dispatch:%' OR ltrim(body) LIKE 'coord: dispatch%'))")}
-        decisions = {r["task"]: {"at": r["at"], "verdict": _verdict(r["body"])} for r in con.execute(
-            "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
-            " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
-            " WHERE task=e.task AND kind='decision')")}
-        decided = [{"task": r["task"], "at": r["at"], "verdict": _verdict(r["body"]), "owner": r["author"] == "user"}
-                  for r in con.execute(
-            "SELECT e.* FROM events e JOIN tasks t ON t.id=e.task WHERE e.kind='decision' AND e.at>=:since"
-            " AND t.status!='cancelled'" + (" AND COALESCE(t.project,'')=:project" if project is not None else "")
-            + " ORDER BY e.at DESC, e.id DESC", args | {"since": time.time() - DECISIONS_RECENT})]
-        triage = {r["task"]: r["body"] for r in _triage_notes(con)}
+        open_task_facts = {
+            "progress": _current_progress_of_open_tasks(con),
+            "decision": _latest_decision_of_open_tasks(con),
+            "triage": {r["task"]: r["body"] for r in _triage_notes(con)},
+            "blocked_by": _open_blockers_by_task(con),
+        }
+        leaders = _leaders_by_latest_dispatch_note(con)
+        decided = _decisions_within_window(con, project, args)
         terminals = {r["id"]: held_terminal(con, r["id"], r["session"])
                      for r in rows if r["status"] == "open" and r["session"]}
-        blockers: dict[str, list[str]] = {}
-        for r in con.execute("SELECT b.task, b.blocker FROM blockers b JOIN tasks x ON x.id=b.blocker"
-                             " WHERE x.status='open' ORDER BY b.blocker"):
-            blockers.setdefault(r["task"], []).append(r["blocker"])
     columns = {key: [] for key in COLUMNS}
     recent = time.time() - DONE_RECENT
     for r in rows:
         status = derived_status(r)
-        # Past the latest few, done tasks stay only while recent or under an open spec (the panel ticks them).
-        if (status == "done" and len(columns["done"]) >= DONE_LIMIT
-                and not r["parent_open"] and (r["done_at"] or 0) < recent):
+        if _done_past_the_column_limit(status, columns, r, recent):
             continue
-        task = {
-            "id": r["id"], "title": r["title"], "status": status, "project": r["project"],
-            "parent": r["parent"], "session": r["session"], "created_at": r["created_at"],
-            "active_at": r["active_at"], "open_blockers": r["open_blockers"],
-            "terminal": terminals.get(r["id"]), "leader": dispatchers.get(r["id"], r["session"] or r["last_claimer"]),
-            "claimed_at": r["claimed_at"]}
-        if r["status"] == "open":
-            task["progress"] = notes.get(r["id"])
-            task["blocked_by"] = blockers.get(r["id"], [])
-            task["waiting"] = waiting_question(triage.get(r["id"]))
-            task["decision"] = decisions.get(r["id"])
-        if status == "done":
-            task["done_at"] = r["done_at"]
-        columns[status].append(task)
+        columns[status].append(_board_task(r, status, terminals, leaders, open_task_facts))
     return {"columns": [{"key": k, "tasks": v} for k, v in columns.items()], "decisions": decided}
 
 
-# ── json board from GitHub issues (spec NAWABAN-INDEX, Data mapping) ──
+def _current_progress_of_open_tasks(con) -> dict:
+    return {r["task"]: {"body": r["body"], "at": r["at"]} for r in con.execute(
+        "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
+        " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
+        " WHERE task=e.task AND kind='note' AND ltrim(body) NOT LIKE 'coord:%' AND ltrim(body) NOT LIKE 'impact:%')")}
 
-GH_RECENT = 48 * 3600  # closed issues stay this long
-PENDING_NOTES = 3  # a pending decision carries its issue's last this many 进展
+
+def _leaders_by_latest_dispatch_note(con) -> dict:
+    return {r["task"]: r["author"] for r in con.execute(
+        "SELECT e.task, e.author FROM events e WHERE e.id=(SELECT MAX(id) FROM events"
+        " WHERE task=e.task AND kind='note'"
+        " AND (ltrim(body) LIKE 'dispatch:%' OR ltrim(body) LIKE 'coord: dispatch%'))")}
+
+
+def _latest_decision_of_open_tasks(con) -> dict:
+    return {r["task"]: {"at": r["at"], "verdict": _verdict(r["body"])} for r in con.execute(
+        "SELECT e.task, e.body, e.at FROM events e JOIN tasks t ON t.id=e.task"
+        " WHERE t.status='open' AND e.id=(SELECT MAX(id) FROM events"
+        " WHERE task=e.task AND kind='decision')")}
+
+
+def _decisions_within_window(con, project: str | None, args: dict) -> list[dict]:
+    return [{"task": r["task"], "at": r["at"], "verdict": _verdict(r["body"]), "owner": r["author"] == "user"}
+            for r in con.execute(
+        "SELECT e.* FROM events e JOIN tasks t ON t.id=e.task WHERE e.kind='decision' AND e.at>=:since"
+        " AND t.status!='cancelled'" + (" AND COALESCE(t.project,'')=:project" if project is not None else "")
+        + " ORDER BY e.at DESC, e.id DESC", args | {"since": time.time() - DECISIONS_RECENT})]
+
+
+def _open_blockers_by_task(con) -> dict[str, list[str]]:
+    blockers: dict[str, list[str]] = {}
+    for r in con.execute("SELECT b.task, b.blocker FROM blockers b JOIN tasks x ON x.id=b.blocker"
+                         " WHERE x.status='open' ORDER BY b.blocker"):
+        blockers.setdefault(r["task"], []).append(r["blocker"])
+    return blockers
+
+
+def _done_past_the_column_limit(status: str, columns: dict, r: sqlite3.Row, recent: float) -> bool:
+    ticked_under_open_spec = r["parent_open"]
+    done_recently = (r["done_at"] or 0) >= recent
+    return (status == "done" and len(columns["done"]) >= DONE_LIMIT
+            and not ticked_under_open_spec and not done_recently)
+
+
+def _board_task(r: sqlite3.Row, status: str, terminals: dict, leaders: dict, open_task_facts: dict) -> dict:
+    task = {
+        "id": r["id"], "title": r["title"], "status": status, "project": r["project"],
+        "parent": r["parent"], "session": r["session"], "created_at": r["created_at"],
+        "active_at": r["active_at"], "open_blockers": r["open_blockers"],
+        "terminal": terminals.get(r["id"]), "leader": leaders.get(r["id"], r["session"] or r["last_claimer"]),
+        "claimed_at": r["claimed_at"]}
+    if r["status"] == "open":
+        task["progress"] = open_task_facts["progress"].get(r["id"])
+        task["blocked_by"] = open_task_facts["blocked_by"].get(r["id"], [])
+        task["waiting"] = waiting_question(open_task_facts["triage"].get(r["id"]))
+        task["decision"] = open_task_facts["decision"].get(r["id"])
+    if status == "done":
+        task["done_at"] = r["done_at"]
+    return task
+
+
+
+GH_RECENT = 2 * DAY_SECONDS
+PENDING_NOTES = 3
+GH_TIMEOUT_SECONDS = 30
+GH_ISSUE_LIST_LIMIT = "1000"
 _GH_FIELDS = "number,url,title,state,stateReason,closedAt,createdAt,updatedAt,labels,body,comments,parent,assignees"
-_GH_PARENT_TITLE = re.compile(r"[(（]#(\d+)-[A-Za-z]+[)）]")  # (#236-B)
+_GH_PARENT_SUFFIX_IN_TITLE = re.compile(r"[(（]#(\d+)-[A-Za-z]+[)）]")
 _GH_PARENT_BODY = re.compile(r"(?:属于|Part of|Parent:)\s*#(\d+)")
-# `决定：`, `## 进展：`, `**进展**：`, `决定（roubao-e8）：`: optional heading/bold, the word, an optional (who), a colon.
-_GH_PREFIX = r"\s*(?:#{{1,6}}\s*)?\**{}\**\s*([（(][^）)\n]*[）)])?\**\s*[：:]\**\s*"
-_GH_TERMINAL = re.compile(r"\bhc (t\w+)")  # 认领：gh-275（hc t52）
-_GH_NEXT = re.compile(r"下一步[：:]\s*([^。\n]+)")  # the sentence after it
+_GH_PREFIX_HEADING_BOLD_WORD_WHO_COLON = r"\s*(?:#{{1,6}}\s*)?\**{}\**\s*([（(][^）)\n]*[）)])?\**\s*[：:]\**\s*"
+_GH_CLAIM_TERMINAL = re.compile(r"\bhc (t\w+)")
+_GH_NEXT_STEP_SENTENCE = re.compile(r"下一步[：:]\s*([^。\n]+)")
 
 
 def github_root(cwd: Path | None = None) -> Path | None:
-    """The repository cwd is in, when its docs/agents/issue-tracker.md's first heading names GitHub."""
     root = _repo_root((cwd or Path.cwd()).resolve())
     try:
         lines = (root / "docs" / "agents" / "issue-tracker.md").read_text().splitlines() if root else []
     except OSError:
         return None
-    heading = next((ln for ln in lines if ln.startswith("#")), "")
-    return root if "GitHub" in heading else None
+    first_heading = next((ln for ln in lines if ln.startswith("#")), "")
+    return root if "GitHub" in first_heading else None
 
 
 def _gh(root: Path, *args: str) -> str:
-    """`gh *args` output, run as another logged-in account when the active one cannot see the repository."""
-    import json
-    def gh(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
-        try:
-            return subprocess.run(["gh", *args], cwd=root, capture_output=True, text=True, timeout=30, env=env)
-        except (OSError, subprocess.SubprocessError) as e:
-            raise Refused(f"gh 不可用:{e}") from e
-
-    def others() -> list[str]:
-        """The logged-in gh accounts that are not active: sessions share one gh, the last to switch wins."""
-        r = gh("auth", "status", "--json", "hosts")
-        try:
-            return [a["login"] for a in json.loads(r.stdout)["hosts"]["github.com"] if not a.get("active")]
-        except (ValueError, KeyError, TypeError):
-            return []
-
-    r = gh(*args)
+    r = _run_gh(root, *args)
     if r.returncode != 0 and "Could not resolve to a Repository" in r.stderr:
-        for login in others():
-            env = os.environ | {"GH_TOKEN": gh("auth", "token", "--user", login).stdout.strip()}
-            if (retry := gh(*args, env=env)).returncode == 0:
-                r = retry
-                break
+        r = _retry_as_an_inactive_login(root, args) or r
     if r.returncode != 0:
         raise Refused(f"gh 失败:{r.stderr.strip()}")
     return r.stdout
+
+
+def _run_gh(root: Path, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(["gh", *args], cwd=root, capture_output=True, text=True, timeout=GH_TIMEOUT_SECONDS,
+                              env=env)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise Refused(f"gh 不可用:{e}") from e
+
+
+def _retry_as_an_inactive_login(root: Path, args: tuple[str, ...]) -> subprocess.CompletedProcess | None:
+    for login in _inactive_gh_logins_sessions_may_have_switched_from(root):
+        env = os.environ | {"GH_TOKEN": _run_gh(root, "auth", "token", "--user", login).stdout.strip()}
+        if (retry := _run_gh(root, *args, env=env)).returncode == 0:
+            return retry
+    return None
+
+
+def _inactive_gh_logins_sessions_may_have_switched_from(root: Path) -> list[str]:
+    import json
+    r = _run_gh(root, "auth", "status", "--json", "hosts")
+    try:
+        return [a["login"] for a in json.loads(r.stdout)["hosts"]["github.com"] if not a.get("active")]
+    except (ValueError, KeyError, TypeError):
+        return []
 
 
 def _gh_json(root: Path, *args: str):
@@ -789,155 +885,183 @@ def _gh_json(root: Path, *args: str):
 
 
 def _gh_issues(root: Path) -> list[dict]:
-    """Open issues plus those closed in the last GH_RECENT seconds, as `gh issue list --json` gives them."""
     since = _dt.datetime.fromtimestamp(time.time() - GH_RECENT, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return [i for state in (["--state", "open"], ["--state", "closed", "--search", f"closed:>={since}"])
-            for i in _gh_json(root, "issue", "list", *state, "--limit", "1000", "--json", _GH_FIELDS)]
+            for i in _gh_json(root, "issue", "list", *state, "--limit", GH_ISSUE_LIST_LIMIT, "--json", _GH_FIELDS)]
 
 
-# ── OKR progress (spec NAWABAN-OKR) ──
 
 OKR_FILE = "docs/agents/okr.toml"
-MEASURE_TIMEOUT = 60  # seconds per KR; a measure reads results already produced, it never runs an eval
+MEASURE_TIMEOUT = 60
+MEASURE_ERROR_WIDTH = 120
+UNREADABLE_LINE_WIDTH = 60
+UNDATED_AS_OF_WIDTH = 30
 _TARGET = re.compile(r"(>=|<=|>|<|==)\s*(-?\d+(?:\.\d+)?)")
 _READING = re.compile(r"(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s+(\S.*)")
-_CMP = {">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b, ">": lambda a, b: a > b, "<": lambda a, b: a < b,
-        "==": lambda a, b: a == b}  # on Decimal: a float would round 1.0000000000000001 down to 1
+_MEETS_ON_DECIMAL = {">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b, ">": lambda a, b: a > b,
+                     "<": lambda a, b: a < b, "==": lambda a, b: a == b}
 
 
-_ERR_HEAD = re.compile(r"\s*[\w.]*(?:Error|Exception)(?:\s*\[[^\]]*\])?:")
+_ERROR_HEADER_LINE = re.compile(r"\s*[\w.]*(?:Error|Exception)(?:\s*\[[^\]]*\])?:")
 
 
 def _measure(root: Path, cmd: str) -> tuple[Decimal, str] | str:
-    """(value, as-of) from the last stdout line `<number> <as-of>`, or why it could not be read."""
     try:
         r = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, text=True,
                            errors="replace", timeout=MEASURE_TIMEOUT)
     except subprocess.TimeoutExpired:
         return f"超时（{MEASURE_TIMEOUT}s）"
     if r.returncode != 0:
-        err = r.stderr.strip().splitlines() or [""]
-        # first error header (`ValueError: …`, `Error [ERR_X]: …`) beats a runtime footer like "Node.js v26"
-        return f"退出码 {r.returncode}：" + next((l for l in err if _ERR_HEAD.match(l)), err[-1]).strip()[:120]
+        return f"退出码 {r.returncode}：" + _error_header_before_runtime_footer(r.stderr)[:MEASURE_ERROR_WIDTH]
     if "\ufffd" in r.stdout:
         return "输出不是 UTF-8"
     last = (r.stdout.strip().splitlines() or [""])[-1].strip()
     m = _READING.fullmatch(last)
-    return (Decimal(m.group(1)), m.group(2)) if m else f"最后一行不是「数值 截至」：{last[:60]!r}"
+    return (Decimal(m.group(1)), m.group(2)) if m else f"最后一行不是「数值 截至」：{last[:UNREADABLE_LINE_WIDTH]!r}"
+
+
+def _error_header_before_runtime_footer(stderr: str) -> str:
+    err = stderr.strip().splitlines() or [""]
+    return next((l for l in err if _ERROR_HEADER_LINE.match(l)), err[-1]).strip()
 
 
 def _stale(as_of: str, max_days: int) -> str:
-    """Why a reading is too old to count (SLO measurement window), or "" when it is fresh."""
     try:
         if not re.match(r"\d{4}-\d\d-\d\d", as_of):
             raise ValueError
         day = _dt.date.fromisoformat(as_of[:10])
     except ValueError:
-        return f"测量失败：设了 max_age_days，截至要以 YYYY-MM-DD 开头：{as_of[:30]!r}"
+        return f"测量失败：设了 max_age_days，截至要以 YYYY-MM-DD 开头：{as_of[:UNDATED_AS_OF_WIDTH]!r}"
     old = (_dt.date.today() - day).days
     return f"测量过期：截至 {day}，已 {old} 天，超过 {max_days} 天" if old > max_days else ""
 
 
 def _okr_defs(root: Path) -> list[dict]:
-    """The Objectives of root's {OKR_FILE}, validated; a malformed file is refused whole."""
+    objectives = _parse_okr_file(root)
+    for o in objectives:
+        for kr in o.get("kr", []):
+            _refuse_whole_file_for_a_malformed_kr(o, kr)
+    return objectives
+
+
+def _parse_okr_file(root: Path) -> list:
     import tomllib
     path = root / OKR_FILE
     if not path.is_file():
         raise Refused(f"没有 {OKR_FILE}:KR 定义写在仓库里,O 由决策者定、KR 由决策者点头")
     try:
         objectives = tomllib.loads(path.read_text(encoding="utf-8")).get("objective", [])
-    except ValueError as e:  # TOMLDecodeError, UnicodeDecodeError, an integer past int_max_str_digits
+    except ValueError as e:
         raise Refused(f"{OKR_FILE} 不是合法的 UTF-8 TOML:{e}")
-    if not (isinstance(objectives, list) and all(isinstance(o, dict) and isinstance(o.get("kr", []), list)
-                                                 and all(isinstance(k, dict) for k in o.get("kr", [])) for o in objectives)):
+    if not _objectives_hold_kr_tables(objectives):
         raise Refused(f"{OKR_FILE} 要写成 [[objective]] 下挂 [[objective.kr]]")
-    for o in objectives:  # a wrong target misreports every run: refuse the file, never skip the KR
-        for kr in o.get("kr", []):
-            if not isinstance(kr.get("name"), str) or not kr["name"]:
-                raise Refused(f"{OKR_FILE}:{o.get('name')} 下有一条 KR 没写 name")
-            if not all(isinstance(kr.get(k, ""), str) and "\0" not in kr.get(k, "") for k in ("measure", "unit", "wait")):
-                raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 measure、unit、wait 要写成字符串")
-            age = kr.get("max_age_days", 0)
-            if isinstance(age, bool) or not isinstance(age, int) or age < 0:
-                raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 max_age_days 要写成非负整数")
-            if not isinstance(kr.get("target"), str) or not _TARGET.fullmatch(kr["target"].strip()):
-                raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr.get('name')} 的 target 要写成「>= 95」这样")
     return objectives
+
+
+def _objectives_hold_kr_tables(objectives) -> bool:
+    return isinstance(objectives, list) and all(
+        isinstance(o, dict) and isinstance(o.get("kr", []), list) and all(isinstance(k, dict) for k in o.get("kr", []))
+        for o in objectives)
+
+
+def _refuse_whole_file_for_a_malformed_kr(o: dict, kr: dict) -> None:
+    if not isinstance(kr.get("name"), str) or not kr["name"]:
+        raise Refused(f"{OKR_FILE}:{o.get('name')} 下有一条 KR 没写 name")
+    if not all(isinstance(kr.get(k, ""), str) and "\0" not in kr.get(k, "") for k in ("measure", "unit", "wait")):
+        raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 measure、unit、wait 要写成字符串")
+    age = kr.get("max_age_days", 0)
+    if isinstance(age, bool) or not isinstance(age, int) or age < 0:
+        raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 max_age_days 要写成非负整数")
+    if not isinstance(kr.get("target"), str) or not _TARGET.fullmatch(kr["target"].strip()):
+        raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr.get('name')} 的 target 要写成「>= 95」这样")
 
 
 _AS_OF = re.compile(r"(\d{4}-\d\d-\d\d\S*)\s*(.*)")
 
 
 def okr_run(root: Path) -> tuple[str, list[tuple[str, float, str, str]], dict[str, bool]]:
-    """Each Objective with its KRs measured now; only a measured value meeting its target counts as met.
-
-    Also returns the readings worth keeping, (kr, value, as_of, source), and whether each Objective is all met.
-    """
     objectives = _okr_defs(root)
-    git = lambda *a: subprocess.run(["git", *a], cwd=root, capture_output=True, text=True).stdout.strip()
-    head = git("log", "-1", "--format=%h %cs", "--", OKR_FILE) or "未提交"
-    dirty = "（有未提交改动）" if git("status", "--porcelain", "--", OKR_FILE) else ""
-    out, readings, full = [f"OKR · 定义 {OKR_FILE} @ {head}{dirty}"], [], {}
+    out, readings, full = [_okr_heading(root)], [], {}
     for o in objectives:
         rows, met = [], 0
         for kr in o.get("kr", []):
-            op, goal = _TARGET.fullmatch(kr["target"].strip()).groups()
-            unit, want = kr.get("unit", ""), f"{op} {goal}{kr.get('unit', '')}"
-            got = _measure(root, kr["measure"]) if kr.get("measure") else None
-            if isinstance(got, tuple) and (d := _AS_OF.fullmatch(got[1])):
-                # ponytail: a dateless as-of is not kept, UNIQUE(as_of, source) would pin its first value forever
-                readings.append((kr["name"], str(got[0]), d.group(1), d.group(2)))
-            if got is None:
-                rows.append(f"  · {kr['name']}  未测 / {want}")
-            elif isinstance(got, str):
-                rows.append(f"  ! {kr['name']}  测量失败：{got}")
-            elif kr.get("max_age_days") is not None and (stale := _stale(got[1], kr["max_age_days"])):
-                rows.append(f"  ⌛ {kr['name']}  {got[0]:.1f}{unit} / {want}  {stale}")
-            else:
-                ok = _CMP[op](got[0], Decimal(goal))
-                met += ok
-                rows.append(f"  {'✓' if ok else '✗'} {kr['name']}  {got[0]:.1f}{unit} / {want}  截至 {got[1]}")
+            row, ok, reading = _measure_kr(root, kr)
+            rows.append(row)
+            met += ok
+            if reading:
+                readings.append(reading)
         out += [f"O {o.get('name')} · {met}/{len(rows)} 达标", *rows]
         full[o.get("name")] = bool(rows) and met == len(rows)
     return "\n".join(out), readings, full
 
 
-def _iso(t: _dt.datetime) -> str:
-    return t.isoformat(timespec="microseconds")  # fixed width, so text order is time order
+def _okr_heading(root: Path) -> str:
+    git = lambda *a: subprocess.run(["git", *a], cwd=root, capture_output=True, text=True).stdout.strip()
+    head = git("log", "-1", "--format=%h %cs", "--", OKR_FILE) or "未提交"
+    dirty = "（有未提交改动）" if git("status", "--porcelain", "--", OKR_FILE) else ""
+    return f"OKR · 定义 {OKR_FILE} @ {head}{dirty}"
+
+
+def _measure_kr(root: Path, kr: dict) -> tuple[str, bool, tuple | None]:
+    op, goal = _TARGET.fullmatch(kr["target"].strip()).groups()
+    unit, want = kr.get("unit", ""), f"{op} {goal}{kr.get('unit', '')}"
+    got = _measure(root, kr["measure"]) if kr.get("measure") else None
+    reading = _dated_reading_unique_per_as_of(kr, got)
+    if got is None:
+        return f"  · {kr['name']}  未测 / {want}", False, reading
+    if isinstance(got, str):
+        return f"  ! {kr['name']}  测量失败：{got}", False, reading
+    if kr.get("max_age_days") is not None and (stale := _stale(got[1], kr["max_age_days"])):
+        return f"  ⌛ {kr['name']}  {got[0]:.1f}{unit} / {want}  {stale}", False, reading
+    ok = _MEETS_ON_DECIMAL[op](got[0], Decimal(goal))
+    return f"  {'✓' if ok else '✗'} {kr['name']}  {got[0]:.1f}{unit} / {want}  截至 {got[1]}", ok, reading
+
+
+def _dated_reading_unique_per_as_of(kr: dict, got) -> tuple | None:
+    if isinstance(got, tuple) and (d := _AS_OF.fullmatch(got[1])):
+        return (kr["name"], str(got[0]), d.group(1), d.group(2))
+    return None
+
+
+def _sortable_timestamp(t: _dt.datetime) -> str:
+    return t.isoformat(timespec="microseconds")
+
+
+ACCEPT_STRICTLY_AFTER_READINGS = _dt.timedelta(microseconds=1)
 
 
 def okr_record(con, repo: Path, readings: list, accept: str | None, full: dict[str, bool]) -> str:
-    """Keep the new readings; with accept, the decision-maker's sign-off on an Objective that is all met right now."""
     now = _dt.datetime.now()
-    with con:  # the readings are kept even when the accept below is refused
-        n = con.total_changes
-        con.executemany("INSERT OR IGNORE INTO kr_readings VALUES (?, ?, ?, ?, ?, ?)",
-                        [(str(repo), k, v, as_of, src, _iso(now)) for k, v, as_of, src in readings])
-        n = con.total_changes - n
+    n = _keep_readings_before_judging_accept(con, repo, readings, now)
     if accept is not None and not full.get(accept):
         why = f"没有这个 O:{accept}" if accept not in full else f"{accept} 还没全 ✓,不收 accept"
         raise Refused(f"{why}(读数新记 {n} 条)")
-    if accept is not None:  # strictly after this run's readings
+    if accept is not None:
         with con:
             con.execute("INSERT INTO okr_accepts VALUES (?, ?, ?)",
-                        (str(repo), accept, _iso(now + _dt.timedelta(microseconds=1))))
+                        (str(repo), accept, _sortable_timestamp(now + ACCEPT_STRICTLY_AFTER_READINGS)))
     return f"读数新记 {n} 条" + (f" · ✓ accept {accept}" if accept is not None else "")
 
 
+def _keep_readings_before_judging_accept(con, repo: Path, readings: list, now: _dt.datetime) -> int:
+    with con:
+        before = con.total_changes
+        con.executemany("INSERT OR IGNORE INTO kr_readings VALUES (?, ?, ?, ?, ?, ?)",
+                        [(str(repo), k, v, as_of, src, _sortable_timestamp(now)) for k, v, as_of, src in readings])
+        return con.total_changes - before
+
+
 def _closer(op: str, goal: Decimal, prev: Decimal, cur: Decimal) -> str:
-    """Whether cur is closer to the target than prev: >= and > want more, <= and < less, == the nearer."""
     dist = {">=": lambda v: -v, ">": lambda v: -v, "<=": lambda v: v, "<": lambda v: v}.get(op, lambda v: abs(v - goal))
     return "closer" if dist(cur) < dist(prev) else "away" if dist(cur) > dist(prev) else "flat"
 
 
-def _impacts(op: str, goal: Decimal, readings: list, declared: list) -> tuple[list, list]:
-    """(the declarations since the KR's last round, the tickets that round found off their word).
+def _latest_as_of_per_round(readings: list) -> dict:
+    return {r["measured_at"]: r for r in readings}
 
-    A round is one measured_at; its reading the one with the latest as-of. Only a declaration's first round
-    judges it, against the round before the declaration: ↑ must come closer to the target, = not move away;
-    ↓ said it would move away, so no round can catch it overclaiming.
-    """
-    rounds = {r["measured_at"]: r for r in readings}  # readings come by as-of: the last one per round wins
+
+def _impacts(op: str, goal: Decimal, readings: list, declared: list) -> tuple[list, list]:
+    rounds = _latest_as_of_per_round(readings)
     times = sorted(rounds)
     last = times[-1] if times else ""
     pending = [{"ticket": i["ticket"], "dir": i["dir"], "before": i["before"], "after": i["after"],
@@ -946,13 +1070,19 @@ def _impacts(op: str, goal: Decimal, readings: list, declared: list) -> tuple[li
         return pending, []
     prev = times[-2]
     moved = _closer(op, goal, Decimal(rounds[prev]["value"]), Decimal(rounds[last]["value"]))
-    off = {i["ticket"]: i["dir"] for i in declared if prev <= i["declared_at"] < last
-           and (moved != "closer" if i["dir"] == "↑" else i["dir"] == "=" and moved == "away")}
+    judged_by_their_first_round = [i for i in declared if prev <= i["declared_at"] < last]
+    off = {i["ticket"]: i["dir"] for i in judged_by_their_first_round if _declaration_contradicted(i["dir"], moved)}
     return pending, [{"ticket": t, "dir": d} for t, d in off.items()]
 
 
+def _declaration_contradicted(declared_dir: str, moved: str) -> bool:
+    if declared_dir == "↑":
+        return moved != "closer"
+    return declared_dir == "=" and moved == "away"
+
+
+
 def impact_text(data: dict) -> str:
-    """okr's lines for the declarations: each Objective's ↑ ↓ = since the last round, each KR off its word."""
     out = []
     for o in data["objectives"]:
         n = o["impacts"]
@@ -963,18 +1093,14 @@ def impact_text(data: dict) -> str:
     return "\n".join(out)
 
 
+MISSED_ROUNDS_TO_FLAG = 5
+ROUNDS_WITHOUT_PROGRESS_TO_FLAG = 2
+RECENT_READINGS_SHOWN = 3
+
+
 def okr_data(path: Path | str, repo: Path) -> dict:
-    """json okr: the stored readings judged against the current {OKR_FILE}; never runs a measure."""
     objectives = _okr_defs(repo)
-    with closing(open_readonly(path)) as con:
-        rows = con.execute("SELECT kr, value, as_of, source, measured_at FROM kr_readings WHERE repo=?"
-                           " ORDER BY as_of, measured_at", (str(repo),)).fetchall()
-        accepts = dict(con.execute("SELECT objective, max(accepted_at) FROM okr_accepts WHERE repo=?"
-                                   " GROUP BY objective", (str(repo),)).fetchall())
-        declared: dict[tuple, list] = {}
-        for i in con.execute("SELECT ticket, objective, kr, dir, before, after, basis, declared_at FROM kr_impacts"
-                             " WHERE repo=? AND kr != '' ORDER BY declared_at", (str(repo),)):
-            declared.setdefault((i["objective"], i["kr"]), []).append(i)
+    rows, accepts, declared = _stored_okr_rows(path, repo)
     by_kr: dict[str, list] = {}
     for r in rows:
         by_kr.setdefault(r["kr"], []).append(r)
@@ -984,110 +1110,152 @@ def okr_data(path: Path | str, repo: Path) -> dict:
            "last_measured_at": max((r["measured_at"] for r in rows), default=None), "met": 0, "total": 0,
            "objectives": [], "attention": []}
     for o in objectives:
-        name, krs, late_miss, counts = o.get("name"), [], False, {"↑": 0, "↓": 0, "=": 0}
-        for kr in o.get("kr", []):
-            op, goal = _TARGET.fullmatch(kr["target"].strip()).groups()
-            rs, g = by_kr.get(kr["name"], []), Decimal(goal)
-            ok = lambda r: _CMP[op](Decimal(r["value"]), g)
-            missed = 0
-            for r in reversed(rs):
-                if ok(r):
-                    break
-                missed += 1
-            last = rs[-1] if rs else None
-            if last is None:
-                status = "untested"
-            elif kr.get("max_age_days") is not None and _stale(last["as_of"], kr["max_age_days"]):
-                status = "stale"  # only the latest reading goes stale; history is judged by value
-            else:
-                status = "missed" if missed else "met"
-            trends = [_closer(op, g, Decimal(a["value"]), Decimal(b["value"])) for a, b in zip(rs, rs[1:])]
-            late_miss |= name in accepts and any(r["measured_at"] > accepts[name] and not ok(r) for r in rs)
-            pending, mismatch = _impacts(op, g, rs, declared.get((name, kr["name"]), []))
-            for i in pending:
-                counts[i["dir"]] += 1
-            krs.append({"name": kr["name"], "target": f"{op} {goal}", "unit": kr.get("unit", ""), "status": status,
-                        "value": last and float(last["value"]), "as_of": last and last["as_of"],
-                        "source": last and last["source"],
-                        "history": [{"value": float(r["value"]), "as_of": r["as_of"]} for r in rs[-3:]],
-                        "trend": trends[-1] if trends else None, "missed_rounds": missed, "wait": kr.get("wait"),
-                        "impacts": pending, "mismatch": mismatch})
-            seen = "、".join(r["value"] for r in rs[-3:])
-            if missed >= 5:  # a stale KR still counts: five missed rounds then silence is what to flag
-                out["attention"].append({"kind": "five", "objective": name, "kr": kr["name"],
-                                         "text": f"连续 {missed} 轮未达标（{op} {goal}），最近三次 {seen}"})
-            elif status == "missed" and len(trends) >= 2 and "closer" not in trends[-2:]:
-                out["attention"].append({"kind": "stuck", "objective": name, "kr": kr["name"],
-                                         "text": f"两轮没往目标走（{op} {goal}），最近三次 {seen}"})
-            if kr.get("wait") and not kr.get("measure"):
-                out["attention"].append({"kind": "wait", "objective": name, "kr": kr["name"], "text": kr["wait"]})
-        met = sum(k["status"] == "met" for k in krs)
-        pending = bool(krs) and met == len(krs) and (name not in accepts or late_miss)
-        if pending:
-            out["attention"].append({"kind": "accept", "objective": name, "kr": None,
-                                     "text": f"{name} 全 ✓，待你验收（nawaban okr --accept）"})
-        out["objectives"].append({"name": name, "met": met, "total": len(krs), "accept_pending": pending,
-                                  "impacts": counts, "krs": krs})
-        out["met"] += met
-        out["total"] += len(krs)
+        objective = _objective_view(o, by_kr, accepts, declared, out["attention"])
+        out["objectives"].append(objective)
+        out["met"] += objective["met"]
+        out["total"] += objective["total"]
     return out
 
 
-# ── writes to a GitHub-tracked repository (spec NAWABAN-PROTO) ──
+def _stored_okr_rows(path: Path | str, repo: Path) -> tuple[list, dict, dict[tuple, list]]:
+    with closing(open_readonly(path)) as con:
+        rows = con.execute("SELECT kr, value, as_of, source, measured_at FROM kr_readings WHERE repo=?"
+                           " ORDER BY as_of, measured_at", (str(repo),)).fetchall()
+        accepts = dict(con.execute("SELECT objective, max(accepted_at) FROM okr_accepts WHERE repo=?"
+                                   " GROUP BY objective", (str(repo),)).fetchall())
+        declared: dict[tuple, list] = {}
+        for i in con.execute("SELECT ticket, objective, kr, dir, before, after, basis, declared_at FROM kr_impacts"
+                             " WHERE repo=? AND kr != '' ORDER BY declared_at", (str(repo),)):
+            declared.setdefault((i["objective"], i["kr"]), []).append(i)
+    return rows, accepts, declared
 
-# Each kind's visible prefix is the one people and the older readers already know.
+
+def _objective_view(o: dict, by_kr: dict, accepts: dict, declared: dict, attention: list) -> dict:
+    name, krs, late_miss, counts = o.get("name"), [], False, {"↑": 0, "↓": 0, "=": 0}
+    for kr in o.get("kr", []):
+        view, missed_after_accept = _kr_view(name, kr, by_kr.get(kr["name"], []), accepts,
+                                             declared.get((name, kr["name"]), []), attention)
+        late_miss |= missed_after_accept
+        for i in view["impacts"]:
+            counts[i["dir"]] += 1
+        krs.append(view)
+    met = sum(k["status"] == "met" for k in krs)
+    pending = bool(krs) and met == len(krs) and (name not in accepts or late_miss)
+    if pending:
+        attention.append({"kind": "accept", "objective": name, "kr": None,
+                          "text": f"{name} 全 ✓，待你验收（nawaban okr --accept）"})
+    return {"name": name, "met": met, "total": len(krs), "accept_pending": pending, "impacts": counts, "krs": krs}
+
+
+def _kr_view(name: str, kr: dict, rs: list, accepts: dict, declared: list, attention: list) -> tuple[dict, bool]:
+    op, goal = _TARGET.fullmatch(kr["target"].strip()).groups()
+    g = Decimal(goal)
+    ok = lambda r: _MEETS_ON_DECIMAL[op](Decimal(r["value"]), g)
+    missed = _missed_rounds_since_last_met(rs, ok)
+    last = rs[-1] if rs else None
+    status = _kr_status(kr, last, missed)
+    trends = [_closer(op, g, Decimal(a["value"]), Decimal(b["value"])) for a, b in zip(rs, rs[1:])]
+    missed_after_accept = name in accepts and any(r["measured_at"] > accepts[name] and not ok(r) for r in rs)
+    pending, mismatch = _impacts(op, g, rs, declared)
+    recent = rs[-RECENT_READINGS_SHOWN:]
+    view = {"name": kr["name"], "target": f"{op} {goal}", "unit": kr.get("unit", ""), "status": status,
+            "value": last and float(last["value"]), "as_of": last and last["as_of"],
+            "source": last and last["source"],
+            "history": [{"value": float(r["value"]), "as_of": r["as_of"]} for r in recent],
+            "trend": trends[-1] if trends else None, "missed_rounds": missed, "wait": kr.get("wait"),
+            "impacts": pending, "mismatch": mismatch}
+    attention += _kr_attention(name, kr, op, goal, status, missed, trends, "、".join(r["value"] for r in recent))
+    return view, missed_after_accept
+
+
+def _missed_rounds_since_last_met(rs: list, ok) -> int:
+    missed = 0
+    for r in reversed(rs):
+        if ok(r):
+            break
+        missed += 1
+    return missed
+
+
+def _kr_status(kr: dict, last, missed: int) -> str:
+    if last is None:
+        return "untested"
+    if kr.get("max_age_days") is not None and _stale(last["as_of"], kr["max_age_days"]):
+        return "stale"
+    return "missed" if missed else "met"
+
+
+def _kr_attention(name: str, kr: dict, op: str, goal: str, status: str, missed: int, trends: list,
+                  seen: str) -> list[dict]:
+    out = []
+    if missed >= MISSED_ROUNDS_TO_FLAG:
+        out.append({"kind": "five", "objective": name, "kr": kr["name"],
+                    "text": f"连续 {missed} 轮未达标（{op} {goal}），最近三次 {seen}"})
+    elif status == "missed" and _no_progress_for_the_last_rounds(trends):
+        out.append({"kind": "stuck", "objective": name, "kr": kr["name"],
+                    "text": f"两轮没往目标走（{op} {goal}），最近三次 {seen}"})
+    if kr.get("wait") and not kr.get("measure"):
+        out.append({"kind": "wait", "objective": name, "kr": kr["name"], "text": kr["wait"]})
+    return out
+
+
+def _no_progress_for_the_last_rounds(trends: list) -> bool:
+    n = ROUNDS_WITHOUT_PROGRESS_TO_FLAG
+    return len(trends) >= n and "closer" not in trends[-n:]
+
+
+
 GH_WORDS = {"claim": "认领", "release": "交还", "note": "进展", "decision": "决定", "link": "PR", "ask": "待决", "resolve": "已决",
             "impact": "影响"}
-# Only a trailing marker counts: a body quoting one stays text. The dumped JSON holds no raw newline.
-_MARKER = re.compile(r"\n*<!-- nawaban (\{[^\n]*\}) -->\s*\Z")
+_TRAILING_ONE_LINE_MARKER = re.compile(r"\n*<!-- nawaban (\{[^\n]*\}) -->\s*\Z")
 _GH_ISSUE = re.compile(r"#(\d+)")
+HC_TIMEOUT_SECONDS = 3
 
 
 def marker(ev: dict) -> str:
-    """The event as an HTML comment; every `-` is escaped so no `--` or `-->` can end it early."""
     import json
-    return "<!-- nawaban " + json.dumps(ev, ensure_ascii=False).replace("-", "\\u002d") + " -->"
+    every_dash_escaped = json.dumps(ev, ensure_ascii=False).replace("-", "\\u002d")
+    return "<!-- nawaban " + every_dash_escaped + " -->"
 
 
 def read_marker(comment: str) -> dict | None:
     import json
-    m = _MARKER.search(comment)
+    m = _TRAILING_ONE_LINE_MARKER.search(comment)
     try:
         return json.loads(m.group(1)) if m else None
-    except ValueError:  # someone else's comment ending in a lookalike
+    except ValueError:
         return None
 
 
 def gh_post(root: Path, number: str, kind: str, body: str, kr: str | None = None, by: str | None = None) -> None:
-    """One comment: the prefixed body for people, then the full event for code."""
     import uuid
     ev = {"v": 1, "uid": str(uuid.uuid4()), "kind": kind, "author": identity(),
           "terminal": herdr_terminal(), "at": int(time.time()), "body": body}
     if kr:
         ev["kr"] = kr
-    if by:  # the decision-maker's own call, relayed: readers trust this over the text
+    if by:
         ev["by"] = by
     _gh(root, "issue", "comment", number, "--body", f"{GH_WORDS[kind]}：{body}\n\n{marker(ev)}")
 
 
 def _role(terminal: str) -> str | None:
     import json
-    try:  # a hung hc must not stall every Stop hook
-        r = subprocess.run(["hc", "get", terminal, "--json"], capture_output=True, text=True, timeout=3)
+    try:
+        r = subprocess.run(["hc", "get", terminal, "--json"], capture_output=True, text=True, timeout=HC_TIMEOUT_SECONDS)
         return (json.loads(r.stdout).get("labels") or {}).get("role") if r.returncode == 0 else None
     except (ValueError, AttributeError, OSError, subprocess.SubprocessError):
         return None
 
 
 def _orchestrator_here() -> bool:
-    """True in the terminal the owner labelled role=orchestrator, or for a person at a shell (no Claude session, no Herdr)."""
-    # ponytail: a non-Claude agent outside Herdr (Codex with NAWABAN_OWNER) passes as a person; label checks need Herdr
     t = os.environ.get("HC_TERMINAL_ID")
-    return _role(t) == "orchestrator" if t else not os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if t:
+        return _role(t) == "orchestrator"
+    no_claude_session_so_a_person_at_a_shell = not os.environ.get("CLAUDE_CODE_SESSION_ID")
+    return no_claude_session_so_a_person_at_a_shell
 
 
 def repo_orchestrator(root: Path) -> str | None:
-    """This terminal if it is the orchestrator, else a live terminal in root's repository (worktrees included) the owner labelled role=orchestrator."""
     import json
     me = os.environ.get("HC_TERMINAL_ID")
     if me and _role(me) == "orchestrator":
@@ -1096,45 +1264,68 @@ def repo_orchestrator(root: Path) -> str | None:
         ts = json.loads(subprocess.run(["hc", "ls", "--json"], capture_output=True, text=True).stdout)["terminals"]
     except (ValueError, KeyError, TypeError):
         return None
-    for t in ts:
-        cwd = t.get("cwd")
-        if t.get("state") == "live" and cwd and _repo_root(Path(cwd)) == root and _role(t["address"]) == "orchestrator":
-            return t["address"]
-    return None
+    return next((t["address"] for t in ts if _live_orchestrator_in(t, root)), None)
+
+
+def _live_orchestrator_in(t: dict, root: Path) -> bool:
+    cwd = t.get("cwd")
+    return (t.get("state") == "live" and bool(cwd) and _repo_root(Path(cwd)) == root
+            and _role(t["address"]) == "orchestrator")
+
+
+WORKER_NAME = re.compile(r"[a-z0-9_-]{1,32}")
+
+
+def _refuse_unidentified() -> None:
+    identity()
 
 
 def dispatch(root: Path, a, con: sqlite3.Connection | None = None) -> str:
-    """A worker in its own worktree off origin/main, briefed with the one report protocol; the ticket records where it runs.
-    con is the local board; None means root is GitHub-tracked and the ticket is issue #N."""
-    import json
     n = None
     if a.id:
-        identity()  # refuse before anything starts
-        if con is not None:
-            if _task(con, a.id)["status"] != "open":
-                raise Refused(f"{a.id} 不是开着的任务")
-        else:
-            m = _GH_ISSUE.fullmatch(a.id)
-            if not m:
-                raise Refused(f"GitHub 记账的仓库只接 #N:{a.id}")
-            n = m.group(1)
-            if _gh_json(root, "issue", "view", n, "--json", "state").get("state") != "OPEN":
-                raise Refused(f"{a.id} 不是开着的 issue")
+        _refuse_unidentified()
+        n = _refuse_unless_ticket_open(root, a, con)
     orch = repo_orchestrator(root)
     if not orch:
         raise Refused("没有活着的编排者(role=orchestrator)可收回报")
     name = a.name or (f"w-{n}" if n else a.id.lower())
-    if not re.fullmatch(r"[a-z0-9_-]{1,32}", name):
+    if not WORKER_NAME.fullmatch(name):
         raise Refused(f"--name 只能 1-32 个 a-z 0-9 - _:{name}")
     wt, branch = root.parent / f"{root.name}-{name}", f"wt/{name}"
+    _add_worktree_off_origin_main(root, wt, branch)
+    who = a.id or name
+    addr = _start_worker_or_remove_its_worktree(root, a, con, name, wt, branch,
+                                                _worker_brief(a, n, name, wt, branch, orch, who))
+    if a.id:
+        _record_dispatch_on_the_ticket(root, a, con, n, name, addr, wt, orch)
+    return f"✓ dispatch {who} → hc {addr} · {wt}"
+
+
+def _refuse_unless_ticket_open(root: Path, a, con: sqlite3.Connection | None) -> str | None:
+    if con is not None:
+        if _task(con, a.id)["status"] != "open":
+            raise Refused(f"{a.id} 不是开着的任务")
+        return None
+    m = _GH_ISSUE.fullmatch(a.id)
+    if not m:
+        raise Refused(f"GitHub 记账的仓库只接 #N:{a.id}")
+    n = m.group(1)
+    if _gh_json(root, "issue", "view", n, "--json", "state").get("state") != "OPEN":
+        raise Refused(f"{a.id} 不是开着的 issue")
+    return n
+
+
+def _add_worktree_off_origin_main(root: Path, wt: Path, branch: str) -> None:
     for cmd in (["fetch", "-q", "origin", "main"], ["worktree", "add", "-q", "-b", branch, str(wt), "origin/main"]):
         r = subprocess.run(["git", "-C", str(root), *cmd], capture_output=True, text=True)
         if r.returncode != 0:
             raise Refused(f"git {cmd[0]} 失败:{r.stderr.strip()}")
-    who = a.id or name
+
+
+def _worker_brief(a, n: str | None, name: str, wt: Path, branch: str, orch: str, who: str) -> str:
     ticket = (f"Issue：{a.id}（认领、进展用 nawaban 命令记，见 docs/agents/issue-tracker.md）" if n else
               f"任务：{a.id}（nawaban show {a.id} 看全文；认领、进展、关闭用 nawaban 命令记）" if a.id else f"任务：{name}")
-    brief = "\n".join([
+    return "\n".join([
         f"/pstack:poteto-mode {ticket}",
         f"worktree：{wt}（分支 {branch}，已从 origin/main 拉好；只在这里改，PR 合并或作废后 git worktree remove）",
         a.brief,
@@ -1144,97 +1335,110 @@ def dispatch(root: Path, a, con: sqlite3.Connection | None = None) -> str:
         f'  hc send {orch} "回报：{who} 受阻 | 卡在什么 | 要谁做什么"',
         "只发这两种：中途进展、阶段结果记在票上的「进展」里，不发给编排者（每条消息都会叫醒它，留在它的上下文里）。",
     ])
-    # a local board the worker must reach even when it was named by --db
-    env = ["env", f"NAWABAN_DB={con.execute('PRAGMA database_list').fetchone()[2]}"] if con is not None else []
-    r = subprocess.run(["hc", "run", "--bg", "--json", "--name", name, "--cwd", str(wt), *env, "claude", "--model", a.model, brief],
+
+
+def _start_worker_or_remove_its_worktree(root: Path, a, con, name: str, wt: Path, branch: str, brief: str) -> str:
+    import json
+    r = subprocess.run(["hc", "run", "--bg", "--json", "--name", name, "--cwd", str(wt),
+                        *_board_the_worker_must_reach(con), "claude", "--model", a.model, brief],
                        capture_output=True, text=True)
     try:
-        addr = json.loads(r.stdout)["address"]
+        return json.loads(r.stdout)["address"]
     except (ValueError, KeyError, TypeError):
         subprocess.run(["git", "-C", str(root), "worktree", "remove", "--force", str(wt)], capture_output=True)
         subprocess.run(["git", "-C", str(root), "branch", "-D", branch], capture_output=True)
         raise Refused(f"hc run 失败,worktree 已删:{(r.stderr or r.stdout).strip()}")
-    if a.id:
-        # `dispatch: <name>` opens a local note: the Herdr panel names the task's orchestrator by it
-        note = (f"dispatch: {name} · " if con is not None else "") + f"派给 hc {addr}（worktree {wt}，回报给 {orch}）\n验收：{a.accept}"
-        try:
-            if con is not None:
-                add_event(con, a.id, identity(), "note", note)
-                con.commit()
-            else:
-                gh_post(root, n, "note", note)
-        except (Refused, OSError, sqlite3.Error) as e:  # the worker runs: say so, and how to record it
-            raise Refused(f"已派给 hc {addr}（{wt}），但记票失败:{e}\n补记:nawaban event {shlex.quote(a.id)} --kind note --body {shlex.quote(note)}")
-    return f"✓ dispatch {who} → hc {addr} · {wt}"
+
+
+def _board_the_worker_must_reach(con: sqlite3.Connection | None) -> list[str]:
+    if con is None:
+        return []
+    return ["env", f"NAWABAN_DB={con.execute('PRAGMA database_list').fetchone()[2]}"]
+
+
+def _record_dispatch_on_the_ticket(root: Path, a, con, n: str | None, name: str, addr: str, wt: Path,
+                                   orch: str) -> None:
+    panel_names_the_orchestrator_by = f"dispatch: {name} · " if con is not None else ""
+    note = panel_names_the_orchestrator_by + f"派给 hc {addr}（worktree {wt}，回报给 {orch}）\n验收：{a.accept}"
+    try:
+        if con is not None:
+            add_event(con, a.id, identity(), "note", note)
+            con.commit()
+        else:
+            gh_post(root, n, "note", note)
+    except (Refused, OSError, sqlite3.Error) as e:
+        raise Refused(f"已派给 hc {addr}（{wt}），但记票失败:{e}\n补记:nawaban event {shlex.quote(a.id)} --kind note --body {shlex.quote(note)}")
 
 
 def gh_write(root: Path, a) -> str:
-    """claim / event / close on issue #N of a GitHub-tracked repository."""
     n = _GH_ISSUE.fullmatch(a.id).group(1)
-    who = identity()  # refuse before any remote write
+    who_before_any_remote_write = identity()
     if a.verb == "claim":
-        _gh(root, "issue", "edit", n, "--remove-assignee" if a.release else "--add-assignee", "@me")
-        if a.release:
-            gh_post(root, n, "release", who)
-            return f"✓ release {a.id}"
-        here = herdr_terminal()
-        gh_post(root, n, "claim", who + (f"（hc {here}）" if here else ""))
-        return f"✓ claim {a.id}" + (f" · terminal {here}" if here else "")
+        return _gh_claim(root, a, n, who_before_any_remote_write)
     if a.verb == "close":
-        if a.reopen:
-            _gh(root, "issue", "reopen", n)
-        else:
-            _gh(root, "issue", "close", n, "--reason", "completed" if a.done else "not planned")
-        return f"✓ close {a.id} → {'open' if a.reopen else 'done' if a.done else 'cancelled'}"
+        return _gh_close(root, a, n)
     if a.kind == "resolve" and not _orchestrator_here():
         raise Refused("已决只由编排者记：决策者的拍板转给编排者，或决策者在 Herdr 外的终端自己记")
     if a.kind == "ask":
-        issue = _gh_json(root, "issue", "view", n, "--json", "body,createdAt,comments")
-        if _issue_pending(issue):
-            raise Refused(f"{a.id} 已有待决,一个 issue 只放一件;先记已决,或开子 issue")
+        _refuse_a_second_pending_ask(root, a, n)
     gh_post(root, n, a.kind, a.body, a.kr, a.by)
     return f"✓ event {a.id} · {a.kind}"
 
 
+def _gh_claim(root: Path, a, n: str, who: str) -> str:
+    _gh(root, "issue", "edit", n, "--remove-assignee" if a.release else "--add-assignee", "@me")
+    if a.release:
+        gh_post(root, n, "release", who)
+        return f"✓ release {a.id}"
+    here = herdr_terminal()
+    gh_post(root, n, "claim", who + (f"（hc {here}）" if here else ""))
+    return f"✓ claim {a.id}" + (f" · terminal {here}" if here else "")
+
+
+def _gh_close(root: Path, a, n: str) -> str:
+    if a.reopen:
+        _gh(root, "issue", "reopen", n)
+    else:
+        _gh(root, "issue", "close", n, "--reason", "completed" if a.done else "not planned")
+    return f"✓ close {a.id} → {'open' if a.reopen else 'done' if a.done else 'cancelled'}"
+
+
+def _refuse_a_second_pending_ask(root: Path, a, n: str) -> None:
+    issue = _gh_json(root, "issue", "view", n, "--json", "body,createdAt,comments")
+    if _issue_pending(issue):
+        raise Refused(f"{a.id} 已有待决,一个 issue 只放一件;先记已决,或开子 issue")
+
+
 def _marked(c: dict) -> dict | None:
-    """A comment's marker when it is a well-formed nawaban event, else None."""
     ev = read_marker(c["body"])
     ok = isinstance(ev, dict) and isinstance(ev.get("body"), str) and GH_WORDS.get(str(ev.get("kind")))
     return ev if ok else None
 
 
 def _canonical(c: dict) -> dict:
-    """A comment as the prefix readers see it: a marked one rewritten from its marker, so edits to its visible text do not count."""
     ev = _marked(c)
     if ev:
         return {**c, "body": f"{GH_WORDS[ev['kind']]}：{ev['body']}"}
-    return {**c, "body": _MARKER.sub("", c["body"])}  # a malformed marker: read the visible text
+    visible_text_of_a_malformed_marker = _TRAILING_ONE_LINE_MARKER.sub("", c["body"])
+    return {**c, "body": visible_text_of_a_malformed_marker}
 
 
 def _at(iso: str) -> int:
     return int(_dt.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp())
 
+
 def _prefixed(comments: list[dict], word: str) -> list[tuple[str, int]]:
-    """(body without the prefix, its `（who）` kept, time) of each comment opening with word, oldest first."""
     out = []
     for c in comments:
-        m = re.match(_GH_PREFIX.format(word), c["body"])
+        m = re.match(_GH_PREFIX_HEADING_BOLD_WORD_WHO_COLON.format(word), c["body"])
         if m:
             out.append(((m.group(1) or "") + c["body"][m.end():].strip(), _at(c["createdAt"])))
     return out
 
 
 def _issue_pending(i: dict) -> dict | None:
-    """The latest 待决：/需要你定： line followed by no 已决： line, in the body (raised at its creation) or a comment,
-    its text from that line on; with the issue's last PENDING_NOTES 进展, what precedes the line in its comment one of them."""
-    found = None
     i = {**i, "comments": [_canonical(c) for c in i["comments"]]}
-    for c in [{"body": i.get("body") or "", "createdAt": i["createdAt"]}, *i["comments"]]:
-        for k, ln in enumerate(c["body"].splitlines()):
-            if _prefixed([{"body": ln, "createdAt": c["createdAt"]}], "(?:待决|需要你定)"):
-                found = (c, k)
-            elif _prefixed([{"body": ln, "createdAt": c["createdAt"]}], "已决"):
-                found = None
+    found = _latest_unresolved_ask_line(i)
     if not found:
         return None
     c, k = found
@@ -1244,64 +1448,101 @@ def _issue_pending(i: dict) -> dict | None:
             "progress": [{"body": b, "at": t} for b, t in notes[-PENDING_NOTES:]]}
 
 
+def _latest_unresolved_ask_line(i: dict) -> tuple[dict, int] | None:
+    found = None
+    body_raised_at_creation = {"body": i.get("body") or "", "createdAt": i["createdAt"]}
+    for c in [body_raised_at_creation, *i["comments"]]:
+        for k, ln in enumerate(c["body"].splitlines()):
+            if _prefixed([{"body": ln, "createdAt": c["createdAt"]}], "(?:待决|需要你定)"):
+                found = (c, k)
+            elif _prefixed([{"body": ln, "createdAt": c["createdAt"]}], "已决"):
+                found = None
+    return found
+
+
+
+def _owner_names() -> list[str]:
+    return [n.strip() for n in os.environ.get("NAWABAN_OWNER_NAMES", "").split(",") if n.strip()]
+
+
+def _asking_for_a_ruling(names: list[str]) -> re.Pattern:
+    owner_or_short_name = [*map(re.escape, names), r"\w{1,4}?"]
+    return re.compile(r"[等待]\s*(?:%s)?\s*拍板" % "|".join(owner_or_short_name))
+
+
+def _parent_of(i: dict) -> int | None:
+    if i.get("parent"):
+        return i["parent"]["number"]
+    m = _GH_PARENT_SUFFIX_IN_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i.get("body") or "")
+    return int(m.group(1)) if m else None
+
+
 def github_board_data(root: Path) -> dict:
-    """The same columns as board_data, read from the repository's GitHub issues."""
-    # A decision whose marker names its by is the owner's when by is user; one without (older, or unmarked) if it says 拍板 or names an owner.
-    names = [n.strip() for n in os.environ.get("NAWABAN_OWNER_NAMES", "").split(",") if n.strip()]
-    # 「等负责人拍板」「待拍板」 ask for a decision: 等/待, at most a name (an owner's, or up to 4 characters), then 拍板
-    waiting = re.compile(r"[等待]\s*(?:%s)?\s*拍板" % "|".join([*map(re.escape, names), r"\w{1,4}?"]))
-
-    def parent_of(i: dict) -> int | None:
-        """GitHub's own parent first, else (#N-X) in the title, else 属于 #N / Parent: #N in the body."""
-        m = _GH_PARENT_TITLE.search(i["title"]) or _GH_PARENT_BODY.search(i.get("body") or "")
-        return i["parent"]["number"] if i.get("parent") else int(m.group(1)) if m else None
-
+    names = _owner_names()
+    asking = _asking_for_a_ruling(names)
     since = time.time() - DECISIONS_RECENT
     tasks, recent = [], []
     for i in _gh_issues(root):
         if i.get("stateReason") == "NOT_PLANNED":
             continue
         cs = [_canonical(c) for c in i["comments"]]
-        claims, notes, decisions = (_prefixed(cs, p) for p in ("认领", "进展", "决定"))
-        last = [w for c in cs for w in ("认领", "交还") if _prefixed([c], w)][-1:]
-        if last == ["交还"]:
-            claims = []  # the latest claim was handed back (comment order, not timestamps)
-        recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body),
-                    "owner": ev["by"] == "user" if "by" in (ev := _marked(raw) or {}) else
-                    any(w in waiting.sub("", body) for w in ["拍板", *names])}
-                   for raw, c in zip(i["comments"], cs) for body, t in _prefixed([c], "决定") if t >= since]
-        # 已决 records the owner's own answer
-        recent += [{"task": f"#{i['number']}", "at": t, "verdict": _verdict(body), "owner": True}
-                   for body, t in _prefixed(cs, "已决") if t >= since]
-        # An assignee holds an issue, whoever assigned it; the latest claim comment names the session.
-        holders = [a["login"] for a in i.get("assignees") or []]
-        status = "done" if i["state"] == "CLOSED" else "in_progress" if holders else "open"
-        parent = parent_of(i)
-        terminal = _GH_TERMINAL.search(claims[-1][0]) if claims else None
-        task = {
-            "id": f"#{i['number']}", "title": i["title"], "status": status, "project": root.name,
-            "parent": f"#{parent}" if parent else None,
-            # The claimant holds an open issue, as a session holds a board task.
-            "session": (claims[-1][0].split("\n", 1)[0] if claims else ", ".join(holders))
-                       if status == "in_progress" else None,
-            "created_at": _at(i["createdAt"]),
-            "active_at": max([_at(i["updatedAt"])] + [_at(c["createdAt"]) for c in cs]),
-            "open_blockers": 0, "terminal": terminal.group(1) if terminal else None, "leader": None,
-            "claimed_at": claims[0][1] if claims else None, "url": i.get("url")}
-        if status == "done":
-            task["done_at"] = _at(i["closedAt"])
-        else:
-            task["progress"] = {"body": notes[-1][0], "at": notes[-1][1]} if notes else None
-            task["blocked_by"] = []
-            task["waiting"] = None  # GLOSSARY: on GitHub a pending decision takes needs-info's place
-            task["decision"] = {"at": decisions[-1][1], "verdict": _verdict(decisions[-1][0])} if decisions else None
-            task["pending"] = _issue_pending(i)
-        tasks.append(task)
+        recent += _recent_decisions_of_issue(i, cs, since, names, asking)
+        tasks.append(_issue_task(root, i, cs))
     columns: dict[str, list] = {key: [] for key in COLUMNS}
     for t in sorted(tasks, key=lambda t: -t["active_at"]):
         columns[t["status"]].append(t)
     return {"tracker": "github", "columns": [{"key": k, "tasks": v} for k, v in columns.items()],
             "decisions": sorted(recent, key=lambda d: -d["at"])}
+
+
+def _recent_decisions_of_issue(i: dict, cs: list[dict], since: float, names: list[str],
+                               asking: re.Pattern) -> list[dict]:
+    task = f"#{i['number']}"
+    decided = [{"task": task, "at": t, "verdict": _verdict(body), "owner": _owners_call(raw, body, names, asking)}
+               for raw, c in zip(i["comments"], cs) for body, t in _prefixed([c], "决定") if t >= since]
+    resolved_by_the_owner = [{"task": task, "at": t, "verdict": _verdict(body), "owner": True}
+                             for body, t in _prefixed(cs, "已决") if t >= since]
+    return decided + resolved_by_the_owner
+
+
+def _owners_call(raw: dict, body: str, names: list[str], asking: re.Pattern) -> bool:
+    ev = _marked(raw) or {}
+    if "by" in ev:
+        return ev["by"] == "user"
+    return any(w in asking.sub("", body) for w in ["拍板", *names])
+
+
+def _claims_not_handed_back(cs: list[dict]) -> list[tuple[str, int]]:
+    claims = _prefixed(cs, "认领")
+    latest_in_comment_order = [w for c in cs for w in ("认领", "交还") if _prefixed([c], w)][-1:]
+    return [] if latest_in_comment_order == ["交还"] else claims
+
+
+def _issue_task(root: Path, i: dict, cs: list[dict]) -> dict:
+    claims = _claims_not_handed_back(cs)
+    notes, decisions = _prefixed(cs, "进展"), _prefixed(cs, "决定")
+    assignees = [a["login"] for a in i.get("assignees") or []]
+    status = "done" if i["state"] == "CLOSED" else "in_progress" if assignees else "open"
+    parent = _parent_of(i)
+    terminal = _GH_CLAIM_TERMINAL.search(claims[-1][0]) if claims else None
+    claimant = claims[-1][0].split("\n", 1)[0] if claims else ", ".join(assignees)
+    task = {
+        "id": f"#{i['number']}", "title": i["title"], "status": status, "project": root.name,
+        "parent": f"#{parent}" if parent else None,
+        "session": claimant if status == "in_progress" else None,
+        "created_at": _at(i["createdAt"]),
+        "active_at": max([_at(i["updatedAt"])] + [_at(c["createdAt"]) for c in cs]),
+        "open_blockers": 0, "terminal": terminal.group(1) if terminal else None, "leader": None,
+        "claimed_at": claims[0][1] if claims else None, "url": i.get("url")}
+    if status == "done":
+        task["done_at"] = _at(i["closedAt"])
+    else:
+        task["progress"] = {"body": notes[-1][0], "at": notes[-1][1]} if notes else None
+        task["blocked_by"] = []
+        task["waiting"] = None
+        task["decision"] = {"at": decisions[-1][1], "verdict": _verdict(decisions[-1][0])} if decisions else None
+        task["pending"] = _issue_pending(i)
+    return task
 
 
 def task_detail(path: Path | str, task_id: str) -> dict:
@@ -1327,28 +1568,26 @@ def task_detail(path: Path | str, task_id: str) -> dict:
         }
 
 
+
 def any_board(path: Path, project: str | None) -> tuple[dict, str]:
-    """json board's data and its name: the repository's GitHub issues when it is GitHub-tracked, else the board."""
-    gh = github_root()  # a GitHub-tracked repository has no board: --project is moot there
+    gh = github_root()
     if not gh:
         return board_data(path, project), project or "看板"
+    return _read_github_refreshing_the_inbox(gh), gh.name
+
+
+def _read_github_refreshing_the_inbox(gh: Path) -> dict:
     started = time.time()
     data = github_board_data(gh)
-    inbox_save(gh, data, started)  # every GitHub read (index, brief, json board) refreshes the inbox cache
-    return data, gh.name
+    inbox_save(gh, data, started)
+    return data
 
 
-# ── ask guard: a decision asked only in chat is sent back to the tracker (spec NAWABAN-INBOX-02) ──
-
-# ponytail: keywords on the reply text, not meaning. It misses a decision asked in other words, and blocks
-# "要不要我继续？" though no decision is asked. A wrong block costs one ask (or one continuation: a block's
-# own continuation is let through); upgrade to a structured "asks the owner" field if either bites.
-_ASKING = re.compile(r"你定|你点头|批不批|批准吗|要不要|你选|请拍板")
+_ASKING_KEYWORDS = re.compile(r"你定|你点头|批不批|批准吗|要不要|你选|请拍板")
 _RECORDED = re.compile(r"\bevent\b.*?(?:--kind[\s=,'\"\\]+ask\b|triage:\s*needs-info)", re.S)
 
 
 def _leaves(v) -> str:
-    """Every string in a tool input, space-joined as typed: no JSON escaping between `--kind` and `"ask"`."""
     if isinstance(v, dict):
         return " ".join(_leaves(x) for x in v.values())
     if isinstance(v, list):
@@ -1357,7 +1596,6 @@ def _leaves(v) -> str:
 
 
 def _turn_tool_inputs(transcript: str | None) -> list[str] | None:
-    """Each tool call's input, as text, since the user's latest prompt in a Claude Code JSONL transcript; None unreadable."""
     import json
     out = []
     try:
@@ -1370,30 +1608,39 @@ def _turn_tool_inputs(transcript: str | None) -> list[str] | None:
             content = d["message"]["content"]
         except (ValueError, KeyError, TypeError):
             continue
-        if d.get("type") == "user" and not d.get("isMeta") and (
-                isinstance(content, str) or not any(isinstance(c, dict) and c.get("type") == "tool_result" for c in content)):
-            out = []  # a prompt from the user starts the turn
+        if _user_prompt_starting_a_turn(d, content):
+            out = []
         elif d.get("type") == "assistant" and isinstance(content, list):
             out += [_leaves(c.get("input")) for c in content if isinstance(c, dict) and c.get("type") == "tool_use"]
     return out
 
 
-def unrecorded_ask(message: str, transcript: str | None) -> str | None:
-    """Why the turn must go on: message asks the decision-maker to decide, and no ask was recorded this turn."""
+def _user_prompt_starting_a_turn(d: dict, content) -> bool:
+    if d.get("type") != "user" or d.get("isMeta"):
+        return False
+    return isinstance(content, str) or not any(isinstance(c, dict) and c.get("type") == "tool_result" for c in content)
+
+
+def _asks_the_decision_maker(message: str) -> bool:
     m = message.strip()
-    if not (_ASKING.search(m) and (m.endswith(("？", "?")) or "要你" in m)):
+    return bool(_ASKING_KEYWORDS.search(m) and (m.endswith(("？", "?")) or "要你" in m))
+
+
+def unrecorded_ask(message: str, transcript: str | None) -> str | None:
+    if not _asks_the_decision_maker(message):
         return None
     inputs = _turn_tool_inputs(transcript)
-    if inputs is None or any(_RECORDED.search(s) for s in inputs):
-        return None  # an unreadable transcript passes: the guard must never hold a session on its own error
+    unreadable_transcript_passes = inputs is None
+    if unreadable_transcript_passes or any(_RECORDED.search(s) for s in inputs):
+        return None
     return ("这轮在向决策者要决定，却没记成待决，收件箱里看不到它。先把问题记成决策卡："
             "nawaban event '#N' --kind ask --body <要定的事> --kr <KR> --context <事实> --option <A> --option <B> --rec <推荐>"
             "（本地看板：nawaban event <ID> --kind note --body 'triage: needs-info — 等你：<问题>'），问法不用改。")
 
 
-# ── inbox: the Stop hook's line of what waits on the decision-maker (spec NAWABAN-INBOX) ──
-
-INBOX_STALE = 300  # seconds; an older cache is still shown, with its age, while a refresh runs in the background
+INBOX_STALE = 300
+INBOX_REFRESH_AT_MOST_EVERY_SECONDS = 60
+INBOX_CACHE_NAME_HEX_DIGITS = 16
 
 
 def _inbox_file(name: str) -> Path:
@@ -1402,62 +1649,63 @@ def _inbox_file(name: str) -> Path:
 
 def _inbox_cache(root: Path) -> Path:
     import hashlib
-    return _inbox_file(hashlib.sha1(str(root).encode()).hexdigest()[:16] + ".json")
+    return _inbox_file(hashlib.sha1(str(root).encode()).hexdigest()[:INBOX_CACHE_NAME_HEX_DIGITS] + ".json")
 
 
-def _save_json(p: Path, obj) -> None:
+def _replace_json_atomically(p: Path, obj) -> None:
     import json
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(f"{p.name}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(obj, ensure_ascii=False))
-    os.replace(tmp, p)  # atomic: a reader never sees half a file; concurrent writers, the last one wins
+    os.replace(tmp, p)
 
 
 def inbox_save(root: Path, data: dict, started: float) -> None:
-    """Cache data's pending decisions, stamped with when its read started; a read older than the cache is dropped."""
-    import fcntl, json
     p = _inbox_cache(root)
     try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p.with_suffix(".lock"), "w") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)  # compare and write as one step against other writers
-            try:
-                if json.loads(p.read_text())["at"] > started:
-                    return
-            except (OSError, ValueError, KeyError, TypeError):
-                pass
-            _save_json(p, {"at": started, "items": [{"id": t["id"], "title": t["title"]} for t in _pending(data)]})
+        _compare_and_write_under_lock(p, data, started)
     except OSError:
-        pass  # the cache only speeds up the Stop hook: a read must not fail on it
+        return
+
+
+def _compare_and_write_under_lock(p: Path, data: dict, started: float) -> None:
+    import fcntl
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p.with_suffix(".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if _cache_is_newer_than(p, started):
+            return
+        _replace_json_atomically(p, {"at": started, "items": [{"id": t["id"], "title": t["title"]} for t in _pending(data)]})
+
+
+def _cache_is_newer_than(p: Path, started: float) -> bool:
+    import json
+    try:
+        return json.loads(p.read_text())["at"] > started
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def inbox_refresh_later(root: Path) -> None:
-    """Rebuild root's inbox cache in a detached `nawaban index` (it writes the cache); failures stay silent.
-    At most one start a minute per repository, so a slow or failing GitHub does not pile up refreshes."""
     mark = _inbox_cache(root).with_suffix(".refreshing")
-    try:
-        if time.time() - mark.stat().st_mtime < 60:
-            return
-    except OSError:
-        pass
+    if _refresh_started_within_the_interval(mark):
+        return
     mark.parent.mkdir(parents=True, exist_ok=True)
     mark.touch()
     subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "index"], cwd=root, start_new_session=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def _refresh_started_within_the_interval(mark: Path) -> bool:
+    try:
+        return time.time() - mark.stat().st_mtime < INBOX_REFRESH_AT_MOST_EVERY_SECONDS
+    except OSError:
+        return False
+
+
 def inbox_items(path: Path) -> tuple[list[dict], float | None]:
-    """What waits on the decision-maker here, and the age of the GitHub cache it came from (None on the board)."""
-    import json
     if root := github_root():
-        try:
-            c = json.loads(_inbox_cache(root).read_text())
-        except (OSError, ValueError):
-            c = None
-        age = time.time() - c["at"] if c else None
-        if age is None or age > INBOX_STALE:
-            inbox_refresh_later(root)
-        return (c["items"], age) if c else ([], None)
+        return _github_inbox_from_cache(root)
     if not path.exists():
         return [], None
     project = default_project(path)
@@ -1467,8 +1715,23 @@ def inbox_items(path: Path) -> tuple[list[dict], float | None]:
         return [{"id": r["task"], "title": _task(con, r["task"])["title"]} for r in rows], None
 
 
+def _github_inbox_from_cache(root: Path) -> tuple[list[dict], float | None]:
+    import json
+    try:
+        c = json.loads(_inbox_cache(root).read_text())
+    except (OSError, ValueError):
+        c = None
+    age = time.time() - c["at"] if c else None
+    if age is None or age > INBOX_STALE:
+        inbox_refresh_later(root)
+    return (c["items"], age) if c else ([], None)
+
+
+INBOX_TITLE_WIDTH = 24
+INBOX_LINE_WIDTH = 90
+
+
 def inbox_line(path: Path, session: str) -> str | None:
-    """`待你决定 N 件：<the new ones>｜说「同步」看卡`, or `（无变化）` when this session was shown the same set last; None for none."""
     import json
     items, age = inbox_items(path)
     seen_file = _inbox_file(f"seen-{re.sub(r'[^\w-]', '_', session)}.json")
@@ -1477,34 +1740,25 @@ def inbox_line(path: Path, session: str) -> str | None:
     except (OSError, ValueError, TypeError):
         seen = None
     ids = [i["id"] for i in items]
-    _save_json(seen_file, ids)
+    _replace_json_atomically(seen_file, ids)
     if not items:
         return None
     stale = f" · {int(age // 60)} 分钟前" if age is not None and age > INBOX_STALE else ""
     if seen == set(ids):
         return f"待你决定 {len(items)} 件（无变化）{stale}"
-    new = [i for i in items if i["id"] not in (seen or ())] or items  # only some left: list what is left
-    listed = _short(" · ".join(f"{i['id']} {_short(i['title'], 24)}" for i in new), 90)
+    unseen_else_all_that_is_left = [i for i in items if i["id"] not in (seen or ())] or items
+    listed = _short(" · ".join(f"{i['id']} {_short(i['title'], INBOX_TITLE_WIDTH)}" for i in unseen_else_all_that_is_left),
+                    INBOX_LINE_WIDTH)
     return f"待你决定 {len(items)} 件：{listed}{stale}｜说「同步」看卡"
 
 
 def json_out(path: Path, a) -> int:
-    """The board as JSON on stdout; an error is {"error": ...} with exit 1."""
     import json
-    if a.what == "db":  # the board file itself, links resolved: what a watcher must watch
+    if a.what == "db":
         print(json.dumps({"db": str(path.resolve())}, ensure_ascii=False))
         return 0
     try:
-        if a.what == "projects":
-            out = projects_data(path)
-        elif a.what == "board":
-            out = any_board(path, a.project)[0]
-        elif a.what == "okr":
-            if not (repo := _repo_root(Path(a.repo or ".").resolve())):
-                raise Refused("json okr 要在 git 仓库里跑,或给 --repo")
-            out = okr_data(path, repo)
-        else:
-            out = task_detail(path, a.id)
+        out = _json_view(path, a)
     except Refused as e:
         print(json.dumps({"error": str(e)}, ensure_ascii=False))
         return 1
@@ -1512,12 +1766,32 @@ def json_out(path: Path, a) -> int:
     return 0
 
 
-# ── index: the json board as md for a leader (spec NAWABAN-INDEX, format E) ──
+def _json_view(path: Path, a) -> dict:
+    if a.what == "projects":
+        return projects_data(path)
+    if a.what == "board":
+        return any_board(path, a.project)[0]
+    if a.what == "okr":
+        if not (repo := _repo_root(Path(a.repo or ".").resolve())):
+            raise Refused("json okr 要在 git 仓库里跑,或给 --repo")
+        return okr_data(path, repo)
+    return task_detail(path, a.id)
 
-STALE = 24 * 3600  # 在推 → 停了 past this long without activity
-_BOOKKEEPING = re.compile(r"\s*(?:triage|wayfinder|impact):")  # board notes that are labels, not progress
+
+
+STALE = DAY_SECONDS
+CLOSED_COUNT_WINDOW = 2 * DAY_SECONDS
+_BOOKKEEPING_LABEL_NOTE = re.compile(r"\s*(?:triage|wayfinder|impact):")
 _MENTION = re.compile(r"(?<![\w.])@([\w-]+)")
 _NEXT_SPLIT = re.compile(r"[，,]?\s*下一步[：:]")
+PENDING_TITLE_WIDTH = 200
+TITLE_WIDTH = 34
+PARENT_TITLE_WIDTH = 16
+IDLE_TITLE_WIDTH = 40
+PROGRESS_WIDTH = 70
+NEXT_STEP_WIDTH = 90
+VERDICT_WIDTH = 80
+OWN_VERDICT_WIDTH = 70
 
 
 def _ago(now: float, at: int) -> str:
@@ -1525,16 +1799,18 @@ def _ago(now: float, at: int) -> str:
     return f"{m} 分钟" if m < 60 else f"{m // 60} 小时" if m < 48 * 60 else f"{m // 1440} 天"
 
 
+_LINK_UP_TO_WHITESPACE_OR_CJK = r"https?://[^\s\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+"
+
+
 def _short(text: str, n: int) -> str:
-    """One line: links (up to whitespace or CJK/full-width) as (链接), no ** or `, whitespace collapsed, cut at n characters."""
-    text = re.sub(r"\s+", " ", re.sub(r"\*\*|`", "", re.sub(r"https?://[^\s\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+", "(链接)", text))).strip()
+    text = re.sub(r"\s+", " ", re.sub(r"\*\*|`", "", re.sub(_LINK_UP_TO_WHITESPACE_OR_CJK, "(链接)", text))).strip()
     return text if len(text) <= n else text[:n] + "…"
 
 
 def _pending(data: dict) -> list[dict]:
-    """The open issues holding a pending decision, oldest first, a tie by issue number."""
     return sorted((t for c in data["columns"] for t in c["tasks"] if t.get("pending")),
                   key=lambda t: (t["pending"]["at"], int(t["id"][1:])))
+
 
 
 def _stamp(at: int) -> str:
@@ -1542,7 +1818,6 @@ def _stamp(at: int) -> str:
 
 
 def brief_text(data: dict) -> str:
-    """A leader's raw material for decision cards: each pending decision's text verbatim and its issue's last 进展."""
     if data.get("tracker") != "github":
         raise Refused("brief 只用于 GitHub 记账的仓库(docs/agents/issue-tracker.md 写明 GitHub)")
     pending = _pending(data)
@@ -1555,85 +1830,100 @@ def brief_text(data: dict) -> str:
     return "\n".join(out)
 
 
-def index_text(data: dict, name: str) -> str:
-    now = time.time()
-    github = data.get("tracker") == "github"  # needs-info no longer waits there: 待决 does, from the text
-    tasks = [t for c in data["columns"] for t in c["tasks"]]
-    by_id = {t["id"]: t for t in tasks}
-    live = [t for t in tasks if t["status"] != "done"]
+class _Index:
+    def __init__(self, data: dict, now: float):
+        self.now = now
+        self.github = data.get("tracker") == "github"
+        self.tasks = [t for c in data["columns"] for t in c["tasks"]]
+        self.by_id = {t["id"]: t for t in self.tasks}
 
-    def progress(t):
+    def progress(self, t: dict) -> dict | None:
         p = t.get("progress")
-        return p if p and not _BOOKKEEPING.match(p["body"]) else None
+        return p if p and not _BOOKKEEPING_LABEL_NOTE.match(p["body"]) else None
 
-    def state(t):
-        if t.get("waiting") is not None and not github:
+    def waits_on_you(self, t: dict) -> bool:
+        pending_replaces_needs_info_on_github = self.github
+        return t.get("waiting") is not None and not pending_replaces_needs_info_on_github
+
+    def state(self, t: dict) -> str:
+        if self.waits_on_you(t):
             return "等你"
-        if progress(t) or t["claimed_at"] or t["session"]:
-            return "停了" if now - t["active_at"] > STALE else "在推"
+        if self.progress(t) or t["claimed_at"] or t["session"]:
+            return "停了" if self.now - t["active_at"] > STALE else "在推"
         return "没动"
 
-    def belongs(t):
+    def belongs(self, t: dict) -> str:
         if not t["parent"]:
             return ""
-        p = by_id.get(t["parent"])  # GitHub lists a closed parent only for 48 hours
-        return f" · 属于 {t['parent']}" + (f" {_short(re.sub(r'^\w+:\s*', '', p['title']), 16)}" if p else "")
+        parent_listed_while_open_or_recently_closed = self.by_id.get(t["parent"])
+        p = parent_listed_while_open_or_recently_closed
+        return f" · 属于 {t['parent']}" + (f" {_short(re.sub(r'^\w+:\s*', '', p['title']), PARENT_TITLE_WIDTH)}" if p else "")
 
-    groups = {k: sorted((t for t in live if state(t) == k), key=lambda t: t["active_at"])
-              for k in (("停了", "在推") if github else ("等你", "停了", "在推"))}
+    def task_lines(self, k: str, t: dict) -> list[str]:
+        p, d = self.progress(t), t.get("decision")
+        if k == "停了":
+            out = [f"- {t['id']} {_short(t['title'], TITLE_WIDTH)}{self.belongs(t)}"
+                   f"（{_ago(self.now, t['active_at'])}没动静 · 停在：{_stalled_on(p)}）"]
+        else:
+            out = [f"- {t['id']} {_short(t['title'], TITLE_WIDTH)}{self.belongs(t)}"]
+        if p:
+            out.append(f"  进展 {_ago(self.now, p['at'])}前：{_short(_NEXT_SPLIT.split(p['body'])[0], PROGRESS_WIDTH)}")
+        nxt = _GH_NEXT_STEP_SENTENCE.search(p["body"]) if p else None
+        if t.get("waiting") and not self.github:
+            if t["waiting"] != "等你":
+                out.append(f"  下一步：{_short(t['waiting'], NEXT_STEP_WIDTH)}")
+        elif nxt and not _decided_after_progress(d, p):
+            out.append(f"  下一步：{_short(nxt.group(1), NEXT_STEP_WIDTH)}")
+        elif d:
+            out.append(f"  最近决定 {_ago(self.now, d['at'])}前：{_short(d['verdict'], VERDICT_WIDTH)}")
+        return out
+
+
+def _stalled_on(p: dict | None) -> str:
+    mention = _MENTION.search(p["body"]) if p else None
+    return f"@{mention.group(1)}" if mention else "没写"
+
+
+def _decided_after_progress(d: dict | None, p: dict) -> bool:
+    return bool(d and d["at"] > p["at"])
+
+
+def index_text(data: dict, name: str) -> str:
+    now = time.time()
+    ix = _Index(data, now)
+    live = [t for t in ix.tasks if t["status"] != "done"]
+    groups = {k: sorted((t for t in live if ix.state(t) == k), key=lambda t: t["active_at"])
+              for k in (("停了", "在推") if ix.github else ("等你", "停了", "在推"))}
     moving = {t["parent"] for g in groups.values() for t in g}
-    idle = sorted((t for t in live if state(t) == "没动" and t["id"] not in moving), key=lambda t: -t["created_at"])
+    idle = sorted((t for t in live if ix.state(t) == "没动" and t["id"] not in moving), key=lambda t: -t["created_at"])
     out = [f"{name} 进行中的事 · {_stamp(now)} 生成",
            " · ".join(f"{k} {len(g)}" for k, g in groups.items()) + f" · 没动 {len(idle)}", ""]
-    if github:
+    if ix.github:
         pending = _pending(data)
-        out += [f"## 待决 {len(pending)}", *(f"- {t['id']} {_short(t['title'], 200)}" for t in pending), ""]
+        out += [f"## 待决 {len(pending)}", *(f"- {t['id']} {_short(t['title'], PENDING_TITLE_WIDTH)}" for t in pending), ""]
     for k, g in groups.items():
-        if not g:
-            continue
-        out.append(f"## {k}")
-        for t in g:
-            p, d = progress(t), t.get("decision")
-            if k == "停了":
-                mention = _MENTION.search(p["body"]) if p else None
-                who = f"@{mention.group(1)}" if mention else "没写"  # 你 is 等你, sorted above
-                out.append(f"- {t['id']} {_short(t['title'], 34)}{belongs(t)}"
-                           f"（{_ago(now, t['active_at'])}没动静 · 停在：{who}）")
-            else:
-                out.append(f"- {t['id']} {_short(t['title'], 34)}{belongs(t)}")
-            if p:
-                out.append(f"  进展 {_ago(now, p['at'])}前：{_short(_NEXT_SPLIT.split(p['body'])[0], 70)}")
-            nxt = _GH_NEXT.search(p["body"]) if p else None
-            if t.get("waiting") and not github:
-                if t["waiting"] != "等你":
-                    out.append(f"  下一步：{_short(t['waiting'], 90)}")
-            elif nxt and not (d and d["at"] > p["at"]):  # a later decision overtakes the 下一步
-                out.append(f"  下一步：{_short(nxt.group(1), 90)}")
-            elif d:
-                out.append(f"  最近决定 {_ago(now, d['at'])}前：{_short(d['verdict'], 80)}")
-        out.append("")
-    decided = data.get("decisions", [])
-    own = [d for d in decided if d["owner"]]
-    out.append(f"## 48 小时内你拍的板 {len(own)}（agent 自己定的另有 {len(decided) - len(own)} 条，在各任务里）")
-    out += [f"- {_ago(now, d['at'])}前 {d['task']} {_short(d['verdict'], 70)}" for d in own]
+        if g:
+            out += [f"## {k}", *(line for t in g for line in ix.task_lines(k, t)), ""]
+    out += _owner_decision_lines(now, data.get("decisions", []))
     out += ["", f"## 没动 {len(idle)}（开着，从没认领也没写进展）"]
-    out += [f"- {t['id']} {_short(t['title'], 40)}{belongs(t)}" for t in idle]
-    # ponytail: the board lists done tasks only as json board keeps them (12 + those of 24 h), so this may undercount there
-    closed = sum(1 for t in tasks if t["status"] == "done" and now - (t["done_at"] or 0) < 48 * 3600)
-    return "\n".join(out + ["", f"48 小时内关了 {closed} 个。"])
+    out += [f"- {t['id']} {_short(t['title'], IDLE_TITLE_WIDTH)}{ix.belongs(t)}" for t in idle]
+    closed_among_listed = sum(1 for t in ix.tasks if t["status"] == "done" and now - (t["done_at"] or 0) < CLOSED_COUNT_WINDOW)
+    return "\n".join(out + ["", f"48 小时内关了 {closed_among_listed} 个。"])
 
 
-# ── moved to the Vercel Board ─────────────────────────────────────
+def _owner_decision_lines(now: float, decided: list[dict]) -> list[str]:
+    own = [d for d in decided if d["owner"]]
+    return [f"## 48 小时内你拍的板 {len(own)}（agent 自己定的另有 {len(decided) - len(own)} 条，在各任务里）",
+            *(f"- {_ago(now, d['at'])}前 {d['task']} {_short(d['verdict'], OWN_VERDICT_WIDTH)}" for d in own)]
+
+
 
 _PLUGIN = Path(__file__).resolve().parents[1]
-# The one list of moved projects, which the hooks and the Herdr panel route by too (cliFor in logic.js).
 _MOVED_FILE = _PLUGIN / "herdr" / "mods" / "nawaban-board" / "logic.js"
 _MOVED = re.compile(r"^export const BOARD_PROJECTS = new Set\((\[[^\]\n]*\])?\);$", re.M)
 
 
 def moved_projects() -> set[str]:
-    """The projects moved to the Vercel Board. Unreadable refuses the write: a write that lands here after the
-    move is lost to the board."""
     import json
     try:
         m = _MOVED.search(_MOVED_FILE.read_text(encoding="utf-8"))
@@ -1645,21 +1935,18 @@ def moved_projects() -> set[str]:
 
 
 def refuse_moved(project: str | None, argv: list[str]) -> None:
-    """A write to a moved project goes to the board: this file keeps it read-only (spec board-migration, 阶段 1)."""
     if project and project in moved_projects():
         raise Refused(f"项目 {project} 已迁到 Board:nawaban {shlex.join(argv)}"
                       f"(nawaban 即 node {_PLUGIN / 'board' / 'src' / 'cli.ts'});旧库对它只读")
 
 
 def _write_project(path: Path, a) -> str | None:
-    """The project a create, block, claim, close, or event writes to."""
     with closing(open_board(path)) as con:
         if a.verb == "create":
             return a.project or (_task(con, a.parent)["project"] if a.parent else default_project(path))
         return _task(con, a.id)["project"]
 
 
-# ── entry ─────────────────────────────────────────────────────────
 
 def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="nawaban", allow_abbrev=False)
@@ -1724,108 +2011,151 @@ def _parser() -> argparse.ArgumentParser:
     return ap
 
 
+WRITE_VERBS = ("create", "block", "claim", "close", "event")
+
+
+def _words_to_rerun_on_the_board(argv: list[str]) -> list[str]:
+    return [w for i, w in enumerate(argv) if w != "--db" and not w.startswith("--db=") and (i == 0 or argv[i - 1] != "--db")]
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     a = _parser().parse_args(argv)
     path = resolve_db(a.db)
-    # What to run on the board instead: the same words, but the old board's path.
-    words = [w for i, w in enumerate(argv) if w != "--db" and not w.startswith("--db=") and (i == 0 or argv[i - 1] != "--db")]
+    words = _words_to_rerun_on_the_board(argv)
     try:
-        if a.verb == "init":
-            print(f"✓ init → {path}" if init(path) else f"✓ 看板已存在:{path}")
-            return 0
-        if a.verb == "json":
-            return json_out(path, a)
-        if a.verb == "okr":
-            r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
-            if r.returncode != 0:
-                raise Refused("okr 要在 git 仓库里跑")
-            top = Path(r.stdout.strip())
-            refuse_moved((_repo_root(top) or top).name, words)
-            text, readings, full = okr_run(top)
-            print(text)
-            if not path.exists() and a.accept is None:  # no board here: print only, never create one
-                print(f"(没有看板 {path},读数没记)", file=sys.stderr)
-                return 0
-            con = open_board(path)
-            try:
-                print(okr_record(con, _repo_root(top) or top, readings, a.accept, full))
-            finally:
-                con.close()
-            if text := impact_text(okr_data(path, _repo_root(top) or top)):
-                print(text)
-            return 0
-        if a.verb == "index":
-            print(index_text(*any_board(path, a.project)))
-            return 0
-        if a.verb == "brief":
-            print(brief_text(any_board(path, None)[0]))
-            return 0
-        if a.verb == "dispatch":
-            if not (a.id or a.name):
-                raise Refused("不带任务号时要给 --name")
-            if root := github_root():
-                print(dispatch(root, a))
-                return 0
-            if not (root := _repo_root(Path.cwd().resolve())):
-                raise Refused("dispatch 要在 worker 改的 git 仓库里跑")
-            con = open_board(path)
-            try:
-                if a.id:
-                    refuse_moved(_task(con, a.id)["project"], words)
-                print(dispatch(root, a, con))
-            finally:
-                con.close()
-            return 0
-        if a.verb in ("create", "block", "claim", "close", "event") and not (
-                a.verb != "create" and _GH_ISSUE.fullmatch(a.id) and github_root()):
+        if a.verb in _STANDALONE_VERBS:
+            return _STANDALONE_VERBS[a.verb](path, a, words)
+        if a.verb in WRITE_VERBS and not _github_issue_write(a):
             refuse_moved(_write_project(path, a), words)
         if a.verb == "close" and a.done:
             impact_lock(path, a.id)
         if a.verb in ("claim", "close", "event") and _GH_ISSUE.fullmatch(a.id) and (root := github_root()):
-            if a.verb == "event":
-                card(a)
-                if a.kind == "impact":
-                    with closing(open_board(path)) as con:
-                        print(impact(con, a, root))
-                    return 0
-            print(gh_write(root, a))
-            if a.verb == "event" and a.kind in ("ask", "resolve"):
-                try:  # now, not in the background: this turn's Stop hook must already see it
-                    started = time.time()
-                    inbox_save(root, github_board_data(root), started)
-                except (Refused, ValueError, KeyError, TypeError):
-                    pass  # the write went through; the inbox catches up on its next refresh
-            return 0
+            return _write_github_issue(path, a, root)
         if getattr(a, "kind", None) in ("ask", "resolve"):
             raise Refused("ask / resolve 只用于 GitHub 记账的仓库(#N)")
-        con = open_board(path)
-        try:
-            if a.verb == "backup":
-                out = f"✓ backup → {backup(path)}"
-            elif a.verb == "create":
-                out = create(con, path, a)
-            elif a.verb == "block":
-                out = block(con, a)
-            elif a.verb == "claim":
-                out = claim(con, a)
-            elif a.verb == "close":
-                out = close(con, a)
-            elif a.verb == "event":
-                card(a)
-                out = impact(con, a) if a.kind == "impact" else event(con, a)
-            elif a.verb == "show":
-                out = show(con, a)
-            else:
-                out = list_tasks(con, a)
-        finally:
-            con.close()
+        out = _on_the_local_board(path, a)
     except (Refused, OSError) as e:
         print(f"✗ {e}", file=sys.stderr)
         return 1
     if out:
         print(out)
     return 0
+
+
+def _github_issue_write(a) -> bool:
+    return bool(a.verb != "create" and _GH_ISSUE.fullmatch(a.id) and github_root())
+
+
+def _init_verb(path: Path, a, words: list[str]) -> int:
+    print(f"✓ init → {path}" if init(path) else f"✓ 看板已存在:{path}")
+    return 0
+
+
+def _json_verb(path: Path, a, words: list[str]) -> int:
+    return json_out(path, a)
+
+
+def _okr_verb(path: Path, a, words: list[str]) -> int:
+    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise Refused("okr 要在 git 仓库里跑")
+    top = Path(r.stdout.strip())
+    repo = _repo_root(top) or top
+    refuse_moved(repo.name, words)
+    text, readings, full = okr_run(top)
+    print(text)
+    if _print_only_without_a_board(path, a):
+        print(f"(没有看板 {path},读数没记)", file=sys.stderr)
+        return 0
+    con = open_board(path)
+    try:
+        print(okr_record(con, repo, readings, a.accept, full))
+    finally:
+        con.close()
+    if text := impact_text(okr_data(path, repo)):
+        print(text)
+    return 0
+
+
+def _print_only_without_a_board(path: Path, a) -> bool:
+    return not path.exists() and a.accept is None
+
+
+def _index_verb(path: Path, a, words: list[str]) -> int:
+    print(index_text(*any_board(path, a.project)))
+    return 0
+
+
+def _brief_verb(path: Path, a, words: list[str]) -> int:
+    print(brief_text(any_board(path, None)[0]))
+    return 0
+
+
+def _dispatch_verb(path: Path, a, words: list[str]) -> int:
+    if not (a.id or a.name):
+        raise Refused("不带任务号时要给 --name")
+    if root := github_root():
+        print(dispatch(root, a))
+        return 0
+    if not (root := _repo_root(Path.cwd().resolve())):
+        raise Refused("dispatch 要在 worker 改的 git 仓库里跑")
+    con = open_board(path)
+    try:
+        if a.id:
+            refuse_moved(_task(con, a.id)["project"], words)
+        print(dispatch(root, a, con))
+    finally:
+        con.close()
+    return 0
+
+
+_STANDALONE_VERBS = {"init": _init_verb, "json": _json_verb, "okr": _okr_verb, "index": _index_verb,
+                     "brief": _brief_verb, "dispatch": _dispatch_verb}
+
+
+def _write_github_issue(path: Path, a, root: Path) -> int:
+    if a.verb == "event":
+        card(a)
+        if a.kind == "impact":
+            with closing(open_board(path)) as con:
+                print(impact(con, a, root))
+            return 0
+    print(gh_write(root, a))
+    if a.verb == "event" and a.kind in ("ask", "resolve"):
+        _refresh_inbox_now_for_this_turns_stop_hook(root)
+    return 0
+
+
+def _refresh_inbox_now_for_this_turns_stop_hook(root: Path) -> None:
+    try:
+        started = time.time()
+        inbox_save(root, github_board_data(root), started)
+    except (Refused, ValueError, KeyError, TypeError):
+        return
+
+
+def _on_the_local_board(path: Path, a) -> str:
+    con = open_board(path)
+    try:
+        if a.verb == "backup":
+            return f"✓ backup → {backup(path)}"
+        if a.verb == "event":
+            card(a)
+            return impact(con, a) if a.kind == "impact" else event(con, a)
+        return _LOCAL_VERBS[a.verb](con, path, a)
+    finally:
+        con.close()
+
+
+_LOCAL_VERBS = {
+    "create": lambda con, path, a: create(con, path, a),
+    "block": lambda con, path, a: block(con, a),
+    "claim": lambda con, path, a: claim(con, a),
+    "close": lambda con, path, a: close(con, a),
+    "show": lambda con, path, a: show(con, a),
+    "list": lambda con, path, a: list_tasks(con, a),
+}
 
 
 if __name__ == "__main__":

@@ -1,11 +1,19 @@
 #!/bin/sh
-# PreToolUse hook (Bash), for repositories kept on the new board: refuses an agent closing a task with the board's
-# CLI (vb|board|nawaban tasks complete|fail|cancel), which skips nawaban close and its KR 影响声明 check, and a merge
-# (gh pr merge, scripts/merge.sh <PR>) whose tasks have none. ponytail: a grep first, so most calls never start node.
-# Every other repository is impact-guard.sh's (hooks/route.mjs): one guard per repository.
+hooks="$(dirname "$0")"
 input=$(cat)
-printf '%s' "$input" | grep -Eq 'tasks|merge' || exit 0
-cwd=$(printf '%s' "$input" | sed -n 's/.*"cwd" *: *"\([^"]*\)".*/\1/p' | head -n 1)
-set -- $(node "$(dirname "$0")/route.mjs" "${cwd:-.}" 2>/dev/null)
-[ "$1" = board ] || exit 0
-printf '%s' "$input" | node "$(dirname "$0")/../board/src/cli.ts" guard
+
+names_a_task_verb_or_merge() { printf '%s' "$input" | grep -Eq 'tasks|merge'; }
+
+session_cwd() {
+  cwd=$(printf '%s' "$input" | sed -n 's/.*"cwd" *: *"\([^"]*\)".*/\1/p' | head -n 1)
+  printf '%s' "${cwd:-.}"
+}
+
+board_tracks_this_repository() {
+  route=$(node "$hooks/route.mjs" "$(session_cwd)" 2>/dev/null)
+  [ "${route%% *}" = board ]
+}
+
+names_a_task_verb_or_merge || exit 0
+board_tracks_this_repository || exit 0
+printf '%s' "$input" | node "$hooks/../board/src/cli.ts" guard
