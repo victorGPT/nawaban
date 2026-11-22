@@ -211,6 +211,14 @@ test("what already has a card under 待你决定 is not listed again; a window w
   assert.equal(v.tasks[0].items[0].state, "waiting");
 });
 
+test("two tasks asking in one window: the one on the card is not listed again, the other stays under 停了", () => {
+  const ask = (id, active_at) => ({ ...task(id, { status: "in_progress", session: "L", terminal: "t1", claimed_at: 1, active_at }), waiting: id + "？" });
+  const v = panel([agent("t1", "idle", "claude", "入职")], [ask("A", 10), ask("B", 20)]);
+  assert.deepEqual(v.waiting.map((c) => c.question), ["B？"]);
+  assert.deepEqual(grouped(v), [["stopped", ["A"]]]);
+  assert.equal(v.tasks[0].items[0].state, "waiting");
+});
+
 test("an item says since when on the right: a done one its time of day today, else yesterday or its date; the others for how long", () => {
   const at = (d, h, m) => new Date(2026, 10, d, h, m).getTime() / 1000;
   const now = at(6, 12, 0);

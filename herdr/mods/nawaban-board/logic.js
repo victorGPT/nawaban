@@ -77,35 +77,40 @@ function windowOf(agent, open, nameOf, now, lang) {
   return { name: nameOf(agent), ...(state === "waiting" && { question: asking?.waiting ?? words.confirm }),
     doing: blockedByHerdr ? agent.title : task?.title ?? agent.title, state, label: words[state],
     duration: since == null ? null : span(now - since, lang, Boolean(asking)),
-    focus: agent.address, ...(task?.url && { url: task.url }), seq: agent.seq, since };
+    focus: agent.address, ...(task?.url && { url: task.url }), task: task?.id ?? null, seq: agent.seq, since };
 }
 
 function strayCardOf(task, agents, terminals, nameOf, now, lang) {
   const away = agents.find((a) => a.address === task.terminal) ?? terminals.find((k) => isLive(k) && k.address === task.terminal);
   return { name: away ? nameOf(away) : task.id, question: task.waiting, doing: task.title, state: "waiting",
     label: WINDOW_WORDS[lang].waiting, duration: span(now - task.active_at, lang, true), focus: away?.address ?? null,
-    url: task.url ?? null, seq: NO_HERDR_SEQ, since: task.active_at };
+    url: task.url ?? null, task: task.id, seq: NO_HERDR_SEQ, since: task.active_at };
 }
 
 const UNTIMED_WAITS_LAST = Infinity;
 const longestWaitingFirst = (x, y) => (x.since ?? UNTIMED_WAITS_LAST) - (y.since ?? UNTIMED_WAITS_LAST) || newestHerdrChangeFirst(x, y);
 const withoutSortKeys = ({ seq, since, ...w }) => w;
+const withoutTask = ({ task, ...w }) => w;
 const ROW_ORDER = ["stopped", "done", "working"];
 
 const waitingInOtherProjects = (projects, project) =>
   (projects?.projects ?? []).reduce((n, p) => n + (p.name === project ? 0 : p.waiting ?? 0), 0);
 
-export function windowsView({ agents, space, board, now, lang, projects, project, terminals = [] }) {
+function windowsAndWaits({ agents, space, board, now, lang, terminals = [] }) {
   const nameOf = namer(terminals);
   const open = openTasks(board).sort(newestActivityFirst);
   const here = agents.filter((a) => a.space === space);
   const windows = here.map((a) => windowOf(a, open, nameOf, now, lang));
   const inNoWindowHere = (t) => !here.some((a) => a.address === t.terminal);
   const strays = open.filter((t) => isAsking(t) && inNoWindowHere(t)).map((t) => strayCardOf(t, agents, terminals, nameOf, now, lang));
-  const waiting = [...windows, ...strays].filter((w) => w.state === "waiting").sort(longestWaitingFirst).map(withoutSortKeys);
-  const rows = ROW_ORDER.flatMap((s) => windows.filter((w) => w.state === s).sort(newestHerdrChangeFirst)).map(withoutSortKeys);
+  return { windows, waiting: [...windows, ...strays].filter((w) => w.state === "waiting").sort(longestWaitingFirst).map(withoutSortKeys) };
+}
+
+export function windowsView(args) {
+  const { windows, waiting } = windowsAndWaits(args);
+  const rows = ROW_ORDER.flatMap((s) => windows.filter((w) => w.state === s).sort(newestHerdrChangeFirst)).map(withoutSortKeys).map(withoutTask);
   const idle = windows.filter((w) => w.state === "idle").map((w) => w.name);
-  return { waiting, rows, idle: { count: idle.length, names: idle }, otherWaiting: waitingInOtherProjects(projects, project) };
+  return { waiting: waiting.map(withoutTask), rows, idle: { count: idle.length, names: idle }, otherWaiting: waitingInOtherProjects(args.projects, args.project) };
 }
 
 const isBareTabIndex = (tabName) => /^\d+$/.test(tabName);
@@ -186,7 +191,7 @@ function itemOf(c, root) {
   const held = isHeldState(state);
   const window = held && lead.terminal ? c.windowAt(lead.terminal) : null;
   return { id: root.id, title: root.title, state, at: sinceOf(state, root, tickets, lead),
-    gone: state === "stopped" && !window, asking: isAsking(lead),
+    gone: state === "stopped" && !window,
     note: held ? lead.progress?.body ?? null : null, focus: window ? lead.terminal : null,
     spec: tickets.length ? { done: states.filter((s) => s === "done").length, total: tickets.length } : null,
     url: root.url ?? null, active: Math.max(...[root, ...tickets].map((t) => t.active_at ?? 0)) };
@@ -212,17 +217,14 @@ const latestDoneFirst = (x, y) => (y.at ?? 0) - (x.at ?? 0);
 const mostRecentlyActiveFirst = (x, y) => y.active - x.active;
 const ORDER_IN_GROUP = { done: latestDoneFirst };
 
-const alreadyOnACard = (cards) => {
-  const carded = new Set(cards.map((card) => card.focus).filter((f) => f != null));
-  return (x) => x.state === "waiting" && (x.asking || carded.has(x.focus));
-};
+const listedAs = (c, id) => (c.github ? id : rootOf(c, c.byId.get(id)).id);
 
 function taskGroups(c, items, cards) {
-  const onACard = alreadyOnACard(cards);
-  const listed = items.filter((x) => !onACard(x));
+  const onACard = new Set(cards.filter((card) => card.task != null && c.byId.has(card.task)).map((card) => listedAs(c, card.task)));
+  const listed = items.filter((x) => !onACard.has(x.id));
   return TASK_GROUPS.map((group) => ({ group, items: listed.filter((x) => TASK_GROUP_OF_STATE[x.state] === group)
     .sort(ORDER_IN_GROUP[group] ?? mostRecentlyActiveFirst)
-    .map(({ active, asking, ...x }) => ({ key: "task:" + x.id, ...x, where: x.focus == null ? null : c.nameOf(c.windowAt(x.focus)) })) }))
+    .map(({ active, ...x }) => ({ key: "task:" + x.id, ...x, where: x.focus == null ? null : c.nameOf(c.windowAt(x.focus)) })) }))
     .filter((g) => g.items.length);
 }
 
@@ -233,16 +235,17 @@ function panelessBlockedCards(c, items) {
   return c.live.filter(isPanelessBlockedChild).flatMap((k) => {
     const x = items.find((i) => i.focus === k.address);
     return x ? [{ name: childName(k), question: words.confirm, doing: x.title, state: "waiting", label: words.waiting, duration: null,
-      focus: x.focus, ...(x.url && { url: x.url }) }] : [];
+      focus: x.focus, ...(x.url && { url: x.url }), task: x.id }] : [];
   });
 }
 
 export function panelView(args) {
   const c = boardContext(args);
-  const { waiting: asking, otherWaiting } = windowsView(questionsAskedOnBoard(c));
+  const { waiting: asking } = windowsAndWaits(questionsAskedOnBoard(c));
   const items = taskItems(c);
-  const cards = [...asking, ...panelessBlockedCards(c, items)].map((card, i) => ({ key: "card:" + i, ...card }));
-  return { waiting: cards, tasks: taskGroups(c, items, cards), otherWaiting };
+  const cards = [...asking, ...panelessBlockedCards(c, items)];
+  return { waiting: cards.map((card, i) => ({ key: "card:" + i, ...withoutTask(card) })), tasks: taskGroups(c, items, cards),
+    otherWaiting: waitingInOtherProjects(c.projects, c.project) };
 }
 
 const openBlockersIn = (open) => (t) => (t.blocked_by ?? []).some((b) => open.some((o) => o.id === b));
@@ -312,7 +315,7 @@ const issueSince = (t, state) => (state === "done" ? t.done_at : state === "curr
 
 const issueItem = (t, status, now) => {
   const state = issueState(t, status, now);
-  return { id: t.id, title: t.title, state, at: issueSince(t, state), gone: false, asking: false,
+  return { id: t.id, title: t.title, state, at: issueSince(t, state), gone: false,
     note: t.progress?.body ?? null, focus: null, spec: null, url: t.url ?? null, active: t.active_at };
 };
 
