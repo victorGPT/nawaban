@@ -4,7 +4,7 @@ import { spaces, focused, agents, terminals, run, exec, hc, checking, home, next
 import { projectFor, repoName, cliFor, resolveLang, moveSelection, keyCommand, boardChanged, okrChanged, folderOf, canGo, panelView,
   sinceLabel, isoMonthDay, WINDOW_WORDS, pendingView, okrView, OKR_WORDS, OKR_FOLDER_IN_REPO, okrReadingOfFailure, hasNoObjective,
   taskSections, panelKeys, groupOfKey, foldKey, isGroupOpen, MORE_DONE_KEY, decisionCardsView, repoRootOf, TO_ORCHESTRATOR,
-  marksStillToKeep } from "./logic.js";
+  marksStillToKeep, TABS, openingTab, tabBadges } from "./logic.js";
 
 const UNWATCHED_BOARD_REREAD_MS = 5000;
 const WATCHED_BOARD_MISSED_CHANGE_REREAD_MS = 60000;
@@ -29,6 +29,7 @@ const GROUP_LOOK = {
 };
 const GAP_COLOR = { missed: INK.red, stale: INK.amber, met: INK.green, untested: INK.dim };
 const OBJECTIVE_TALLY_COLOR = { missed: INK.red, unsure: INK.muted, met: INK.green };
+const BADGE_COLOR = { ask: INK.amberText, missed: INK.red, met: INK.green, plain: INK.dim };
 const ROW_H = 32;
 const GROUP_HEADER_H = 28;
 const ROW_PX = 10;
@@ -52,6 +53,9 @@ const BREATH = { from: 1, to: 0.35, period: 2000 };
 const FOLDS_STORE = "folds";
 const ALL_DONE_STORE = "doneShownAll";
 const RETURNED_STORE = "incompleteCardsReturned";
+const TAB_STORE = "tab";
+const TAB_H = 34;
+const TAB_GAP = 18;
 const OBJECTIVE_SIZE = 15;
 const KR_NAME_SIZE = 13;
 const KR_VALUE_SIZE = 14;
@@ -127,6 +131,7 @@ export default class NawabanBoard extends View {
     this.githubBoardOfPlace = new Map();
     this.folds = readStored(FOLDS_STORE, {});
     this.allDone = readStored(ALL_DONE_STORE, {});
+    this.pickedTabs = readStored(TAB_STORE, {});
     this.hovered = null;
     this.okr = null;
     this.okrPlace = null;
@@ -175,6 +180,8 @@ export default class NawabanBoard extends View {
     if (cmd === "focus") return this.keyboard.focus();
     if (cmd === "back") { this.selectedKey = null; return; }
     if (cmd === "open") return this.openSelected();
+    if (cmd === "left" || cmd === "right") return this.pickTab(moveSelection(TABS, this.tab, cmd === "right" ? 1 : -1));
+    if (TABS[cmd - 1]) return this.pickTab(TABS[cmd - 1]);
     if (cmd === "down" || cmd === "up") this.selectedKey = moveSelection(this.keys, this.selectedKey, cmd === "down" ? 1 : -1);
   }
 
@@ -354,6 +361,14 @@ export default class NawabanBoard extends View {
     store(ALL_DONE_STORE, this.allDone);
   }
 
+  pickTab(tab) {
+    if (tab === this.tab) return;
+    this.tab = tab;
+    this.selectedKey = null;
+    this.pickedTabs = { ...this.pickedTabs, [this.projectKey()]: tab };
+    store(TAB_STORE, this.pickedTabs);
+  }
+
   answerKey(c) {
     return this.projectKey() + ":" + c.mark;
   }
@@ -362,18 +377,23 @@ export default class NawabanBoard extends View {
     this.openCard = this.openCard === key ? null : key;
   }
 
-  rememberSelectable(decisions, objectives, sections, tasks) {
-    this.keys = panelKeys(decisions.map((r) => r.key), objectives.flatMap((x) => x.keys), sections);
-    this.selectableByKey = new Map([...decisions, ...objectives.flatMap((x) => [...x.krs, ...x.met]), ...tasks].map((r) => [r.key, r]));
+  rememberSelectable(tab, decisions, objectives, sections, tasks) {
+    const on = (t, keys) => (tab === t ? keys : []);
+    this.keys = panelKeys(on("decide", decisions.map((r) => r.key)), on("okr", objectives.flatMap((x) => x.keys)), on("tasks", sections));
+    this.selectableByKey = new Map([...decisions, ...objectives.flatMap((x) => [...x.krs, ...x.untested, ...x.met]), ...tasks].map((r) => [r.key, r]));
   }
 
   objectiveRows(okr, project, o) {
     return (okr?.objectives ?? []).map((ob, i) => {
       const open = isGroupOpen(this.folds, project, ob.fold), foldRow = "group:" + ob.fold;
+      const untestedOpen = isGroupOpen(this.folds, project, ob.untestedFold), untestedRow = "group:" + ob.untestedFold;
       const krs = ob.krs.map((k, j) => this.krRow(k, i, j, o));
-      const met = open ? ob.metKrs.map((k, j) => this.krRow(k, i, ob.krs.length + j, o)) : [];
+      const untested = untestedOpen ? ob.untestedKrs.map((k, j) => this.krRow(k, i, ob.krs.length + j, o)) : [];
+      const met = open ? ob.metKrs.map((k, j) => this.krRow(k, i, ob.krs.length + ob.untestedKrs.length + j, o)) : [];
+      const untestedFolding = ob.untestedKrs.length ? [untestedRow, ...untested.map((r) => r.key)] : [];
       const folding = ob.metKrs.length ? [foldRow, ...met.map((r) => r.key)] : [];
-      return { ob, open, foldRow, krs, met, keys: ob.standing === "met" ? folding : [...krs.map((r) => r.key), ...folding] };
+      return { ob, open, foldRow, untestedOpen, untestedRow, krs, untested, met,
+        keys: ob.standing === "met" ? folding : [...krs.map((r) => r.key), ...untestedFolding, ...folding] };
     });
   }
 
@@ -395,22 +415,27 @@ export default class NawabanBoard extends View {
     const objectives = this.objectiveRows(okr, project, o);
     const sections = taskSections(v.tasks, { folds: this.folds, project, allDone: Boolean(this.allDone[project]), lang: this.lang })
       .map((s) => ({ ...s, rows: s.items.map((x) => this.taskRow(x, s.group, now, w)) }));
-    this.rememberSelectable(decisions, objectives, sections, sections.flatMap((s) => s.rows));
+    const tab = this.tab = openingTab(this.pickedTabs[project], decisions.length);
+    this.rememberSelectable(tab, decisions, objectives, sections, sections.flatMap((s) => s.rows));
     const keyboard = this.keyboard.is_focused();
     const note = this.statusNote(v, mine, w);
+    const badges = tabBadges({ pending: decisions.length, okr,
+      openTasks: v.tasks.filter((g) => g.group !== "done").reduce((n, g) => n + g.items.length, 0) });
 
     return v_flex().id("nawaban-board").size_full().min_h(0).rounded(10).overflow_hidden()
       .bg(INK.canvas).border_1().border_color(INK.border).text_color(INK.foreground).text_size(TITLE_SIZE)
       .track_focus(this.keyboard).on_key_down((e, cx) => this.onKey(e, cx))
       .child(this.header(w, mine.length, v.otherWaiting))
+      .child(this.tabBar(tab, badges, w))
       .child(v_flex().id("nawaban-body").flex_1().min_h(0).overflow_y_scrollbar().p(BODY_PAD).gap(SECTION_GAP)
         .when(Boolean(note), (el) => el.child(div().flex_none().px(ROW_PX).text_size(WHY_SIZE).text_color(INK.muted).child(note)))
-        .when(decisions.length > 0 || Boolean(incomplete), (el) => el.child(this.section(this.sectionHeader(w.decide, String(decisions.length), INK.amberText),
+        .when(tab === "decide", (el) => el.child(this.section(null,
           [...decisions.flatMap((r) => this.decisionLines(r, keyboard, cards?.orchestrator, w)),
-            ...(incomplete ? [this.incompleteLine(incomplete, cards.orchestrator, w)] : [])])))
-        .when(Boolean(okr), (el) => el.child(this.okrSection(okr, objectives, keyboard, o)))
-        .when(hasNoObjective(this.okr), (el) => el.child(this.noObjective(o)))
-        .children(sections.map((s) => this.taskSection(s, keyboard, w))));
+            ...(incomplete ? [this.incompleteLine(incomplete, cards.orchestrator, w)] : []),
+            ...(decisions.length || incomplete || !this.board ? [] : [this.quietLine(w.nothingToDecide)])])))
+        .when(tab === "okr" && Boolean(okr), (el) => el.child(this.okrSection(okr, objectives, keyboard, o)))
+        .when(tab === "okr" && hasNoObjective(this.okr), (el) => el.child(this.quietLine(o.noObjective)))
+        .when(tab === "tasks", (el) => el.children(sections.map((s) => this.taskSection(s, keyboard, w)))));
   }
 
   onKey(e, cx) {
@@ -470,7 +495,7 @@ export default class NawabanBoard extends View {
   }
 
   section(header, rows) {
-    return v_flex().flex_none().child(header).child(v_flex().flex_none().gap(1).children(rows));
+    return v_flex().flex_none().when(Boolean(header), (el) => el.child(header)).child(v_flex().flex_none().gap(1).children(rows));
   }
 
   sectionHeader(label, count, color) {
@@ -617,16 +642,36 @@ export default class NawabanBoard extends View {
   }
 
   okrSection(okr, objectives, keyboard, o) {
-    return this.section(this.sectionHeader(o.title, o.tally(okr.met, okr.total, okr.measured), INK.dim),
+    return this.section(this.sectionHeader(o.tally(okr.met, okr.total, okr.measured), "", INK.dim),
       objectives.flatMap((x) => (x.ob.standing === "met" ? [this.quietObjective(x, o), ...x.met.flatMap((r) => this.krLine(r, keyboard, o, true))]
         : [this.objectiveHeading(x.ob, o), ...x.krs.flatMap((r) => this.krLine(r, keyboard, o, false)),
-          ...(x.ob.metKrs.length ? [this.metFold(x, o), ...x.met.flatMap((r) => this.krLine(r, keyboard, o, true))] : [])])));
+          ...(x.ob.untestedKrs.length ? [this.fold(x.untestedRow, x.untestedOpen, o.untestedFolded(x.ob.untestedKrs.length)),
+            ...x.untested.flatMap((r) => this.krLine(r, keyboard, o, true))] : []),
+          ...(x.ob.metKrs.length ? [this.fold(x.foldRow, x.open, o.metFolded(x.ob.metKrs.length)), ...x.met.flatMap((r) => this.krLine(r, keyboard, o, true))] : [])])));
+  }
+
+  tabBar(tab, badges, w) {
+    return h_flex().flex_none().h(TAB_H).px(14).gap(TAB_GAP).items_end().border_b_1().border_color(INK.border)
+      .children(TABS.map((t) => this.tabLabel(t, t === tab, badges[t], w)));
+  }
+
+  tabLabel(t, on, badge, w) {
+    return h_flex().id("nawaban-tab-" + t).flex_none().h_full().gap(6).items_center().cursor_pointer().text_size(13)
+      .text_color(on ? INK.foreground : INK.dim)
+      .when(on, (el) => el.border_b_1().border_color(INK.foreground))
+      .when(!on, (el) => el.hover((s) => s.text_color(INK.muted)))
+      .on_click((_e, cx) => { this.pickTab(t); cx.notify(); })
+      .child(w.tabs[t])
+      .when(Boolean(badge), (el) => el.child(div().flex_none().text_size(SIDE_SIZE).text_color(BADGE_COLOR[badge.tone]).child(badge.text)));
+  }
+
+  quietLine(text) {
+    return div().flex_none().h(ROW_H).px(ROW_PX).flex().items_center().text_size(13).text_color(INK.dim).child(text);
   }
 
   objectiveHeading(ob, o) {
     return h_flex().flex_none().px(ROW_PX).pt(12).pb(4).gap(12).items_end()
       .child(div().flex_1().min_w(0).truncate().text_size(OBJECTIVE_SIZE).font_semibold().text_color(INK.foreground).child(ob.name))
-      .when(Boolean(ob.impacts), (el) => el.child(div().flex_none().text_size(GROUP_SIZE).text_color(INK.dim).child(ob.impacts)))
       .child(div().flex_none().text_size(SIDE_SIZE).text_color(OBJECTIVE_TALLY_COLOR[ob.standing]).child(ob.met + "/" + ob.total));
   }
 
@@ -636,9 +681,9 @@ export default class NawabanBoard extends View {
       .child(div().flex_none().text_size(SIDE_SIZE).text_color(OBJECTIVE_TALLY_COLOR.met).child(o.allMet + " " + x.ob.met + "/" + x.ob.total)));
   }
 
-  metFold(x, o) {
-    return this.foldRow(x.foldRow, h_flex().flex_none().h(GROUP_HEADER_H).pl(MORE_INDENT).items_center().text_size(SIDE_SIZE)
-      .text_color(INK.dim).hover((s) => s.text_color(INK.muted)).child((x.open ? "▾ " : "▸ ") + o.metFolded(x.ob.metKrs.length)));
+  fold(key, open, label) {
+    return this.foldRow(key, h_flex().flex_none().h(GROUP_HEADER_H).pl(MORE_INDENT).items_center().text_size(SIDE_SIZE)
+      .text_color(INK.dim).hover((s) => s.text_color(INK.muted)).child((open ? "▾ " : "▸ ") + label));
   }
 
   foldRow(key, line) {
@@ -669,13 +714,6 @@ export default class NawabanBoard extends View {
       .child(dim("/ " + o.target + " " + k.target))
       .when(Boolean(k.gap), (el) => el.child(dim("·")).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(k.gap)))
       .when(Boolean(k.day), (el) => el.child(dim("· " + k.day)));
-  }
-
-  noObjective(o) {
-    return this.section(this.sectionHeader(o.title, "", INK.dim),
-      [h_flex().flex_none().h(ROW_H).px(ROW_PX).gap(ROW_GAP).items_center().text_size(13).text_color(INK.dim)
-        .child(this.dot({ dot: INK.untouched, hollow: true }))
-        .child(div().flex_1().min_w(0).truncate().child(o.noObjective))]);
   }
 
   clickGroup(s, cx) {

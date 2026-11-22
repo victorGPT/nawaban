@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { projectFor, cliFor, BOARD_PROJECTS, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, panelView, sinceLabel, decisionDate, WINDOW_WORDS,
-  pendingView, okrView, OKR_WORDS, gapOf, gapText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, DONE_SHOWN, MORE_DONE_KEY } from "./logic.js";
+  pendingView, okrView, OKR_WORDS, gapOf, gapText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, DONE_SHOWN, MORE_DONE_KEY, TABS, openingTab, tabBadges } from "./logic.js";
 import { readFileSync } from "node:fs";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
@@ -304,14 +304,15 @@ test("pending decisions run oldest first, a tie by issue number as a number, eac
 const items = (prefix, n) => Array.from({ length: n }, (_, i) => ({ key: "task:" + prefix + i, id: prefix + i, note: null, gone: false }));
 const sections = (groups, extra = {}) => taskSections(groups, { folds: {}, project: "p", allDone: false, lang: "zh", ...extra });
 
-test("停了 starts open and the other groups folded; a fold the person chose is kept per project and group", () => {
+test("inside 任务 every group starts open; a fold the person chose is kept per project and group; OKR folds start closed", () => {
   const groups = TASK_GROUPS.map((group) => ({ group, items: items(group, 1) }));
-  assert.deepEqual(sections(groups).map((s) => [s.key, s.open]), [["group:stopped", true], ["group:working", false], ["group:todo", false], ["group:done", false]]);
-  const folds = { [foldKey("p", "stopped")]: false, [foldKey("p", "done")]: true, [foldKey("other", "working")]: true };
-  assert.deepEqual(sections(groups, { folds }).map((s) => s.open), [false, false, false, true]);
+  assert.deepEqual(sections(groups).map((s) => [s.key, s.open]), [["group:stopped", true], ["group:working", true], ["group:todo", true], ["group:done", true]]);
+  const folds = { [foldKey("p", "stopped")]: false, [foldKey("p", "done")]: true, [foldKey("other", "working")]: false };
+  assert.deepEqual(sections(groups, { folds }).map((s) => s.open), [false, true, true, true]);
   assert.equal(isGroupOpen(folds, "q", "stopped"), true);
+  assert.equal(isGroupOpen({}, "p", "okr-untested:O"), false);
   assert.equal(foldKey(null, "todo"), ":todo");
-  assert.deepEqual([...GROUP_OPEN_BY_DEFAULT], ["stopped"]);
+  assert.deepEqual([...GROUP_OPEN_BY_DEFAULT], TASK_GROUPS);
 });
 
 test("完成 shows its newest 5 and a row for the rest; showing all, the row folds them back; 5 or fewer, no row", () => {
@@ -336,9 +337,11 @@ test("only 停了 rows carry a reason line: the window gone, then the latest pro
 test("the arrows walk 待你决定, the KRs, then each group's header and, while it is open, its rows and the 完成 row", () => {
   const groups = [{ group: "stopped", items: items("s", 1) }, { group: "working", items: items("w", 2) }, { group: "done", items: items("d", 6) }];
   const open = sections(groups, { folds: { [foldKey("p", "done")]: true } });
+  const done = ["group:done", "task:d0", "task:d1", "task:d2", "task:d3", "task:d4", MORE_DONE_KEY];
   assert.deepEqual(panelKeys(["card:0", "pending:#7"], ["kr:0-0"], open), ["card:0", "pending:#7", "kr:0-0",
-    "group:stopped", "task:s0", "group:working", "group:done", "task:d0", "task:d1", "task:d2", "task:d3", "task:d4", MORE_DONE_KEY]);
-  assert.deepEqual(panelKeys([], [], sections(groups, { folds: { [foldKey("p", "stopped")]: false } })), ["group:stopped", "group:working", "group:done"]);
+    "group:stopped", "task:s0", "group:working", "task:w0", "task:w1", ...done]);
+  assert.deepEqual(panelKeys([], [], sections(groups, { folds: { [foldKey("p", "stopped")]: false, [foldKey("p", "working")]: false } })),
+    ["group:stopped", "group:working", ...done]);
   assert.deepEqual([groupOfKey("group:todo"), groupOfKey("task:x"), groupOfKey(null)], ["todo", null, null]);
 });
 
@@ -350,20 +353,24 @@ test("OKR objectives: the ones with a missed KR first, then the ones still unsur
   assert.deepEqual(v.objectives.map((o) => [o.name, o.standing, o.met, o.total]),
     [["听得懂需求", "missed", 2, 5], ["用户愿意拉人", "unsure", 0, 1], ["推荐能减少筛选", "met", 1, 1]]);
   const [first, unsure, allMet] = v.objectives;
-  assert.deepEqual(first.krs.map((k) => k.status), ["missed", "stale", "untested"]);
+  assert.deepEqual(first.krs.map((k) => k.status), ["missed", "stale"]);
+  assert.deepEqual(first.untestedKrs.map((k) => k.name), ["误拦率"]);
   assert.deepEqual(first.metKrs.map((k) => k.name), ["长对话接着轮保留修饰", "意图准确率"]);
-  assert.deepEqual([unsure.krs.length, allMet.krs.length, allMet.metKrs.length], [1, 0, 1]);
+  assert.deepEqual([unsure.krs.length, unsure.untestedKrs.length, allMet.krs.length, allMet.metKrs.length], [0, 1, 0, 1]);
   assert.deepEqual(v.objectives.map((o) => o.fold), ["okr:听得懂需求", "okr:用户愿意拉人", "okr:推荐能减少筛选"]);
+  assert.deepEqual(v.objectives.map((o) => o.untestedFold), ["okr-untested:听得懂需求", "okr-untested:用户愿意拉人", "okr-untested:推荐能减少筛选"]);
+  assert.deepEqual([OKR_WORDS.zh.untestedFolded(3), OKR_WORDS.en.untestedFolded(3)], ["3 条未测", "3 untested"]);
 });
 
 test("OKR KR rows: value against target, the gap the right way round, and the day it was read", () => {
   const v = okrView(okrFixture, "zh");
-  assert.deepEqual([...v.objectives[0].krs, ...v.objectives[0].metKrs].map((k) => [k.status, k.value, k.target, k.gap, k.day]), [
+  assert.deepEqual([...v.objectives[0].krs, ...v.objectives[0].untestedKrs, ...v.objectives[0].metKrs].map((k) => [k.status, k.value, k.target, k.gap, k.day]), [
     ["missed", "84.6%", "≤ 20%", "差 64.6 点", "11-19"], ["stale", "640ms", "< 800ms", "超 160 ms", "10-01"],
     ["untested", "未测", "≤ 2%", null, null], ["met", "90.1%", "≥ 90%", "超 0.1 点", "11-19"], ["met", "97.5%", "≥ 95%", "超 2.5 点", "11-18"]]);
-  assert.deepEqual(v.objectives[0].krs.map((k) => k.trend), ["在变差", "没动", "首次读数"]);
+  assert.deepEqual([...v.objectives[0].krs, ...v.objectives[0].untestedKrs].map((k) => k.trend), ["在变差", "没动", "首次读数"]);
   const odd = okrView({ ...okrFixture, objectives: [{ name: "O", krs: [{ name: "k", target: ">= 1", status: "bogus", value: 3 }] }] }, "en");
-  assert.deepEqual([odd.objectives[0].krs[0].status, odd.objectives[0].krs[0].target, odd.objectives[0].krs[0].gap], ["untested", ">= 1", null]);
+  const [bogus] = odd.objectives[0].untestedKrs;
+  assert.deepEqual([bogus.status, bogus.target, bogus.gap], ["untested", ">= 1", null]);
 });
 
 test("the gap counts toward the target: above for ≥, below for ≤, either side of =; percent and 百分点 are counted in points", () => {
@@ -381,18 +388,17 @@ test("the OKR section is left out with no okr.toml, an older CLI, or a reply tha
   }
 });
 
-test("OKR declarations: an Objective's ↑ ↓ = since the last round, a KR off its word; an older CLI's json draws neither", () => {
+test("OKR declarations: a KR off its word says so; an older CLI's json says nothing", () => {
   const okr = { ...okrFixture, objectives: [
     { name: "O", impacts: { "↑": 2, "↓": 1, "=": 0 }, krs: [
       { name: "a", target: ">= 1", status: "missed", value: 0, mismatch: [{ ticket: "#5", dir: "↑" }, { ticket: "KRI-07", dir: "=" }] },
       { name: "b", target: ">= 1", status: "met", value: 2, mismatch: [] }] },
     { name: "P", impacts: { "↑": 0, "↓": 0, "=": 0 }, krs: [{ name: "c", target: ">= 1", status: "untested" }] }] };
   const v = okrView(okr, "zh");
-  assert.deepEqual(v.objectives.map((o) => o.impacts), ["↑2 ↓1 =0", null]);
   assert.deepEqual([...v.objectives[0].krs, ...v.objectives[0].metKrs].map((k) => k.mismatch), ["预期不符 #5 KRI-07", null]);
   assert.equal(okrView(okr, "en").objectives[0].krs[0].mismatch, "Not as declared #5 KRI-07");
   const old = okrView(okrFixture, "zh");
-  assert.ok(old.objectives.every((o) => o.impacts === null && [...o.krs, ...o.metKrs].every((k) => k.mismatch === null)));
+  assert.ok(old.objectives.every((o) => [...o.krs, ...o.untestedKrs, ...o.metKrs].every((k) => k.mismatch === null)));
 });
 
 const cardOf = (options) => ({ decision: "定不定", kr: "长对话接着轮保留全部修饰", context: "本机不跑推理", rec: "B：两台都是自己的测评机",
@@ -445,4 +451,26 @@ test("an incomplete card is returned once: what was sent stays remembered while 
   assert.equal(TO_ORCHESTRATOR.incomplete(["#1280", "#1219"]), "[决策者经面板] 卡片不全，请按决策卡格式重写：#1280 #1219");
   assert.deepEqual([TO_ORCHESTRATOR.pick("#1428", "B"), TO_ORCHESTRATOR.unclear("#1428"), TO_ORCHESTRATOR.decided("#1536")],
     ["[决策者经面板] #1428 选 B", "[决策者经面板] #1428 背景不够，请补写后重发待决", "[决策者经面板] #1536 已定，请核实后记已决"]);
+});
+
+test("the panel opens on the tab the owner last picked; the first time on 待决 when something waits, else OKR", () => {
+  assert.deepEqual(TABS, ["decide", "okr", "tasks"]);
+  assert.deepEqual([openingTab("tasks", 3), openingTab("okr", 3), openingTab(undefined, 2), openingTab(undefined, 0), openingTab("bogus", 0)],
+    ["tasks", "okr", "decide", "okr", "okr"]);
+});
+
+test("each tab's badge says whether it needs the owner: pending in amber, missed KRs in red or ✓ when all met, a plain count of open tasks", () => {
+  const v = okrView(okrFixture, "zh");
+  assert.deepEqual(tabBadges({ pending: 5, okr: v, openTasks: 7 }),
+    { decide: { text: "5", tone: "ask" }, okr: { text: "1", tone: "missed" }, tasks: { text: "7", tone: "plain" } });
+  const met = okrView({ ...okrFixture, objectives: [{ name: "O", krs: [{ name: "k", target: ">= 1", target_op: ">=", target_value: 1, status: "met", value: 2 }] }] }, "zh");
+  const unsure = okrView({ ...okrFixture, objectives: [{ name: "O", krs: [{ name: "k", target: ">= 1", status: "untested" }] }] }, "zh");
+  assert.deepEqual(tabBadges({ pending: 0, okr: met, openTasks: 0 }), { decide: null, okr: { text: "✓", tone: "met" }, tasks: null });
+  assert.deepEqual([tabBadges({ pending: 0, okr: unsure, openTasks: 0 }).okr, tabBadges({ pending: 0, okr: null, openTasks: 0 }).okr], [null, null]);
+});
+
+test("a card's subtitle leaves out a KR that is empty or 无", () => {
+  const withKr = (kr) => ({ tracker: "github", columns: [{ key: "open", tasks: [asked(1280, 300, { card: { ...cardOf(), kr } })] }] });
+  assert.deepEqual(["无", " 无 ", "", null].map((kr) => decisionCardsView(withKr(kr)).cards[0].sub), Array(4).fill("#1280 · " + decisionDate(300)));
+  assert.equal(decisionCardsView(withKr("留存")).cards[0].sub, "#1280 · 留存 · " + decisionDate(300));
 });
