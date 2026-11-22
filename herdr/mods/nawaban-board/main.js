@@ -236,10 +236,12 @@ export default class NawabanBoard extends View {
     if (checking()) return;
     const project = this.projectKey(), returned = this.returnedCards();
     const v = decisionCardsView(board, { terminals: terminals(), repo, returned });
-    const due = v.incomplete.unreturned;
-    const sent = due.length > 0 && v.orchestrator != null && (await say(v.orchestrator, TO_ORCHESTRATOR.incomplete(due.map((x) => x.id)))) === null;
-    const kept = marksStillToKeep(returned, v.incomplete, sent ? due.map((x) => x.mark) : []);
-    store(RETURNED_STORE, { ...readStored(RETURNED_STORE, {}), [project]: kept });
+    const due = v.orchestrator ? v.incomplete.unreturned.map((x) => x.mark) : [];
+    const keep = (justReturned) => store(RETURNED_STORE, { ...readStored(RETURNED_STORE, {}), [project]: marksStillToKeep(returned, v.incomplete, justReturned) });
+    keep(due);
+    if (!due.length) return;
+    const failed = await say(v.orchestrator, TO_ORCHESTRATOR.incomplete(v.incomplete.unreturned.map((x) => x.id)));
+    if (failed) keep([]);
   }
 
   keepLastBoardShowing(e) {
@@ -350,6 +352,10 @@ export default class NawabanBoard extends View {
     const project = this.projectKey();
     this.allDone = { ...this.allDone, [project]: !this.allDone[project] };
     store(ALL_DONE_STORE, this.allDone);
+  }
+
+  answerKey(c) {
+    return this.projectKey() + ":" + c.mark;
   }
 
   toggleCard(key) {
@@ -537,16 +543,16 @@ export default class NawabanBoard extends View {
   }
 
   handToOrchestrator(c, orchestrator, text, done, cw, cx) {
-    this.cardSaid = { ...this.cardSaid, [c.key]: { text: cw.sending, final: true } };
+    this.cardSaid = { ...this.cardSaid, [this.answerKey(c)]: { text: cw.sending, final: true } };
     cx.spawn(async (cx) => {
       const failed = await say(orchestrator, text);
-      this.cardSaid = { ...this.cardSaid, [c.key]: { text: failed ? cw.failed(failed) : done, final: !failed } };
+      this.cardSaid = { ...this.cardSaid, [this.answerKey(c)]: { text: failed ? cw.failed(failed) : done, final: !failed } };
       cx.notify();
     });
   }
 
   cardDetail(c, orchestrator, cw) {
-    const said = this.cardSaid[c.key];
+    const said = this.cardSaid[this.answerKey(c)];
     const body = v_flex().id("nawaban-card-" + c.key).flex_none().ml(ROW_PX + DOT + ROW_GAP).mr(ROW_PX).mb(10).gap(10)
       .text_size(WHY_SIZE).line_height(CARD_LINE_H + "px").text_color(INK.muted);
     if (said?.final) return body.child(div().whitespace_normal().child(said.text));
@@ -569,7 +575,7 @@ export default class NawabanBoard extends View {
     const hand = (text, done) => (cx) => this.handToOrchestrator(c, orchestrator, text, done, cw, cx);
     const off = !orchestrator, id = (what) => "nawaban-" + what + "-" + c.key;
     if (c.kind === "pick") {
-      const option = this.picked[c.key];
+      const option = this.picked[this.answerKey(c)];
       return [this.button(id("settle"), cw.settle, true, off || !option, hand(TO_ORCHESTRATOR.pick(c.id, option), cw.picked(c.id, option))),
         this.button(id("unclear"), cw.unclear, false, off, hand(TO_ORCHESTRATOR.unclear(c.id), cw.sentBack))];
     }
@@ -594,12 +600,12 @@ export default class NawabanBoard extends View {
   }
 
   optionButton(c, opt) {
-    const on = this.picked[c.key] === opt.key;
+    const on = this.picked[this.answerKey(c)] === opt.key;
     return v_flex().id("nawaban-option-" + c.key + "-" + opt.key).flex_none().px(10).py(7).gap(1).rounded(6).border_1().cursor_pointer()
       .border_color(on ? INK.sky : INK.border)
       .when(on, (el) => el.bg(INK.selected))
       .when(!on, (el) => el.hover((s) => s.bg(INK.hover)))
-      .on_click((_e, cx) => { this.picked = { ...this.picked, [c.key]: opt.key }; cx.notify(); })
+      .on_click((_e, cx) => { this.picked = { ...this.picked, [this.answerKey(c)]: opt.key }; cx.notify(); })
       .child(div().text_size(KR_NAME_SIZE).text_color(INK.title).whitespace_normal().child(opt.key + " · " + opt.text))
       .when(Boolean(opt.note), (el) => el.child(div().text_size(GROUP_SIZE).text_color(INK.dim).child(opt.note)));
   }

@@ -334,6 +334,44 @@ test("incomplete cards go back to the orchestrator from the board read, once per
   }
 });
 
+test("two panels reading at once return an incomplete card once; an answered card's issue with a new card gets its buttons back", async () => {
+  inChinese();
+  const sends = [], realTerminals = terminals;
+  terminals = [...terminals, orchestrator];
+  let release;
+  hcImpl = (args) => { sends.push(args); return new Promise((r) => { release = () => r({ code: 0, stdout: "", stderr: "" }); }); };
+  execImpl = async (cmd, args = []) => {
+    if (cmd === "git") return { code: 0, stdout: "/r/roubao/.git\n" };
+    if (args[1] !== "json") return { code: 1, stdout: "" };
+    return { code: 0, stdout: JSON.stringify(args[2] === "board" ? cardsBoard : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
+  };
+  try {
+    const cx = runningSpawns;
+    new NawabanBoard().init({}, cx);
+    new NawabanBoard().init({}, cx);
+    await settle();
+    release();
+    await settle();
+    assert.equal(sends.length, 1);
+    hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
+    const view = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
+    clicks.get("nawaban-row-pending:#1536")({}, cx);
+    view.render(cx);
+    clicks.get("nawaban-decided-pending:#1536")({}, cx);
+    await settle();
+    const later = { ...cardsBoard, columns: cardsBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: [pendingIssue(1536, 10, { ruled_after: true })] }) };
+    view.board = later;
+    texts.length = 0;
+    view.render(cx);
+    assert.ok(texts.includes("对，已经定了") && !texts.includes(WINDOW_WORDS.zh.cards.closing("#1536")));
+  } finally {
+    terminals = realTerminals;
+    hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
+    execImpl = async () => ({ code: 1 });
+    stored.clear();
+  }
+});
+
 test("a GitHub board is read from GitHub at most once a minute, whatever asks for it", async () => {
   const reads = [];
   execImpl = async (_cmd, args = []) => {

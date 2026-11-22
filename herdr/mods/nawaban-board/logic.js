@@ -314,7 +314,7 @@ function windowToTalkIn(p, terminals, orchestrator) {
 
 function decisionCardOf(t, kind, terminals, orchestrator) {
   const p = t.pending;
-  return { key: "pending:" + t.id, id: t.id, title: t.title, kind, url: t.url ?? null,
+  return { key: "pending:" + t.id, id: t.id, mark: returnMark(t), title: t.title, kind, url: t.url ?? null,
     sub: [t.id, p.card.kr, decisionDate(p.at)].filter(Boolean).join(" · "), context: p.card.context,
     progress: stamped(p.progress?.at(-1)), options: p.card.options, rec: p.card.rec,
     window: kind === "talk" ? windowToTalkIn(p, terminals, orchestrator) : null };
