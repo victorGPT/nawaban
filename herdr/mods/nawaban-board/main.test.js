@@ -99,17 +99,28 @@ const after = (...said) => {
   return at.every((i) => i >= 0) || at.join(",");
 };
 
-test("the panel draws 待你决定, then the OKR reading, then 停了 在做 没动 完成, in Chinese and English, with Herdr's API only", () => {
+test("each tab draws only its own part: 待决 the waiting cards, OKR the reading, 任务 停了 在做 没动 完成, in Chinese and English, with Herdr's API only", () => {
   const v = panelView({ agents, terminals, space: "here", board, now, lang: "zh" });
   assert.deepEqual(v.waiting.map((c) => c.focus), ["t3"]);
   assert.deepEqual(v.tasks.map((g) => [g.group, g.items.map((i) => i.id)]),
     [["stopped", ["GONE"]], ["working", ["CUR", "GH", "S"]], ["todo", ["TODO"]], ["done", ["DONE"]]]);
   stored.clear();
   for (const lang of ["zh", "en"]) {
-    drawn({ lang, okr: okrFixture });
-    const w = WINDOW_WORDS[lang], o = OKR_WORDS[lang];
-    assert.equal(after(w.decide, "放行吗？", o.title, "听得懂需求", w.groups.stopped, w.groups.working, w.groups.todo, w.groups.done), true, lang);
+    stored.clear();
+    const view = drawn({ lang, okr: okrFixture });
+    const w = WINDOW_WORDS[lang], o = OKR_WORDS[lang], v = okrView(okrFixture, lang);
+    assert.equal(after(w.tabs.decide, w.tabs.okr, w.tabs.tasks, "放行吗？"), true, lang);
+    assert.ok(!texts.includes("听得懂需求") && !texts.includes(w.groups.stopped));
     assert.ok(!texts.includes(w.go), "去窗口 waits for a hover or a selection");
+    view.pickTab("okr");
+    texts.length = 0;
+    view.render(cxOf());
+    assert.equal(after(o.tally(v.met, v.total, v.measured), "听得懂需求"), true, lang);
+    assert.ok(!texts.includes("放行吗？"));
+    view.pickTab("tasks");
+    texts.length = 0;
+    view.render(cxOf());
+    assert.equal(after(w.groups.stopped, w.groups.working, w.groups.todo, w.groups.done), true, lang);
   }
   const opened = drawn();
   clicks.get("nawaban-group:working")({}, cxOf());
@@ -118,26 +129,50 @@ test("the panel draws 待你决定, then the OKR reading, then 停了 在做 没
   assert.ok(called.has("loop") && called.has("on_hover") && called.has("trigger"), "the dots breathe and the rows carry hover cards");
 });
 
-test("停了 starts open and the rest folded; Enter or a click on a header folds and opens it, and a reopened panel keeps each choice per project", () => {
+test("任务 lists every group open; Enter or a click on a header folds and opens it, and a reopened panel keeps each choice and the tab per project", () => {
   stored.clear();
   const cx = cxOf(true);
   const view = drawn({}, cx);
-  assert.deepEqual(view.keys, ["card:0", "group:stopped", "task:GONE", "group:working", "group:todo", "group:done"]);
+  assert.deepEqual(view.keys, ["card:0"]);
+  view.onKey({ keystroke: "3" }, cx);
+  view.render(cx);
+  assert.deepEqual(view.keys, ["group:stopped", "task:GONE", "group:working", "task:CUR", "task:GH", "task:S", "group:todo", "task:TODO", "group:done", "task:DONE"]);
   while (view.selectedKey !== "group:working") view.onKey({ keystroke: "down" }, cx);
   view.onKey({ keystroke: "enter" }, cx);
   view.render(cx);
-  assert.deepEqual(view.keys.slice(3, 7), ["group:working", "task:CUR", "task:GH", "task:S"]);
-  view.onKey({ keystroke: "up" }, cx);
-  view.onKey({ keystroke: "up" }, cx);
-  assert.equal(view.selectedKey, "group:stopped");
-  view.onKey({ keystroke: "enter" }, cx);
+  assert.deepEqual(view.keys.slice(2, 4), ["group:working", "group:todo"]);
   clicks.get("nawaban-group:todo")({}, cx);
   view.render(cx);
-  assert.deepEqual(view.keys, ["card:0", "group:stopped", "group:working", "task:CUR", "task:GH", "task:S", "group:todo", "task:TODO", "group:done"]);
-  const reopened = drawn({}, cx);
-  assert.deepEqual(reopened.keys, view.keys);
-  const elsewhere = drawn({ project: "other" }, cx);
-  assert.deepEqual(elsewhere.keys, ["card:0", "group:stopped", "task:GONE", "group:working", "group:todo", "group:done"]);
+  const folded = ["group:stopped", "task:GONE", "group:working", "group:todo", "group:done", "task:DONE"];
+  assert.deepEqual(view.keys, folded);
+  assert.deepEqual(drawn({}, cx).keys, folded);
+  assert.deepEqual(drawn({ project: "other" }, cx).keys, ["card:0"]);
+  stored.clear();
+});
+
+test("three text tabs carry their badges; ← → and 1 2 3 switch them; the first time it opens on 待决 if something waits, else OKR", () => {
+  stored.clear();
+  const cx = cxOf(true);
+  const view = drawn({ okr: okrFixture }, cx);
+  assert.equal(after("待决", "1", "OKR", "1", "任务", "5", "放行吗？"), true);
+  view.onKey({ keystroke: "right" }, cx);
+  view.render(cx);
+  assert.ok(view.keys.every((k) => k.startsWith("kr:") || k.startsWith("group:okr")));
+  view.onKey({ keystroke: "right" }, cx);
+  view.onKey({ keystroke: "right" }, cx);
+  view.render(cx);
+  assert.equal(view.tab, "tasks");
+  view.onKey({ keystroke: "left" }, cx);
+  view.render(cx);
+  assert.equal(view.tab, "okr");
+  view.onKey({ keystroke: "1" }, cx);
+  view.render(cx);
+  assert.deepEqual(view.keys, ["card:0"]);
+  view.onKey({ keystroke: "2" }, cx);
+  assert.equal(drawn({ okr: okrFixture }, cx).tab, "okr", "the owner's pick wins over a waiting card");
+  assert.equal(drawn({ project: "other", okr: okrFixture }, cx).tab, "decide");
+  stored.clear();
+  assert.equal(drawn({ board: { columns: [] }, okr: okrFixture }, cx).tab, "okr");
   stored.clear();
 });
 
@@ -148,7 +183,7 @@ test("完成 shows its newest 5, then 再显示 N 条; Enter on it shows all and
     created_at: 0, active_at: now - 60 * i, done_at: now - 60 * i });
   const many = { columns: [...board.columns.filter((c) => c.key !== "done"), { key: "done", tasks: Array.from({ length: 8 }, (_, i) => done(i)) }] };
   const view = drawn({ board: many }, cx);
-  clicks.get("nawaban-group:done")({}, cx);
+  view.pickTab("tasks");
   view.render(cx);
   assert.deepEqual(view.keys.slice(-7), ["group:done", "task:D0", "task:D1", "task:D2", "task:D3", "task:D4", MORE_DONE_KEY]);
   texts.length = 0;
@@ -171,8 +206,6 @@ test("完成 shows its newest 5, then 再显示 N 条; Enter on it shows all and
 test("only 待你决定 and 停了 rows get a second line, the reason; 在做 没动 完成 stay one line", () => {
   stored.clear();
   const view = drawn({}, cxOf());
-  for (const k of ["group:working", "group:todo", "group:done"]) clicks.get("nawaban-" + k)({}, cxOf());
-  view.render(cxOf());
   const why = (key) => view.selectableByKey.get(key).why;
   assert.deepEqual([why("card:0"), why("task:GONE")], ["放行吗？", "窗口已关，任务还拿着没交还 · handoff"]);
   assert.deepEqual(["task:CUR", "task:GH", "task:TODO", "task:DONE"].map(why), [null, null, null, null]);
@@ -186,11 +219,15 @@ test("去窗口 takes the place of the time while a row is hovered or selected, 
   try {
     const cx = cxOf(true);
     const view = drawn({}, cx);
+    view.pickTab("tasks");
+    view.render(cx);
     hovers.get("nawaban-row-task:GONE")(true, cx);
     assert.equal(view.hovered, "task:GONE");
     texts.length = 0;
     view.render(cx);
     assert.ok(!texts.includes(WINDOW_WORDS.zh.go), "GONE has no window to go to");
+    view.pickTab("decide");
+    view.render(cx);
     hovers.get("nawaban-row-card:0")(true, cx);
     texts.length = 0;
     view.render(cx);
@@ -236,7 +273,7 @@ test("on a GitHub board a blocked worker comes first, then each pending card, wh
     const cx = runningSpawns;
     const view = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
     assert.deepEqual(view.keys.slice(0, 4), ["card:0", "pending:#1536", "pending:#1472", "pending:#1428"]);
-    assert.equal(after("待你决定", "issue 1536", "可能已定", "issue 1472", "去窗口聊", "issue 1428", "选一项",
+    assert.equal(after("待决", "4", "issue 1536", "可能已定", "issue 1472", "去窗口聊", "issue 1428", "选一项",
       "卡片不全 1 张（#1280），正在退回编排者"), true);
     clicks.get("nawaban-row-pending:#1428")({}, cx);
     texts.length = 0;
@@ -465,26 +502,29 @@ test("a project moved to the board is read with the board's CLI, every json verb
 
 const okrFixture = JSON.parse(readFileSync(new URL("./okr.fixture.json", import.meta.url), "utf8"));
 
-test("the OKR layer leads with the neediest Objective, lists only KRs not met, folds the met ones and an all-met Objective into one line", () => {
+test("the OKR tab opens with the tally, leads with the neediest Objective, lists missed and stale KRs, folds the untested and the met ones and an all-met Objective into one line", () => {
   stored.clear();
   const cx = cxOf(true);
   const view = drawn({ okr: okrFixture }, cx);
-  const o = okrView(okrFixture, "zh");
-  assert.ok(texts.includes(OKR_WORDS.zh.tally(o.met, o.total, o.measured)));
-  assert.equal(after("听得懂需求", "2/5", "长对话换题多带旧条件", "84.6%", "/ 目标 ≤ 20%", "差 64.6 点", "· 11-19", "首字延迟", "超 160 ms",
-    "误拦率", "未测 · 目标 ≤ 2%", "▸ 2 条已达标", "用户愿意拉人", "0/1", "推荐能减少筛选", "全部达标 1/1", "停了"), true);
-  assert.ok(!texts.includes("长对话接着轮保留修饰") && !texts.includes("筛选次数下降"));
-  const okrKeys = view.keys.filter((k) => k.startsWith("kr:") || k.startsWith("group:okr:"));
-  assert.deepEqual(okrKeys, ["kr:0-0", "kr:0-1", "kr:0-2", "group:okr:听得懂需求", "kr:1-0", "group:okr:推荐能减少筛选"]);
-  assert.ok(view.keys.indexOf("kr:0-0") > view.keys.indexOf("card:0") && view.keys.indexOf("kr:0-0") < view.keys.indexOf("group:stopped"));
-  clicks.get("nawaban-group:okr:听得懂需求")({}, cx);
+  view.pickTab("okr");
   texts.length = 0;
   view.render(cx);
-  assert.equal(after("▾ 2 条已达标", "长对话接着轮保留修饰", "超 0.1 点", "意图准确率"), true);
+  const o = okrView(okrFixture, "zh");
+  assert.equal(after(OKR_WORDS.zh.tally(o.met, o.total, o.measured), "听得懂需求", "2/5", "长对话换题多带旧条件", "84.6%", "/ 目标 ≤ 20%", "差 64.6 点", "· 11-19",
+    "首字延迟", "超 160 ms", "▸ 1 条未测", "▸ 2 条已达标", "用户愿意拉人", "0/1", "▸ 1 条未测", "推荐能减少筛选", "全部达标 1/1"), true);
+  assert.ok(!texts.includes("误拦率") && !texts.includes("长对话接着轮保留修饰") && !texts.includes("筛选次数下降") && !texts.includes("停了"));
+  assert.deepEqual(view.keys, ["kr:0-0", "kr:0-1", "group:okr-untested:听得懂需求", "group:okr:听得懂需求",
+    "group:okr-untested:用户愿意拉人", "group:okr:推荐能减少筛选"]);
+  clicks.get("nawaban-group:okr:听得懂需求")({}, cx);
+  clicks.get("nawaban-group:okr-untested:听得懂需求")({}, cx);
+  texts.length = 0;
+  view.render(cx);
+  assert.equal(after("▾ 1 条未测", "误拦率", "未测 · 目标 ≤ 2%", "▾ 2 条已达标", "长对话接着轮保留修饰", "超 0.1 点", "意图准确率"), true);
+  assert.deepEqual(view.keys.slice(0, 7), ["kr:0-0", "kr:0-1", "group:okr-untested:听得懂需求", "kr:0-2", "group:okr:听得懂需求", "kr:0-3", "kr:0-4"]);
   while (view.selectedKey !== "group:okr:推荐能减少筛选") view.onKey({ keystroke: "down" }, cx);
   view.onKey({ keystroke: "enter" }, cx);
   drawn({ okr: okrFixture }, cx);
-  assert.equal(after("全部达标 1/1", "筛选次数下降", "超 1 点"), true, "a reopened panel keeps each fold");
+  assert.equal(after("全部达标 1/1", "筛选次数下降", "超 1 点"), true, "a reopened panel keeps the tab and each fold");
   stored.clear();
 });
 
@@ -583,7 +623,7 @@ test("A, then B, then back to A: a late answer never overwrites a newer one, nor
   }
 });
 
-test("a project without okr.toml says it has no Objective yet, between 待你决定 and the tasks; any other failed read says nothing", async () => {
+test("a project without okr.toml says in the OKR tab it has no Objective yet; any other failed read says nothing", async () => {
   const quiet = { spawn() {}, notify() {} };
   const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
   const settle = () => new Promise((r) => setImmediate(r));
@@ -602,11 +642,13 @@ test("a project without okr.toml says it has no Objective yet, between 待你决
         view.init({}, cx);
         await settle();
         view.lang = lang;
+        view.pickTab("okr");
         texts.length = 0;
         view.render(cx);
         const said = OKR_WORDS[lang].noObjective;
         if (why !== "missing") { assert.ok(!texts.includes(said), why); continue; }
-        assert.equal(after(WINDOW_WORDS[lang].decide, said, WINDOW_WORDS[lang].groups.stopped), true);
+        assert.equal(after(WINDOW_WORDS[lang].tabs.okr, said), true);
+        assert.ok(!texts.includes(WINDOW_WORDS[lang].groups.stopped));
       }
     }
     assert.equal(OKR_WORDS.en.noObjective, "No Objective for this project yet");
@@ -622,9 +664,38 @@ test("every element method the panel calls is in gpui-kit.d.ts", { skip: !dts &&
   assert.deepEqual(missing, []);
 });
 
-test("an Objective row shows its ↑ ↓ = and a KR's hover card its 预期不符", () => {
+test("an Objective row leaves out the ↑ ↓ = tally; a KR's hover card keeps its 预期不符", () => {
   const okr = { ...okrFixture, objectives: [{ name: "O", impacts: { "↑": 2, "↓": 1, "=": 3 },
     krs: [{ name: "a", target: ">= 1", status: "missed", value: 0, mismatch: [{ ticket: "#5", dir: "↑" }] }] }] };
-  drawn({ okr });
-  for (const s of ["↑2 ↓1 =3", "预期不符 #5"]) assert.ok(texts.includes(s), s);
+  stored.clear();
+  const view = drawn({ okr });
+  view.pickTab("okr");
+  texts.length = 0;
+  view.render(cxOf());
+  assert.ok(!texts.some((s) => s.includes("↑2")) && texts.includes("预期不符 #5"));
+  stored.clear();
+});
+
+test("a tab pick is kept even on the tab already shown, never before the board is read, and Enter never acts on a row of a hidden tab", () => {
+  stored.clear();
+  const cx = cxOf(true);
+  const empty = drawn({ board: { columns: [] }, okr: okrFixture }, cx);
+  assert.equal(empty.tab, "okr");
+  empty.onKey({ keystroke: "2" }, cx);
+  assert.equal(drawn({ okr: okrFixture }, cx).tab, "okr", "picking the shown tab still counts");
+  stored.clear();
+  const loading = drawn({ board: null }, cx);
+  loading.onKey({ keystroke: "3" }, cx);
+  assert.equal(stored.get("tab"), undefined);
+  stored.clear();
+  const view = drawn({}, cx);
+  view.pickTab("tasks");
+  view.render(cx);
+  while (view.selectedKey !== "group:working") view.onKey({ keystroke: "down" }, cx);
+  view.project = "B";
+  view.pickedTabs = { B: "okr" };
+  view.render(cx);
+  view.onKey({ keystroke: "enter" }, cx);
+  assert.equal(stored.get("folds"), undefined);
+  stored.clear();
 });

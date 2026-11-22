@@ -262,7 +262,7 @@ const specOrder = (tickets) => {
 
 const issueNumber = (id) => id.slice(1);
 
-export const GROUP_OPEN_BY_DEFAULT = new Set(["stopped"]);
+export const GROUP_OPEN_BY_DEFAULT = new Set(TASK_GROUPS);
 export const DONE_SHOWN = 5;
 const GROUP_WITH_REASONS = "stopped";
 const GROUP_KEY_PREFIX = "group:";
@@ -300,6 +300,8 @@ const insideRepo = (cwd, repo) => cwd === repo || String(cwd ?? "").startsWith(r
 const isOrchestratorOf = (repo) => (k) => isLive(k) && k.labels?.role === "orchestrator" && Boolean(repo) && insideRepo(k.cwd, repo);
 export const orchestratorOf = (terminals, repo) => (terminals ?? []).find(isOrchestratorOf(repo)) ?? null;
 
+const NO_KR_WORDS = new Set(["", "无", "none"]);
+const saysSomething = (kr) => kr != null && !NO_KR_WORDS.has(String(kr).trim().toLowerCase());
 const cardKindOf = (p) => (!p.card ? "incomplete" : p.ruled_after ? "maybe" : p.talk ? "talk" : "pick");
 export const returnMark = (t) => t.id + "@" + t.pending.at;
 const shownName = (k) => k.name || k.address;
@@ -315,7 +317,7 @@ function windowToTalkIn(p, terminals, orchestrator) {
 function decisionCardOf(t, kind, terminals, orchestrator) {
   const p = t.pending;
   return { key: "pending:" + t.id, id: t.id, mark: returnMark(t), title: t.title, kind, url: t.url ?? null,
-    sub: [t.id, p.card.kr, decisionDate(p.at)].filter(Boolean).join(" · "), context: p.card.context,
+    sub: [t.id, saysSomething(p.card.kr) && p.card.kr, decisionDate(p.at)].filter(Boolean).join(" · "), context: p.card.context,
     progress: stamped(p.progress?.at(-1)), options: p.card.options, rec: p.card.rec,
     window: kind === "talk" ? windowToTalkIn(p, terminals, orchestrator) : null };
 }
@@ -411,7 +413,7 @@ export const WINDOW_WORDS = {
   zh: { waiting: "等你", pushing: "在推", stopped: "停了", done: "完成", working: "在干", idle: "空闲", todo: "还没动", yesterday: "昨天", confirm: "在等你确认",
     windows: (n) => `${n} 个窗口`, elsewhere: (n) => (n ? `其他项目 ${n} 件等你` : "其他项目没有等你的"),
     gone: "窗口已关，任务还拿着没交还", none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言",
-    decide: "待你决定", groups: { stopped: "停了", working: "在做", todo: "没动", done: "完成" },
+    nothingToDecide: "没有等你决定的", tabs: { decide: "待决", okr: "OKR", tasks: "任务" }, groups: { stopped: "停了", working: "在做", todo: "没动", done: "完成" },
     more: (n) => `再显示 ${n} 条`, less: "收起", go: "去窗口", issue: "去 GitHub",
     facts: { id: "编号", question: "问题", note: "进展", window: "窗口", since: "多久", spec: "票" },
     cards: { chip: { pick: "选一项", maybe: "可能已定", talk: "去窗口聊" }, context: "背景", progress: "最近进展", rec: "建议",
@@ -423,7 +425,7 @@ export const WINDOW_WORDS = {
   en: { waiting: "Waiting", pushing: "Moving", stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
     gone: "Window closed, task still held", none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language",
-    decide: "Needs your decision", groups: { stopped: "Stopped", working: "Working", todo: "Not started", done: "Done" },
+    nothingToDecide: "Nothing waiting for you", tabs: { decide: "Decide", okr: "OKR", tasks: "Tasks" }, groups: { stopped: "Stopped", working: "Working", todo: "Not started", done: "Done" },
     more: (n) => `Show ${n} more`, less: "Show less", go: "Go to window", issue: "Open on GitHub",
     facts: { id: "ID", question: "Question", note: "Progress", window: "Window", since: "For", spec: "Tickets" },
     cards: { chip: { pick: "Pick one", maybe: "Maybe decided", talk: "Talk in a window" }, context: "Context", progress: "Latest progress",
@@ -445,7 +447,7 @@ export function moveSelection(keys, key, delta) {
   return keys[clampIndex(keys, at + delta)];
 }
 
-const KEYS = { down: "down", up: "up", enter: "open", escape: "back" };
+const KEYS = { down: "down", up: "up", enter: "open", escape: "back", left: "left", right: "right", 1: "1", 2: "2", 3: "3" };
 export const keyCommand = (e) => KEYS[e.keystroke] ?? null;
 
 const OKR_STATES = ["met", "missed", "stale", "untested"];
@@ -481,20 +483,20 @@ const krRow = (k, w) => {
 
 const worstFirst = (x, y) => KR_STATUS_WORST_FIRST.indexOf(x.status) - KR_STATUS_WORST_FIRST.indexOf(y.status);
 const isMet = (k) => k.status === "met";
-
-const DIRS = ["↑", "↓", "="];
-const declaredAny = (n) => n && DIRS.some((d) => n[d] > 0);
-const impactLine = (n) => (declaredAny(n) ? DIRS.map((d) => d + (n[d] ?? 0)).join(" ") : null);
+const isUntested = (k) => k.status === "untested";
+const isListed = (k) => !isMet(k) && !isUntested(k);
 
 const OBJECTIVE_STANDING = ["missed", "unsure", "met"];
 const standingOf = (krs) => (krs.some((k) => k.status === "missed") ? "missed" : krs.length && krs.every(isMet) ? "met" : "unsure");
 const neediestObjectiveFirst = (x, y) => OBJECTIVE_STANDING.indexOf(x.standing) - OBJECTIVE_STANDING.indexOf(y.standing);
 export const OBJECTIVE_FOLD_PREFIX = "okr:";
+const UNTESTED_FOLD_PREFIX = "okr-untested:";
 
 function objectiveView(o, w) {
   const krs = (o.krs ?? []).map((k) => krRow(k, w)).sort(worstFirst);
-  return { name: o.name, met: o.met ?? krs.filter(isMet).length, total: o.total ?? krs.length, impacts: impactLine(o.impacts),
-    standing: standingOf(krs), fold: OBJECTIVE_FOLD_PREFIX + o.name, krs: krs.filter((k) => !isMet(k)), metKrs: krs.filter(isMet) };
+  return { name: o.name, met: o.met ?? krs.filter(isMet).length, total: o.total ?? krs.length,
+    standing: standingOf(krs), fold: OBJECTIVE_FOLD_PREFIX + o.name, untestedFold: UNTESTED_FOLD_PREFIX + o.name,
+    krs: krs.filter(isListed), untestedKrs: krs.filter(isUntested), metKrs: krs.filter(isMet) };
 }
 
 export const isoMonthDay = (iso) => iso.slice(5, 10);
@@ -510,16 +512,31 @@ export function okrView(okr, lang) {
 }
 
 export const OKR_WORDS = {
-  zh: { title: "OKR", tally: (met, total, at) => `${met}/${total} 达标${at ? ` · ${at} 量` : ""}`,
+  zh: { tally: (met, total, at) => `${met}/${total} 达标${at ? ` · ${at} 量` : ""}`,
     status: { met: "达标", missed: "未达标", stale: "过期", untested: "未测" },
     trend: { closer: "在变好", away: "在变差", flat: "没动", null: "首次读数" },
     target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮未达标`, wait: "要你做",
     mismatch: (ts) => `预期不符 ${ts.join(" ")}`, noObjective: "这个项目还没有 O",
-    exact: "正好", over: "超", short: "差", point: "点", metFolded: (n) => `${n} 条已达标`, allMet: "全部达标" },
-  en: { title: "OKR", tally: (met, total, at) => `${met}/${total} met${at ? ` · measured ${at}` : ""}`,
+    exact: "正好", over: "超", short: "差", point: "点", metFolded: (n) => `${n} 条已达标`, untestedFolded: (n) => `${n} 条未测`, allMet: "全部达标" },
+  en: { tally: (met, total, at) => `${met}/${total} met${at ? ` · measured ${at}` : ""}`,
     status: { met: "Met", missed: "Missed", stale: "Stale", untested: "Untested" },
     trend: { closer: "Getting closer", away: "Moving away", flat: "Flat", null: "First reading" },
     target: "Target", value: "Value", asOf: "As of", source: "Source", trendLabel: "Trend", rounds: (n) => `missed ${n} rounds in a row`, wait: "Needs you to",
     mismatch: (ts) => `Not as declared ${ts.join(" ")}`, noObjective: "No Objective for this project yet",
-    exact: "exactly", over: "over by", short: "short by", point: "pt", metFolded: (n) => `${n} met`, allMet: "all met" },
+    exact: "exactly", over: "over by", short: "short by", point: "pt", metFolded: (n) => `${n} met`, untestedFolded: (n) => `${n} untested`, allMet: "all met" },
 };
+
+export const TABS = ["decide", "okr", "tasks"];
+export const openingTab = (picked, pending) => (TABS.includes(picked) ? picked : pending > 0 ? "decide" : "okr");
+
+const missedKrs = (okr) => okr.objectives.flatMap((o) => o.krs).filter((k) => k.status === "missed").length;
+function okrBadge(okr) {
+  if (!okr) return null;
+  const missed = missedKrs(okr);
+  if (missed) return { text: String(missed), tone: "missed" };
+  return okr.objectives.every((o) => o.standing === "met") ? { text: "✓", tone: "met" } : null;
+}
+export const tabBadges = ({ pending, okr, openTasks }) => ({
+  decide: pending ? { text: String(pending), tone: "ask" } : null,
+  okr: okrBadge(okr),
+  tasks: openTasks ? { text: String(openTasks), tone: "plain" } : null });
