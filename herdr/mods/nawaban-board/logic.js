@@ -287,9 +287,58 @@ export function taskSections(groups, { folds, project, allDone, lang }) {
 const keysUnder = (s) => (s.open ? [...s.items.map((x) => x.key), ...(s.more ? [MORE_DONE_KEY] : [])] : []);
 export const panelKeys = (decisions, krs, sections) => [...decisions, ...krs, ...sections.flatMap((s) => [s.key, ...keysUnder(s)])];
 
-export const pendingView = (board) => openTasks(board)
-  .filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || issueNumber(x.id) - issueNumber(y.id))
+const pendingTasks = (board) => openTasks(board)
+  .filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || issueNumber(x.id) - issueNumber(y.id));
+export const pendingView = (board) => pendingTasks(board)
   .map((t) => ({ key: "pending:" + t.id, id: t.id, title: t.title, brief: t.pending.brief ? oneLine(t.pending.brief) : null, url: t.url ?? null }));
+
+export const repoRootOf = (gitCommonDir) => {
+  const dir = String(gitCommonDir ?? "").trim();
+  return dir.endsWith("/.git") ? folderOf(dir) : null;
+};
+const insideRepo = (cwd, repo) => cwd === repo || String(cwd ?? "").startsWith(repo + "/");
+const isOrchestratorOf = (repo) => (k) => isLive(k) && k.labels?.role === "orchestrator" && Boolean(repo) && insideRepo(k.cwd, repo);
+export const orchestratorOf = (terminals, repo) => (terminals ?? []).find(isOrchestratorOf(repo)) ?? null;
+
+const cardKindOf = (p) => (!p.card ? "incomplete" : p.ruled_after ? "maybe" : p.talk ? "talk" : "pick");
+export const returnMark = (t) => t.id + "@" + t.pending.at;
+const shownName = (k) => k.name || k.address;
+const liveWindowNamed = (terminals, name) => name ? terminals.find((k) => isLive(k) && (k.address === name || k.name === name)) : null;
+const stamped = (n) => n ? decisionDate(n.at) + " " + clockTime(n.at) + " " + oneLine(n.body) : null;
+
+function windowToTalkIn(p, terminals, orchestrator) {
+  const named = liveWindowNamed(terminals, p.talk.window);
+  const there = named ?? orchestrator;
+  return there ? { focus: there.address, name: named ? p.talk.window : shownName(there) } : { focus: null, name: p.talk.window };
+}
+
+function decisionCardOf(t, kind, terminals, orchestrator) {
+  const p = t.pending;
+  return { key: "pending:" + t.id, id: t.id, title: t.title, kind, url: t.url ?? null,
+    sub: [t.id, p.card.kr, decisionDate(p.at)].filter(Boolean).join(" · "), context: p.card.context,
+    progress: stamped(p.progress?.at(-1)), options: p.card.options, rec: p.card.rec,
+    window: kind === "talk" ? windowToTalkIn(p, terminals, orchestrator) : null };
+}
+
+export function decisionCardsView(board, { terminals = [], repo = null, returned = [] } = {}) {
+  const orchestrator = orchestratorOf(terminals, repo);
+  const pending = pendingTasks(board).map((t) => ({ t, kind: cardKindOf(t.pending) }));
+  const incomplete = pending.filter((x) => x.kind === "incomplete").map(({ t }) => ({ id: t.id, mark: returnMark(t) }));
+  return { orchestrator: orchestrator?.address ?? null,
+    cards: pending.filter((x) => x.kind !== "incomplete").map(({ t, kind }) => decisionCardOf(t, kind, terminals, orchestrator)),
+    incomplete: { ids: incomplete.map((x) => x.id), marks: incomplete.map((x) => x.mark),
+      unreturned: incomplete.filter((x) => !returned.includes(x.mark)) } };
+}
+
+export const TO_ORCHESTRATOR = {
+  pick: (id, option) => `[决策者经面板] ${id} 选 ${option}`,
+  unclear: (id) => `[决策者经面板] ${id} 背景不够，请补写后重发待决`,
+  decided: (id) => `[决策者经面板] ${id} 已定，请核实后记已决`,
+  incomplete: (ids) => `[决策者经面板] 卡片不全，请按决策卡格式重写：${ids.join(" ")}`,
+};
+
+export const marksStillToKeep = (returned, incomplete, justReturned) =>
+  incomplete.marks.filter((m) => returned.includes(m) || justReturned.includes(m));
 
 const issueTerminalsByName = (live) => new Map(live.flatMap((k) => {
   const named = issueNamedBy(k.name);
@@ -364,13 +413,26 @@ export const WINDOW_WORDS = {
     gone: "窗口已关，任务还拿着没交还", none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言",
     decide: "待你决定", groups: { stopped: "停了", working: "在做", todo: "没动", done: "完成" },
     more: (n) => `再显示 ${n} 条`, less: "收起", go: "去窗口", issue: "去 GitHub",
-    facts: { id: "编号", question: "问题", note: "进展", window: "窗口", since: "多久", spec: "票" } },
+    facts: { id: "编号", question: "问题", note: "进展", window: "窗口", since: "多久", spec: "票" },
+    cards: { chip: { pick: "选一项", maybe: "可能已定", talk: "去窗口聊" }, context: "背景", progress: "最近进展", rec: "建议",
+      settle: "就这么定", unclear: "不够，再说清楚", decided: "对，已经定了", notYet: "还没定", fullText: "GitHub 全文",
+      goTalk: (name) => `去 ${name} 窗口`, noOrchestrator: "没有活着的编排者窗口，暂时交不出去", sending: "正在交给编排者…",
+      failed: (e) => `没交到编排者：${e}`, picked: (id, option) => `已交给编排者：${id} 选 ${option}。它会在 issue 上记已决。`,
+      sentBack: "已退回编排者补写背景。", closing: (id) => `已请编排者在 ${id} 记已决并关掉这张卡。`,
+      incomplete: (ids, state) => `卡片不全 ${ids.length} 张（${ids.join(" ")}），${{ returned: "已退回编排者重写", returning: "正在退回编排者", stuck: "没有编排者窗口，还没退回" }[state]}` } },
   en: { waiting: "Waiting", pushing: "Moving", stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
     gone: "Window closed, task still held", none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language",
     decide: "Needs your decision", groups: { stopped: "Stopped", working: "Working", todo: "Not started", done: "Done" },
     more: (n) => `Show ${n} more`, less: "Show less", go: "Go to window", issue: "Open on GitHub",
-    facts: { id: "ID", question: "Question", note: "Progress", window: "Window", since: "For", spec: "Tickets" } },
+    facts: { id: "ID", question: "Question", note: "Progress", window: "Window", since: "For", spec: "Tickets" },
+    cards: { chip: { pick: "Pick one", maybe: "Maybe decided", talk: "Talk in a window" }, context: "Context", progress: "Latest progress",
+      rec: "Recommended", settle: "Decide", unclear: "Not enough, explain more", decided: "Yes, already decided", notYet: "Not yet",
+      fullText: "Full text on GitHub", goTalk: (name) => `Go to ${name}`, noOrchestrator: "No live orchestrator window to hand this to",
+      sending: "Handing to the orchestrator…", failed: (e) => `Not handed over: ${e}`,
+      picked: (id, option) => `Handed to the orchestrator: ${id} picks ${option}. It records the decision on the issue.`,
+      sentBack: "Sent back to the orchestrator to fill in the context.", closing: (id) => `Asked the orchestrator to record ${id} as decided and close the card.`,
+      incomplete: (ids, state) => `${ids.length} incomplete card${ids.length === 1 ? "" : "s"} (${ids.join(" ")}), ${{ returned: "sent back to the orchestrator", returning: "sending back to the orchestrator", stuck: "no orchestrator window to send them back to" }[state]}` } },
 };
 
 const FIRST = 0;
@@ -389,34 +451,50 @@ export const keyCommand = (e) => KEYS[e.keystroke] ?? null;
 const OKR_STATES = ["met", "missed", "stale", "untested"];
 const KR_STATUS_WORST_FIRST = ["missed", "stale", "untested", "met"];
 const OPS = { ">=": "≥", "<=": "≤", ">": ">", "<": "<", "==": "=" };
+const LOWER_IS_BETTER = new Set(["<=", "<"]);
+const UNITS_COUNTED_IN_POINTS = new Set(["%", "百分点", "个百分点"]);
 const TENTHS = 10;
-const oneDecimal = (v) => String(Math.round(v * TENTHS) / TENTHS);
+const toTenths = (v) => Math.round(v * TENTHS) / TENTHS;
+const oneDecimal = (v) => String(toTenths(v));
 
-const TARGET = /^\s*(>=|<=|==|>|<)\s*(-?\d+(?:\.\d+)?)\s*$/;
-const parseTarget = (target, unit = "") => {
-  const m = TARGET.exec(target ?? "");
-  return m ? OPS[m[1]] + " " + m[2] + unit : null;
-};
+export const gapOf = (op, goal, value) =>
+  toTenths(op === "==" ? -Math.abs(value - goal) : LOWER_IS_BETTER.has(op) ? goal - value : value - goal);
+
+export const gapText = (gap, unit, w) => (gap === 0 ? w.exact
+  : [gap > 0 ? w.over : w.short, oneDecimal(Math.abs(gap)), UNITS_COUNTED_IN_POINTS.has(unit) ? w.point : unit].filter(Boolean).join(" "));
+
+const hasStructuredTarget = (k) => OPS[k.target_op] != null && Number.isFinite(k.target_value);
+const targetText = (k, unit) => (hasStructuredTarget(k) ? OPS[k.target_op] + " " + oneDecimal(k.target_value) + unit : k.target ?? "");
 
 const isMeasured = (k) => k.value != null && k.status !== "untested";
 const hasMismatch = (k) => Array.isArray(k.mismatch) && k.mismatch.length > 0;
 
-const krRow = (k, w) => ({ name: k.name, status: OKR_STATES.includes(k.status) ? k.status : "untested",
-  value: isMeasured(k) ? oneDecimal(k.value) + (k.unit ?? "") : w.status.untested, target: parseTarget(k.target, k.unit ?? "") ?? k.target ?? "",
-  as_of: k.as_of ?? null, source: k.source ?? null, trend: w.trend[k.trend] ?? w.trend.null,
-  missed_rounds: k.missed_rounds ?? 0, wait: k.wait ?? null,
-  mismatch: hasMismatch(k) ? w.mismatch(k.mismatch.map((m) => m.ticket)) : null });
+const krRow = (k, w) => {
+  const unit = k.unit ?? "", measured = isMeasured(k);
+  return { name: k.name, status: OKR_STATES.includes(k.status) ? k.status : "untested",
+    value: measured ? oneDecimal(k.value) + unit : w.status.untested, target: targetText(k, unit), measured,
+    gap: measured && hasStructuredTarget(k) ? gapText(gapOf(k.target_op, k.target_value, k.value), unit, w) : null,
+    as_of: k.as_of ?? null, day: measured && k.as_of ? isoMonthDay(k.as_of) : null, source: k.source ?? null,
+    trend: w.trend[k.trend] ?? w.trend.null, missed_rounds: k.missed_rounds ?? 0, wait: k.wait ?? null,
+    mismatch: hasMismatch(k) ? w.mismatch(k.mismatch.map((m) => m.ticket)) : null };
+};
 
 const worstFirst = (x, y) => KR_STATUS_WORST_FIRST.indexOf(x.status) - KR_STATUS_WORST_FIRST.indexOf(y.status);
+const isMet = (k) => k.status === "met";
 
 const DIRS = ["↑", "↓", "="];
 const declaredAny = (n) => n && DIRS.some((d) => n[d] > 0);
 const impactLine = (n) => (declaredAny(n) ? DIRS.map((d) => d + (n[d] ?? 0)).join(" ") : null);
 
+const OBJECTIVE_STANDING = ["missed", "unsure", "met"];
+const standingOf = (krs) => (krs.some((k) => k.status === "missed") ? "missed" : krs.length && krs.every(isMet) ? "met" : "unsure");
+const neediestObjectiveFirst = (x, y) => OBJECTIVE_STANDING.indexOf(x.standing) - OBJECTIVE_STANDING.indexOf(y.standing);
+export const OBJECTIVE_FOLD_PREFIX = "okr:";
+
 function objectiveView(o, w) {
-  const krs = (o.krs ?? []).map((k) => krRow(k, w));
-  return { name: o.name, met: o.met ?? krs.filter((k) => k.status === "met").length, total: o.total ?? krs.length,
-    impacts: impactLine(o.impacts), krs: krs.sort(worstFirst) };
+  const krs = (o.krs ?? []).map((k) => krRow(k, w)).sort(worstFirst);
+  return { name: o.name, met: o.met ?? krs.filter(isMet).length, total: o.total ?? krs.length, impacts: impactLine(o.impacts),
+    standing: standingOf(krs), fold: OBJECTIVE_FOLD_PREFIX + o.name, krs: krs.filter((k) => !isMet(k)), metKrs: krs.filter(isMet) };
 }
 
 export const isoMonthDay = (iso) => iso.slice(5, 10);
@@ -428,7 +506,7 @@ export function okrView(okr, lang) {
   const w = OKR_WORDS[lang] ?? OKR_WORDS.en;
   const at = okr.last_measured_at;
   return { met: okr.met, total: okr.total, measured: at ? isoMonthDay(at) + " " + isoHourMinute(at) : null,
-    objectives: okr.objectives.map((o) => objectiveView(o, w)) };
+    objectives: okr.objectives.map((o) => objectiveView(o, w)).sort(neediestObjectiveFirst) };
 }
 
 export const OKR_WORDS = {
@@ -436,10 +514,12 @@ export const OKR_WORDS = {
     status: { met: "达标", missed: "未达标", stale: "过期", untested: "未测" },
     trend: { closer: "在变好", away: "在变差", flat: "没动", null: "首次读数" },
     target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮未达标`, wait: "要你做",
-    mismatch: (ts) => `预期不符 ${ts.join(" ")}`, noObjective: "这个项目还没有 O" },
+    mismatch: (ts) => `预期不符 ${ts.join(" ")}`, noObjective: "这个项目还没有 O",
+    exact: "正好", over: "超", short: "差", point: "点", metFolded: (n) => `${n} 条已达标`, allMet: "全部达标" },
   en: { title: "OKR", tally: (met, total, at) => `${met}/${total} met${at ? ` · measured ${at}` : ""}`,
     status: { met: "Met", missed: "Missed", stale: "Stale", untested: "Untested" },
     trend: { closer: "Getting closer", away: "Moving away", flat: "Flat", null: "First reading" },
     target: "Target", value: "Value", asOf: "As of", source: "Source", trendLabel: "Trend", rounds: (n) => `missed ${n} rounds in a row`, wait: "Needs you to",
-    mismatch: (ts) => `Not as declared ${ts.join(" ")}`, noObjective: "No Objective for this project yet" },
+    mismatch: (ts) => `Not as declared ${ts.join(" ")}`, noObjective: "No Objective for this project yet",
+    exact: "exactly", over: "over by", short: "short by", point: "pt", metFolded: (n) => `${n} met`, allMet: "all met" },
 };

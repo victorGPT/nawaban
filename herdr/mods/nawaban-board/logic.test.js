@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { projectFor, cliFor, BOARD_PROJECTS, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, panelView, sinceLabel, decisionDate, WINDOW_WORDS,
-  pendingView, okrView, OKR_WORDS, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, DONE_SHOWN, MORE_DONE_KEY } from "./logic.js";
+  pendingView, okrView, OKR_WORDS, gapOf, gapText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, DONE_SHOWN, MORE_DONE_KEY } from "./logic.js";
 import { readFileSync } from "node:fs";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
@@ -344,21 +344,35 @@ test("the arrows walk 待你决定, the KRs, then each group's header and, while
 
 const okrFixture = JSON.parse(readFileSync(new URL("./okr.fixture.json", import.meta.url), "utf8"));
 
-test("OKR objectives: met/total, their KRs worst first: missed, stale, untested, then met", () => {
+test("OKR objectives: the ones with a missed KR first, then the ones still unsure, all-met last; under each only the KRs not met, worst first", () => {
   const v = okrView(okrFixture, "zh");
   assert.equal(OKR_WORDS.zh.tally(v.met, v.total, v.measured), "3/7 达标 · 11-19 09:00 量");
-  const o = v.objectives[0];
-  assert.deepEqual([o.name, o.met, o.total], ["听得懂需求", 2, 5]);
-  assert.deepEqual(o.krs.map((k) => k.status), ["missed", "stale", "untested", "met", "met"]);
+  assert.deepEqual(v.objectives.map((o) => [o.name, o.standing, o.met, o.total]),
+    [["听得懂需求", "missed", 2, 5], ["用户愿意拉人", "unsure", 0, 1], ["推荐能减少筛选", "met", 1, 1]]);
+  const [first, unsure, allMet] = v.objectives;
+  assert.deepEqual(first.krs.map((k) => k.status), ["missed", "stale", "untested"]);
+  assert.deepEqual(first.metKrs.map((k) => k.name), ["长对话接着轮保留修饰", "意图准确率"]);
+  assert.deepEqual([unsure.krs.length, allMet.krs.length, allMet.metKrs.length], [1, 0, 1]);
+  assert.deepEqual(v.objectives.map((o) => o.fold), ["okr:听得懂需求", "okr:用户愿意拉人", "okr:推荐能减少筛选"]);
 });
 
-test("OKR KR rows: status, value against target, and the facts the hover card shows", () => {
-  const rows = okrView(okrFixture, "zh").objectives[0].krs;
-  assert.deepEqual(rows.map((k) => [k.status, k.value, k.target]), [
-    ["missed", "84.6%", "≤ 20%"], ["stale", "640ms", "< 800ms"], ["untested", "未测", "≤ 2%"], ["met", "90.1%", "≥ 90%"], ["met", "97.5%", "≥ 95%"]]);
-  assert.deepEqual(rows.map((k) => k.trend), ["在变差", "没动", "首次读数", "首次读数", "在变好"]);
+test("OKR KR rows: value against target, the gap the right way round, and the day it was read", () => {
+  const v = okrView(okrFixture, "zh");
+  assert.deepEqual([...v.objectives[0].krs, ...v.objectives[0].metKrs].map((k) => [k.status, k.value, k.target, k.gap, k.day]), [
+    ["missed", "84.6%", "≤ 20%", "差 64.6 点", "11-19"], ["stale", "640ms", "< 800ms", "超 160 ms", "10-01"],
+    ["untested", "未测", "≤ 2%", null, null], ["met", "90.1%", "≥ 90%", "超 0.1 点", "11-19"], ["met", "97.5%", "≥ 95%", "超 2.5 点", "11-18"]]);
+  assert.deepEqual(v.objectives[0].krs.map((k) => k.trend), ["在变差", "没动", "首次读数"]);
   const odd = okrView({ ...okrFixture, objectives: [{ name: "O", krs: [{ name: "k", target: ">= 1", status: "bogus", value: 3 }] }] }, "en");
-  assert.equal(odd.objectives[0].krs[0].status, "untested");
+  assert.deepEqual([odd.objectives[0].krs[0].status, odd.objectives[0].krs[0].target, odd.objectives[0].krs[0].gap], ["untested", ">= 1", null]);
+});
+
+test("the gap counts toward the target: above for ≥, below for ≤, either side of =; percent and 百分点 are counted in points", () => {
+  const zh = OKR_WORDS.zh, en = OKR_WORDS.en;
+  const said = (op, goal, value, unit, w = zh) => gapText(gapOf(op, goal, value), unit, w);
+  assert.deepEqual([said(">=", 95, 97.5, "%"), said("<=", 20, 83.3, "%"), said("<=", 5, 0, "%"), said(">=", 15, 12, "个百分点"),
+    said("==", 7, 5, "张"), said("==", 7, 9, "张"), said("==", 0, 0, "次"), said(">=", 90, 90, "%"), said(">", 1, 3, ""), said("<", 800, 640, "ms")],
+  ["超 2.5 点", "差 63.3 点", "超 5 点", "差 3 点", "差 2 张", "差 2 张", "正好", "正好", "超 2", "超 160 ms"]);
+  assert.deepEqual([said("<=", 20, 83.3, "%", en), said(">=", 90, 90.1, "%", en), said("==", 1, 1, "", en)], ["short by 63.3 pt", "over by 0.1 pt", "exactly"]);
 });
 
 test("the OKR section is left out with no okr.toml, an older CLI, or a reply that is not the contract", () => {
@@ -375,8 +389,60 @@ test("OKR declarations: an Objective's ↑ ↓ = since the last round, a KR off 
     { name: "P", impacts: { "↑": 0, "↓": 0, "=": 0 }, krs: [{ name: "c", target: ">= 1", status: "untested" }] }] };
   const v = okrView(okr, "zh");
   assert.deepEqual(v.objectives.map((o) => o.impacts), ["↑2 ↓1 =0", null]);
-  assert.deepEqual(v.objectives[0].krs.map((k) => k.mismatch), ["预期不符 #5 KRI-07", null]);
+  assert.deepEqual([...v.objectives[0].krs, ...v.objectives[0].metKrs].map((k) => k.mismatch), ["预期不符 #5 KRI-07", null]);
   assert.equal(okrView(okr, "en").objectives[0].krs[0].mismatch, "Not as declared #5 KRI-07");
   const old = okrView(okrFixture, "zh");
-  assert.ok(old.objectives.every((o) => o.impacts === null && o.krs.every((k) => k.mismatch === null)));
+  assert.ok(old.objectives.every((o) => o.impacts === null && [...o.krs, ...o.metKrs].every((k) => k.mismatch === null)));
+});
+
+const cardOf = (options) => ({ decision: "定不定", kr: "长对话接着轮保留全部修饰", context: "本机不跑推理", rec: "B：两台都是自己的测评机",
+  options: options ?? [{ key: "A", text: "一次性批准", note: "只管这一次" }, { key: "B", text: "加进白名单", note: "" }] });
+const asked = (n, at, pending) => ({ id: "#" + n, title: "issue " + n, status: "open", url: "https://gh/" + n,
+  pending: { brief: "待决：…", at, progress: [{ body: "早先", at: at - 60 }, { body: "长对话配对出分\n+7.6 点", at: at + 60 }], card: null, talk: null, ruled_after: false, ...pending } });
+const decisionBoard = { tracker: "github", columns: [{ key: "open", tasks: [
+  asked(1428, 300, { card: cardOf() }),
+  asked(1536, 100, { card: cardOf(), ruled_after: true, talk: { window: null } }),
+  asked(1472, 200, { card: cardOf(), talk: { window: "t1d2" } }),
+  asked(1280, 400, {}), asked(1219, 500, {})] }] };
+const roubaoTerminals = [
+  { address: "t145", name: null, state: "live", cwd: "/r/roubao", labels: { role: "orchestrator" } },
+  { address: "t16m", name: "vu1-orch", state: "live", cwd: "/r/vibeusage", labels: { role: "orchestrator" } },
+  { address: "t1d2", name: null, state: "live", cwd: "/r/roubao", labels: {} }];
+
+test("a pending card is incomplete without its fields, maybe decided once a later 进展 says the owner ruled, talk when it sends you to a window, else a pick", () => {
+  const v = decisionCardsView(decisionBoard, { terminals: roubaoTerminals, repo: "/r/roubao" });
+  assert.equal(v.orchestrator, "t145");
+  assert.deepEqual(v.cards.map((c) => [c.id, c.kind]), [["#1536", "maybe"], ["#1472", "talk"], ["#1428", "pick"]]);
+  const pick = v.cards[2];
+  assert.equal(pick.sub, "#1428 · 长对话接着轮保留全部修饰 · " + decisionDate(300));
+  assert.ok(pick.progress.endsWith("长对话配对出分 +7.6 点"));
+  assert.deepEqual([pick.context, pick.rec, pick.options.map((o) => o.key), pick.window], ["本机不跑推理", "B：两台都是自己的测评机", ["A", "B"], null]);
+  assert.deepEqual(v.cards[1].window, { focus: "t1d2", name: "t1d2" });
+  assert.deepEqual(v.cards[0].window, null);
+  assert.deepEqual(v.incomplete.ids, ["#1280", "#1219"]);
+});
+
+test("the talk button goes to the named window, or to the orchestrator once that window is gone; the orchestrator is this repo's live one", () => {
+  const gone = roubaoTerminals.filter((k) => k.address !== "t1d2");
+  assert.deepEqual(decisionCardsView(decisionBoard, { terminals: gone, repo: "/r/roubao" }).cards[1].window, { focus: "t145", name: "t145" });
+  const elsewhere = decisionCardsView(decisionBoard, { terminals: gone, repo: "/r/other" });
+  assert.deepEqual([elsewhere.orchestrator, elsewhere.cards[1].window], [null, { focus: null, name: "t1d2" }]);
+  const dead = roubaoTerminals.map((k) => ({ ...k, state: "dead" }));
+  assert.equal(decisionCardsView(decisionBoard, { terminals: dead, repo: "/r/roubao" }).orchestrator, null);
+  assert.equal(decisionCardsView(decisionBoard, { terminals: roubaoTerminals, repo: "/r/vibeusage" }).orchestrator, "t16m");
+  assert.deepEqual([repoRootOf("/r/roubao/.git\n"), repoRootOf(""), repoRootOf("/r/x.git")], ["/r/roubao", null, null]);
+});
+
+test("an incomplete card is returned once: what was sent stays remembered while the card is pending, and a rewritten card counts as new", () => {
+  const first = decisionCardsView(decisionBoard, { terminals: roubaoTerminals, repo: "/r/roubao" });
+  assert.deepEqual(first.incomplete.unreturned.map((x) => x.id), ["#1280", "#1219"]);
+  const sent = first.incomplete.unreturned.map((x) => x.mark);
+  const kept = marksStillToKeep(["#999@1"], first.incomplete, sent);
+  assert.deepEqual(kept, ["#1280@400", "#1219@500"]);
+  assert.deepEqual(decisionCardsView(decisionBoard, { terminals: roubaoTerminals, repo: "/r/roubao", returned: kept }).incomplete.unreturned, []);
+  const rewritten = { ...decisionBoard, columns: [{ key: "open", tasks: [asked(1280, 900, {})] }] };
+  assert.deepEqual(decisionCardsView(rewritten, { returned: kept }).incomplete.unreturned.map((x) => x.mark), ["#1280@900"]);
+  assert.equal(TO_ORCHESTRATOR.incomplete(["#1280", "#1219"]), "[决策者经面板] 卡片不全，请按决策卡格式重写：#1280 #1219");
+  assert.deepEqual([TO_ORCHESTRATOR.pick("#1428", "B"), TO_ORCHESTRATOR.unclear("#1428"), TO_ORCHESTRATOR.decided("#1536")],
+    ["[决策者经面板] #1428 选 B", "[决策者经面板] #1428 背景不够，请补写后重发待决", "[决策者经面板] #1536 已定，请核实后记已决"]);
 });

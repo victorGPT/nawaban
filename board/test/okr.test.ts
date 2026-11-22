@@ -311,6 +311,7 @@ describe('readings kept on the board', () => {
       { value: 90, as_of: '2026-11-10' },
       { value: 97.5, as_of: '2026-11-18' },
     ])
+    expect([k.target, k.target_op, k.target_value]).toEqual(['>= 95', '>=', 95])
     expect(untested.status).toBe('untested')
     expect([data.met, data.total]).toEqual([1, 2])
   })

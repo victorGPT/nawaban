@@ -59,6 +59,7 @@ const ghBoard = { tracker: "github", columns: [
     claimed_at: null, created_at: 0, active_at: now - 600, done_at: now - 600 }] }] };
 let execImpl = async () => ({ code: 1 });
 let runImpl = async () => {};
+let hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
 const here = { spaces: () => [{ id: "here", active: true, name: "nawaban", folder: "/x" }], focused: () => ({ space: "here", cwd: "/x" }) };
 let where = here;
 
@@ -67,7 +68,7 @@ const stubs = {
   "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el },
   herdr: { spaces: () => where.spaces(), focused: () => where.focused(),
     agents: () => agents, terminals: () => terminals, home: () => "/h",
-    run: (...a) => runImpl(...a), exec: (...a) => execImpl(...a), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}), props: () => null, closeOverlay: () => null },
+    run: (...a) => runImpl(...a), exec: (...a) => execImpl(...a), hc: (...a) => hcImpl(...a), checking: () => false, nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}), props: () => null, closeOverlay: () => null },
 };
 globalThis.__nawabanStubs = stubs;
 const stored = new Map();
@@ -212,24 +213,123 @@ test("去窗口 takes the place of the time while a row is hovered or selected, 
   }
 });
 
-test("on a GitHub board a blocked worker is a 待你决定 row above the pending decisions; a pending one opens on GitHub", () => {
-  stored.clear();
-  const pending = { brief: "待决：发吗？", at: now - 3600, progress: [] };
-  const withPending = { ...ghBoard, columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: c.tasks.map((x) => ({ ...x, url: "https://gh/256", pending })) }) };
-  const opened = [], focused = [];
-  execImpl = async (cmd, args) => { opened.push([cmd, ...args]); return { code: 0 }; };
+const cardOf = { decision: "放不放行", kr: "长对话接着轮保留全部修饰", context: "本机不跑推理", rec: "B：两台都是自己的测评机",
+  options: [{ key: "A", text: "一次性批准", note: "只管这一次" }, { key: "B", text: "加进白名单", note: "" }] };
+const pendingIssue = (n, at, x) => issue(n, { url: "https://gh/" + n,
+  pending: { brief: "待决：…", at: now - at, progress: [{ body: "出分了", at: now - at + 60 }], card: cardOf, talk: null, ruled_after: false, ...x } });
+const cardsBoard = { ...ghBoard, columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: [
+  pendingIssue(1428, 3000), pendingIssue(1536, 5000, { ruled_after: true }), pendingIssue(1472, 4000, { talk: { window: "t9" } }),
+  pendingIssue(1280, 2000, { card: null })] }) };
+const orchestrator = { address: "t0", name: null, parent: null, status: "done", state: "live", cwd: "/r/roubao", labels: { role: "orchestrator" } };
+const runningSpawns = { spawn: (f) => f({ spawn() {}, notify() {} }), notify() {}, stop_propagation() {}, timer: { every() {} },
+  focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+const settle = () => new Promise((r) => setImmediate(r));
+const inChinese = () => { stored.clear(); stored.set("lang", "zh"); };
+
+test("on a GitHub board a blocked worker comes first, then each pending card, which opens in place and hands the owner's answer to this repo's orchestrator", async () => {
+  inChinese();
+  const sends = [], focused = [], realTerminals = terminals;
+  terminals = [...terminals, orchestrator];
+  hcImpl = async (args) => { sends.push(args); return { code: 0, stdout: "", stderr: "" }; };
   runImpl = async (cmd, args) => { focused.push([cmd, args]); };
   try {
-    const view = drawn({ board: withPending });
-    assert.deepEqual(view.keys.slice(0, 2), ["card:0", "pending:#256"]);
-    assert.equal(after("待你决定", "gh-260", "待决：发吗？", "在做"), true);
-    clicks.get("nawaban-row-card:0")({}, cxOf());
-    clicks.get("nawaban-row-pending:#256")({}, cxOf());
+    const cx = runningSpawns;
+    const view = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
+    assert.deepEqual(view.keys.slice(0, 4), ["card:0", "pending:#1536", "pending:#1472", "pending:#1428"]);
+    assert.equal(after("待你决定", "issue 1536", "可能已定", "issue 1472", "去窗口聊", "issue 1428", "选一项",
+      "卡片不全 1 张（#1280），正在退回编排者"), true);
+    clicks.get("nawaban-row-pending:#1428")({}, cx);
+    texts.length = 0;
+    view.render(cx);
+    for (const s of ["背景", "本机不跑推理", "最近进展", "建议", "B：两台都是自己的测评机", "就这么定", "不够，再说清楚", "GitHub 全文 →"]) assert.ok(texts.includes(s), s);
+    assert.ok(texts.some((t) => t.endsWith("出分了")) && texts.includes("A · 一次性批准") && texts.includes("只管这一次"));
+    assert.ok(!clicks.has("nawaban-settle-pending:#1428"), "就这么定 waits for an option");
+    clicks.get("nawaban-option-pending:#1428-B")({}, cx);
+    view.render(cx);
+    clicks.get("nawaban-settle-pending:#1428")({}, cx);
+    await settle();
+    assert.deepEqual(sends, [["send", "t0", "[决策者经面板] #1428 选 B"]]);
+    texts.length = 0;
+    view.render(cx);
+    assert.ok(texts.includes(WINDOW_WORDS.zh.cards.picked("#1428", "B")));
+    view.onKey({ keystroke: "down" }, cx);
+    view.selectedKey = "pending:#1536";
+    view.onKey({ keystroke: "enter" }, cx);
+    view.render(cx);
+    clicks.get("nawaban-decided-pending:#1536")({}, cx);
+    await settle();
+    clicks.get("nawaban-row-pending:#1472")({}, cx);
+    view.render(cx);
+    clicks.get("nawaban-talk-pending:#1472")({}, cx);
+    assert.deepEqual(sends.at(-1), ["send", "t0", "[决策者经面板] #1536 已定，请核实后记已决"]);
     assert.deepEqual(focused, [["agent.focus", { terminal: "t9" }]]);
-    assert.deepEqual(opened, [["open", "https://gh/256"]]);
   } finally {
-    execImpl = async () => ({ code: 1 });
+    terminals = realTerminals;
+    hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
     runImpl = async () => {};
+    stored.clear();
+  }
+});
+
+test("with no live orchestrator for this repo the card's buttons are off and it says so; a failed hand-over says why and keeps the buttons", async () => {
+  inChinese();
+  clicks.clear();
+  const realTerminals = terminals;
+  try {
+    const cx = runningSpawns;
+    const view = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
+    clicks.get("nawaban-row-pending:#1428")({}, cx);
+    texts.length = 0;
+    view.render(cx);
+    assert.ok(texts.includes(WINDOW_WORDS.zh.cards.noOrchestrator) && texts.includes("卡片不全 1 张（#1280），没有编排者窗口，还没退回"));
+    assert.ok(!clicks.has("nawaban-unclear-pending:#1428"));
+    terminals = [...realTerminals, orchestrator];
+    hcImpl = async () => ({ code: 1, stdout: "", stderr: "no such terminal" });
+    view.render(cx);
+    clicks.get("nawaban-unclear-pending:#1428")({}, cx);
+    await settle();
+    texts.length = 0;
+    view.render(cx);
+    assert.ok(texts.includes(WINDOW_WORDS.zh.cards.failed("no such terminal")) && texts.includes("不够，再说清楚"));
+  } finally {
+    terminals = realTerminals;
+    hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
+    stored.clear();
+  }
+});
+
+test("incomplete cards go back to the orchestrator from the board read, once per card across reads and panels, and again after a failed send", async () => {
+  inChinese();
+  const sends = [], realTerminals = terminals;
+  terminals = [...terminals, orchestrator];
+  let answer = { code: 1, stdout: "", stderr: "busy" };
+  hcImpl = async (args) => { sends.push(args); return answer; };
+  execImpl = async (cmd, args = []) => {
+    if (cmd === "git") return { code: 0, stdout: "/r/roubao/.git\n" };
+    if (args[1] !== "json") return { code: 1, stdout: "" };
+    return { code: 0, stdout: JSON.stringify(args[2] === "board" ? cardsBoard : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
+  };
+  try {
+    const cx = runningSpawns;
+    const view = new NawabanBoard();
+    view.init({}, cx);
+    await settle();
+    answer = { code: 0, stdout: "", stderr: "" };
+    view.refresh(cx);
+    await settle();
+    view.refresh(cx);
+    await settle();
+    new NawabanBoard().init({}, cx);
+    await settle();
+    const returned = ["send", "t0", "[决策者经面板] 卡片不全，请按决策卡格式重写：#1280"];
+    assert.deepEqual(sends, [returned, returned]);
+    texts.length = 0;
+    view.render(cx);
+    assert.ok(texts.includes("卡片不全 1 张（#1280），已退回编排者重写"));
+  } finally {
+    terminals = realTerminals;
+    hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
+    execImpl = async () => ({ code: 1 });
     stored.clear();
   }
 });
@@ -327,15 +427,27 @@ test("a project moved to the board is read with the board's CLI, every json verb
 
 const okrFixture = JSON.parse(readFileSync(new URL("./okr.fixture.json", import.meta.url), "utf8"));
 
-test("the OKR layer is one row per Objective and one per KR, worst first, each with its value and target", () => {
+test("the OKR layer leads with the neediest Objective, lists only KRs not met, folds the met ones and an all-met Objective into one line", () => {
   stored.clear();
-  const view = drawn({ okr: okrFixture });
+  const cx = cxOf(true);
+  const view = drawn({ okr: okrFixture }, cx);
   const o = okrView(okrFixture, "zh");
   assert.ok(texts.includes(OKR_WORDS.zh.tally(o.met, o.total, o.measured)));
-  const first = o.objectives[0];
-  assert.equal(after(first.name, first.krs[0].name, first.krs[0].value, first.krs[0].target, first.krs.at(-1).name), true);
-  assert.deepEqual(view.keys.filter((k) => k.startsWith("kr:")).length, o.objectives.reduce((n, x) => n + x.krs.length, 0));
+  assert.equal(after("听得懂需求", "2/5", "长对话换题多带旧条件", "84.6%", "/ 目标 ≤ 20%", "差 64.6 点", "· 11-19", "首字延迟", "超 160 ms",
+    "误拦率", "未测 · 目标 ≤ 2%", "▸ 2 条已达标", "用户愿意拉人", "0/1", "推荐能减少筛选", "全部达标 1/1", "停了"), true);
+  assert.ok(!texts.includes("长对话接着轮保留修饰") && !texts.includes("筛选次数下降"));
+  const okrKeys = view.keys.filter((k) => k.startsWith("kr:") || k.startsWith("group:okr:"));
+  assert.deepEqual(okrKeys, ["kr:0-0", "kr:0-1", "kr:0-2", "group:okr:听得懂需求", "kr:1-0", "group:okr:推荐能减少筛选"]);
   assert.ok(view.keys.indexOf("kr:0-0") > view.keys.indexOf("card:0") && view.keys.indexOf("kr:0-0") < view.keys.indexOf("group:stopped"));
+  clicks.get("nawaban-group:okr:听得懂需求")({}, cx);
+  texts.length = 0;
+  view.render(cx);
+  assert.equal(after("▾ 2 条已达标", "长对话接着轮保留修饰", "超 0.1 点", "意图准确率"), true);
+  while (view.selectedKey !== "group:okr:推荐能减少筛选") view.onKey({ keystroke: "down" }, cx);
+  view.onKey({ keystroke: "enter" }, cx);
+  drawn({ okr: okrFixture }, cx);
+  assert.equal(after("全部达标 1/1", "筛选次数下降", "超 1 点"), true, "a reopened panel keeps each fold");
+  stored.clear();
 });
 
 test("json okr failing (no okr.toml, an older CLI) leaves the OKR section out and the board as it was", async () => {
