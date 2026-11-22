@@ -3,7 +3,7 @@ import { v_flex, h_flex, Popover, HoverCard } from "gpui-base";
 import { spaces, focused, agents, terminals, run, exec, hc, checking, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
 import { projectFor, repoName, cliFor, resolveLang, moveSelection, keyCommand, boardChanged, okrChanged, folderOf, canGo, panelView,
   sinceLabel, isoMonthDay, WINDOW_WORDS, pendingView, okrView, OKR_WORDS, OKR_FOLDER_IN_REPO, okrReadingOfFailure, hasNoObjective,
-  taskSections, panelKeys, groupOfKey, foldKey, isGroupOpen, MORE_DONE_KEY, decisionCardsView, repoRootOf, TO_ORCHESTRATOR,
+  taskSections, panelKeys, groupOfKey, foldKey, isGroupOpen, moreKey, groupOfMoreKey, decisionCardsView, repoRootOf, TO_ORCHESTRATOR,
   marksStillToKeep, TABS, openingTab, tabBadges } from "./logic.js";
 
 const UNWATCHED_BOARD_REREAD_MS = 5000;
@@ -22,7 +22,7 @@ const INK = {
   red: "#f87171", green: "#34d399", untouched: "#525252", finished: "#3f3f46",
 };
 const GROUP_LOOK = {
-  stopped: { dot: INK.amber, side: INK.amberText },
+  stopped: { dot: INK.muted, side: INK.dim },
   working: { dot: INK.sky, side: INK.skyText, breathes: true },
   todo: { dot: INK.untouched, side: INK.dim },
   done: { dot: INK.finished, side: INK.dim, faded: true },
@@ -51,7 +51,7 @@ const HOVER_OPEN_DELAY_MS = 250;
 const ICON_BUTTON = 24;
 const BREATH = { from: 1, to: 0.35, period: 2000 };
 const FOLDS_STORE = "folds";
-const ALL_DONE_STORE = "doneShownAll";
+const SHOWN_ALL_STORE = "groupShownAll";
 const RETURNED_STORE = "incompleteCardsReturned";
 const TAB_STORE = "tab";
 const TAB_H = 34;
@@ -130,7 +130,7 @@ export default class NawabanBoard extends View {
     this.watchedBoardFiles = new Set();
     this.githubBoardOfPlace = new Map();
     this.folds = readStored(FOLDS_STORE, {});
-    this.allDone = readStored(ALL_DONE_STORE, {});
+    this.shownAll = readStored(SHOWN_ALL_STORE, {});
     this.pickedTabs = readStored(TAB_STORE, {});
     this.hovered = null;
     this.okr = null;
@@ -188,7 +188,8 @@ export default class NawabanBoard extends View {
   openSelected() {
     const group = groupOfKey(this.selectedKey);
     if (group) return this.toggleGroup(group);
-    if (this.selectedKey === MORE_DONE_KEY) return this.toggleAllDone();
+    const more = groupOfMoreKey(this.selectedKey);
+    if (more) return this.toggleShownAll(more);
     const x = this.selectableByKey.get(this.selectedKey);
     if (x?.card) return this.toggleCard(x.key);
     if (x && canGo(x)) go(x);
@@ -355,10 +356,10 @@ export default class NawabanBoard extends View {
     store(FOLDS_STORE, this.folds);
   }
 
-  toggleAllDone() {
-    const project = this.projectKey();
-    this.allDone = { ...this.allDone, [project]: !this.allDone[project] };
-    store(ALL_DONE_STORE, this.allDone);
+  toggleShownAll(group) {
+    const key = foldKey(this.projectKey(), group);
+    this.shownAll = { ...this.shownAll, [key]: !this.shownAll[key] };
+    store(SHOWN_ALL_STORE, this.shownAll);
   }
 
   pickTab(tab) {
@@ -413,7 +414,7 @@ export default class NawabanBoard extends View {
     const incomplete = cards?.incomplete.ids.length ? cards.incomplete : null;
     const okr = okrView(this.okr, this.lang);
     const objectives = this.objectiveRows(okr, project, o);
-    const sections = taskSections(v.tasks, { folds: this.folds, project, allDone: Boolean(this.allDone[project]), lang: this.lang })
+    const sections = taskSections(v.tasks, { folds: this.folds, project, shownAll: this.shownAll })
       .map((s) => ({ ...s, rows: s.items.map((x) => this.taskRow(x, s.group, now, w)) }));
     const tab = this.tab = openingTab(this.pickedTabs[project], decisions.length);
     this.rememberSelectable(tab, decisions, objectives, sections, sections.flatMap((s) => s.rows));
@@ -723,9 +724,9 @@ export default class NawabanBoard extends View {
     cx.notify();
   }
 
-  clickMoreDone(cx) {
-    this.selectedKey = MORE_DONE_KEY;
-    this.toggleAllDone();
+  clickMore(s, cx) {
+    this.selectedKey = moreKey(s.group);
+    this.toggleShownAll(s.group);
     cx.notify();
   }
 
@@ -743,18 +744,18 @@ export default class NawabanBoard extends View {
       .child(div().flex_none().child(String(s.count)));
   }
 
-  moreDoneRow(s, w) {
-    const selected = this.selectedKey === MORE_DONE_KEY;
-    return h_flex().id("nawaban-more-done").flex_none().h(GROUP_HEADER_H).pl(MORE_INDENT).items_center().rounded(8).cursor_pointer()
+  moreRow(s, w) {
+    const selected = this.selectedKey === moreKey(s.group);
+    return h_flex().id("nawaban-more-" + s.group).flex_none().h(GROUP_HEADER_H).pl(MORE_INDENT).items_center().rounded(8).cursor_pointer()
       .text_size(SIDE_SIZE).text_color(INK.dim)
       .when(selected, (el) => el.bg(INK.selected))
       .when(!selected, (el) => el.hover((st) => st.bg(INK.hover).text_color(INK.muted)))
-      .on_click((_e, cx) => this.clickMoreDone(cx))
+      .on_click((_e, cx) => this.clickMore(s, cx))
       .child(s.more.hidden ? w.more(s.more.hidden) : w.less);
   }
 
   taskSection(s, keyboard, w) {
-    const rows = s.open ? [...s.rows.flatMap((r) => this.row(r, keyboard)), ...(s.more ? [this.moreDoneRow(s, w)] : [])] : [];
+    const rows = s.open ? [...s.rows.flatMap((r) => this.row(r, keyboard)), ...(s.more ? [this.moreRow(s, w)] : [])] : [];
     return this.section(this.groupHeader(s, w), rows);
   }
 

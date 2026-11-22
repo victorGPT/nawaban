@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { panelView, okrView, OKR_WORDS, WINDOW_WORDS, BOARD_PROJECTS, MORE_DONE_KEY } from "./logic.js";
+import { panelView, okrView, OKR_WORDS, WINDOW_WORDS, BOARD_PROJECTS, moreKey } from "./logic.js";
 
 const called = new Set();
 let lastId = null;
@@ -176,7 +176,7 @@ test("three text tabs carry their badges; ← → and 1 2 3 switch them; the fir
   stored.clear();
 });
 
-test("完成 shows its newest 5, then 再显示 N 条; Enter on it shows all and 收起, remembered when the panel opens again", () => {
+test("完成 shows its newest 3, then 再显示 N 条; Enter on it shows all and 收起, remembered when the panel opens again", () => {
   stored.clear();
   const cx = cxOf(true);
   const done = (i) => ({ id: "D" + i, title: "done " + i, status: "done", parent: null, session: null, terminal: null, claimed_at: 1,
@@ -187,11 +187,11 @@ test("完成 shows its newest 5, then 再显示 N 条; Enter on it shows all and
   view.render(cx);
   clicks.get("nawaban-group:done")({}, cx);
   view.render(cx);
-  assert.deepEqual(view.keys.slice(-7), ["group:done", "task:D0", "task:D1", "task:D2", "task:D3", "task:D4", MORE_DONE_KEY]);
+  assert.deepEqual(view.keys.slice(-5), ["group:done", "task:D0", "task:D1", "task:D2", moreKey("done")]);
   texts.length = 0;
   view.render(cx);
-  assert.ok(texts.includes("再显示 3 条"));
-  while (view.selectedKey !== MORE_DONE_KEY) view.onKey({ keystroke: "down" }, cx);
+  assert.ok(texts.includes("再显示 5 条"));
+  while (view.selectedKey !== moreKey("done")) view.onKey({ keystroke: "down" }, cx);
   view.onKey({ keystroke: "enter" }, cx);
   texts.length = 0;
   view.render(cx);
@@ -201,7 +201,7 @@ test("完成 shows its newest 5, then 再显示 N 条; Enter on it shows all and
   assert.equal(reopened.keys.filter((k) => k.startsWith("task:D")).length, 8);
   clicks.get("nawaban-more-done")({}, cx);
   reopened.render(cx);
-  assert.equal(reopened.keys.filter((k) => k.startsWith("task:D")).length, 5);
+  assert.equal(reopened.keys.filter((k) => k.startsWith("task:D")).length, 3);
   stored.clear();
 });
 
