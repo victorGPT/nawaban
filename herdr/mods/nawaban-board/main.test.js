@@ -129,21 +129,21 @@ test("each tab draws only its own part: 待决 the waiting cards, OKR the readin
   assert.ok(called.has("loop") && called.has("on_hover") && called.has("trigger"), "the dots breathe and the rows carry hover cards");
 });
 
-test("任务 lists every group open; Enter or a click on a header folds and opens it, and a reopened panel keeps each choice and the tab per project", () => {
+test("任务 opens 停了 and 在做, folds 没动 and 完成; Enter or a click on a header folds and opens it, and a reopened panel keeps each choice and the tab per project", () => {
   stored.clear();
   const cx = cxOf(true);
   const view = drawn({}, cx);
   assert.deepEqual(view.keys, ["card:0"]);
   view.onKey({ keystroke: "3" }, cx);
   view.render(cx);
-  assert.deepEqual(view.keys, ["group:stopped", "task:GONE", "group:working", "task:CUR", "task:GH", "task:S", "group:todo", "task:TODO", "group:done", "task:DONE"]);
+  assert.deepEqual(view.keys, ["group:stopped", "task:GONE", "group:working", "task:CUR", "task:GH", "task:S", "group:todo", "group:done"]);
   while (view.selectedKey !== "group:working") view.onKey({ keystroke: "down" }, cx);
   view.onKey({ keystroke: "enter" }, cx);
   view.render(cx);
   assert.deepEqual(view.keys.slice(2, 4), ["group:working", "group:todo"]);
   clicks.get("nawaban-group:todo")({}, cx);
   view.render(cx);
-  const folded = ["group:stopped", "task:GONE", "group:working", "group:todo", "group:done", "task:DONE"];
+  const folded = ["group:stopped", "task:GONE", "group:working", "group:todo", "task:TODO", "group:done"];
   assert.deepEqual(view.keys, folded);
   assert.deepEqual(drawn({}, cx).keys, folded);
   assert.deepEqual(drawn({ project: "other" }, cx).keys, ["card:0"]);
@@ -185,6 +185,8 @@ test("完成 shows its newest 5, then 再显示 N 条; Enter on it shows all and
   const view = drawn({ board: many }, cx);
   view.pickTab("tasks");
   view.render(cx);
+  clicks.get("nawaban-group:done")({}, cx);
+  view.render(cx);
   assert.deepEqual(view.keys.slice(-7), ["group:done", "task:D0", "task:D1", "task:D2", "task:D3", "task:D4", MORE_DONE_KEY]);
   texts.length = 0;
   view.render(cx);
@@ -203,12 +205,12 @@ test("完成 shows its newest 5, then 再显示 N 条; Enter on it shows all and
   stored.clear();
 });
 
-test("only 待你决定 and 停了 rows get a second line, the reason; 在做 没动 完成 stay one line", () => {
+test("only 待你决定 rows get a second line; every task row stays one line, 停了 included", () => {
   stored.clear();
   const view = drawn({}, cxOf());
   const why = (key) => view.selectableByKey.get(key).why;
-  assert.deepEqual([why("card:0"), why("task:GONE")], ["放行吗？", "窗口已关，任务还拿着没交还 · handoff"]);
-  assert.deepEqual(["task:CUR", "task:GH", "task:TODO", "task:DONE"].map(why), [null, null, null, null]);
+  assert.equal(why("card:0"), "放行吗？");
+  assert.deepEqual(["task:GONE", "task:CUR", "task:GH", "task:TODO", "task:DONE"].map(why), [null, null, null, null, null]);
   stored.clear();
 });
 

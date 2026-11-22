@@ -304,15 +304,15 @@ test("pending decisions run oldest first, a tie by issue number as a number, eac
 const items = (prefix, n) => Array.from({ length: n }, (_, i) => ({ key: "task:" + prefix + i, id: prefix + i, note: null, gone: false }));
 const sections = (groups, extra = {}) => taskSections(groups, { folds: {}, project: "p", allDone: false, lang: "zh", ...extra });
 
-test("inside 任务 every group starts open; a fold the person chose is kept per project and group; OKR folds start closed", () => {
+test("inside 任务 停了 and 在做 start open, 没动 and 完成 start folded; a fold the person chose is kept per project and group; OKR folds start closed", () => {
   const groups = TASK_GROUPS.map((group) => ({ group, items: items(group, 1) }));
-  assert.deepEqual(sections(groups).map((s) => [s.key, s.open]), [["group:stopped", true], ["group:working", true], ["group:todo", true], ["group:done", true]]);
+  assert.deepEqual(sections(groups).map((s) => [s.key, s.open]), [["group:stopped", true], ["group:working", true], ["group:todo", false], ["group:done", false]]);
   const folds = { [foldKey("p", "stopped")]: false, [foldKey("p", "done")]: true, [foldKey("other", "working")]: false };
-  assert.deepEqual(sections(groups, { folds }).map((s) => s.open), [false, true, true, true]);
+  assert.deepEqual(sections(groups, { folds }).map((s) => s.open), [false, true, false, true]);
   assert.equal(isGroupOpen(folds, "q", "stopped"), true);
   assert.equal(isGroupOpen({}, "p", "okr-untested:O"), false);
   assert.equal(foldKey(null, "todo"), ":todo");
-  assert.deepEqual([...GROUP_OPEN_BY_DEFAULT], TASK_GROUPS);
+  assert.deepEqual([...GROUP_OPEN_BY_DEFAULT], ["stopped", "working"]);
 });
 
 test("完成 shows its newest 5 and a row for the rest; showing all, the row folds them back; 5 or fewer, no row", () => {
@@ -326,11 +326,11 @@ test("完成 shows its newest 5 and a row for the rest; showing all, the row fol
   assert.deepEqual([WINDOW_WORDS.zh.more(18), WINDOW_WORDS.zh.less, WINDOW_WORDS.en.more(18)], ["再显示 18 条", "收起", "Show 18 more"]);
 });
 
-test("only 停了 rows carry a reason line: the window gone, then the latest progress on one line; the other groups none", () => {
+test("no task row carries a reason line, 停了 included; the reason stays in the row's details", () => {
   const stopped = [{ key: "task:A", id: "A", gone: true, note: "handoff\n原件兜底" }, { key: "task:B", id: "B", gone: false, note: null },
     { key: "task:C", id: "C", gone: false, note: "等判官" }];
   const [s, w] = sections([{ group: "stopped", items: stopped }, { group: "working", items: [{ key: "task:D", id: "D", note: "第 2 步" }] }]);
-  assert.deepEqual(s.items.map((x) => x.why), ["窗口已关，任务还拿着没交还 · handoff 原件兜底", null, "等判官"]);
+  assert.deepEqual(s.items.map((x) => x.why), [undefined, undefined, undefined]);
   assert.equal(w.items[0].why, undefined);
 });
 
@@ -341,7 +341,7 @@ test("the arrows walk 待你决定, the KRs, then each group's header and, while
   assert.deepEqual(panelKeys(["card:0", "pending:#7"], ["kr:0-0"], open), ["card:0", "pending:#7", "kr:0-0",
     "group:stopped", "task:s0", "group:working", "task:w0", "task:w1", ...done]);
   assert.deepEqual(panelKeys([], [], sections(groups, { folds: { [foldKey("p", "stopped")]: false, [foldKey("p", "working")]: false } })),
-    ["group:stopped", "group:working", ...done]);
+    ["group:stopped", "group:working", "group:done"]);
   assert.deepEqual([groupOfKey("group:todo"), groupOfKey("task:x"), groupOfKey(null)], ["todo", null, null]);
 });
 
