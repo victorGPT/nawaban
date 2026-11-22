@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { projectFor, cliFor, BOARD_PROJECTS, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, panelView, sinceLabel, decisionDate, WINDOW_WORDS,
-  pendingView, okrView, OKR_WORDS, gapOf, gapText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, DONE_SHOWN, MORE_DONE_KEY, TABS, openingTab, tabBadges } from "./logic.js";
+  pendingView, okrView, OKR_WORDS, gapOf, gapText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, ROWS_SHOWN_PER_GROUP, moreKey, TABS, openingTab, tabBadges } from "./logic.js";
 import { readFileSync } from "node:fs";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
@@ -302,7 +302,7 @@ test("pending decisions run oldest first, a tie by issue number as a number, eac
 });
 
 const items = (prefix, n) => Array.from({ length: n }, (_, i) => ({ key: "task:" + prefix + i, id: prefix + i, note: null, gone: false }));
-const sections = (groups, extra = {}) => taskSections(groups, { folds: {}, project: "p", allDone: false, lang: "zh", ...extra });
+const sections = (groups, extra = {}) => taskSections(groups, { folds: {}, project: "p", shownAll: {}, ...extra });
 
 test("inside 任务 停了 and 在做 start open, 没动 and 完成 start folded; a fold the person chose is kept per project and group; OKR folds start closed", () => {
   const groups = TASK_GROUPS.map((group) => ({ group, items: items(group, 1) }));
@@ -315,14 +315,15 @@ test("inside 任务 停了 and 在做 start open, 没动 and 完成 start folded
   assert.deepEqual([...GROUP_OPEN_BY_DEFAULT], ["stopped", "working"]);
 });
 
-test("完成 shows its newest 5 and a row for the rest; showing all, the row folds them back; 5 or fewer, no row", () => {
+test("every group shows its first 3 and a row for the rest; showing all, the row folds them back; 3 or fewer, no row", () => {
   const done = (n) => [{ group: "done", items: items("d", n) }];
   const [capped] = sections(done(23));
-  assert.deepEqual([capped.count, capped.items.map((x) => x.id), capped.more], [23, ["d0", "d1", "d2", "d3", "d4"], { hidden: 18 }]);
-  assert.equal(DONE_SHOWN, 5);
-  const [all] = sections(done(23), { allDone: true });
+  assert.deepEqual([capped.count, capped.items.map((x) => x.id), capped.more], [23, ["d0", "d1", "d2"], { hidden: 20 }]);
+  assert.equal(ROWS_SHOWN_PER_GROUP, 3);
+  const [all] = sections(done(23), { shownAll: { [foldKey("p", "done")]: true } });
   assert.deepEqual([all.items.length, all.more], [23, { hidden: 0 }]);
-  assert.equal(sections(done(5))[0].more, null);
+  assert.equal(sections(done(3))[0].more, null);
+  assert.deepEqual(sections([{ group: "stopped", items: items("s", 9) }])[0].more, { hidden: 6 });
   assert.deepEqual([WINDOW_WORDS.zh.more(18), WINDOW_WORDS.zh.less, WINDOW_WORDS.en.more(18)], ["再显示 18 条", "收起", "Show 18 more"]);
 });
 
@@ -337,7 +338,7 @@ test("no task row carries a reason line, 停了 included; the reason stays in th
 test("the arrows walk 待你决定, the KRs, then each group's header and, while it is open, its rows and the 完成 row", () => {
   const groups = [{ group: "stopped", items: items("s", 1) }, { group: "working", items: items("w", 2) }, { group: "done", items: items("d", 6) }];
   const open = sections(groups, { folds: { [foldKey("p", "done")]: true } });
-  const done = ["group:done", "task:d0", "task:d1", "task:d2", "task:d3", "task:d4", MORE_DONE_KEY];
+  const done = ["group:done", "task:d0", "task:d1", "task:d2", moreKey("done")];
   assert.deepEqual(panelKeys(["card:0", "pending:#7"], ["kr:0-0"], open), ["card:0", "pending:#7", "kr:0-0",
     "group:stopped", "task:s0", "group:working", "task:w0", "task:w1", ...done]);
   assert.deepEqual(panelKeys([], [], sections(groups, { folds: { [foldKey("p", "stopped")]: false, [foldKey("p", "working")]: false } })),

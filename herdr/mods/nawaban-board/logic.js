@@ -263,25 +263,28 @@ const specOrder = (tickets) => {
 const issueNumber = (id) => id.slice(1);
 
 export const GROUP_OPEN_BY_DEFAULT = new Set(["stopped", "working"]);
-export const DONE_SHOWN = 5;
+export const ROWS_SHOWN_PER_GROUP = 3;
 const GROUP_KEY_PREFIX = "group:";
-export const MORE_DONE_KEY = "more:done";
+const MORE_KEY_PREFIX = "more:";
+export const moreKey = (group) => MORE_KEY_PREFIX + group;
+export const groupOfMoreKey = (key) => (key?.startsWith(MORE_KEY_PREFIX) ? key.slice(MORE_KEY_PREFIX.length) : null);
 export const groupOfKey = (key) => (key?.startsWith(GROUP_KEY_PREFIX) ? key.slice(GROUP_KEY_PREFIX.length) : null);
 export const foldKey = (project, group) => (project ?? "") + ":" + group;
 export const isGroupOpen = (folds, project, group) => folds?.[foldKey(project, group)] ?? GROUP_OPEN_BY_DEFAULT.has(group);
 const oneLine = (text) => text.replace(/\s+/g, " ").trim();
 
-export function taskSections(groups, { folds, project, allDone, lang }) {
+export function taskSections(groups, { folds, project, shownAll }) {
   return groups.map(({ group, items }) => {
-    const capped = group === "done" && items.length > DONE_SHOWN;
-    const shown = capped && !allDone ? items.slice(0, DONE_SHOWN) : items;
+    const allShown = Boolean(shownAll?.[foldKey(project, group)]);
+    const capped = items.length > ROWS_SHOWN_PER_GROUP;
+    const shown = capped && !allShown ? items.slice(0, ROWS_SHOWN_PER_GROUP) : items;
     return { key: GROUP_KEY_PREFIX + group, group, count: items.length, open: isGroupOpen(folds, project, group),
       items: shown,
-      more: capped ? { hidden: allDone ? 0 : items.length - DONE_SHOWN } : null };
+      more: capped ? { hidden: allShown ? 0 : items.length - ROWS_SHOWN_PER_GROUP } : null };
   });
 }
 
-const keysUnder = (s) => (s.open ? [...s.items.map((x) => x.key), ...(s.more ? [MORE_DONE_KEY] : [])] : []);
+const keysUnder = (s) => (s.open ? [...s.items.map((x) => x.key), ...(s.more ? [moreKey(s.group)] : [])] : []);
 export const panelKeys = (decisions, krs, sections) => [...decisions, ...krs, ...sections.flatMap((s) => [s.key, ...keysUnder(s)])];
 
 const pendingTasks = (board) => openTasks(board)
