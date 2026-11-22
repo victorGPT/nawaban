@@ -262,24 +262,21 @@ const specOrder = (tickets) => {
 
 const issueNumber = (id) => id.slice(1);
 
-export const GROUP_OPEN_BY_DEFAULT = new Set(TASK_GROUPS);
+export const GROUP_OPEN_BY_DEFAULT = new Set(["stopped", "working"]);
 export const DONE_SHOWN = 5;
-const GROUP_WITH_REASONS = "stopped";
 const GROUP_KEY_PREFIX = "group:";
 export const MORE_DONE_KEY = "more:done";
 export const groupOfKey = (key) => (key?.startsWith(GROUP_KEY_PREFIX) ? key.slice(GROUP_KEY_PREFIX.length) : null);
 export const foldKey = (project, group) => (project ?? "") + ":" + group;
 export const isGroupOpen = (folds, project, group) => folds?.[foldKey(project, group)] ?? GROUP_OPEN_BY_DEFAULT.has(group);
 const oneLine = (text) => text.replace(/\s+/g, " ").trim();
-const reasonOf = (x, w) => oneLine([x.gone && w.gone, x.note].filter(Boolean).join(" · "));
 
 export function taskSections(groups, { folds, project, allDone, lang }) {
-  const w = WINDOW_WORDS[lang];
   return groups.map(({ group, items }) => {
     const capped = group === "done" && items.length > DONE_SHOWN;
     const shown = capped && !allDone ? items.slice(0, DONE_SHOWN) : items;
     return { key: GROUP_KEY_PREFIX + group, group, count: items.length, open: isGroupOpen(folds, project, group),
-      items: shown.map((x) => (group === GROUP_WITH_REASONS ? { ...x, why: reasonOf(x, w) || null } : x)),
+      items: shown,
       more: capped ? { hidden: allDone ? 0 : items.length - DONE_SHOWN } : null };
   });
 }
