@@ -675,3 +675,27 @@ test("an Objective row leaves out the ↑ ↓ = tally; a KR's hover card keeps i
   assert.ok(!texts.some((s) => s.includes("↑2")) && texts.includes("预期不符 #5"));
   stored.clear();
 });
+
+test("a tab pick is kept even on the tab already shown, never before the board is read, and Enter never acts on a row of a hidden tab", () => {
+  stored.clear();
+  const cx = cxOf(true);
+  const empty = drawn({ board: { columns: [] }, okr: okrFixture }, cx);
+  assert.equal(empty.tab, "okr");
+  empty.onKey({ keystroke: "2" }, cx);
+  assert.equal(drawn({ okr: okrFixture }, cx).tab, "okr", "picking the shown tab still counts");
+  stored.clear();
+  const loading = drawn({ board: null }, cx);
+  loading.onKey({ keystroke: "3" }, cx);
+  assert.equal(stored.get("tab"), undefined);
+  stored.clear();
+  const view = drawn({}, cx);
+  view.pickTab("tasks");
+  view.render(cx);
+  while (view.selectedKey !== "group:working") view.onKey({ keystroke: "down" }, cx);
+  view.project = "B";
+  view.pickedTabs = { B: "okr" };
+  view.render(cx);
+  view.onKey({ keystroke: "enter" }, cx);
+  assert.equal(stored.get("folds"), undefined);
+  stored.clear();
+});

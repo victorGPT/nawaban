@@ -362,9 +362,9 @@ export default class NawabanBoard extends View {
   }
 
   pickTab(tab) {
-    if (tab === this.tab) return;
+    if (!this.board) return;
+    if (tab !== this.tab) this.selectedKey = null;
     this.tab = tab;
-    this.selectedKey = null;
     this.pickedTabs = { ...this.pickedTabs, [this.projectKey()]: tab };
     store(TAB_STORE, this.pickedTabs);
   }
@@ -417,6 +417,7 @@ export default class NawabanBoard extends View {
       .map((s) => ({ ...s, rows: s.items.map((x) => this.taskRow(x, s.group, now, w)) }));
     const tab = this.tab = openingTab(this.pickedTabs[project], decisions.length);
     this.rememberSelectable(tab, decisions, objectives, sections, sections.flatMap((s) => s.rows));
+    if (!this.keys.includes(this.selectedKey)) this.selectedKey = null;
     const keyboard = this.keyboard.is_focused();
     const note = this.statusNote(v, mine, w);
     const badges = tabBadges({ pending: decisions.length, okr,
