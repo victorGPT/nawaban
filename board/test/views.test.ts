@@ -13,7 +13,7 @@ import { run } from '../src/tasks.ts'
 import { json } from '../src/views.ts'
 
 const PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS = new URL('../../herdr/mods/nawaban-board/logic.js', import.meta.url).href
-const { leadersView } = await import(PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS)
+const { panelView } = await import(PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS)
 
 const SECRET = 'test-secret'
 const ORCHESTRATOR_WINDOW_IN_T1 = 'aaaa1111-0000-0000-0000-000000000000'
@@ -126,17 +126,15 @@ it('prints the board in the shape the panel reads, and the panel draws the 等�
   const agent = (address: string, status: string, tab_name: string) => ({ address, status, tab_name, title: 'claude', space: 'here', seq: 1 })
   const agents = [agent('t1', 'working', '编排'), agent('t3', 'idle', 'worker'), agent('t4', 'idle', 'worker 2')]
   const terminals = agents.map((a) => ({ address: a.address, name: null, parent: null, status: a.status, state: 'live' }))
-  const v = leadersView({ agents, terminals, space: 'here', board: data, now, lang: 'zh' })
+  const v = panelView({ agents, terminals, space: 'here', board: data, now, lang: 'zh' })
   expect(v.waiting.map((c: { question: string; focus: string }) => [c.question, c.focus]).sort()).toEqual([
     ['发不发', 't4'],
     ['放行吗？', 't3'],
   ])
-  const lead = v.groups.find((g: { leader: string }) => g.leader === 'cc-aaaa1111')
-  expect(lead.name).toBe('编排')
-  expect(lead.items.map((i: { title: string; state: string }) => [i.title, i.state])).toEqual(
-    expect.arrayContaining([['报表迁到新底座', 'current'], ['派出去的', 'todo']]),
+  const listed = v.tasks.flatMap((g: { group: string; items: { title: string; state: string; where: string | null }[] }) =>
+    g.items.map((i) => [g.group, i.title, i.state, i.where]),
   )
-  expect(lead.decision.verdict).toBe('先只读')
+  expect(listed).toEqual(expect.arrayContaining([['working', '报表迁到新底座', 'current', '编排'], ['todo', '派出去的', 'todo', null]]))
 })
 
 it('counts each project with what waits in it, and finds its db', async () => {

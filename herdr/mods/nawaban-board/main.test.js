@@ -3,21 +3,22 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { leadersView, pendingView, okrView, OKR_WORDS, WINDOW_WORDS, BOARD_PROJECTS, tasksFoldView } from "./logic.js";
+import { panelView, okrView, OKR_WORDS, WINDOW_WORDS, BOARD_PROJECTS, MORE_DONE_KEY } from "./logic.js";
 
 const called = new Set();
-let onSize = null;
 let lastId = null;
+const ids = new Set();
 const clicks = new Map();
+const hovers = new Map();
 const texts = [];
 const el = new Proxy({}, {
   get: (_, name) => typeof name === "symbol" ? undefined : (...args) => {
     called.add(name);
     if (name === "when") return args[0] ? args[1](el) : el;
     if (name === "hover") args[0](el);
-    if (name === "on_size_change") onSize = args[0];
-    if (name === "id") lastId = args[0];
+    if (name === "id") { lastId = args[0]; ids.add(args[0]); }
     if (name === "on_click") clicks.set(lastId, args[0]);
+    if (name === "on_hover") hovers.set(lastId, args[0]);
     if (name === "child" && typeof args[0] === "string") texts.push(args[0]);
     return el;
   },
@@ -62,15 +63,16 @@ const here = { spaces: () => [{ id: "here", active: true, name: "nawaban", folde
 let where = here;
 
 const stubs = {
-  "gpui-kit": { View: class {}, div: make("div"), svg: make("svg"), PathBuilder: el },
-  "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el, Collapsible: el, Accordion: el,
-    AccordionItem: el, AccordionHeader: el, AccordionTrigger: el, AccordionPanel: el, Progress: el, ProgressTrack: el, ProgressIndicator: el },
+  "gpui-kit": { View: class {}, div: make("div"), svg: make("svg") },
+  "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el },
   herdr: { spaces: () => where.spaces(), focused: () => where.focused(),
-    agents: () => agents, terminals: () => terminals, theme: () => new Proxy({}, { get: () => "#808080" }), home: () => "/h",
+    agents: () => agents, terminals: () => terminals, home: () => "/h",
     run: (...a) => runImpl(...a), exec: (...a) => execImpl(...a), nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}), props: () => null, closeOverlay: () => null },
 };
 globalThis.__nawabanStubs = stubs;
-globalThis.window = { paint_path: make("paint_path") };
+const stored = new Map();
+Object.defineProperty(globalThis, "localStorage", { configurable: true,
+  value: { getItem: (k) => stored.get(k) ?? null, setItem: (k, v) => stored.set(k, String(v)), clear: () => stored.clear() } });
 registerHooks({
   resolve: (specifier, context, next) => specifier in stubs ? { url: `stub:${specifier}`, shortCircuit: true } : next(specifier, context),
   load: (url, context, next) => !url.startsWith("stub:") ? next(url, context) : { format: "module", shortCircuit: true,
@@ -81,103 +83,155 @@ const { default: NawabanBoard } = await import("./main.js");
 const dts = [`${homedir()}/.config/herdr-app/gpui-kit.d.ts`, new URL("./gpui-kit.d.ts", import.meta.url)]
   .map((p) => { try { return readFileSync(p, "utf8"); } catch { return null; } }).find(Boolean);
 
-test("the panel draws every item state, at 420 and 380 px, in Chinese and English, with Herdr's API only", () => {
-  const v = leadersView({ agents, terminals, space: "here", board, now, lang: "zh" });
-  const items = v.groups.flatMap((g) => g.items);
-  assert.deepEqual(v.groups.find((g) => g.leader === "t6")?.items.map((i) => [i.title, i.name]), [["GH 的标题", "gh-239"], ["gh-256", "gh-256"], ["gh-260", "gh-260"]]);
-  assert.deepEqual(new Set(items.map((i) => i.state)), new Set(["done", "current", "stopped", "todo", "waiting"]));
-  assert.ok(items.some((i) => i.gone) && items.some((i) => i.spec) && v.groups.some((g) => g.decision));
-  assert.ok(v.waiting.length && v.idle.count);
-  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+const cxOf = (focused = false) => ({ spawn() {}, notify() {}, stop_propagation() {}, timer: { every() {} },
+  focus_handle: () => ({ is_focused: () => focused, focus() {} }) });
+const drawn = (x = {}, cx = cxOf()) => {
+  const view = new NawabanBoard();
+  view.init({}, cx);
+  Object.assign(view, { lang: "zh", board, ...x });
+  texts.length = 0;
+  view.render(cx);
+  return view;
+};
+const after = (...said) => {
+  const at = said.reduce((found, s) => [...found, texts.indexOf(s, (found.at(-1) ?? -1) + 1)], []);
+  return at.every((i) => i >= 0) || at.join(",");
+};
+
+test("the panel draws 待你决定, then the OKR reading, then 停了 在做 没动 完成, in Chinese and English, with Herdr's API only", () => {
+  const v = panelView({ agents, terminals, space: "here", board, now, lang: "zh" });
+  assert.deepEqual(v.waiting.map((c) => c.focus), ["t3"]);
+  assert.deepEqual(v.tasks.map((g) => [g.group, g.items.map((i) => i.id)]),
+    [["stopped", ["GONE"]], ["working", ["CUR", "GH", "S"]], ["todo", ["TODO"]], ["done", ["DONE"]]]);
+  stored.clear();
   for (const lang of ["zh", "en"]) {
-    for (const width of [420, 380]) {
-      const view = new NawabanBoard();
-      view.init({}, cx);
-      Object.assign(view, { lang, board });
-      view.render(cx);
-      onSize({ width }, cx);
-      assert.equal(view.narrow, width < 400);
-      view.render(cx);
-    }
+    drawn({ lang, okr: okrFixture });
+    const w = WINDOW_WORDS[lang], o = OKR_WORDS[lang];
+    assert.equal(after(w.decide, "放行吗？", o.title, "听得懂需求", w.groups.stopped, w.groups.working, w.groups.todo, w.groups.done), true, lang);
+    assert.ok(!texts.includes(w.go), "去窗口 waits for a hover or a selection");
   }
-  assert.ok(called.has("loop") && called.has("on_click"), "the items' branches were drawn");
+  const opened = drawn();
+  clicks.get("nawaban-group:working")({}, cxOf());
+  opened.render(cxOf());
+  stored.clear();
+  assert.ok(called.has("loop") && called.has("on_hover") && called.has("trigger"), "the dots breathe and the rows carry hover cards");
 });
 
-test("on a GitHub board the panel draws issue titles, 在推, and the 已关 row folded and open", () => {
-  const v = leadersView({ agents, terminals, space: "here", board: ghBoard, now, lang: "zh" });
-  const g = v.groups.find((x) => x.leader === "t6");
-  assert.deepEqual(g.items.map((i) => [i.title, i.name, i.state]), [["issue 239", "gh-239", "current"], ["issue 256", "gh-256", "pushing"]]);
-  assert.deepEqual(g.closed.map((i) => [i.title, i.state]), [["issue 260", "done"]]);
-  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+test("停了 starts open and the rest folded; Enter or a click on a header folds and opens it, and a reopened panel keeps each choice per project", () => {
+  stored.clear();
+  const cx = cxOf(true);
+  const view = drawn({}, cx);
+  assert.deepEqual(view.keys, ["card:0", "group:stopped", "task:GONE", "group:working", "group:todo", "group:done"]);
+  while (view.selectedKey !== "group:working") view.onKey({ keystroke: "down" }, cx);
+  view.onKey({ keystroke: "enter" }, cx);
+  view.render(cx);
+  assert.deepEqual(view.keys.slice(3, 7), ["group:working", "task:CUR", "task:GH", "task:S"]);
+  view.onKey({ keystroke: "up" }, cx);
+  view.onKey({ keystroke: "up" }, cx);
+  assert.equal(view.selectedKey, "group:stopped");
+  view.onKey({ keystroke: "enter" }, cx);
+  clicks.get("nawaban-group:todo")({}, cx);
+  view.render(cx);
+  assert.deepEqual(view.keys, ["card:0", "group:stopped", "group:working", "task:CUR", "task:GH", "task:S", "group:todo", "task:TODO", "group:done"]);
+  const reopened = drawn({}, cx);
+  assert.deepEqual(reopened.keys, view.keys);
+  const elsewhere = drawn({ project: "other" }, cx);
+  assert.deepEqual(elsewhere.keys, ["card:0", "group:stopped", "task:GONE", "group:working", "group:todo", "group:done"]);
+  stored.clear();
+});
+
+test("完成 shows its newest 5, then 再显示 N 条; Enter on it shows all and 收起, remembered when the panel opens again", () => {
+  stored.clear();
+  const cx = cxOf(true);
+  const done = (i) => ({ id: "D" + i, title: "done " + i, status: "done", parent: null, session: null, terminal: null, claimed_at: 1,
+    created_at: 0, active_at: now - 60 * i, done_at: now - 60 * i });
+  const many = { columns: [...board.columns.filter((c) => c.key !== "done"), { key: "done", tasks: Array.from({ length: 8 }, (_, i) => done(i)) }] };
+  const view = drawn({ board: many }, cx);
+  clicks.get("nawaban-group:done")({}, cx);
+  view.render(cx);
+  assert.deepEqual(view.keys.slice(-7), ["group:done", "task:D0", "task:D1", "task:D2", "task:D3", "task:D4", MORE_DONE_KEY]);
+  texts.length = 0;
+  view.render(cx);
+  assert.ok(texts.includes("再显示 3 条"));
+  while (view.selectedKey !== MORE_DONE_KEY) view.onKey({ keystroke: "down" }, cx);
+  view.onKey({ keystroke: "enter" }, cx);
+  texts.length = 0;
+  view.render(cx);
+  assert.ok(texts.includes("收起"));
+  assert.equal(view.keys.filter((k) => k.startsWith("task:D")).length, 8);
+  const reopened = drawn({ board: many }, cx);
+  assert.equal(reopened.keys.filter((k) => k.startsWith("task:D")).length, 8);
+  clicks.get("nawaban-more-done")({}, cx);
+  reopened.render(cx);
+  assert.equal(reopened.keys.filter((k) => k.startsWith("task:D")).length, 5);
+  stored.clear();
+});
+
+test("only 待你决定 and 停了 rows get a second line, the reason; 在做 没动 完成 stay one line", () => {
+  stored.clear();
+  const view = drawn({}, cxOf());
+  for (const k of ["group:working", "group:todo", "group:done"]) clicks.get("nawaban-" + k)({}, cxOf());
+  view.render(cxOf());
+  const why = (key) => view.selectableByKey.get(key).why;
+  assert.deepEqual([why("card:0"), why("task:GONE")], ["放行吗？", "窗口已关，任务还拿着没交还 · handoff"]);
+  assert.deepEqual(["task:CUR", "task:GH", "task:TODO", "task:DONE"].map(why), [null, null, null, null]);
+  stored.clear();
+});
+
+test("去窗口 takes the place of the time while a row is hovered or selected, and goes there; a selected row opens its details below it with the keyboard", () => {
+  stored.clear();
+  const focused = [];
+  runImpl = async (cmd, args) => { focused.push([cmd, args]); };
+  try {
+    const cx = cxOf(true);
+    const view = drawn({}, cx);
+    hovers.get("nawaban-row-task:GONE")(true, cx);
+    assert.equal(view.hovered, "task:GONE");
+    texts.length = 0;
+    view.render(cx);
+    assert.ok(!texts.includes(WINDOW_WORDS.zh.go), "GONE has no window to go to");
+    hovers.get("nawaban-row-card:0")(true, cx);
+    texts.length = 0;
+    view.render(cx);
+    assert.ok(texts.includes(WINDOW_WORDS.zh.go));
+    hovers.get("nawaban-row-card:0")(false, cx);
+    assert.equal(view.hovered, null);
+    ids.clear();
+    view.onKey({ keystroke: "down" }, cx);
+    view.render(cx);
+    assert.equal(view.selectedKey, "card:0");
+    assert.ok(ids.has("nawaban-facts-card:0"));
+    view.onKey({ keystroke: "enter" }, cx);
+    assert.deepEqual(focused, [["agent.focus", { terminal: "t3" }]]);
+    ids.clear();
+    drawn({}, cxOf(false)).selectedKey = "card:0";
+    assert.ok(!ids.has("nawaban-facts-card:0"), "without the keyboard the hover card carries the details");
+  } finally {
+    runImpl = async () => {};
+    stored.clear();
+  }
+});
+
+test("on a GitHub board a blocked worker is a 待你决定 row above the pending decisions; a pending one opens on GitHub", () => {
+  stored.clear();
   const pending = { brief: "待决：发吗？", at: now - 3600, progress: [] };
   const withPending = { ...ghBoard, columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: c.tasks.map((x) => ({ ...x, url: "https://gh/256", pending })) }) };
-  assert.deepEqual(pendingView(withPending).map((p) => p.id), ["#256"]);
-  const opened = [];
+  const opened = [], focused = [];
   execImpl = async (cmd, args) => { opened.push([cmd, ...args]); return { code: 0 }; };
+  runImpl = async (cmd, args) => { focused.push([cmd, args]); };
   try {
-    for (const unfold of [false, true]) {
-      for (const board of [ghBoard, withPending]) {
-        const view = new NawabanBoard();
-        view.init({}, cx);
-        Object.assign(view, { lang: "zh", board, tasksOpen: unfold });
-        if (unfold) view.unfolded.add("t6");
-        view.render(cx);
-      }
-    }
-    clicks.get("nawaban-pending-#256")();
+    const view = drawn({ board: withPending });
+    assert.deepEqual(view.keys.slice(0, 2), ["card:0", "pending:#256"]);
+    assert.equal(after("待你决定", "gh-260", "待决：发吗？", "在做"), true);
+    clicks.get("nawaban-row-card:0")({}, cxOf());
+    clicks.get("nawaban-row-pending:#256")({}, cxOf());
+    assert.deepEqual(focused, [["agent.focus", { terminal: "t9" }]]);
     assert.deepEqual(opened, [["open", "https://gh/256"]]);
   } finally {
     execImpl = async () => ({ code: 1 });
-  }
-  assert.ok(called.has("content") && called.has("open"));
-});
-
-test("on a GitHub board a blocked worker is a 等你 card above the pending decisions, out of the fold and its count; none blocked, the panel as before", () => {
-  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
-  const pending = { brief: "待决：发吗？", at: now - 3600, progress: [] };
-  const withPending = { ...ghBoard, columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: c.tasks.map((x) => ({ ...x, url: "https://gh/256", pending })) }) };
-  const focused = [];
-  runImpl = async (cmd, args) => { focused.push([cmd, args]); };
-  const draw = () => {
-    clicks.clear();
-    texts.length = 0;
-    const view = new NawabanBoard();
-    view.init({}, cx);
-    Object.assign(view, { lang: "zh", board: withPending, okr });
-    view.render(cx);
-    return { view, v: leadersView({ agents, terminals, space: "here", board: withPending, now, lang: "zh" }) };
-  };
-  const saved = terminals;
-  const okr = JSON.parse(readFileSync(new URL("./okr.fixture.json", import.meta.url), "utf8"));
-  const o = okrView(okr, "zh"), summary = OKR_WORDS.zh.summary(o.met, o.total, o.measured);
-  const at = (s) => texts.findIndex((x) => x.startsWith(s));
-  try {
-    let { view, v } = draw();
-    assert.deepEqual(v.waiting.map((c) => c.focus), ["t9"]);
-    assert.deepEqual(view.keys, ["card:0", "tasks"]);
-    const order = ["1 个窗口在等你", "待决 1", summary, "agent 在做"].map(at);
-    assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join(","));
-    assert.ok(texts.includes(WINDOW_WORDS.zh.tasksFold(tasksFoldView(v))));
-    clicks.get("nawaban-card-0")({}, cx);
-    assert.deepEqual(focused, [["agent.focus", { terminal: "t9" }]]);
-    terminals = saved.map((k) => (k.status === "blocked" ? { ...k, status: "done" } : k));
-    ({ view, v } = draw());
-    assert.deepEqual([v.waiting, view.keys, clicks.has("nawaban-card-0")], [[], ["tasks"], false]);
-    assert.ok(!texts.some((s) => s.includes("个窗口在等你")));
-    assert.ok(at("待决 1") < at(summary) && at(summary) < at("agent 在做"));
-    assert.ok(texts.includes(WINDOW_WORDS.zh.tasksFold(tasksFoldView(v))));
-  } finally {
-    terminals = saved;
     runImpl = async () => {};
+    stored.clear();
   }
-  texts.length = 0;
-  const view = new NawabanBoard();
-  view.init({}, cx);
-  Object.assign(view, { lang: "zh", board, okr });
-  view.render(cx);
-  const local = leadersView({ agents, terminals, space: "here", board, now, lang: "zh" });
-  const order = [`${local.waiting.length} 个窗口在等你`, summary, WINDOW_WORDS.zh.tasksFold(tasksFoldView(local)), local.groups[0].name].map(at);
-  assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join(","));
 });
 
 test("a GitHub board is read from GitHub at most once a minute, whatever asks for it", async () => {
@@ -273,34 +327,15 @@ test("a project moved to the board is read with the board's CLI, every json verb
 
 const okrFixture = JSON.parse(readFileSync(new URL("./okr.fixture.json", import.meta.url), "utf8"));
 
-test("the OKR section draws its cards, sparks, Objectives folded and open, and KR rows, down to 300 px", () => {
-  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
-  assert.ok(okrView(okrFixture, "zh").attention.some((a) => a.spark));
-  for (const lang of ["zh", "en"]) {
-    for (const width of [420, 300]) {
-      const view = new NawabanBoard();
-      view.init({}, cx);
-      Object.assign(view, { lang, board, okr: okrFixture });
-      view.okrOpen.add("听得懂需求");
-      view.render(cx);
-      onSize({ width }, cx);
-      view.render(cx);
-    }
-  }
-  for (const m of ["paint_path", "dash_array", "line_to", "header", "panel", "on_change", "value", "trigger", "truncate"]) assert.ok(called.has(m), m);
-});
-
-test("a wait card for several KRs draws its title, the wait text and the KRs' names", () => {
-  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
-  const kr = (name) => ({ name, target: ">= 1", status: "untested", wait: "批准读生产数据" });
-  const okr = { ...okrFixture, objectives: [{ name: "O3", krs: ["a", "b"].map(kr) }],
-    attention: ["a", "b"].map((k) => ({ kind: "wait", objective: "O3", kr: k, text: "批准读生产数据" })) };
-  const view = new NawabanBoard();
-  view.init({}, cx);
-  Object.assign(view, { lang: "zh", board, okr });
-  texts.length = 0;
-  view.render(cx);
-  for (const s of ["1 件要你盯", "O3：2 条 KR 等你批", "批准读生产数据", "a、b"]) assert.ok(texts.includes(s), s);
+test("the OKR layer is one row per Objective and one per KR, worst first, each with its value and target", () => {
+  stored.clear();
+  const view = drawn({ okr: okrFixture });
+  const o = okrView(okrFixture, "zh");
+  assert.ok(texts.includes(OKR_WORDS.zh.tally(o.met, o.total, o.measured)));
+  const first = o.objectives[0];
+  assert.equal(after(first.name, first.krs[0].name, first.krs[0].value, first.krs[0].target, first.krs.at(-1).name), true);
+  assert.deepEqual(view.keys.filter((k) => k.startsWith("kr:")).length, o.objectives.reduce((n, x) => n + x.krs.length, 0));
+  assert.ok(view.keys.indexOf("kr:0-0") > view.keys.indexOf("card:0") && view.keys.indexOf("kr:0-0") < view.keys.indexOf("group:stopped"));
 });
 
 test("json okr failing (no okr.toml, an older CLI) leaves the OKR section out and the board as it was", async () => {
@@ -398,51 +433,7 @@ test("A, then B, then back to A: a late answer never overwrites a newer one, nor
   }
 });
 
-test("the task list starts folded into one line whose counts are the open list's, and Enter or a click opens and closes it", () => {
-  const cx = { spawn() {}, notify() {}, stop_propagation() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => true, focus() {} }) };
-  const v = leadersView({ agents, terminals, space: "here", board, now, lang: "zh" });
-  const items = v.groups.flatMap((g) => g.items);
-  const labels = items.map((x) => x.state);
-  const counts = { doing: labels.filter((s) => s === "current" || s === "pushing").length,
-    stopped: labels.filter((s) => s === "stopped" || s === "waiting").length, unclaimed: v.idle.count };
-  assert.deepEqual(tasksFoldView(v), counts);
-  assert.ok(counts.doing && counts.stopped && counts.unclaimed);
-  const line = `agent 在做 ${counts.doing} · 停了 ${counts.stopped} · 没认领 ${counts.unclaimed}`;
-  const cards = v.keys.filter((k) => k.startsWith("card:")), rows = v.keys.filter((k) => !k.startsWith("card:"));
-  const view = new NawabanBoard();
-  view.init({}, cx);
-  Object.assign(view, { lang: "zh", board });
-  texts.length = 0;
-  view.render(cx);
-  assert.equal(view.tasksOpen, false);
-  assert.ok(texts.includes(line), line);
-  assert.deepEqual(view.keys, [...cards, "tasks"]);
-  for (const _ of view.keys) view.onKey({ keystroke: "down" }, cx);
-  assert.equal(view.selectedKey, "tasks");
-  view.onKey({ keystroke: "enter" }, cx);
-  view.render(cx);
-  assert.equal(view.tasksOpen, true);
-  assert.deepEqual(view.keys, [...cards, "tasks", ...rows]);
-  view.onKey({ keystroke: "down" }, cx);
-  assert.equal(view.selectedKey, rows[0]);
-  view.onKey({ keystroke: "up" }, cx);
-  view.act("open");
-  view.render(cx);
-  assert.deepEqual([view.tasksOpen, view.keys], [false, [...cards, "tasks"]]);
-  clicks.get("nawaban-tasks")({}, cx);
-  assert.equal(view.tasksOpen, true);
-  const reopened = new NawabanBoard();
-  reopened.init({}, cx);
-  assert.equal(reopened.tasksOpen, false);
-  Object.assign(reopened, { lang: "en", board: ghBoard });
-  texts.length = 0;
-  reopened.render(cx);
-  const gh = leadersView({ agents, terminals, space: "here", board: ghBoard, now, lang: "en" });
-  assert.ok(texts.includes(WINDOW_WORDS.en.tasksFold(tasksFoldView(gh))));
-  assert.deepEqual(reopened.keys, [...gh.keys.filter((k) => k.startsWith("card:")), "tasks"]);
-});
-
-test("a project without okr.toml says it has no Objective yet, between the cards and the task line; any other failed read says nothing", async () => {
+test("a project without okr.toml says it has no Objective yet, between 待你决定 and the tasks; any other failed read says nothing", async () => {
   const quiet = { spawn() {}, notify() {} };
   const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
   const settle = () => new Promise((r) => setImmediate(r));
@@ -465,18 +456,11 @@ test("a project without okr.toml says it has no Objective yet, between the cards
         view.render(cx);
         const said = OKR_WORDS[lang].noObjective;
         if (why !== "missing") { assert.ok(!texts.includes(said), why); continue; }
-        const local = leadersView({ agents, terminals, space: "here", board, now, lang });
-        const at = (s) => texts.indexOf(s);
-        const order = [WINDOW_WORDS[lang].headline(local.waiting.length), said, WINDOW_WORDS[lang].tasksFold(tasksFoldView(local))].map(at);
-        assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join(","));
+        assert.equal(after(WINDOW_WORDS[lang].decide, said, WINDOW_WORDS[lang].groups.stopped), true);
       }
     }
     assert.equal(OKR_WORDS.en.noObjective, "No Objective for this project yet");
-    const unread = new NawabanBoard();
-    unread.init({}, { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) });
-    Object.assign(unread, { lang: "zh", board });
-    texts.length = 0;
-    unread.render(cx);
+    drawn({}, cxOf());
     assert.ok(!texts.includes(OKR_WORDS.zh.noObjective));
   } finally {
     execImpl = async () => ({ code: 1 });
@@ -488,16 +472,9 @@ test("every element method the panel calls is in gpui-kit.d.ts", { skip: !dts &&
   assert.deepEqual(missing, []);
 });
 
-test("an Objective row shows its ↑ ↓ = and a KR row its 预期不符", () => {
-  const cx = { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
-  const okr = { ...okrFixture, attention: [], objectives: [{ name: "O", impacts: { "↑": 2, "↓": 1, "=": 3 },
+test("an Objective row shows its ↑ ↓ = and a KR's hover card its 预期不符", () => {
+  const okr = { ...okrFixture, objectives: [{ name: "O", impacts: { "↑": 2, "↓": 1, "=": 3 },
     krs: [{ name: "a", target: ">= 1", status: "missed", value: 0, mismatch: [{ ticket: "#5", dir: "↑" }] }] }] };
-  const view = new NawabanBoard();
-  view.init({}, cx);
-  Object.assign(view, { lang: "zh", board, okr });
-  view.okrOpen.add("O");
-  texts.length = 0;
-  view.render(cx);
+  drawn({ okr });
   for (const s of ["↑2 ↓1 =3", "预期不符 #5"]) assert.ok(texts.includes(s), s);
-  assert.ok(!texts.some((s) => s.includes("件要你盯")));
 });
