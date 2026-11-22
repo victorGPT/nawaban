@@ -36,6 +36,10 @@ export const boardChanged = (paths, db) => paths.some((p) => isBoardFileOrItsLog
 export const OKR_FOLDER_IN_REPO = "docs/agents";
 const OKR_FILE = "okr.toml";
 export const okrChanged = (paths, dir) => paths.some((p) => p === dir || p.endsWith("/" + OKR_FILE));
+const CLI_REFUSAL_FOR_MISSING_OKR_FILE = "没有 " + OKR_FOLDER_IN_REPO + "/" + OKR_FILE;
+const READ_WITHOUT_OBJECTIVES = { objectives: [] };
+export const okrReadingOfFailure = (e) => (String(e?.message ?? "").startsWith(CLI_REFUSAL_FOR_MISSING_OKR_FILE) ? READ_WITHOUT_OBJECTIVES : null);
+export const hasNoObjective = (okr) => Array.isArray(okr?.objectives) && okr.objectives.length === 0;
 
 const isDone = (t) => t.status === "done";
 const isHeld = (t) => t.session != null;
@@ -335,6 +339,16 @@ const specOrder = (tickets) => {
 };
 
 const issueNumber = (id) => id.slice(1);
+export const TASKS_FOLD_KEY = "tasks";
+const isMoving = (x) => x.state === "current" || x.state === "pushing";
+export function tasksFoldView(v) {
+  const items = v.groups.flatMap((g) => g.items);
+  return { doing: items.filter(isMoving).length, stopped: items.filter(needsAttention).length, unclaimed: v.idle.count };
+}
+const isCardKey = (k) => k.startsWith("card:");
+export const keysWithTasksFold = (keys, open) =>
+  [...keys.filter(isCardKey), TASKS_FOLD_KEY, ...(open ? keys.filter((k) => !isCardKey(k)) : [])];
+
 export const pendingView = (board) => openTasks(board)
   .filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || issueNumber(x.id) - issueNumber(y.id))
   .map((t) => ({ id: t.id, title: t.title, url: t.url ?? null }));
@@ -418,7 +432,7 @@ export const WINDOW_WORDS = {
     gone: "窗口已关，任务还拿着没交还",
     withState: (name, state) => `${name}（${state}）`, idleRow: (n, names) => `没认领 ${n} · ${names.join("、")}`,
     none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言",
-    pending: (n) => `待决 ${n}`, windowsFold: (n) => `窗口分组 ${n}` },
+    pending: (n) => `待决 ${n}`, tasksFold: ({ doing, stopped, unclaimed }) => `agent 在做 ${doing} · 停了 ${stopped} · 没认领 ${unclaimed}` },
   en: { waiting: "Waiting", pushing: "Moving", closed: (n) => `${n} closed`, stopped: "Stopped", done: "Done", working: "Working", idle: "Idle", todo: "Not started", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
     headline: (n) => `${n} window${n === 1 ? "" : "s"} waiting on you`, waited: (d) => `waiting ${d}`, go: "Go to window →", issue: "Open on GitHub →",
@@ -426,7 +440,7 @@ export const WINDOW_WORDS = {
     gone: "Window closed, task still held",
     withState: (name, state) => `${name} (${state.toLowerCase()})`, idleRow: (n, names) => `No task ${n} · ${names.join(", ")}`,
     none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language",
-    pending: (n) => `Pending ${n}`, windowsFold: (n) => `Window groups ${n}` },
+    pending: (n) => `Pending ${n}`, tasksFold: ({ doing, stopped, unclaimed }) => `Agents working ${doing} · stopped ${stopped} · unclaimed ${unclaimed}` },
 };
 
 const FIRST = 0;
@@ -556,12 +570,12 @@ export const OKR_WORDS = {
     status: { met: "达标", missed: "未达标", stale: "过期", untested: "未测" },
     trend: { closer: "在变好", away: "在变差", flat: "没动", null: "首次读数" },
     target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮未达标`, wait: "要你做",
-    mismatch: (ts) => `预期不符 ${ts.join(" ")}` },
+    mismatch: (ts) => `预期不符 ${ts.join(" ")}`, noObjective: "这个项目还没有 O" },
   en: { headline: (n) => `${n} thing${n === 1 ? "" : "s"} for you`, summary: (met, total, at) => `OKR ${met}/${total} met${at ? ` · measured ${at}` : ""}`,
     kind: { five: "Missed 5 rounds", stuck: "No better in 2 rounds", wait: "Needs you", accept: "Ready to accept" },
     waits: (o, n) => `${o}: ${n} KRs waiting on you`, list: ", ",
     status: { met: "Met", missed: "Missed", stale: "Stale", untested: "Untested" },
     trend: { closer: "Getting closer", away: "Moving away", flat: "Flat", null: "First reading" },
     target: "Target", value: "Value", asOf: "As of", source: "Source", trendLabel: "Trend", rounds: (n) => `missed ${n} rounds in a row`, wait: "Needs you to",
-    mismatch: (ts) => `Not as declared ${ts.join(" ")}` },
+    mismatch: (ts) => `Not as declared ${ts.join(" ")}`, noObjective: "No Objective for this project yet" },
 };

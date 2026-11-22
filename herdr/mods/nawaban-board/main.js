@@ -3,7 +3,8 @@ import { v_flex, h_flex, Popover, HoverCard, Collapsible, Accordion, AccordionIt
   AccordionPanel, Progress, ProgressTrack, ProgressIndicator } from "gpui-base";
 import { spaces, focused, agents, terminals, run, exec, theme, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
 import { projectFor, repoName, cliFor, resolveLang, moveSelection, keyCommand, boardChanged, okrChanged, folderOf, canGo, leadersView,
-  itemLabel, decisionDate, isoMonthDay, WINDOW_WORDS, pendingView, okrView, OKR_WORDS, OKR_FOLDER_IN_REPO } from "./logic.js";
+  itemLabel, decisionDate, isoMonthDay, WINDOW_WORDS, pendingView, okrView, OKR_WORDS, OKR_FOLDER_IN_REPO, okrReadingOfFailure, hasNoObjective,
+  TASKS_FOLD_KEY, tasksFoldView, keysWithTasksFold } from "./logic.js";
 
 const UNWATCHED_BOARD_REREAD_MS = 5000;
 const WATCHED_BOARD_MISSED_CHANGE_REREAD_MS = 60000;
@@ -92,7 +93,7 @@ export default class NawabanBoard extends View {
     this.watchedBoardFiles = new Set();
     this.githubBoardOfPlace = new Map();
     this.unfolded = new Set();
-    this.githubWindowsOpen = false;
+    this.tasksOpen = false;
     this.okr = null;
     this.okrPlace = null;
     this.okrFlight = new Map();
@@ -137,8 +138,14 @@ export default class NawabanBoard extends View {
   act(cmd) {
     if (cmd === "focus") return this.keyboard.focus();
     if (cmd === "back") { this.selectedKey = null; return; }
-    if (cmd === "open") { const x = this.selectableByKey.get(this.selectedKey); if (x) go(x); return; }
+    if (cmd === "open") return this.openSelected();
     if (cmd === "down" || cmd === "up") this.selectedKey = moveSelection(this.keys, this.selectedKey, cmd === "down" ? 1 : -1);
+  }
+
+  openSelected() {
+    if (this.selectedKey === TASKS_FOLD_KEY) { this.tasksOpen = !this.tasksOpen; return; }
+    const x = this.selectableByKey.get(this.selectedKey);
+    if (x) go(x);
   }
 
   refresh(cx) {
@@ -228,7 +235,7 @@ export default class NawabanBoard extends View {
     this.okrFlight.set(at.key, gen);
     cx.spawn(async (cx) => {
       const via = cliFor(repoName(await this.gitOf(at)), at.on);
-      const okr = await nawaban(["json", "okr"], at, OKR_READ_GIVEN_UP_AFTER_MS, via).catch(() => null);
+      const okr = await nawaban(["json", "okr"], at, OKR_READ_GIVEN_UP_AFTER_MS, via).catch(okrReadingOfFailure);
       if (!this.isNewestOkrRead(at, gen)) return;
       this.okrFlight.delete(at.key);
       if (placeChangedFrom(at.key)) return;
@@ -275,8 +282,8 @@ export default class NawabanBoard extends View {
     return nothingToShow ? w.none : null;
   }
 
-  rememberSelectable(v, github) {
-    this.keys = github && !this.githubWindowsOpen ? v.keys.filter((k) => k.startsWith("card:")) : v.keys;
+  rememberSelectable(v) {
+    this.keys = this.board ? keysWithTasksFold(v.keys, this.tasksOpen) : v.keys;
     this.selectableByKey = new Map([...v.waiting, ...v.groups.flatMap((g) => g.items)].map((x) => [x.key, x]));
   }
 
@@ -288,7 +295,7 @@ export default class NawabanBoard extends View {
     const v = leadersView({ agents: all, terminals: terminals(), space, board: this.board, now, lang: this.lang,
       projects: this.projectsList, project: this.project });
     const github = this.board?.tracker === "github";
-    this.rememberSelectable(v, github);
+    this.rememberSelectable(v);
     const keyboard = this.keyboard.is_focused();
     const note = this.statusNote(v, mine, w);
     const okr = okrView(this.okr, this.lang);
@@ -306,8 +313,8 @@ export default class NawabanBoard extends View {
         .when(true, cards)
         .when(github, (el) => this.pendingRows(el, pendingView(this.board), t, w))
         .when(Boolean(okr), (el) => this.okrSection(el, okr, sep, t, OKR_WORDS[this.lang]))
-        .when(!github, groups)
-        .when(github, (el) => this.windowsFold(el, groups, v, t, w)));
+        .when(hasNoObjective(this.okr), (el) => this.noObjectiveRow(el, sep, t, OKR_WORDS[this.lang]))
+        .when(Boolean(this.board), (el) => this.tasksFold(el, groups, v, keyboard, t, w)));
   }
 
   noteWidth(size, cx) {
@@ -346,6 +353,12 @@ export default class NawabanBoard extends View {
         .child(div().flex_none().px(16).pt(6).pb(10).text_size(20).font_semibold().text_color(t.blocked).child(o.headline(v.attention.length)))
         .child(v_flex().flex_none().px(12).gap(8).children(v.attention.map((a) => this.okrCard(a, t, o)))))
       .child(Accordion.new("nawaban-okr").flex_none().pt(6).children(v.objectives.map((ob, i) => this.objective(ob, i, t, o))))
+      .child(sep());
+  }
+
+  noObjectiveRow(el, sep, t, o) {
+    return el
+      .child(div().flex_none().px(16).pt(6).pb(4).text_size(12).text_color(t.dim).truncate().child(o.noObjective))
       .child(sep());
   }
 
@@ -449,15 +462,22 @@ export default class NawabanBoard extends View {
           .child(div().flex_1().min_w(0).truncate().font_semibold().child(p.title))))));
   }
 
-  windowsFold(el, groups, v, t, w) {
-    const countedWithoutCards = v.groups.length + (v.idle.count > 0 ? 1 : 0);
+  toggleTasks(cx) {
+    this.selectedKey = TASKS_FOLD_KEY;
+    this.tasksOpen = !this.tasksOpen;
+    cx.notify();
+  }
+
+  tasksFold(el, groups, v, keyboard, t, w) {
+    const selected = this.selectedKey === TASKS_FOLD_KEY;
     return el
-      .child(Collapsible.new().flex().flex_col().open(Boolean(this.githubWindowsOpen))
-        .child(h_flex().id("nawaban-windows").h(28).mt(10).px(16).gap(8).items_center().cursor_pointer()
+      .child(Collapsible.new().flex().flex_col().open(this.tasksOpen)
+        .child(h_flex().id("nawaban-tasks").h(28).mt(10).px(16).gap(8).items_center().cursor_pointer()
           .text_size(12).text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .on_click((_e, cx) => { this.githubWindowsOpen = !this.githubWindowsOpen; cx.notify(); })
-          .child(chevron(this.githubWindowsOpen))
-          .child(div().flex_1().min_w(0).truncate().child(w.windowsFold(countedWithoutCards))))
+          .when(selected, (el) => el.bg(keyboard ? t.selected : t.hover))
+          .on_click((_e, cx) => this.toggleTasks(cx))
+          .child(chevron(this.tasksOpen))
+          .child(div().flex_1().min_w(0).truncate().child(w.tasksFold(tasksFoldView(v)))))
         .content(groups(v_flex())));
   }
 

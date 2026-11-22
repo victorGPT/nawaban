@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { leadersView, pendingView, okrView, OKR_WORDS, BOARD_PROJECTS } from "./logic.js";
+import { leadersView, pendingView, okrView, OKR_WORDS, WINDOW_WORDS, BOARD_PROJECTS, tasksFoldView } from "./logic.js";
 
 const called = new Set();
 let onSize = null;
@@ -119,7 +119,7 @@ test("on a GitHub board the panel draws issue titles, 在推, and the 已关 row
       for (const board of [ghBoard, withPending]) {
         const view = new NawabanBoard();
         view.init({}, cx);
-        Object.assign(view, { lang: "zh", board, windowsOpen: unfold });
+        Object.assign(view, { lang: "zh", board, tasksOpen: unfold });
         if (unfold) view.unfolded.add("t6");
         view.render(cx);
       }
@@ -154,18 +154,18 @@ test("on a GitHub board a blocked worker is a 等你 card above the pending deci
   try {
     let { view, v } = draw();
     assert.deepEqual(v.waiting.map((c) => c.focus), ["t9"]);
-    assert.deepEqual(view.keys, ["card:0"]);
-    const order = ["1 个窗口在等你", "待决 1", summary, "窗口分组"].map(at);
+    assert.deepEqual(view.keys, ["card:0", "tasks"]);
+    const order = ["1 个窗口在等你", "待决 1", summary, "agent 在做"].map(at);
     assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join(","));
-    assert.ok(texts.includes(`窗口分组 ${v.groups.length + (v.idle.count > 0 ? 1 : 0)}`));
+    assert.ok(texts.includes(WINDOW_WORDS.zh.tasksFold(tasksFoldView(v))));
     clicks.get("nawaban-card-0")({}, cx);
     assert.deepEqual(focused, [["agent.focus", { terminal: "t9" }]]);
     terminals = saved.map((k) => (k.status === "blocked" ? { ...k, status: "done" } : k));
     ({ view, v } = draw());
-    assert.deepEqual([v.waiting, view.keys, clicks.has("nawaban-card-0")], [[], [], false]);
+    assert.deepEqual([v.waiting, view.keys, clicks.has("nawaban-card-0")], [[], ["tasks"], false]);
     assert.ok(!texts.some((s) => s.includes("个窗口在等你")));
-    assert.ok(at("待决 1") < at(summary) && at(summary) < at("窗口分组"));
-    assert.ok(texts.includes(`窗口分组 ${v.groups.length + (v.idle.count > 0 ? 1 : 0)}`));
+    assert.ok(at("待决 1") < at(summary) && at(summary) < at("agent 在做"));
+    assert.ok(texts.includes(WINDOW_WORDS.zh.tasksFold(tasksFoldView(v))));
   } finally {
     terminals = saved;
     runImpl = async () => {};
@@ -176,7 +176,7 @@ test("on a GitHub board a blocked worker is a 等你 card above the pending deci
   Object.assign(view, { lang: "zh", board, okr });
   view.render(cx);
   const local = leadersView({ agents, terminals, space: "here", board, now, lang: "zh" });
-  const order = [`${local.waiting.length} 个窗口在等你`, summary, local.groups[0].name].map(at);
+  const order = [`${local.waiting.length} 个窗口在等你`, summary, WINDOW_WORDS.zh.tasksFold(tasksFoldView(local)), local.groups[0].name].map(at);
   assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join(","));
 });
 
@@ -394,6 +394,91 @@ test("A, then B, then back to A: a late answer never overwrites a newer one, nor
     assert.equal(view.okr.def_commit, "A2");
   } finally {
     where = here;
+    execImpl = async () => ({ code: 1 });
+  }
+});
+
+test("the task list starts folded into one line whose counts are the open list's, and Enter or a click opens and closes it", () => {
+  const cx = { spawn() {}, notify() {}, stop_propagation() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => true, focus() {} }) };
+  const v = leadersView({ agents, terminals, space: "here", board, now, lang: "zh" });
+  const items = v.groups.flatMap((g) => g.items);
+  const labels = items.map((x) => x.state);
+  const counts = { doing: labels.filter((s) => s === "current" || s === "pushing").length,
+    stopped: labels.filter((s) => s === "stopped" || s === "waiting").length, unclaimed: v.idle.count };
+  assert.deepEqual(tasksFoldView(v), counts);
+  assert.ok(counts.doing && counts.stopped && counts.unclaimed);
+  const line = `agent 在做 ${counts.doing} · 停了 ${counts.stopped} · 没认领 ${counts.unclaimed}`;
+  const cards = v.keys.filter((k) => k.startsWith("card:")), rows = v.keys.filter((k) => !k.startsWith("card:"));
+  const view = new NawabanBoard();
+  view.init({}, cx);
+  Object.assign(view, { lang: "zh", board });
+  texts.length = 0;
+  view.render(cx);
+  assert.equal(view.tasksOpen, false);
+  assert.ok(texts.includes(line), line);
+  assert.deepEqual(view.keys, [...cards, "tasks"]);
+  for (const _ of view.keys) view.onKey({ keystroke: "down" }, cx);
+  assert.equal(view.selectedKey, "tasks");
+  view.onKey({ keystroke: "enter" }, cx);
+  view.render(cx);
+  assert.equal(view.tasksOpen, true);
+  assert.deepEqual(view.keys, [...cards, "tasks", ...rows]);
+  view.onKey({ keystroke: "down" }, cx);
+  assert.equal(view.selectedKey, rows[0]);
+  view.onKey({ keystroke: "up" }, cx);
+  view.act("open");
+  view.render(cx);
+  assert.deepEqual([view.tasksOpen, view.keys], [false, [...cards, "tasks"]]);
+  clicks.get("nawaban-tasks")({}, cx);
+  assert.equal(view.tasksOpen, true);
+  const reopened = new NawabanBoard();
+  reopened.init({}, cx);
+  assert.equal(reopened.tasksOpen, false);
+  Object.assign(reopened, { lang: "en", board: ghBoard });
+  texts.length = 0;
+  reopened.render(cx);
+  const gh = leadersView({ agents, terminals, space: "here", board: ghBoard, now, lang: "en" });
+  assert.ok(texts.includes(WINDOW_WORDS.en.tasksFold(tasksFoldView(gh))));
+  assert.deepEqual(reopened.keys, [...gh.keys.filter((k) => k.startsWith("card:")), "tasks"]);
+});
+
+test("a project without okr.toml says it has no Objective yet, between the cards and the task line; any other failed read says nothing", async () => {
+  const quiet = { spawn() {}, notify() {} };
+  const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+  const settle = () => new Promise((r) => setImmediate(r));
+  const missing = JSON.stringify({ error: "没有 docs/agents/okr.toml:KR 定义写在仓库里,O 由决策者定、KR 由决策者点头" });
+  const answers = { missing: { code: 1, stdout: missing }, older: { code: 2, stdout: "", stderr: "invalid choice: 'okr'" },
+    refused: { code: 1, stdout: JSON.stringify({ error: "json okr 要在 git 仓库里跑,或给 --repo" }) } };
+  try {
+    for (const [why, answer] of Object.entries(answers)) {
+      execImpl = async (_cmd, args = []) => {
+        if (args[1] !== "json") return { code: 1, stdout: "" };
+        if (args[2] === "okr") return answer;
+        return { code: 0, stdout: JSON.stringify(args[2] === "board" ? board : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
+      };
+      for (const lang of ["zh", "en"]) {
+        const view = new NawabanBoard();
+        view.init({}, cx);
+        await settle();
+        view.lang = lang;
+        texts.length = 0;
+        view.render(cx);
+        const said = OKR_WORDS[lang].noObjective;
+        if (why !== "missing") { assert.ok(!texts.includes(said), why); continue; }
+        const local = leadersView({ agents, terminals, space: "here", board, now, lang });
+        const at = (s) => texts.indexOf(s);
+        const order = [WINDOW_WORDS[lang].headline(local.waiting.length), said, WINDOW_WORDS[lang].tasksFold(tasksFoldView(local))].map(at);
+        assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join(","));
+      }
+    }
+    assert.equal(OKR_WORDS.en.noObjective, "No Objective for this project yet");
+    const unread = new NawabanBoard();
+    unread.init({}, { spawn() {}, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) });
+    Object.assign(unread, { lang: "zh", board });
+    texts.length = 0;
+    unread.render(cx);
+    assert.ok(!texts.includes(OKR_WORDS.zh.noObjective));
+  } finally {
     execImpl = async () => ({ code: 1 });
   }
 });
