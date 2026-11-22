@@ -234,13 +234,15 @@ def test_a_pending_decision_is_a_待决_line_anywhere_in_a_comment(board, monkey
     out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", BRIEF)])])
     assert out["tasks"]["#1"]["pending"] == {
         "brief": "**待决**：上线 A 还是 B\n【推荐】A\n【选项】A / B", "at": ts("2026-11-07T01:00:00Z"),
-        "progress": [{"body": "测完了。", "at": ts("2026-11-07T01:00:00Z")}]}  # what comes before the 待决 line is a 进展
+        "progress": [{"body": "测完了。", "at": ts("2026-11-07T01:00:00Z")}],  # what comes before the 待决 line is a 进展
+        "card": None, "talk": None, "ruled_after": False}
 
 
 def test_a_pending_decision_in_the_body_is_raised_when_the_issue_was(board, monkeypatch, capsys):
     body = "背景。\n需要你定：要不要拆"
     out = _board(monkeypatch, capsys, [_issue(1, body, created="2026-11-06T00:00:00Z")])
-    assert out["tasks"]["#1"]["pending"] == {"brief": "需要你定：要不要拆", "at": ts("2026-11-06T00:00:00Z"), "progress": []}
+    assert out["tasks"]["#1"]["pending"] == {"brief": "需要你定：要不要拆", "at": ts("2026-11-06T00:00:00Z"), "progress": [],
+                                             "card": None, "talk": None, "ruled_after": False}
 
 
 def test_already_resolved_ends_a_pending_decision_and_决定_does_not(board, monkeypatch, capsys):
@@ -267,3 +269,48 @@ def test_a_进展_posted_the_same_second_as_the_pending_decision_still_counts(bo
     s = "2026-11-07T01:00:00Z"
     out = _board(monkeypatch, capsys, [_issue(1, comments=[(s, "进展：独立验收通过"), (s, "进展：准备上线\n待决：选 A 还是 B")])])
     assert [n["body"] for n in out["tasks"]["#1"]["pending"]["progress"]] == ["独立验收通过", "准备上线"]
+
+
+CARD = "\n".join(["待决：【Decision】sourcemap 传不传", "【Objective / KR】无", "【Context】前端只有压缩堆栈",
+                  "【Options】", "- A：传｜可撤回", "- B：不传", "【Recommendation】A：好查"])
+
+
+def test_a_full_decision_card_comes_apart_into_its_fields_and_lettered_options(board, monkeypatch, capsys):
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", CARD)])])
+    assert out["tasks"]["#1"]["pending"]["card"] == {
+        "decision": "sourcemap 传不传", "kr": "无", "context": "前端只有压缩堆栈", "rec": "A：好查",
+        "options": [{"key": "A", "text": "传", "note": "可撤回"}, {"key": "B", "text": "不传", "note": ""}]}
+
+
+@pytest.mark.parametrize("brief", [CARD.replace("【Context】前端只有压缩堆栈\n", ""), CARD.replace("\n- B：不传", ""),
+                                   "待决：定 A 还是 B\n【推荐】A"])
+def test_a_card_missing_a_field_or_a_second_option_is_no_card(board, monkeypatch, capsys, brief):
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", brief)])])
+    assert out["tasks"]["#1"]["pending"]["card"] is None
+
+
+def test_unlettered_options_are_named_by_their_place(board, monkeypatch, capsys):
+    brief = CARD.replace("- A：传", "- 传").replace("- B：不传", "- 不传")
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", brief)])])
+    assert [o["key"] for o in out["tasks"]["#1"]["pending"]["card"]["options"]] == ["第 1 项", "第 2 项"]
+
+
+@pytest.mark.parametrize("option, talk", [("- B：先去 t1d2 窗口盘问", {"window": "t1d2"}),
+                                          ("- B：细节到窗口盘问", {"window": None}), ("- B：不传", None)])
+def test_a_card_that_sends_you_to_a_window_is_a_talk(board, monkeypatch, capsys, option, talk):
+    brief = CARD.replace("- B：不传", option)
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", brief)])])
+    assert out["tasks"]["#1"]["pending"]["talk"] == talk
+
+
+@pytest.mark.parametrize("later, ruled", [("进展：拆法吴献忠在窗口回「行」", True), ("进展：吴献忠 11-21 拍板", True),
+                                          ("进展：吴献忠说先不急", True), ("进展：等吴献忠拍板", False), ("进展：测完了", False)])
+def test_a_later_进展_saying_the_owner_ruled_marks_the_card_maybe_decided(board, monkeypatch, capsys, later, ruled):
+    monkeypatch.setenv("NAWABAN_OWNER_NAMES", "吴献忠")
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", CARD), ("2026-11-07T02:00:00Z", later)])])
+    assert out["tasks"]["#1"]["pending"]["ruled_after"] is ruled
+
+
+def test_only_a_进展_after_the_card_counts_as_the_owner_ruling(board, monkeypatch, capsys):
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T00:00:00Z", "进展：已拍板旧事"), ("2026-11-07T01:00:00Z", CARD)])])
+    assert out["tasks"]["#1"]["pending"]["ruled_after"] is False

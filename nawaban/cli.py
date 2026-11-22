@@ -1158,7 +1158,7 @@ def _kr_view(name: str, kr: dict, rs: list, accepts: dict, declared: list, atten
     missed_after_accept = name in accepts and any(r["measured_at"] > accepts[name] and not ok(r) for r in rs)
     pending, mismatch = _impacts(op, g, rs, declared)
     recent = rs[-RECENT_READINGS_SHOWN:]
-    view = {"name": kr["name"], "target": f"{op} {goal}", "unit": kr.get("unit", ""), "status": status,
+    view = {"name": kr["name"], "target": f"{op} {goal}", "target_op": op, "target_value": float(goal), "unit": kr.get("unit", ""), "status": status,
             "value": last and float(last["value"]), "as_of": last and last["as_of"],
             "source": last and last["source"],
             "history": [{"value": float(r["value"]), "as_of": r["as_of"]} for r in recent],
@@ -1444,8 +1444,57 @@ def _issue_pending(i: dict) -> dict | None:
     c, k = found
     lines = c["body"].splitlines()
     notes = _prefixed([{**x, "body": "\n".join(lines[:k])} if x is c else x for x in i["comments"]], "进展")
-    return {"brief": "\n".join(lines[k:]), "at": _at(c["createdAt"]),
-            "progress": [{"body": b, "at": t} for b, t in notes[-PENDING_NOTES:]]}
+    brief, at = "\n".join(lines[k:]), _at(c["createdAt"])
+    return {"brief": brief, "at": at,
+            "progress": [{"body": b, "at": t} for b, t in notes[-PENDING_NOTES:]],
+            "card": _decision_card(brief), "talk": _talk_in_a_window(brief),
+            "ruled_after": _owner_ruled_since([b for b, t in notes if t > at], _owner_names())}
+
+
+_CARD_FIELD = re.compile(r"【(Decision|Objective / KR|Context|Options|Recommendation)】(.*)")
+_CARD_OPTION_LINE = re.compile(r"^\s*[-*]\s+(.*)")
+_CARD_OPTION_LETTER = re.compile(r"^([A-Z])\s*[：:]\s*")
+_CARD_OPTION_NOTE = "｜"
+_CARD_FIELD_KEYS = {"Decision": "decision", "Objective / KR": "kr", "Context": "context", "Recommendation": "rec"}
+
+
+def _decision_card(brief: str) -> dict | None:
+    fields, options, in_options = {}, [], False
+    for ln in brief.splitlines():
+        m = _CARD_FIELD.search(ln)
+        if m:
+            in_options = m.group(1) == "Options"
+            if not in_options:
+                fields[_CARD_FIELD_KEYS[m.group(1)]] = m.group(2).strip()
+        elif in_options and (o := _CARD_OPTION_LINE.match(ln)):
+            options.append(_card_option(o.group(1).strip(), len(options)))
+    complete = all(fields.get(k) for k in _CARD_FIELD_KEYS.values()) and len(options) >= MIN_DECISION_OPTIONS
+    return {**fields, "options": options} if complete else None
+
+
+def _card_option(line: str, position: int) -> dict:
+    lettered = _CARD_OPTION_LETTER.match(line)
+    text, _, note = line[lettered.end() if lettered else 0:].partition(_CARD_OPTION_NOTE)
+    return {"key": lettered.group(1) if lettered else f"第 {position + 1} 项", "text": text.strip(), "note": note.strip()}
+
+
+_GO_TO_A_WINDOW = re.compile(r"[去到在]\s*([\w.-]+?)\s*窗口")
+_TALK_IN_A_WINDOW = "窗口盘问"
+
+
+def _talk_in_a_window(brief: str) -> dict | None:
+    named = _GO_TO_A_WINDOW.search(brief)
+    if not named and _TALK_IN_A_WINDOW not in brief:
+        return None
+    return {"window": named.group(1) if named else None}
+
+
+_OWNER_SAID_GO = "回「行」"
+
+
+def _owner_ruled_since(notes: list[str], names: list[str]) -> bool:
+    asking = _asking_for_a_ruling(names)
+    return any(w in asking.sub("", n) for n in notes for w in ["拍板", _OWNER_SAID_GO, *names])
 
 
 def _latest_unresolved_ask_line(i: dict) -> tuple[dict, int] | None:

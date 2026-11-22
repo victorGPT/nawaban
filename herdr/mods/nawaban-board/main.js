@@ -1,9 +1,10 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, HoverCard } from "gpui-base";
-import { spaces, focused, agents, terminals, run, exec, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
+import { spaces, focused, agents, terminals, run, exec, hc, checking, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
 import { projectFor, repoName, cliFor, resolveLang, moveSelection, keyCommand, boardChanged, okrChanged, folderOf, canGo, panelView,
   sinceLabel, isoMonthDay, WINDOW_WORDS, pendingView, okrView, OKR_WORDS, OKR_FOLDER_IN_REPO, okrReadingOfFailure, hasNoObjective,
-  taskSections, panelKeys, groupOfKey, foldKey, isGroupOpen, MORE_DONE_KEY } from "./logic.js";
+  taskSections, panelKeys, groupOfKey, foldKey, isGroupOpen, MORE_DONE_KEY, decisionCardsView, repoRootOf, TO_ORCHESTRATOR,
+  marksStillToKeep } from "./logic.js";
 
 const UNWATCHED_BOARD_REREAD_MS = 5000;
 const WATCHED_BOARD_MISSED_CHANGE_REREAD_MS = 60000;
@@ -26,7 +27,8 @@ const GROUP_LOOK = {
   todo: { dot: INK.untouched, side: INK.dim },
   done: { dot: INK.finished, side: INK.dim, faded: true },
 };
-const KR_DOT = { missed: INK.red, stale: INK.amber, met: INK.green, untested: INK.untouched };
+const GAP_COLOR = { missed: INK.red, stale: INK.amber, met: INK.green, untested: INK.dim };
+const OBJECTIVE_TALLY_COLOR = { missed: INK.red, unsure: INK.muted, met: INK.green };
 const ROW_H = 32;
 const GROUP_HEADER_H = 28;
 const ROW_PX = 10;
@@ -49,6 +51,13 @@ const ICON_BUTTON = 24;
 const BREATH = { from: 1, to: 0.35, period: 2000 };
 const FOLDS_STORE = "folds";
 const ALL_DONE_STORE = "doneShownAll";
+const RETURNED_STORE = "incompleteCardsReturned";
+const OBJECTIVE_SIZE = 15;
+const KR_NAME_SIZE = 13;
+const KR_VALUE_SIZE = 14;
+const BUTTON_H = 26;
+const DISABLED_OPACITY = 0.3;
+const PROGRESS_LINES_SHOWN = 2;
 
 function place() {
   const space = spaces().find((s) => s.active);
@@ -79,6 +88,8 @@ async function nawaban(args, at, timeout, via = "old") {
 }
 
 const goTo = (terminal) => run("agent.focus", { terminal });
+const say = (terminal, text) => hc(["send", terminal, text])
+  .then((r) => (r.code === 0 ? null : lastLine(r.stderr) || "exit " + r.code), (e) => String(e?.message ?? e));
 const openInBrowser = (url) => exec("open", [url]).catch(() => null);
 const go = (x) => (x.focus != null ? goTo(x.focus) : x.url ? openInBrowser(x.url) : null);
 
@@ -122,6 +133,9 @@ export default class NawabanBoard extends View {
     this.okrFlight = new Map();
     this.okrGen = 0;
     this.okrTomlWatch = null;
+    this.openCard = null;
+    this.picked = {};
+    this.cardSaid = {};
     this.keys = [];
     this.selectableByKey = new Map();
     this.selectedKey = null;
@@ -169,6 +183,7 @@ export default class NawabanBoard extends View {
     if (group) return this.toggleGroup(group);
     if (this.selectedKey === MORE_DONE_KEY) return this.toggleAllDone();
     const x = this.selectableByKey.get(this.selectedKey);
+    if (x?.card) return this.toggleCard(x.key);
     if (x && canGo(x)) go(x);
   }
 
@@ -181,7 +196,7 @@ export default class NawabanBoard extends View {
     this.placeShown = key;
     cx.spawn(async (cx) => {
       try {
-        const git = await this.gitOf(at), via = cliFor(repoName(git), at.on);
+        const git = await this.gitOf(at), via = cliFor(repoName(git), at.on), repo = repoRootOf(git);
         const projects = await nawaban(["json", "projects"], at, undefined, via);
         if (!this.projectOfPlace.has(key)) await this.learnPlace(at, git, projects, via);
         this.db = this.boardFileOfPlace.get(key);
@@ -189,7 +204,8 @@ export default class NawabanBoard extends View {
         const project = this.projectOfPlace.get(key);
         const board = await this.boardReusingGithubWithinWindow(at, project, via);
         if (placeChangedFrom(key)) return;
-        Object.assign(this, { project, projectsList: projects, board, error: null });
+        Object.assign(this, { project, projectsList: projects, board, repo, error: null });
+        if (board.tracker === "github") await this.returnIncompleteCards(board, repo);
       } catch (e) {
         this.keepLastBoardShowing(e);
       } finally {
@@ -210,6 +226,22 @@ export default class NawabanBoard extends View {
     const board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], at, undefined, via);
     if (board.tracker === "github") this.githubBoardOfPlace.set(at.key, { board, at: started });
     return board;
+  }
+
+  returnedCards() {
+    return readStored(RETURNED_STORE, {})[this.projectKey()] ?? [];
+  }
+
+  async returnIncompleteCards(board, repo) {
+    if (checking()) return;
+    const project = this.projectKey(), returned = this.returnedCards();
+    const v = decisionCardsView(board, { terminals: terminals(), repo, returned });
+    const due = v.orchestrator ? v.incomplete.unreturned.map((x) => x.mark) : [];
+    const keep = (justReturned) => store(RETURNED_STORE, { ...readStored(RETURNED_STORE, {}), [project]: marksStillToKeep(returned, v.incomplete, justReturned) });
+    keep(due);
+    if (!due.length) return;
+    const failed = await say(v.orchestrator, TO_ORCHESTRATOR.incomplete(v.incomplete.unreturned.map((x) => x.id)));
+    if (failed) keep([]);
   }
 
   keepLastBoardShowing(e) {
@@ -322,9 +354,27 @@ export default class NawabanBoard extends View {
     store(ALL_DONE_STORE, this.allDone);
   }
 
-  rememberSelectable(decisions, krs, sections, tasks) {
-    this.keys = panelKeys(decisions.map((r) => r.key), krs.map((r) => r.key), sections);
-    this.selectableByKey = new Map([...decisions, ...krs, ...tasks].map((r) => [r.key, r]));
+  answerKey(c) {
+    return this.projectKey() + ":" + c.mark;
+  }
+
+  toggleCard(key) {
+    this.openCard = this.openCard === key ? null : key;
+  }
+
+  rememberSelectable(decisions, objectives, sections, tasks) {
+    this.keys = panelKeys(decisions.map((r) => r.key), objectives.flatMap((x) => x.keys), sections);
+    this.selectableByKey = new Map([...decisions, ...objectives.flatMap((x) => [...x.krs, ...x.met]), ...tasks].map((r) => [r.key, r]));
+  }
+
+  objectiveRows(okr, project, o) {
+    return (okr?.objectives ?? []).map((ob, i) => {
+      const open = isGroupOpen(this.folds, project, ob.fold), foldRow = "group:" + ob.fold;
+      const krs = ob.krs.map((k, j) => this.krRow(k, i, j, o));
+      const met = open ? ob.metKrs.map((k, j) => this.krRow(k, i, ob.krs.length + j, o)) : [];
+      const folding = ob.metKrs.length ? [foldRow, ...met.map((r) => r.key)] : [];
+      return { ob, open, foldRow, krs, met, keys: ob.standing === "met" ? folding : [...krs.map((r) => r.key), ...folding] };
+    });
   }
 
   render(cx) {
@@ -335,12 +385,17 @@ export default class NawabanBoard extends View {
     const v = panelView({ agents: all, terminals: terminals(), space, board: this.board, now, lang: this.lang,
       projects: this.projectsList, project: this.project });
     const project = this.projectKey();
-    const decisions = [...v.waiting.map((x) => this.cardRow(x, w)), ...pendingView(this.board).map((p) => this.pendingRow(p, w))];
+    const github = this.board?.tracker === "github";
+    const cards = github ? decisionCardsView(this.board, { terminals: terminals(), repo: this.repo, returned: this.returnedCards() }) : null;
+    this.cardsView = cards;
+    const decisions = [...v.waiting.map((x) => this.cardRow(x, w)),
+      ...(cards ? cards.cards.map((c) => this.decisionRow(c, w)) : pendingView(this.board).map((p) => this.pendingRow(p, w)))];
+    const incomplete = cards?.incomplete.ids.length ? cards.incomplete : null;
     const okr = okrView(this.okr, this.lang);
-    const krs = (okr?.objectives ?? []).flatMap((ob, i) => ob.krs.map((k, j) => this.krRow(k, i, j, o)));
+    const objectives = this.objectiveRows(okr, project, o);
     const sections = taskSections(v.tasks, { folds: this.folds, project, allDone: Boolean(this.allDone[project]), lang: this.lang })
       .map((s) => ({ ...s, rows: s.items.map((x) => this.taskRow(x, s.group, now, w)) }));
-    this.rememberSelectable(decisions, krs, sections, sections.flatMap((s) => s.rows));
+    this.rememberSelectable(decisions, objectives, sections, sections.flatMap((s) => s.rows));
     const keyboard = this.keyboard.is_focused();
     const note = this.statusNote(v, mine, w);
 
@@ -350,9 +405,10 @@ export default class NawabanBoard extends View {
       .child(this.header(w, mine.length, v.otherWaiting))
       .child(v_flex().id("nawaban-body").flex_1().min_h(0).overflow_y_scrollbar().p(BODY_PAD).gap(SECTION_GAP)
         .when(Boolean(note), (el) => el.child(div().flex_none().px(ROW_PX).text_size(WHY_SIZE).text_color(INK.muted).child(note)))
-        .when(decisions.length > 0, (el) => el.child(this.section(this.sectionHeader(w.decide, String(decisions.length), INK.amberText),
-          decisions.flatMap((r) => this.row(r, keyboard)))))
-        .when(Boolean(okr), (el) => el.child(this.okrSection(okr, krs, keyboard, o)))
+        .when(decisions.length > 0 || Boolean(incomplete), (el) => el.child(this.section(this.sectionHeader(w.decide, String(decisions.length), INK.amberText),
+          [...decisions.flatMap((r) => this.decisionLines(r, keyboard, cards?.orchestrator, w)),
+            ...(incomplete ? [this.incompleteLine(incomplete, cards.orchestrator, w)] : [])])))
+        .when(Boolean(okr), (el) => el.child(this.okrSection(okr, objectives, keyboard, o)))
         .when(hasNoObjective(this.okr), (el) => el.child(this.noObjective(o)))
         .children(sections.map((s) => this.taskSection(s, keyboard, w))));
   }
@@ -385,9 +441,13 @@ export default class NawabanBoard extends View {
         [w.facts.window, x.where], [w.facts.since, since]] };
   }
 
+  decisionRow(c, w) {
+    return { key: c.key, card: c, dot: INK.amber, title: c.title, why: c.sub, side: w.cards.chip[c.kind],
+      sideColor: c.kind === "maybe" ? INK.amberText : INK.dim, facts: [[w.facts.id, c.id], [w.facts.question, c.title]] };
+  }
+
   krRow(k, objective, j, o) {
-    return { key: "kr:" + objective + "-" + j, objective, dot: KR_DOT[k.status], title: k.name, value: k.value, target: k.target,
-      facts: this.krFacts(k, o) };
+    return { key: "kr:" + objective + "-" + j, objective, kr: k, title: k.name, facts: this.krFacts(k, o) };
   }
 
   krFacts(k, o) {
@@ -402,9 +462,10 @@ export default class NawabanBoard extends View {
     cx.notify();
   }
 
-  selectAndGo(r, cx) {
+  clickRow(r, cx) {
     this.selectedKey = r.key;
-    go(r);
+    if (r.card) this.toggleCard(r.key);
+    else go(r);
     cx.notify();
   }
 
@@ -430,12 +491,6 @@ export default class NawabanBoard extends View {
       .hover((s) => s.bg(INK.hover).text_color(INK.foreground))
       .child(r.goLabel)
       .child(svg(ICON("arrow")).size(CHEVRON).flex_none());
-  }
-
-  krValue(r) {
-    return h_flex().flex_none().gap(4).items_center()
-      .child(div().text_size(13).text_color(INK.value).child(r.value))
-      .when(Boolean(r.target), (el) => el.child(div().text_size(GROUP_SIZE).text_color(INK.dim).child(r.target)));
   }
 
   fact([label, value]) {
@@ -464,7 +519,7 @@ export default class NawabanBoard extends View {
   }
 
   row(r, keyboard) {
-    const selected = r.key === this.selectedKey, reachable = canGo(r), two = Boolean(r.why);
+    const selected = r.key === this.selectedKey, reachable = canGo(r) || Boolean(r.card), two = Boolean(r.why);
     const goShown = reachable && (selected || this.hovered === r.key);
     const line = h_flex().id("nawaban-row-" + r.key).flex_none().px(ROW_PX).gap(ROW_GAP).rounded(8)
       .when(two, (el) => el.items_start().py(ROW_TWO_LINE_PY))
@@ -472,28 +527,148 @@ export default class NawabanBoard extends View {
       .when(selected, (el) => el.bg(INK.selected))
       .when(!selected, (el) => el.hover((s) => s.bg(INK.hover)))
       .on_hover((on, cx) => this.noteHover(r.key, on, cx))
-      .when(reachable, (el) => el.cursor_pointer().on_click((_e, cx) => this.selectAndGo(r, cx)))
+      .when(reachable, (el) => el.cursor_pointer().on_click((_e, cx) => this.clickRow(r, cx)))
       .child(this.dot(r).when(two, (el) => el.mt(ROW_TWO_LINE_PY)))
       .child(v_flex().flex_1().min_w(0).gap(1)
         .child(div().truncate().text_size(TITLE_SIZE).text_color(r.faded ? INK.dim : INK.title).child(r.title))
         .when(two, (el) => el.child(div().truncate().text_size(WHY_SIZE).text_color(INK.muted).child(r.why))))
       .when(goShown, (el) => el.child(this.goLabel(r)))
-      .when(!goShown && r.value != null, (el) => el.child(this.krValue(r)))
       .when(!goShown && Boolean(r.side), (el) => el.child(div().flex_none().text_size(SIDE_SIZE).text_color(r.sideColor).child(r.side)));
     return [this.withFactsOnHover(line, r), ...(keyboard && selected ? [this.factsBelow(r)] : [])];
   }
 
-  okrSection(okr, krs, keyboard, o) {
-    return this.section(this.sectionHeader(o.title, o.tally(okr.met, okr.total, okr.measured), INK.dim),
-      okr.objectives.flatMap((ob, i) => [this.objectiveRow(ob),
-        ...krs.filter((r) => r.objective === i).flatMap((r) => this.row(r, keyboard))]));
+  decisionLines(r, keyboard, orchestrator, w) {
+    const open = Boolean(r.card) && this.openCard === r.key;
+    return [...this.row(r, keyboard), ...(open ? [this.cardDetail(r.card, orchestrator, w.cards)] : [])];
   }
 
-  objectiveRow(ob) {
-    return h_flex().flex_none().h(ROW_H).px(ROW_PX).gap(ROW_GAP).items_center()
-      .child(div().flex_1().min_w(0).truncate().text_size(TITLE_SIZE).font_medium().text_color(INK.title).child(ob.name))
+  handToOrchestrator(c, orchestrator, text, done, cw, cx) {
+    this.cardSaid = { ...this.cardSaid, [this.answerKey(c)]: { text: cw.sending, final: true } };
+    cx.spawn(async (cx) => {
+      const failed = await say(orchestrator, text);
+      this.cardSaid = { ...this.cardSaid, [this.answerKey(c)]: { text: failed ? cw.failed(failed) : done, final: !failed } };
+      cx.notify();
+    });
+  }
+
+  cardDetail(c, orchestrator, cw) {
+    const said = this.cardSaid[this.answerKey(c)];
+    const body = v_flex().id("nawaban-card-" + c.key).flex_none().ml(ROW_PX + DOT + ROW_GAP).mr(ROW_PX).mb(10).gap(10)
+      .text_size(WHY_SIZE).line_height(CARD_LINE_H + "px").text_color(INK.muted);
+    if (said?.final) return body.child(div().whitespace_normal().child(said.text));
+    const picking = c.kind === "pick", needsOrchestrator = c.kind !== "talk";
+    return body
+      .when(picking, (el) => el.child(this.labelled(cw.context, div().text_size(KR_NAME_SIZE).text_color(INK.value).whitespace_normal().child(c.context))))
+      .when(Boolean(c.progress), (el) => el.child(this.labelled(cw.progress,
+        div().max_h(PROGRESS_LINES_SHOWN * CARD_LINE_H).overflow_hidden().whitespace_normal().child(c.progress))))
+      .when(picking, (el) => el.child(v_flex().gap(6).children(c.options.map((opt) => this.optionButton(c, opt))))
+        .child(h_flex().gap(6).items_start().child(div().flex_none().text_color(INK.dim).child(cw.rec))
+          .child(div().flex_1().min_w(0).whitespace_normal().text_color(INK.foreground).child(c.rec))))
+      .when(needsOrchestrator && !orchestrator, (el) => el.child(div().text_color(INK.amberText).child(cw.noOrchestrator)))
+      .when(Boolean(said), (el) => el.child(div().text_color(INK.red).child(said.text)))
+      .child(h_flex().gap(8).items_center().flex_wrap().children(this.cardActions(c, orchestrator, cw))
+        .when(Boolean(c.url), (el) => el.child(div().id("nawaban-full-" + c.key).flex_1().min_w(0).text_color(INK.dim).cursor_pointer()
+          .hover((s) => s.text_color(INK.muted)).on_click(() => openInBrowser(c.url)).child(cw.fullText + " →"))));
+  }
+
+  cardActions(c, orchestrator, cw) {
+    const hand = (text, done) => (cx) => this.handToOrchestrator(c, orchestrator, text, done, cw, cx);
+    const off = !orchestrator, id = (what) => "nawaban-" + what + "-" + c.key;
+    if (c.kind === "pick") {
+      const option = this.picked[this.answerKey(c)];
+      return [this.button(id("settle"), cw.settle, true, off || !option, hand(TO_ORCHESTRATOR.pick(c.id, option), cw.picked(c.id, option))),
+        this.button(id("unclear"), cw.unclear, false, off, hand(TO_ORCHESTRATOR.unclear(c.id), cw.sentBack))];
+    }
+    if (c.kind === "maybe") {
+      return [this.button(id("decided"), cw.decided, true, off, hand(TO_ORCHESTRATOR.decided(c.id), cw.closing(c.id))),
+        this.button(id("not-yet"), cw.notYet, false, false, () => { this.openCard = null; })];
+    }
+    return [this.button(id("talk"), cw.goTalk(c.window.name), true, c.window.focus == null, () => goTo(c.window.focus))];
+  }
+
+  labelled(label, content) {
+    return v_flex().gap(2).child(div().text_size(GROUP_SIZE).text_color(INK.dim).child(label)).child(content);
+  }
+
+  button(id, label, primary, disabled, act) {
+    return h_flex().id(id).flex_none().h(BUTTON_H).px(12).items_center().rounded(6).text_size(KR_NAME_SIZE)
+      .when(primary, (el) => el.bg(INK.foreground).text_color(INK.canvas))
+      .when(!primary, (el) => el.border_1().border_color(INK.border).text_color(INK.muted))
+      .when(disabled, (el) => el.opacity(DISABLED_OPACITY))
+      .when(!disabled, (el) => el.cursor_pointer().on_click((_e, cx) => { act(cx); cx.notify(); }))
+      .child(label);
+  }
+
+  optionButton(c, opt) {
+    const on = this.picked[this.answerKey(c)] === opt.key;
+    return v_flex().id("nawaban-option-" + c.key + "-" + opt.key).flex_none().px(10).py(7).gap(1).rounded(6).border_1().cursor_pointer()
+      .border_color(on ? INK.sky : INK.border)
+      .when(on, (el) => el.bg(INK.selected))
+      .when(!on, (el) => el.hover((s) => s.bg(INK.hover)))
+      .on_click((_e, cx) => { this.picked = { ...this.picked, [this.answerKey(c)]: opt.key }; cx.notify(); })
+      .child(div().text_size(KR_NAME_SIZE).text_color(INK.title).whitespace_normal().child(opt.key + " · " + opt.text))
+      .when(Boolean(opt.note), (el) => el.child(div().text_size(GROUP_SIZE).text_color(INK.dim).child(opt.note)));
+  }
+
+  incompleteLine(incomplete, orchestrator, w) {
+    const state = !incomplete.unreturned.length ? "returned" : orchestrator ? "returning" : "stuck";
+    return div().flex_none().px(ROW_PX).py(6).text_size(SIDE_SIZE).text_color(INK.dim).whitespace_normal()
+      .child(w.cards.incomplete(incomplete.ids, state));
+  }
+
+  okrSection(okr, objectives, keyboard, o) {
+    return this.section(this.sectionHeader(o.title, o.tally(okr.met, okr.total, okr.measured), INK.dim),
+      objectives.flatMap((x) => (x.ob.standing === "met" ? [this.quietObjective(x, o), ...x.met.flatMap((r) => this.krLine(r, keyboard, o, true))]
+        : [this.objectiveHeading(x.ob, o), ...x.krs.flatMap((r) => this.krLine(r, keyboard, o, false)),
+          ...(x.ob.metKrs.length ? [this.metFold(x, o), ...x.met.flatMap((r) => this.krLine(r, keyboard, o, true))] : [])])));
+  }
+
+  objectiveHeading(ob, o) {
+    return h_flex().flex_none().px(ROW_PX).pt(12).pb(4).gap(12).items_end()
+      .child(div().flex_1().min_w(0).truncate().text_size(OBJECTIVE_SIZE).font_semibold().text_color(INK.foreground).child(ob.name))
       .when(Boolean(ob.impacts), (el) => el.child(div().flex_none().text_size(GROUP_SIZE).text_color(INK.dim).child(ob.impacts)))
-      .child(div().flex_none().text_size(SIDE_SIZE).text_color(INK.muted).child(ob.met + "/" + ob.total));
+      .child(div().flex_none().text_size(SIDE_SIZE).text_color(OBJECTIVE_TALLY_COLOR[ob.standing]).child(ob.met + "/" + ob.total));
+  }
+
+  quietObjective(x, o) {
+    return this.foldRow(x.foldRow, h_flex().flex_none().h(ROW_H).px(ROW_PX).gap(12).items_center()
+      .child(div().flex_1().min_w(0).truncate().font_medium().text_color(INK.muted).child(x.ob.name))
+      .child(div().flex_none().text_size(SIDE_SIZE).text_color(OBJECTIVE_TALLY_COLOR.met).child(o.allMet + " " + x.ob.met + "/" + x.ob.total)));
+  }
+
+  metFold(x, o) {
+    return this.foldRow(x.foldRow, h_flex().flex_none().h(GROUP_HEADER_H).pl(MORE_INDENT).items_center().text_size(SIDE_SIZE)
+      .text_color(INK.dim).hover((s) => s.text_color(INK.muted)).child((x.open ? "▾ " : "▸ ") + o.metFolded(x.ob.metKrs.length)));
+  }
+
+  foldRow(key, line) {
+    const selected = key === this.selectedKey;
+    return line.id("nawaban-" + key).rounded(8).cursor_pointer()
+      .when(selected, (el) => el.bg(INK.selected))
+      .when(!selected, (el) => el.hover((s) => s.bg(INK.hover)))
+      .on_click((_e, cx) => this.clickGroup({ key, group: groupOfKey(key) }, cx));
+  }
+
+  krLine(r, keyboard, o, quiet) {
+    const k = r.kr, selected = r.key === this.selectedKey;
+    const line = v_flex().id("nawaban-row-" + r.key).flex_none().pl(MORE_INDENT).pr(ROW_PX).pt(4).pb(6).gap(1).rounded(8)
+      .when(selected, (el) => el.bg(INK.selected))
+      .when(!selected, (el) => el.hover((s) => s.bg(INK.hover)))
+      .on_hover((on, cx) => this.noteHover(r.key, on, cx))
+      .child(div().truncate().text_size(KR_NAME_SIZE).text_color(quiet || !k.measured ? INK.muted : INK.value).child(k.name))
+      .child(this.krReading(k, o, quiet));
+    return [this.withFactsOnHover(line, r), ...(keyboard && selected ? [this.factsBelow(r)] : [])];
+  }
+
+  krReading(k, o, quiet) {
+    const dim = (text) => div().flex_none().text_color(INK.dim).child(text);
+    if (!k.measured) return h_flex().text_size(SIDE_SIZE).child(dim(o.status.untested + " · " + o.target + " " + k.target));
+    return h_flex().flex_wrap().items_baseline().gap(4).text_size(SIDE_SIZE)
+      .child(div().flex_none().text_size(quiet ? KR_NAME_SIZE : KR_VALUE_SIZE).when(!quiet, (el) => el.font_semibold())
+        .text_color(k.status === "missed" ? INK.red : INK.value).child(k.value))
+      .child(dim("/ " + o.target + " " + k.target))
+      .when(Boolean(k.gap), (el) => el.child(dim("·")).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(k.gap)))
+      .when(Boolean(k.day), (el) => el.child(dim("· " + k.day)));
   }
 
   noObjective(o) {

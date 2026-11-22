@@ -315,6 +315,7 @@ def test_json_okr_reads_the_board_and_never_runs_a_measure(repo, board, capsys, 
     k = o["krs"][0]
     assert (k["status"], k["value"], k["as_of"], k["trend"], k["missed_rounds"]) == ("met", 97.5, "2026-11-18", "closer", 0)
     assert k["history"] == [{"value": 90, "as_of": "2026-11-10"}, {"value": 97.5, "as_of": "2026-11-18"}]
+    assert (k["target"], k["target_op"], k["target_value"]) == (">= 95", ">=", 95)
     assert {x["name"]: x["status"] for x in o["krs"]}["边界难例"] == "untested"
     assert (data["met"], data["total"], o["met"], o["total"]) == (1, 6, 1, 3)
 

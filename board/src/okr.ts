@@ -292,6 +292,8 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
       krs.push({
         name: kr.name,
         target: `${op} ${goalText}`,
+        target_op: op,
+        target_value: Number(goalText),
         unit: kr.unit ?? '',
         status,
         value: last ? Number(last.value) : null,
