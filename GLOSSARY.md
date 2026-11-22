@@ -202,7 +202,7 @@ _Current identifiers_: `hooks/inbox.sh` (Stop hook); `~/.nawaban/inbox/`; `hooks
 
 **Herdr panel**(Herdr 面板)
 A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each orchestrator and its workers are doing. On GitHub the top shows the blocked windows' waiting cards, when there are any, then the pending decisions, each opening its issue, with the window groups folded under them. Claiming, closing and dispatching stay with agents and the CLI.
-Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按编排者列出当前 space 所在项目里每个编排者和它的 worker 在做什么。在 GitHub 上最上面先是 blocked 窗口的等你卡（有才出），再列待决，点一行打开它的 issue，按窗口分组的部分折叠在下面。认领、关闭、派活仍由 agent 通过 CLI 完成。
+Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按编排者列出当前 space 所在项目里每个编排者和它的 worker 在做什么。自上而下三层，所有项目一样：先是等你卡（GitHub 上还有待决，点一行打开它的 issue），有才出；再是 OKR 读数，没有 okr.toml 时一行「这个项目还没有 O」；最后是任务列表，默认收起成一行「agent 在做 n · 停了 m · 没认领 k」，点开才是按编排者分组的列表。认领、关闭、派活仍由 agent 通过 CLI 完成。
 _Avoid_: sidebar, shepherdr, board tab.
 _Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `cmd-shift-j`.
 
