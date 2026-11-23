@@ -395,11 +395,11 @@ def card(a) -> None:
     if a.kind != "ask":
         _tag_decision_with_its_kr(a)
         return
-    card_text = "\n".join([f"【Decision】{a.body}", f"【Objective / KR】{a.kr or ''}", f"【Context】{a.context or ''}",
-                           "【Options】", *(f"- {o}" for o in a.option or []), f"【Recommendation】{a.rec or ''}"])
+    card_text = "\n".join([f"决策事项：{a.body}", f"关联 KR：{a.kr or ''}", f"背景：{a.context or ''}",
+                           "备选方案：", *(f"- {o}" for o in a.option or []), f"建议：{a.rec or ''}"])
     gaps = _decision_card_gaps(*_decision_card_parts(card_text))
     if gaps:
-        raise Refused("决策卡缺 " + "、".join(gaps) + "(--option 写成 选项｜trade-off｜one-way 或 two-way door)")
+        raise Refused("待决策项未就绪(不满足就绪标准,缺 " + "、".join(gaps) + ")：--option 写成 方案｜代价｜单向门 或 双向门")
     a.body = card_text
 
 
@@ -415,13 +415,13 @@ def _the_one_kr(a) -> str | None:
         raise Refused("--kr 只有 impact 可重复")
     kr = a.kr[0] if a.kr else None
     if kr and a.kind not in ("ask", "decision"):
-        raise Refused("--kr 只给 ask(待决)和 decision")
+        raise Refused("--kr 只给 ask(DR)和 decision")
     return kr
 
 
 def _tag_decision_with_its_kr(a) -> None:
     if a.context or a.option or a.rec:
-        raise Refused("--context / --option / --rec 只给 ask(待决)")
+        raise Refused("--context / --option / --rec 只给 ask(DR)")
     if a.kr:
         a.body = f"[{a.kr}] {a.body}"
 
@@ -703,7 +703,7 @@ def waiting_question(triage_note: str | None) -> str | None:
     return triage_note.strip()[m.end():] if m else None
 
 
-_VERDICT = re.compile(r"^\s*Verdict:\s*(.*)$", re.M)
+_VERDICT = re.compile(r"^\s*(?:\[[^\]\n]*\]\s*)?(?:决定|Decision|Verdict)\s*[:：]\s*(.*)$", re.M)
 
 
 
@@ -827,7 +827,7 @@ _GH_PARENT_SUFFIX_IN_TITLE = re.compile(r"[(（]#(\d+)-[A-Za-z]+[)）]")
 _GH_PARENT_BODY = re.compile(r"(?:属于|Part of|Parent:)\s*#(\d+)")
 _GH_PREFIX_HEADING_BOLD_WORD_WHO_COLON = r"\s*(?:#{{1,6}}\s*)?\**{}\**\s*([（(][^）)\n]*[）)])?\**\s*[：:]\**\s*"
 _GH_CLAIM_TERMINAL = re.compile(r"\bhc (t\w+)")
-_GH_NEXT_STEP_SENTENCE = re.compile(r"下一步[：:]\s*([^。\n]+)")
+_GH_NEXT_STEP_SENTENCE = re.compile(r"(?:下一步|\bNext)[：:]\s*(.+?)(?=\s*/\s*(?:卡点|Blockers)\s*[：:]|[。\n]|$)")
 
 
 def github_root(cwd: Path | None = None) -> Path | None:
@@ -1003,13 +1003,31 @@ def _measure_kr(root: Path, kr: dict) -> tuple[str, bool, tuple | None]:
     got = _measure(root, kr["measure"]) if kr.get("measure") else None
     reading = _dated_reading_unique_per_as_of(kr, got)
     if got is None:
-        return f"  · {kr['name']}  未测 / {want}", False, reading
+        return f"  {kr['name']}  未测 / 目标 {want}", False, reading
     if isinstance(got, str):
-        return f"  ! {kr['name']}  测量失败：{got}", False, reading
+        return f"  {kr['name']}  未测 / 目标 {want} · 测量失败：{got}", False, reading
+    line = lambda rag: _okr_line(kr["name"], got[0], unit, want, op, Decimal(goal), rag, got[1])
     if kr.get("max_age_days") is not None and (stale := _stale(got[1], kr["max_age_days"])):
-        return f"  ⌛ {kr['name']}  {got[0]:.1f}{unit} / {want}  {stale}", False, reading
+        return f"{line('黄')}  {stale}", False, reading
     ok = _MEETS_ON_DECIMAL[op](got[0], Decimal(goal))
-    return f"  {'✓' if ok else '✗'} {kr['name']}  {got[0]:.1f}{unit} / {want}  截至 {got[1]}", ok, reading
+    return line("绿" if ok else "红"), ok, reading
+
+
+_UNITS_COUNTED_IN_POINTS = {"%", "百分点", "个百分点"}
+_ISO_DAY = re.compile(r"\d{4}-(\d\d-\d\d)")
+
+
+def _variance_in_the_targets_direction(op: str, value: Decimal, goal: Decimal) -> Decimal:
+    if op == "==":
+        return -abs(value - goal)
+    return goal - value if op in ("<=", "<") else value - goal
+
+
+def _okr_line(name: str, value: Decimal, unit: str, want: str, op: str, goal: Decimal, rag: str, as_of: str) -> str:
+    shown_unit = "点" if unit in _UNITS_COUNTED_IN_POINTS else unit
+    variance = f"{_variance_in_the_targets_direction(op, value, goal):+.1f}" + (f" {shown_unit}" if shown_unit else "")
+    day = _ISO_DAY.match(as_of)
+    return f"  {name}  {value:.1f}{unit} / 目标 {want} · 偏差 {variance} · {rag} · 截至 {day.group(1) if day else as_of}"
 
 
 def _dated_reading_unique_per_as_of(kr: dict, got) -> tuple | None:
@@ -1469,7 +1487,7 @@ def _retire_refusal_text(held: list[tuple[str, str]]) -> str:
     return "\n".join(lines + [
         "收 worker 前,票要么关、要么交还,由 worker 自己做(hc send <终端> 让它做;GitHub 的票你也能直接做):",
         "  做完:nawaban event <ID> --kind link --body \"pr:<url>\" 后 nawaban close <ID> --done",
-        "  没做完:nawaban event <ID> --kind note --body \"停在哪、下一步\" 后 nawaban claim <ID> --release",
+        "  没做完:nawaban event <ID> --kind note --body \"已完成：… / 下一步：… / 卡点：…\" 后 nawaban claim <ID> --release",
         "本地板上 worker 已不动了:等它的认领租约过期(最多 1h)再收。",
     ])
 
@@ -1482,7 +1500,7 @@ def gh_write(root: Path, a) -> str:
     if a.verb == "close":
         return _gh_close(root, a, n)
     if a.kind == "resolve" and not _orchestrator_here():
-        raise Refused("已决只由编排者记：决策者的拍板转给编排者，或决策者在 Herdr 外的终端自己记")
+        raise Refused("已决(决策记录)只由编排者记：决策者的拍板转给编排者，或决策者在 Herdr 外的终端自己记")
     if a.kind == "ask":
         _refuse_a_second_pending_ask(root, a, n)
     gh_post(root, n, a.kind, a.body, a.kr, a.by)
@@ -1510,7 +1528,7 @@ def _gh_close(root: Path, a, n: str) -> str:
 def _refuse_a_second_pending_ask(root: Path, a, n: str) -> None:
     issue = _gh_json(root, "issue", "view", n, "--json", "body,createdAt,comments")
     if _issue_pending(issue):
-        raise Refused(f"{a.id} 已有待决,一个 issue 只放一件;先记已决,或开子 issue")
+        raise Refused(f"{a.id} 已有待决,一个 issue 只放一件;先记已决(决策记录),或开子 issue")
 
 
 def _marked(c: dict) -> dict | None:
@@ -1555,28 +1573,35 @@ def _issue_pending(i: dict) -> dict | None:
             "ruled_after": _owner_ruled_since([b for b, t in notes if t > at], _owner_names())}
 
 
-_CARD_FIELD = re.compile(r"^\s*【(Decision|Objective / KR|Context|Options|Recommendation)】(.*)")
+_OLD_CARD_FIELD = re.compile(r"^\s*【(Decision|Objective / KR|Context|Options|Recommendation)】(.*)")
+_DR_FIELD = re.compile(r"^\s*(决策事项|关联\s*KR|背景|备选方案|建议)\s*[:：](.*)")
+_ENGLISH_DR_FIELD = re.compile(r"^\s*(BLUF|KR|Context|Options|Recommendation)\s*[:：](.*)")
+_CARD_FIELD_SYNTAXES = (_OLD_CARD_FIELD, _DR_FIELD, _ENGLISH_DR_FIELD)
 _CARD_OPTION_LINE = re.compile(r"^\s*[-*]\s+(.*)")
 _CARD_OPTION_LETTER = re.compile(r"^([A-Z])\s*[：:]\s*")
 _CARD_OPTION_NOTE = "｜"
-_CARD_FIELD_KEYS = {"Decision": "decision", "Objective / KR": "kr", "Context": "context", "Recommendation": "rec"}
+_CARD_FIELD_KEYS = {"Decision": "decision", "BLUF": "decision", "决策事项": "decision", "Objective / KR": "kr", "KR": "kr",
+                    "Context": "context", "背景": "context", "Recommendation": "rec", "建议": "rec", "备选方案": "Options"}
 
 
 _PENDING_HEADING = re.compile(_GH_PREFIX_HEADING_BOLD_WORD_WHO_COLON.format("(?:待决|需要你定)"))
 _WORDS_THAT_SAY_NOTHING = {"", "无", "none", "-"}
-_CARD_PARTS_THAT_MUST_SAY_SOMETHING = (("decision", "Decision(--body)"), ("context", "Context(--context)"),
-                                       ("rec", "Recommendation(--rec)"))
+_CARD_PARTS_THAT_MUST_SAY_SOMETHING = (("decision", "决策事项(--body)"), ("context", "背景(--context)"),
+                                       ("rec", "建议(--rec)"))
 
 
 def _decision_card_parts(brief: str) -> tuple[dict, list[dict]]:
     fields, options, current = {}, [], None
-    for ln in _PENDING_HEADING.sub("", brief, count=1).splitlines():
+    lines = _PENDING_HEADING.sub("", brief, count=1).splitlines()
+    one_syntax_per_card = next((s for ln in lines for s in _CARD_FIELD_SYNTAXES if s.match(ln)), _DR_FIELD)
+    for ln in lines:
         o = _CARD_OPTION_LINE.match(ln) if current == "Options" else None
-        m = None if o else _CARD_FIELD.match(ln)
+        m = None if o else one_syntax_per_card.match(ln)
         if o:
             options.append(_card_option(o.group(1).strip(), len(options)))
         elif m:
-            current = _CARD_FIELD_KEYS.get(m.group(1), m.group(1))
+            name = re.sub(r"关联\s*KR", "KR", m.group(1))
+            current = _CARD_FIELD_KEYS.get(name, name)
             if current != "Options":
                 fields[current] = m.group(2).strip()
         elif current in fields:
@@ -1588,10 +1613,10 @@ def _decision_card_gaps(fields: dict, options: list[dict]) -> list[str]:
     gaps = [name for key, name in _CARD_PARTS_THAT_MUST_SAY_SOMETHING
             if (fields.get(key) or "").strip().lower() in _WORDS_THAT_SAY_NOTHING]
     if not (fields.get("kr") or "").strip():
-        gaps.append("Objective / KR(--kr)")
+        gaps.append("关联 KR(--kr)")
     if len(options) < MIN_DECISION_OPTIONS:
-        gaps.append(f"Options(至少 {MIN_DECISION_OPTIONS} 个)")
-    gaps += [f"{o['key']} 的{'选项' if not o['text'] else ' trade-off(｜后)'}" for o in options if not o["text"] or not _trade_off_of(o)]
+        gaps.append(f"备选方案(至少 {MIN_DECISION_OPTIONS} 个)")
+    gaps += [f"{o['key']} 的{'方案' if not o['text'] else '代价(｜后)'}" for o in options if not o["text"] or _trade_off_of(o).lower() in _WORDS_THAT_SAY_NOTHING]
     return gaps
 
 
@@ -1814,8 +1839,8 @@ def unrecorded_ask(message: str, transcript: str | None) -> str | None:
     unreadable_transcript_passes = inputs is None
     if unreadable_transcript_passes or any(_RECORDED.search(s) for s in inputs):
         return None
-    return ("这轮在向决策者要决定，却没记成待决，收件箱里看不到它。先把问题记成决策卡："
-            "nawaban event '#N' --kind ask --body <要定的事> --kr <KR> --context <事实> --option <A｜trade-off｜door> --option <B｜trade-off｜door> --rec <推荐>"
+    return ("这轮在向决策者要决定，却没记成待决策项，收件箱里看不到它。先把问题记成待决策项："
+            "nawaban event '#N' --kind ask --body <决策事项> --kr <关联 KR> --context <背景> --option <方案｜代价｜单向门/双向门> --option <方案｜代价｜单向门/双向门> --rec <建议>"
             "（本地看板：nawaban event <ID> --kind note --body 'triage: needs-info — 等你：<问题>'），问法不用改。")
 
 
@@ -1926,11 +1951,11 @@ def inbox_line(path: Path, session: str) -> str | None:
         return None
     stale = f" · {int(age // 60)} 分钟前" if age is not None and age > INBOX_STALE else ""
     if seen == set(ids):
-        return f"待你决定 {len(items)} 件（无变化）{stale}"
+        return f"待决 {len(items)} 件（无变化）{stale}"
     unseen_else_all_that_is_left = [i for i in items if i["id"] not in (seen or ())] or items
     listed = _short(" · ".join(f"{i['id']} {_short(i['title'], INBOX_TITLE_WIDTH)}" for i in unseen_else_all_that_is_left),
                     INBOX_LINE_WIDTH)
-    return f"待你决定 {len(items)} 件：{listed}{stale}｜说「同步」看卡"
+    return f"待决 {len(items)} 件：{listed}{stale}｜说「同步」看待决"
 
 
 def json_out(path: Path, a) -> int:
@@ -1964,7 +1989,8 @@ STALE = DAY_SECONDS
 CLOSED_COUNT_WINDOW = 2 * DAY_SECONDS
 _BOOKKEEPING_LABEL_NOTE = re.compile(r"\s*(?:triage|wayfinder|impact):")
 _MENTION = re.compile(r"(?<![\w.])@([\w-]+)")
-_NEXT_SPLIT = re.compile(r"[，,]?\s*下一步[：:]")
+_NEXT_SPLIT = re.compile(r"[，,]?\s*(?:/\s*)?(?:下一步|\bNext)[：:]")
+_DONE_LABEL = re.compile(r"^\s*(?:已完成|Done)[：:]\s*")
 PENDING_TITLE_WIDTH = 200
 TITLE_WIDTH = 34
 PARENT_TITLE_WIDTH = 16
@@ -2030,8 +2056,8 @@ class _Index:
         if self.waits_on_you(t):
             return "等你"
         if self.progress(t) or t["claimed_at"] or t["session"]:
-            return "停了" if self.now - t["active_at"] > STALE else "在推"
-        return "没动"
+            return "停滞" if self.now - t["active_at"] > STALE else "进行中"
+        return "待办"
 
     def belongs(self, t: dict) -> str:
         if not t["parent"]:
@@ -2042,13 +2068,13 @@ class _Index:
 
     def task_lines(self, k: str, t: dict) -> list[str]:
         p, d = self.progress(t), t.get("decision")
-        if k == "停了":
+        if k == "停滞":
             out = [f"- {t['id']} {_short(t['title'], TITLE_WIDTH)}{self.belongs(t)}"
                    f"（{_ago(self.now, t['active_at'])}没动静 · 停在：{_stalled_on(p)}）"]
         else:
             out = [f"- {t['id']} {_short(t['title'], TITLE_WIDTH)}{self.belongs(t)}"]
         if p:
-            out.append(f"  进展 {_ago(self.now, p['at'])}前：{_short(_NEXT_SPLIT.split(p['body'])[0], PROGRESS_WIDTH)}")
+            out.append(f"  进展 {_ago(self.now, p['at'])}前：{_short(_DONE_LABEL.sub("", _NEXT_SPLIT.split(p['body'])[0]), PROGRESS_WIDTH)}")
         nxt = _GH_NEXT_STEP_SENTENCE.search(p["body"]) if p else None
         if t.get("waiting") and not self.github:
             if t["waiting"] != "等你":
@@ -2074,11 +2100,11 @@ def index_text(data: dict, name: str) -> str:
     ix = _Index(data, now)
     live = [t for t in ix.tasks if t["status"] != "done"]
     groups = {k: sorted((t for t in live if ix.state(t) == k), key=lambda t: t["active_at"])
-              for k in (("停了", "在推") if ix.github else ("等你", "停了", "在推"))}
+              for k in (("停滞", "进行中") if ix.github else ("等你", "停滞", "进行中"))}
     moving = {t["parent"] for g in groups.values() for t in g}
-    idle = sorted((t for t in live if ix.state(t) == "没动" and t["id"] not in moving), key=lambda t: -t["created_at"])
+    idle = sorted((t for t in live if ix.state(t) == "待办" and t["id"] not in moving), key=lambda t: -t["created_at"])
     out = [f"{name} 进行中的事 · {_stamp(now)} 生成",
-           " · ".join(f"{k} {len(g)}" for k, g in groups.items()) + f" · 没动 {len(idle)}", ""]
+           " · ".join(f"{k} {len(g)}" for k, g in groups.items()) + f" · 待办 {len(idle)}", ""]
     if ix.github:
         pending = _pending(data)
         out += [f"## 待决 {len(pending)}", *(f"- {t['id']} {_short(t['title'], PENDING_TITLE_WIDTH)}" for t in pending), ""]
@@ -2086,7 +2112,7 @@ def index_text(data: dict, name: str) -> str:
         if g:
             out += [f"## {k}", *(line for t in g for line in ix.task_lines(k, t)), ""]
     out += _owner_decision_lines(now, data.get("decisions", []))
-    out += ["", f"## 没动 {len(idle)}（开着，从没认领也没写进展）"]
+    out += ["", f"## 待办 {len(idle)}（开着，从没认领也没写进展）"]
     out += [f"- {t['id']} {_short(t['title'], IDLE_TITLE_WIDTH)}{ix.belongs(t)}" for t in idle]
     closed_among_listed = sum(1 for t in ix.tasks if t["status"] == "done" and now - (t["done_at"] or 0) < CLOSED_COUNT_WINDOW)
     return "\n".join(out + ["", f"48 小时内关了 {closed_among_listed} 个。"])
@@ -2094,7 +2120,7 @@ def index_text(data: dict, name: str) -> str:
 
 def _owner_decision_lines(now: float, decided: list[dict]) -> list[str]:
     own = [d for d in decided if d["owner"]]
-    return [f"## 48 小时内你拍的板 {len(own)}（agent 自己定的另有 {len(decided) - len(own)} 条，在各任务里）",
+    return [f"## 48 小时内你的决策记录 {len(own)}（agent 自己定的另有 {len(decided) - len(own)} 条，在各任务里）",
             *(f"- {_ago(now, d['at'])}前 {d['task']} {_short(d['verdict'], OWN_VERDICT_WIDTH)}" for d in own)]
 
 
@@ -2156,7 +2182,7 @@ def _parser() -> argparse.ArgumentParser:
     g.add_argument("--done", action="store_true")
     g.add_argument("--cancelled", action="store_true")
     g.add_argument("--reopen", action="store_true")
-    p = sub.add_parser("event", help="记事件:note / decision / link / impact(KR 影响声明);GitHub 记账的仓库另有 ask(待决)/ resolve(已决)")
+    p = sub.add_parser("event", help="记事件:note(进展同步)/ decision(决策记录)/ link / impact(KR 影响声明);GitHub 记账的仓库另有 ask(待决策项)/ resolve(已决,决策记录)")
     p.add_argument("id")
     p.add_argument("--kind", required=True, choices=("note", "decision", "link", "ask", "resolve", "impact"))
     p.add_argument("--body", help="impact 以外必填")
@@ -2164,8 +2190,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--kr", action="append", help="挂哪个 Objective / KR;ask 必填,decision 可选;impact 写 " + IMPACT_FORMAT + ",可重复")
     p.add_argument("--o", help="impact:O 名,纯基础设施写 无")
     p.add_argument("--context", help="ask:只写影响这次决策的事实")
-    p.add_argument("--option", action="append", help="ask:每个选项一次,写 选项｜trade-off｜one-way 或 two-way door;至少两个")
-    p.add_argument("--rec", help="ask:Recommendation")
+    p.add_argument("--option", action="append", help="ask:每个备选方案一次,写 方案｜代价｜单向门 或 双向门;至少两个")
+    p.add_argument("--rec", help="ask:建议(选哪个方案、为什么)")
     p = sub.add_parser("show", help="看一个任务")
     p.add_argument("id")
     p = sub.add_parser("list", help="列任务")
@@ -2185,7 +2211,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--project", help="board:只看这个项目")
     p.add_argument("--repo", help="okr:仓库路径,默认当前目录所在的仓库")
     sub.add_parser("brief", help="GitHub 记账的仓库:每件待决的原文、所在 issue、该 issue 最近的进展")
-    p = sub.add_parser("index", help="等你 / 停了 / 在推的 md 索引(读 json board 同一份数据,只打到 stdout)")
+    p = sub.add_parser("index", help="等你 / 停滞 / 进行中 / 待办的 md 索引(读 json board 同一份数据,只打到 stdout)")
     p.add_argument("--project", help="只看这个项目")
     p = sub.add_parser("okr", help=f"各 O 的 KR 现值对目标:跑 {OKR_FILE} 里每条 KR 的测量,读数记进看板")
     p.add_argument("--accept", metavar="O", help="该 O 当前全 ✓ 时记一次验收")

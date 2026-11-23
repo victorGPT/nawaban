@@ -257,9 +257,9 @@ def test_a_decision_card_needs_two_options(gh):
     assert code == 1 and "--option" in out and posted(gh) == []
 
 
-@pytest.mark.parametrize("flag, value, named", [("--option", "B 重判", "第 2 项 的 trade-off"),
-                                               ("--option", "｜one-way", "的选项"), ("--context", "无", "Context"),
-                                               ("--rec", " - ", "Recommendation"), ("--kr", " ", "Objective / KR")])
+@pytest.mark.parametrize("flag, value, named", [("--option", "B 重判", "第 2 项 的代价"), ("--option", "B 重判｜none｜one-way", "第 2 项 的代价"),
+                                               ("--option", "｜one-way", "的方案"), ("--context", "无", "背景"),
+                                               ("--rec", " - ", "建议"), ("--kr", " ", "关联 KR(--kr)")])
 def test_a_decision_card_with_an_empty_part_is_refused_naming_it(gh, flag, value, named):
     card = list(CARD)
     card[len(card) - 1 - card[::-1].index(flag) + 1] = value
@@ -271,7 +271,7 @@ def test_a_trade_off_left_empty_before_the_door_is_refused(gh):
     card = list(CARD)
     card[card.index("A 接受｜two-way")] = "A 接受｜｜two-way"
     code, out = gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *card)
-    assert code == 1 and "第 1 项 的 trade-off" in out and posted(gh) == []
+    assert code == 1 and "第 1 项 的代价" in out and posted(gh) == []
 
 
 @pytest.mark.parametrize("option", ["保留【Options】标题｜读起来清楚", "A：【Options】标题保留｜清楚"])
@@ -285,19 +285,19 @@ def test_a_context_line_quoting_a_field_heading_stays_in_the_context(gh):
     card = list(CARD)
     card[card.index("--context") + 1] = "第 5 轮 84.3%\n结论：【Recommendation】x"
     assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *card)[0] == 0
-    assert "结论：【Recommendation】x\n【Options】" in posted(gh)[0]
+    assert "结论：【Recommendation】x\n备选方案：" in posted(gh)[0]
 
 
 def test_a_decision_card_whose_decision_says_nothing_is_refused(gh):
     code, out = gh.nawaban("event", "#950", "--kind", "ask", "--body", "无", *CARD)
-    assert code == 1 and "Decision" in out and posted(gh) == []
+    assert code == 1 and "决策事项" in out and "未就绪" in out and posted(gh) == []
 
 
-def test_ask_posts_the_card_in_order_and_marks_its_kr(gh):
+def test_ask_posts_the_decision_request_in_order_and_marks_its_kr(gh):
     assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *CARD)[0] == 0
     [comment] = posted(gh)
-    heads = ["【Decision】定 A 还是 B", "【Objective / KR】L2 前 5 相关率 ≥70%", "【Context】第 5 轮 84.3%",
-             "【Options】\n- A 接受｜two-way\n- B 重判｜one-way", "【Recommendation】A"]
+    heads = ["待决：决策事项：定 A 还是 B", "\n关联 KR：L2 前 5 相关率 ≥70%", "\n背景：第 5 轮 84.3%",
+             "\n备选方案：\n- A 接受｜two-way\n- B 重判｜one-way", "\n建议：A"]
     at = [comment.index(h) for h in heads]
     assert at == sorted(at)
     assert cli.read_marker(comment)["kr"] == "L2 前 5 相关率 ≥70%"

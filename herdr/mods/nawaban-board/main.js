@@ -463,7 +463,7 @@ export default class NawabanBoard extends View {
 
   decisionRow(c, w) {
     return { key: c.key, card: c, dot: INK.amber, title: c.title, why: c.sub, side: w.cards.chip[c.kind],
-      sideColor: c.kind === "maybe" ? INK.amberText : INK.dim, facts: [[w.facts.id, c.id], [w.facts.question, c.decision]] };
+      sideColor: c.kind === "maybe" ? INK.amberText : INK.dim, facts: [[w.facts.id, c.id], [w.cards.decision, c.decision]] };
   }
 
   krRow(k, objective, j, o) {
@@ -705,13 +705,14 @@ export default class NawabanBoard extends View {
 
   krReading(k, o, quiet) {
     const dim = (text) => div().flex_none().text_color(INK.dim).child(text);
-    if (!k.measured) return h_flex().text_size(SIDE_SIZE).child(dim(o.status.untested + " · " + o.target + " " + k.target));
+    if (!k.measured) return h_flex().text_size(SIDE_SIZE).child(dim(o.status.untested + " / " + o.target + " " + k.target));
     return h_flex().flex_wrap().items_baseline().gap(4).text_size(SIDE_SIZE)
       .child(div().flex_none().text_size(quiet ? KR_NAME_SIZE : KR_VALUE_SIZE).when(!quiet, (el) => el.font_semibold())
         .text_color(k.status === "missed" ? INK.red : INK.value).child(k.value))
       .child(dim("/ " + o.target + " " + k.target))
-      .when(Boolean(k.gap), (el) => el.child(dim("·")).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(k.gap)))
-      .when(Boolean(k.day), (el) => el.child(dim("· " + k.day)));
+      .when(Boolean(k.gap), (el) => el.child(dim("· " + o.variance)).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(k.gap)))
+      .child(dim("·")).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(o.status[k.status]))
+      .when(Boolean(k.day), (el) => el.child(dim("· " + o.asOfShort + " " + k.day)));
   }
 
   clickGroup(s, cx) {

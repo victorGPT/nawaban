@@ -70,13 +70,13 @@ def test_a_kr_counts_as_met_only_when_its_measured_value_meets_the_target(repo, 
     code, out = okr(capsys)
     assert code == 0, out
     assert "听得懂需求 · 1/3 达标" in out and "推荐能减少筛选 · 0/3 达标" in out
-    assert line(out, "意图准确率").startswith("  ✓") and "100.0% / >= 95%" in out and "截至 2026-11-17" in out
-    assert line(out, "L1 首位").startswith("  ✗") and "89.0% / >= 95%" in out
+    assert line(out, "意图准确率") == "  意图准确率  100.0% / 目标 >= 95% · 偏差 +5.0 点 · 绿 · 截至 11-17"
+    assert line(out, "L1 首位").startswith("  L1 首位  89.0% / 目标 >= 95% · 偏差 -6.0 点 · 红 · 截至 ")
 
 
 def test_no_measure_is_untested_and_a_broken_measure_says_why(repo, capsys):
     _, out = okr(capsys)
-    assert "未测" in line(out, "边界难例")
+    assert line(out, "边界难例") == "  边界难例  未测 / 目标 >= 80"
     assert "测量失败" in line(out, "硬条件违反") and "missing data" in line(out, "硬条件违反")
     assert "测量失败" in line(out, "没写日期") and "测量失败" in line(out, "不是数")
 
@@ -142,7 +142,7 @@ def test_a_measure_printing_bad_bytes_fails_that_kr_only(repo, capsys):
         '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "坏字节"\ntarget = ">= 1"\nmeasure = "printf \'\\\\377\'"\n'
         '[[objective.kr]]\nname = "好的"\ntarget = ">= 1"\nmeasure = "echo \'2 today\'"\n')
     code, out = okr(capsys)
-    assert code == 0 and "测量失败" in line(out, "坏字节") and line(out, "好的").startswith("  ✓")
+    assert code == 0 and "测量失败" in line(out, "坏字节") and line(out, "好的") == "  好的  2.0 / 目标 >= 1 · 偏差 +1.0 · 绿 · 截至 today"
 
 
 @pytest.mark.parametrize("body", [b"\xff", b"objective = 5\n", b'[[objective]]\nname = "O"\nkr = [1]\n',
@@ -172,8 +172,8 @@ def test_a_reading_older_than_max_age_days_is_stale_not_met(repo, capsys):
         f'[[objective.kr]]\nname = "旧"\ntarget = ">= 1"\nmax_age_days = 7\nmeasure = "echo \'5 {d(10)}\'"\n'
         '[[objective.kr]]\nname = "无日期"\ntarget = ">= 1"\nmax_age_days = 7\nmeasure = "echo \'5 latest\'"\n')
     _, out = okr(capsys)
-    assert "1/3 达标" in out and line(out, "新").startswith("  ✓")
-    assert line(out, "旧").startswith("  ⌛") and "测量过期" in line(out, "旧")
+    assert "1/3 达标" in out and " · 绿 · " in line(out, "新")
+    assert " · 黄 · 截至 " in line(out, "旧") and "测量过期" in line(out, "旧")
     assert "测量失败" in line(out, "无日期")
 
 

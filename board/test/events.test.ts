@@ -76,6 +76,24 @@ it('records a note, a decision, and a link as replies, the last two as blocks', 
   expect(replies[2]!.blocks[0]!.data).toEqual({ kind: 'pr', ref: 'https://github.com/acme/web/pull/1' })
 })
 
+it.each([
+  ['决定：sqlite\n背景：which db?\n否决方案：pg — too big\n影响：one file to back up'],
+  ['Decision: sqlite\nContext: which db?\nRejected: pg — too big\nConsequences: one file to back up'],
+])('takes a 决策记录 in the --body form, 决定 背景 否决方案 and an optional 影响, or their English names: %j', async (body) => {
+  const id = await newTask()
+  expect((await nawaban('event', id, '--kind', 'decision', '--body', body)).code).toBe(0)
+  const { replies } = await team.thread(id)
+  expect(replies[0]!.blocks[0]!.data).toEqual({ question: 'which db?', verdict: 'sqlite\n影响：one file to back up', rejected: ['pg — too big'], by: 'agent' })
+})
+
+it('takes the doors as 单向门 and 双向门 and keeps them as the schema names them', async () => {
+  const id = await newTask()
+  const card = ['--body', 'ship it?', '--kr', 'O1 / KR1', '--context', 'tests pass', '--option', 'ship｜fast｜双向门', '--option', 'wait｜safe｜单向门', '--rec', 'ship']
+  expect((await nawaban('event', id, '--kind', 'ask', ...card)).code).toBe(0)
+  const { replies } = await team.thread(id)
+  expect((replies[0]!.blocks[0]!.data as { options: { door: string }[] }).options.map((o) => o.door)).toEqual(['two-way', 'one-way'])
+})
+
 it('takes a decision in the older --body form', async () => {
   const id = await newTask()
   const body = 'Question: which db?\nVerdict: sqlite\nRejected: pg - too big\nRejected: none - no'
@@ -111,17 +129,19 @@ it('refuses a card without --rec, and writes nothing', async () => {
   const id = await newTask()
   const ask = await nawaban('event', id, '--kind', 'ask', ...CARD)
   expect(ask.code).toBe(1)
-  expect(ask.err).toContain('recommendation')
+  expect(ask.err).toContain('未就绪')
+  expect(ask.err).toContain('建议')
   expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', blocked: null, replies: [] })
 })
 
 it.each([
-  ['--body', '无', 'decision'],
-  ['--context', ' none ', 'context'],
-  ['--rec', '-', 'recommendation'],
-  ['--kr', ' ', 'kr'],
-  ['--option', 'wait｜ ｜two-way', "option 2's trade-off"],
-  ['--option', ' ｜safe｜two-way', "option 2's choice"],
+  ['--body', '无', '决策事项'],
+  ['--context', ' none ', '背景'],
+  ['--rec', '-', '建议'],
+  ['--kr', ' ', '关联 KR'],
+  ['--option', 'wait｜ ｜two-way', '第 2 条的代价'],
+  ['--option', 'wait｜-｜two-way', '第 2 条的代价'],
+  ['--option', ' ｜safe｜two-way', '第 2 条的方案'],
 ])('refuses a card whose %s says nothing (%j), naming it, and writes nothing', async (flag, value, named) => {
   const id = await newTask()
   const card = [...CARD, '--rec', 'ship']

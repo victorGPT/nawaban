@@ -187,7 +187,7 @@ function eventAsTheOldCliWroteIt(r: Reply) {
     kind === 'note'
       ? r.message.text
       : kind === 'decision'
-        ? [`Question: ${d.question}`, `Verdict: ${d.verdict}`, ...((d.rejected as string[]) ?? []).map((x) => `Rejected: ${x}`)].join('\n')
+        ? [`决定：${d.verdict}`, `背景：${d.question}`, ...((d.rejected as string[]) ?? []).map((x) => `否决方案：${x}`)].join('\n')
         : kind === 'link'
           ? `${d.kind}:${d.ref}`
           : JSON.stringify(d)

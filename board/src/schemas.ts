@@ -127,12 +127,12 @@ export type DecisionCard = {
 export function gapsOfADecisionCard(c: DecisionCard): string[] {
   const options = c.options ?? []
   return [
-    ...(saysNothing(c.decision) ? ['decision (--body)'] : []),
-    ...(blank(c.kr) ? ['kr (--kr)'] : []),
-    ...(saysNothing(c.context) ? ['context (--context)'] : []),
-    ...(options.length < MIN_DECISION_OPTIONS ? [`options (--option, at least ${MIN_DECISION_OPTIONS})`] : []),
-    ...options.flatMap((o, i) => [...(blank(o.choice) ? [`option ${i + 1}'s choice`] : []), ...(blank(o.tradeoff) ? [`option ${i + 1}'s trade-off`] : [])]),
-    ...(saysNothing(c.recommendation) ? ['recommendation (--rec)'] : []),
+    ...(saysNothing(c.decision) ? ['决策事项 (--body)'] : []),
+    ...(blank(c.kr) ? ['关联 KR (--kr)'] : []),
+    ...(saysNothing(c.context) ? ['背景 (--context)'] : []),
+    ...(options.length < MIN_DECISION_OPTIONS ? [`备选方案 (--option，至少 ${MIN_DECISION_OPTIONS} 条)`] : []),
+    ...options.flatMap((o, i) => [...(blank(o.choice) ? [`第 ${i + 1} 条的方案`] : []), ...(saysNothing(o.tradeoff) ? [`第 ${i + 1} 条的代价`] : [])]),
+    ...(saysNothing(c.recommendation) ? ['建议 (--rec)'] : []),
   ]
 }
 

@@ -164,17 +164,29 @@ function keptOnlyWithADatedAsOfElseItsFirstValueStaysForever(o: Objective, kr: K
 }
 
 const shownRoundedHalfUpForDisplayOnly = (v: string, unit: string) => `${Number(v).toFixed(1)}${unit}`
+const UNITS_COUNTED_IN_POINTS = new Set(['%', '百分点', '个百分点'])
+const ISO_DAY = /^\d{4}-(\d\d-\d\d)/
+const monthDayElseAsWritten = (asOf: string) => ISO_DAY.exec(asOf)?.[1] ?? asOf
+
+function varianceText(op: string, value: string, goal: string, unit: string) {
+  const v = Number(value), g = Number(goal)
+  const variance = op === '==' ? -Math.abs(v - g) : op === '<=' || op === '<' ? g - v : v - g
+  const shownUnit = UNITS_COUNTED_IN_POINTS.has(unit) ? '点' : unit
+  return `${variance < 0 ? '-' : '+'}${Math.abs(variance).toFixed(1)}${shownUnit ? ' ' + shownUnit : ''}`
+}
 
 function measuredRow(kr: Kr, got: [string, string] | string | null): { row: string; met: boolean } {
   const [op, goal] = target(kr)
   const unit = kr.unit ?? ''
   const want = `${op} ${goal}${unit}`
-  if (got === null) return { row: `  · ${kr.name}  未测 / ${want}`, met: false }
-  if (typeof got === 'string') return { row: `  ! ${kr.name}  测量失败：${got}`, met: false }
+  if (got === null) return { row: `  ${kr.name}  未测 / 目标 ${want}`, met: false }
+  if (typeof got === 'string') return { row: `  ${kr.name}  未测 / 目标 ${want} · 测量失败：${got}`, met: false }
+  const line = (rag: string) =>
+    `  ${kr.name}  ${shownRoundedHalfUpForDisplayOnly(got[0], unit)} / 目标 ${want} · 偏差 ${varianceText(op, got[0], goal, unit)} · ${rag} · 截至 ${monthDayElseAsWritten(got[1])}`
   const why = kr.max_age_days !== undefined ? whyTooOldByLocalDate(got[1], kr.max_age_days) : ''
-  if (why) return { row: `  ⌛ ${kr.name}  ${shownRoundedHalfUpForDisplayOnly(got[0], unit)} / ${want}  ${why}`, met: false }
+  if (why) return { row: `${line('黄')}  ${why}`, met: false }
   const met = meets(op, dec(got[0]), dec(goal))
-  return { row: `  ${met ? '✓' : '✗'} ${kr.name}  ${shownRoundedHalfUpForDisplayOnly(got[0], unit)} / ${want}  截至 ${got[1]}`, met }
+  return { row: line(met ? '绿' : '红'), met }
 }
 
 export async function run(root: string, timeout = MEASURE_READS_RESULTS_NEVER_RUNS_AN_EVAL_TIMEOUT) {

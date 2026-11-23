@@ -54,9 +54,11 @@ function checkedBeforeAnythingLands(id: SchemaId, value: Record<string, unknown>
   return why ? { why: `the ${id} block doesn't match its schema: ${why}` } : { text: block(id, value) }
 }
 
+const DOOR_AS_THE_SCHEMA_NAMES_IT: Record<string, string> = { 单向门: 'one-way', 双向门: 'two-way', 'one-way door': 'one-way', 'two-way door': 'two-way' }
+
 function cardOption(words: string) {
   const [choice, tradeoff, door] = words.split(/[｜|]/).map((part) => part.trim())
-  return { choice, tradeoff, door }
+  return { choice, tradeoff, door: door === undefined ? door : (DOOR_AS_THE_SCHEMA_NAMES_IT[door] ?? door) }
 }
 
 async function holdAndNewestReply(team: Team, id: string): Promise<{ error: number } | { hold: NonNullable<Thread['message']['task']>['blocked']; newest: Thread['message'] }> {
@@ -146,18 +148,21 @@ async function note(e: Event): Promise<number> {
   return e.reply(body)
 }
 
-const oldBodyLines = (body: string | undefined, key: string) => [...(body ?? '').matchAll(new RegExp(`^\\s*${key}:\\s*(.+)$`, 'gm'))].map((m) => m[1]!.trim())
+const oldBodyLines = (body: string | undefined, key: string) => [...(body ?? '').matchAll(new RegExp(`^\\s*(?:${key})\\s*[:：]\\s*(.+)$`, 'gm'))].map((m) => m[1]!.trim())
+
+const verdictWithItsConsequences = (verdict: string | undefined, consequences: string | undefined) =>
+  verdict && consequences ? `${verdict}\n影响：${consequences}` : verdict
 
 async function decision(e: Event): Promise<number> {
   const { a } = e
   const value = checkedBeforeAnythingLands('nawaban-decision@1', {
-    question: a.question ?? oldBodyLines(a.body, 'Question')[0],
-    verdict: a.verdict ?? oldBodyLines(a.body, 'Verdict')[0],
-    rejected: a.rejected ?? oldBodyLines(a.body, 'Rejected'),
+    question: a.question ?? oldBodyLines(a.body, '背景|Context|Question')[0],
+    verdict: a.verdict ?? verdictWithItsConsequences(oldBodyLines(a.body, '决定|Decision|Verdict')[0], oldBodyLines(a.body, '影响|Consequences')[0]),
+    rejected: a.rejected ?? oldBodyLines(a.body, '否决方案|Rejected'),
     by: a.by === 'user' ? 'user' : 'agent',
     ...(e.kr ? { kr: e.kr } : {}),
   })
-  return 'why' in value ? refuse(`${value.why} (--question, --verdict, --rejected; or --body with Question:, Verdict:, Rejected: lines)`) : e.reply(value.text)
+  return 'why' in value ? refuse(`${value.why} (--body 写 决定：、背景：、否决方案：，可选 影响：；Decision:/Context:/Rejected:、Question:/Verdict: 和 --question/--verdict/--rejected 照样收)`) : e.reply(value.text)
 }
 
 async function link(e: Event): Promise<number> {
@@ -170,7 +175,7 @@ async function ask(e: Event): Promise<number> {
   const { a } = e
   const value = { decision: a.body, kr: e.kr, context: a.context, options: (a.option ?? []).map(cardOption), recommendation: a.rec }
   const gaps = gapsOfADecisionCard(value)
-  if (gaps.length) return refuse(`the decision card is missing ${gaps.join(', ')} (--option is choice｜trade-off｜one-way or two-way)`)
+  if (gaps.length) return refuse(`待决策项未就绪（不满足就绪标准），缺 ${gaps.join('、')}（--option 写成 方案｜代价｜单向门 或 双向门）`)
   const card = checkedBeforeAnythingLands('nawaban-ask@1', value)
   if ('why' in card) return refuse(card.why)
   return e.holdFirstThenReply(a.body!, HOLD_FOR_DECISION, card.text)

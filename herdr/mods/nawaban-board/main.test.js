@@ -99,7 +99,7 @@ const after = (...said) => {
   return at.every((i) => i >= 0) || at.join(",");
 };
 
-test("each tab draws only its own part: 待决 the waiting cards, OKR the reading, 任务 停了 在做 没动 完成, in Chinese and English, with Herdr's API only", () => {
+test("each tab draws only its own part: 待决 the waiting cards, OKR the reading, 任务 停滞 进行中 待办 已完成, in Chinese and English, with Herdr's API only", () => {
   const v = panelView({ agents, terminals, space: "here", board, now, lang: "zh" });
   assert.deepEqual(v.waiting.map((c) => c.focus), ["t3"]);
   assert.deepEqual(v.tasks.map((g) => [g.group, g.items.map((i) => i.id)]),
@@ -129,7 +129,7 @@ test("each tab draws only its own part: 待决 the waiting cards, OKR the readin
   assert.ok(called.has("loop") && called.has("on_hover") && called.has("trigger"), "the dots breathe and the rows carry hover cards");
 });
 
-test("任务 opens 停了 and 在做, folds 没动 and 完成; Enter or a click on a header folds and opens it, and a reopened panel keeps each choice and the tab per project", () => {
+test("任务 opens 停滞 and 进行中, folds 待办 and 已完成; Enter or a click on a header folds and opens it, and a reopened panel keeps each choice and the tab per project", () => {
   stored.clear();
   const cx = cxOf(true);
   const view = drawn({}, cx);
@@ -176,7 +176,7 @@ test("three text tabs carry their badges; ← → and 1 2 3 switch them; the fir
   stored.clear();
 });
 
-test("完成 shows its newest 3, then 再显示 N 条; Enter on it shows all and 收起, remembered when the panel opens again", () => {
+test("已完成 shows its newest 3, then 再显示 N 条; Enter on it shows all and 收起, remembered when the panel opens again", () => {
   stored.clear();
   const cx = cxOf(true);
   const done = (i) => ({ id: "D" + i, title: "done " + i, status: "done", parent: null, session: null, terminal: null, claimed_at: 1,
@@ -205,7 +205,7 @@ test("完成 shows its newest 3, then 再显示 N 条; Enter on it shows all and
   stored.clear();
 });
 
-test("only 待你决定 rows get a second line; every task row stays one line, 停了 included", () => {
+test("only 待决 rows get a second line; every task row stays one line, 停滞 included", () => {
   stored.clear();
   const view = drawn({}, cxOf());
   const why = (key) => view.selectableByKey.get(key).why;
@@ -277,11 +277,11 @@ test("on a GitHub board a blocked worker comes first, then each pending card, wh
     const view = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
     assert.deepEqual(view.keys.slice(0, 4), ["card:0", "pending:#1536", "pending:#1472", "pending:#1428"]);
     assert.equal(after("待决", "4", "放不放行 1536", "可能已定", "放不放行 1472", "去窗口聊", "放不放行 1428", "选一项",
-      "卡片不全 1 张（#1280），正在退回编排者"), true);
+      "未就绪 1 件（#1280），正在退回编排者"), true);
     clicks.get("nawaban-row-pending:#1428")({}, cx);
     texts.length = 0;
     view.render(cx);
-    for (const s of ["背景", "本机不跑推理", "最近进展", "建议", "B：两台都是自己的测评机", "就这么定", "不够，再说清楚", "GitHub 全文 →"]) assert.ok(texts.includes(s), s);
+    for (const s of ["背景", "本机不跑推理", "最新进展", "建议", "B：两台都是自己的测评机", "就这么定", "不够，再说清楚", "GitHub 全文 →"]) assert.ok(texts.includes(s), s);
     assert.ok(texts.some((t) => t.endsWith("出分了")) && texts.includes("A · 一次性批准") && texts.includes("只管这一次"));
     assert.ok(!clicks.has("nawaban-settle-pending:#1428"), "就这么定 waits for an option");
     clicks.get("nawaban-option-pending:#1428-B")({}, cx);
@@ -301,7 +301,7 @@ test("on a GitHub board a blocked worker comes first, then each pending card, wh
     clicks.get("nawaban-row-pending:#1472")({}, cx);
     view.render(cx);
     clicks.get("nawaban-talk-pending:#1472")({}, cx);
-    assert.deepEqual(sends.at(-1), ["send", "t0", "[决策者经面板] #1536 已定，请核实后记已决"]);
+    assert.deepEqual(sends.at(-1), ["send", "t0", "[决策者经面板] #1536 已定，请核实后记已决（决策记录）"]);
     assert.deepEqual(focused, [["agent.focus", { terminal: "t9" }]]);
   } finally {
     terminals = realTerminals;
@@ -327,7 +327,7 @@ test("every card in the 待决 tab, whatever its kind, opens to the whole card i
       texts.length = 0;
       view.render(cx);
       const progress = id === "#1472" ? "还没有进展" : texts.find((t) => t.endsWith("出分了"));
-      assert.equal(after("放不放行 " + id.slice(1), "要你定", "长对话接着轮保留全部修饰", "KR", "本机不跑推理", "背景", progress, "最近进展",
+      assert.equal(after("放不放行 " + id.slice(1), "决策事项", "长对话接着轮保留全部修饰", "关联 KR", "本机不跑推理", "背景", progress, "最新进展",
         "A · 一次性批准", "只管这一次", "B · 加进白名单", "以后都放｜two-way", "建议", "B：两台都是自己的测评机", ...own, "GitHub 全文 →"), true, id);
       clicks.get("nawaban-row-pending:" + id)({}, cx);
     }
@@ -348,7 +348,7 @@ test("with no live orchestrator for this repo the card's buttons are off and it 
     clicks.get("nawaban-row-pending:#1428")({}, cx);
     texts.length = 0;
     view.render(cx);
-    assert.ok(texts.includes(WINDOW_WORDS.zh.cards.noOrchestrator) && texts.includes("卡片不全 1 张（#1280），没有编排者窗口，还没退回"));
+    assert.ok(texts.includes(WINDOW_WORDS.zh.cards.noOrchestrator) && texts.includes("未就绪 1 件（#1280），没有编排者窗口，还没退回"));
     assert.ok(!clicks.has("nawaban-unclear-pending:#1428"));
     terminals = [...realTerminals, orchestrator];
     hcImpl = async () => ({ code: 1, stdout: "", stderr: "no such terminal" });
@@ -388,11 +388,11 @@ test("incomplete cards go back to the orchestrator from the board read, once per
     await settle();
     new NawabanBoard().init({}, cx);
     await settle();
-    const returned = ["send", "t0", "[决策者经面板] 卡片不全，请按决策卡格式重写：#1280"];
+    const returned = ["send", "t0", "[决策者经面板] 待决未就绪（不满足就绪标准），请按待决策项格式重写：#1280"];
     assert.deepEqual(sends, [returned, returned]);
     texts.length = 0;
     view.render(cx);
-    assert.ok(texts.includes("卡片不全 1 张（#1280），已退回编排者重写"));
+    assert.ok(texts.includes("未就绪 1 件（#1280），已退回编排者重写"));
   } finally {
     terminals = realTerminals;
     hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
@@ -540,21 +540,21 @@ test("the OKR tab opens with the tally, leads with the neediest Objective, lists
   texts.length = 0;
   view.render(cx);
   const o = okrView(okrFixture, "zh");
-  assert.equal(after(OKR_WORDS.zh.tally(o.met, o.total, o.measured), "听得懂需求", "2/5", "长对话换题多带旧条件", "84.6%", "/ 目标 ≤ 20%", "差 64.6 点", "· 11-19",
-    "首字延迟", "超 160 ms", "▸ 1 条未测", "▸ 2 条已达标", "用户愿意拉人", "0/1", "▸ 1 条未测", "推荐能减少筛选", "全部达标 1/1"), true);
-  assert.ok(!texts.includes("误拦率") && !texts.includes("长对话接着轮保留修饰") && !texts.includes("筛选次数下降") && !texts.includes("停了"));
+  assert.equal(after(OKR_WORDS.zh.tally(o.met, o.total, o.measured), "听得懂需求", "2/5", "长对话换题多带旧条件", "84.6%", "/ 目标 ≤ 20%", "· 偏差", "-64.6 点", "红", "· 截至 11-19",
+    "首字延迟", "+160.0 ms", "黄", "▸ 1 条未测", "▸ 2 条已达标", "用户愿意拉人", "0/1", "▸ 1 条未测", "推荐能减少筛选", "全部达标 1/1"), true);
+  assert.ok(!texts.includes("误拦率") && !texts.includes("长对话接着轮保留修饰") && !texts.includes("筛选次数下降") && !texts.includes("停滞"));
   assert.deepEqual(view.keys, ["kr:0-0", "kr:0-1", "group:okr-untested:听得懂需求", "group:okr:听得懂需求",
     "group:okr-untested:用户愿意拉人", "group:okr:推荐能减少筛选"]);
   clicks.get("nawaban-group:okr:听得懂需求")({}, cx);
   clicks.get("nawaban-group:okr-untested:听得懂需求")({}, cx);
   texts.length = 0;
   view.render(cx);
-  assert.equal(after("▾ 1 条未测", "误拦率", "未测 · 目标 ≤ 2%", "▾ 2 条已达标", "长对话接着轮保留修饰", "超 0.1 点", "意图准确率"), true);
+  assert.equal(after("▾ 1 条未测", "误拦率", "未测 / 目标 ≤ 2%", "▾ 2 条已达标", "长对话接着轮保留修饰", "+0.1 点", "绿", "意图准确率"), true);
   assert.deepEqual(view.keys.slice(0, 7), ["kr:0-0", "kr:0-1", "group:okr-untested:听得懂需求", "kr:0-2", "group:okr:听得懂需求", "kr:0-3", "kr:0-4"]);
   while (view.selectedKey !== "group:okr:推荐能减少筛选") view.onKey({ keystroke: "down" }, cx);
   view.onKey({ keystroke: "enter" }, cx);
   drawn({ okr: okrFixture }, cx);
-  assert.equal(after("全部达标 1/1", "筛选次数下降", "超 1 点"), true, "a reopened panel keeps the tab and each fold");
+  assert.equal(after("全部达标 1/1", "筛选次数下降", "+1.0 点"), true, "a reopened panel keeps the tab and each fold");
   stored.clear();
 });
 

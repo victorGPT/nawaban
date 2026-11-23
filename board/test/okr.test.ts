@@ -121,16 +121,16 @@ describe('okr measures each KR and never narrates', () => {
     const out = await text(await repo())
     expect(out).toContain('听得懂需求 · 1/3 达标')
     expect(out).toContain('推荐能减少筛选 · 0/3 达标')
-    expect(line(out, '意图准确率')).toMatch(/^  ✓/)
-    expect(out).toContain('100.0% / >= 95%')
-    expect(out).toContain('截至 2026-11-17')
-    expect(line(out, 'L1 首位')).toMatch(/^  ✗/)
-    expect(out).toContain('89.0% / >= 95%')
+    expect(line(out, '意图准确率')).toMatch(/ · 绿 · /)
+    expect(out).toContain('100.0% / 目标 >= 95%')
+    expect(out).toContain('截至 11-17')
+    expect(line(out, 'L1 首位')).toMatch(/ \/ 目标 .* · 偏差 -[\d.]+ .*· 红 · 截至 /)
+    expect(out).toContain('89.0% / 目标 >= 95%')
   })
 
   it('calls no measure untested, and says why a broken one failed', async () => {
     const out = await text(await repo())
-    expect(line(out, '边界难例')).toContain('未测')
+    expect(line(out, '边界难例')).toBe('  边界难例  未测 / 目标 >= 80')
     expect(line(out, '硬条件违反')).toMatch(/测量失败.*missing data/)
     expect(line(out, '没写日期')).toContain('测量失败')
     expect(line(out, '不是数')).toContain('测量失败')
@@ -182,7 +182,7 @@ describe('okr measures each KR and never narrates', () => {
     const root = await repo(`[[objective]]\nname = "O"\n[[objective.kr]]\nname = "坏字节"\ntarget = ">= 1"\nmeasure = '''printf '\\377' '''\n[[objective.kr]]\nname = "好的"\ntarget = ">= 1"\nmeasure = "echo '2 today'"\n`)
     const out = await text(root)
     expect(line(out, '坏字节')).toContain('测量失败')
-    expect(line(out, '好的')).toMatch(/^  ✓/)
+    expect(line(out, '好的')).toBe('  好的  2.0 / 目标 >= 1 · 偏差 +1.0 · 绿 · 截至 today')
   })
 
   it.each([
@@ -213,8 +213,8 @@ describe('okr measures each KR and never narrates', () => {
     )
     const out = await text(root)
     expect(out).toContain('1/3 达标')
-    expect(line(out, '新')).toMatch(/^  ✓/)
-    expect(line(out, '旧')).toMatch(/^  ⌛.*测量过期/)
+    expect(line(out, '新')).toMatch(/ · 绿 · /)
+    expect(line(out, '旧')).toMatch(/ · 黄 · 截至 .*测量过期/)
     expect(line(out, '无日期')).toContain('测量失败')
   })
 
