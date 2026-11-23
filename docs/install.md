@@ -17,7 +17,7 @@ Then run:
 git clone https://github.com/victorGPT/nawaban ~/.nawaban/plugin && ~/.nawaban/plugin/install.sh
 ```
 
-`install.sh` installs the board's packages and builds the web page, installs the Claude Code plugin `nawaban@nawaban` from that checkout, writes the `nawaban` command to `~/.local/bin`, and starts the board as the launchd agent `com.nawaban.board` on `127.0.0.1:4100`, which writes the board's token and the page's token into `~/.nawaban/board/` on first start. It stops and says why when a prerequisite is missing. If `~/.local/bin` is not on your `PATH`, it tells you the line to add. To update later, run `git -C ~/.nawaban/plugin pull --ff-only && ~/.nawaban/plugin/install.sh`; running it again is safe.
+`install.sh` installs the board's packages and builds the web page, installs the Claude Code plugin `nawaban@nawaban` from that checkout, writes the `nawaban` command to `~/.local/bin`, opens Codex's sandbox to the board when `codex` is on your `PATH` ([Codex sandbox](#codex-sandbox)), and starts the board as the launchd agent `com.nawaban.board` on `127.0.0.1:4100`, which writes the board's token and the page's token into `~/.nawaban/board/` on first start. It stops and says why when a prerequisite is missing. If `~/.local/bin` is not on your `PATH`, it tells you the line to add. To update later, run `git -C ~/.nawaban/plugin pull --ff-only && ~/.nawaban/plugin/install.sh`; running it again is safe.
 
 `NAWABAN_BOARD_DIR`, `NAWABAN_BOARD_PORT`, `NAWABAN_LAUNCHD_LABEL` and `NAWABAN_BIN_DIR` change where it puts the board, the port, the agent's label and the command, for a trial install beside an existing one. The `nawaban` command and the agent keep them, but the plugin's hooks read them from the environment Claude Code runs in, so start Claude Code with the same `NAWABAN_BOARD_DIR` and `NAWABAN_BOARD_PORT`; a normal install leaves them unset.
 
@@ -50,7 +50,7 @@ Run these steps in order. Each one is safe to run again. Stop and tell the user 
 2. Put nawaban at `~/nawaban`. If that directory exists and is a nawaban checkout, run `git -C ~/nawaban pull --ff-only`; otherwise run `git clone https://github.com/victorGPT/nawaban ~/nawaban`.
 3. Install the plugin.
    - Claude Code: `claude plugin marketplace add ~/nawaban`, then `claude plugin install nawaban@nawaban`.
-   - Codex: add the marketplace and plugin entries shown under [Plugin install](#plugin-install) to `~/.codex/config.toml` with `source = "<absolute path of ~/nawaban>"`, then run `codex plugin add nawaban@nawaban`. Codex sessions are identified by `CODEX_THREAD_ID` ([Session identity](#session-identity)).
+   - Codex: add the marketplace and plugin entries shown under [Plugin install](#plugin-install) to `~/.codex/config.toml` with `source = "<absolute path of ~/nawaban>"`, then run `codex plugin add nawaban@nawaban`. Open its sandbox to the board as [Codex sandbox](#codex-sandbox) says. Codex sessions are identified by `CODEX_THREAD_ID` ([Session identity](#session-identity)).
 4. In the user's project, create the board: `python3 ~/nawaban/nawaban/cli.py init`. It prints the board path, or says the board already exists.
 5. Tell the user three things: the board path from step 4, that the `nawaban` skill loads in a new session, so they should start one, and that they see the board in the Herdr panel, which they install by following [Herdr panel](#herdr-panel).
 
@@ -58,7 +58,7 @@ Optional, for a person who wants to type commands: add `nawaban() { python3 ~/na
 
 ## Plugin install
 
-The same checkout is a Claude Code plugin and a Codex plugin. It ships one skill, `nawaban`, and registers no hooks, so there is nothing to trust or approve beyond installing it.
+The same checkout is a Claude Code plugin and a Codex plugin. It ships two skills, `nawaban` and `orchestrator`, and `hooks/hooks.json` registers SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop hooks that keep the orchestrator's declaration, pending line and ask guard. Claude Code runs them once the plugin is installed. Codex runs them only after you trust each one in `/hooks`, and again after any change to the file; untrusted, they stay off and the orchestrator falls back to running `nawaban page` itself.
 
 - **Claude Code:** `claude plugin marketplace add /path/to/nawaban`, then `claude plugin install nawaban@nawaban`. For a one-off session, `claude --plugin-dir /path/to/nawaban` also works. With this directory marketplace, Claude Code reads the plugin from the checkout; start a new session after pulling. If you also develop nawaban, point the marketplace at a separate clone that only follows `main`, so branch switches and uncommitted edits stay out of your sessions ([release and update](release.md)).
 - **From GitHub:** `claude plugin marketplace add victorGPT/nawaban`, then `claude plugin install nawaban@nawaban`. Claude Code updates the plugin only when `version` in `.claude-plugin/plugin.json` changes: run `claude plugin marketplace update nawaban && claude plugin update nawaban@nawaban`, then start a new session ([release and update](release.md)).
@@ -76,6 +76,18 @@ The same checkout is a Claude Code plugin and a Codex plugin. It ships one skill
   ```sh
   codex plugin add nawaban@nawaban
   ```
+
+### Codex sandbox
+
+Codex's default sandbox, `workspace-write`, has no network and writes only inside the workspace. The board CLI then cannot reach the board (`the board didn't answer: fetch failed`), and `claim` lands on the board but exits 1 with `EPERM`, because it writes its lease under `~/.config/board/claims/` (`$XDG_CONFIG_HOME/board` when that is set), and renewing the claim reads that file. Two settings in `~/.codex/config.toml` (`$CODEX_HOME/config.toml`) fix both:
+
+```toml
+[sandbox_workspace_write]
+network_access = true
+writable_roots = ["/Users/<you>/.config/board"]
+```
+
+`writable_roots` takes an absolute path. `install.sh` runs `node ~/.nawaban/plugin/board/src/codex.ts` when `codex` is on your `PATH`: it creates the lease directory and appends this table to a config that has none. A config that already has a `[sandbox_workspace_write]` table is left alone, and the script prints the two lines that table should read. This widens the sandbox: commands Codex runs can reach the network and write that directory.
 
 For a local checkout, clone `https://github.com/victorGPT/nawaban` and replace `/path/to/nawaban` with its absolute path. Private repositories require GitHub access.
 
