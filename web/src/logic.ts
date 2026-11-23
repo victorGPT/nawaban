@@ -1,6 +1,14 @@
-import { foldKey, localMonthDayTime, sinceLabel, taskSections, WINDOW_WORDS } from '../../herdr/mods/nawaban-board/logic.js'
+import {
+  foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WINDOW_WORDS,
+} from '../../herdr/mods/nawaban-board/logic.js'
 
-export { foldKey, localMonthDayTime, sinceLabel, taskSections, WINDOW_WORDS }
+export { foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, sinceLabel, taskSections, WINDOW_WORDS }
+
+export type KrStatus = 'met' | 'missed' | 'stale' | 'untested'
+export type KrRow = { name: string; status: KrStatus; value: string; target: string; measured: boolean; gap: string | null; day: string | null }
+export type ObjectiveRow = { name: string; met: number; total: number; standing: 'missed' | 'unsure' | 'met'; krs: KrRow[]; untestedKrs: KrRow[]; metKrs: KrRow[] }
+export type OkrView = { met: number; total: number; measured: string | null; objectives: ObjectiveRow[] }
+export const okrView = (okr: unknown): OkrView | null => panelOkrView(okr, 'zh')
 
 export const TABS = ['decide', 'okr', 'tasks', 'inbox'] as const
 export type Tab = (typeof TABS)[number]
@@ -136,4 +144,16 @@ export function linkOf(body: string) {
   const kind = at > 0 ? body.slice(0, at) : ''
   const ref = at > 0 ? body.slice(at + 1) : body
   return { kind, ref, href: SAFE_LINK.test(ref) ? ref : null }
+}
+
+const STRUCTURED_TARGET = /^([≥≤<>=])\s*(-?\d+(?:\.\d+)?)/
+const LOWER_IS_BETTER = new Set(['≤', '<'])
+
+export function krFill(k: { measured: boolean; target: string | null; value: string }) {
+  const goal = STRUCTURED_TARGET.exec(String(k.target ?? ''))
+  const value = parseFloat(k.value)
+  if (!k.measured || !goal || !Number.isFinite(value)) return null
+  const target = Number(goal[2])
+  const fill = LOWER_IS_BETTER.has(goal[1]!) ? (value <= target ? 1 : target / value) : target > 0 ? value / target : value >= target ? 1 : 0
+  return Math.min(1, Math.max(0, fill))
 }
