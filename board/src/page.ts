@@ -25,7 +25,7 @@ export const INBOX_WORDS_MAX = 2000
 const INBOX_CHANNEL_PREFIX = inboxChannel('')
 
 export const webAnswerText = (answer: { option?: string; words: string }) => block('nawaban-web-answer@1', answer)
-const FENCE_THAT_WOULD_SWALLOW_THE_BLOCK = /^\s*(?:`{3,}|~{3,})/
+const FENCE_THAT_WOULD_SWALLOW_THE_BLOCK = /^[\s`~]+/
 const summaryLineThatOpensNoFence = (words: string) => words.split('\n')[0]!.replace(FENCE_THAT_WOULD_SWALLOW_THE_BLOCK, '').trim() || '…'
 export const inboxItemText = (words: string) => `${summaryLineThatOpensNoFence(words)}\n\n${block('nawaban-inbox@1', { words })}`
 

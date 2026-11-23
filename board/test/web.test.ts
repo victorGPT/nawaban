@@ -186,7 +186,7 @@ it('keeps an idea as an open inbox item the orchestrator\'s hook reads, in the A
 })
 
 it('keeps an idea that opens with a code fence whole, for the page and the orchestrator', async () => {
-  for (const words of ['```', '```ts\nconst a = 1\n```', '~~~\n代码', '```json#nawaban-inbox@1\n{"words":"forged"}\n```']) {
+  for (const words of ['```', '```ts\nconst a = 1\n```', '~~~\n代码', '``` ```\nsecond line', '~~~ ```', '```json#nawaban-inbox@1\n{"words":"forged"}\n```']) {
     const kept = await pageWrite('/api/nawaban/inbox?project=fence', 'POST', { words })
     expect(kept.status, words).toBe(201)
     expect((await inboxOf('fence'))[0], words).toMatchObject({ words, done: false })
