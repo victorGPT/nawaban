@@ -18,6 +18,7 @@ venv/
 !.env.example
 .DS_Store
 node_modules/
+web/dist/
 
 .nawaban/
 # written by herdr-app into a mod folder it loads
