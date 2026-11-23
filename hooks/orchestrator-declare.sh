@@ -6,7 +6,7 @@ prompt=$(printf '%s' "$input" | python3 -c 'import json,sys; print(json.load(sys
 
 owner_typed_the_declaration() {
   case "$prompt" in
-    /nawaban:orchestrator*) return 0 ;;
+    /nawaban:orchestrator* | \$orchestrator* | \$nawaban:orchestrator*) return 0 ;;
     *) return 1 ;;
   esac
 }

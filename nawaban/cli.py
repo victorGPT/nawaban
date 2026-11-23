@@ -1807,6 +1807,32 @@ def _leaves(v) -> str:
     return v if isinstance(v, str) else ""
 
 
+_TURN_STARTS = object()
+
+
+def _claude_code_step(d: dict):
+    try:
+        content = d["message"]["content"]
+    except (KeyError, TypeError):
+        return None
+    if _user_prompt_starting_a_turn(d, content):
+        return _TURN_STARTS
+    if d.get("type") == "assistant" and isinstance(content, list):
+        return [_leaves(c.get("input")) for c in content if isinstance(c, dict) and c.get("type") == "tool_use"]
+    return None
+
+
+def _codex_rollout_step(d: dict):
+    p = d["payload"]
+    if not isinstance(p, dict):
+        return None
+    if d.get("type") == "event_msg" and p.get("type") == "task_started":
+        return _TURN_STARTS
+    if d.get("type") == "response_item" and str(p.get("type")).endswith("_call"):
+        return [_leaves(p)]
+    return None
+
+
 def _turn_tool_inputs(transcript: str | None) -> list[str] | None:
     import json
     out = []
@@ -1817,13 +1843,15 @@ def _turn_tool_inputs(transcript: str | None) -> list[str] | None:
     for ln in lines:
         try:
             d = json.loads(ln)
-            content = d["message"]["content"]
-        except (ValueError, KeyError, TypeError):
+        except ValueError:
             continue
-        if _user_prompt_starting_a_turn(d, content):
+        if not isinstance(d, dict):
+            continue
+        step = _codex_rollout_step(d) if "payload" in d else _claude_code_step(d)
+        if step is _TURN_STARTS:
             out = []
-        elif d.get("type") == "assistant" and isinstance(content, list):
-            out += [_leaves(c.get("input")) for c in content if isinstance(c, dict) and c.get("type") == "tool_use"]
+        elif step:
+            out += step
     return out
 
 

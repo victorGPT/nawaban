@@ -77,6 +77,12 @@ def test_the_owner_typing_the_command_labels_the_terminal_and_loads_the_rules(tm
     assert "label t1 role=orchestrator" in calls and "已给终端 t1" in out and "规矩正文" in out
 
 
+def test_the_codex_skill_mention_declares_too(tmp_path):
+    for prompt in ("$orchestrator", "$nawaban:orchestrator"):
+        out, calls = _declare(tmp_path / prompt.strip("$").replace(":", "_"), prompt)
+        assert "label t1 role=orchestrator" in calls and "已给终端 t1" in out, prompt
+
+
 def test_any_other_prompt_labels_nothing(tmp_path):
     out, calls = _declare(tmp_path, "继续推进 /nawaban:orchestrator 的事")
     assert out == "" and calls == ""
