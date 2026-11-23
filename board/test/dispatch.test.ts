@@ -61,6 +61,7 @@ async function dispatchInTheRepositoryAsWindowAaaa1111(argv: string[], hc: Recor
     HC_ORCH: '',
     HC_ORCH_CWD: repo,
     HC_RUN_FAIL: '',
+    CODEX_HOME: '',
     ...hc,
   }
   for (const thisMachinesBoardSetting of ['NAWABAN_BOARD_DIR', 'NAWABAN_BOARD_PORT']) delete env[thisMachinesBoardSetting]
@@ -115,4 +116,39 @@ it('dispatches with no task, under --name, and records nothing', async () => {
   expect(r.hc).toContain('/pstack:poteto-mode 任务：retro\n')
   expect(r.hc).toContain('hc send to1 "回报：retro 完成')
   expect(existsSync(join(tmp, 'repo-retro'))).toBe(true)
+})
+
+it.each([
+  { agent: [], model: [], starts: 'claude --model opus /pstack:poteto-mode 任务：row-default\n' },
+  { agent: ['--agent', 'claude'], model: ['--model', 'sonnet'], starts: 'claude --model sonnet /pstack:poteto-mode 任务：row-claude\n' },
+  { agent: ['--agent', 'codex'], model: [], starts: 'codex 任务：row-codex\n' },
+  { agent: ['--agent', 'codex'], model: ['--model', 'gpt-5.5'], starts: 'codex -m gpt-5.5 任务：row-codex-m\n' },
+  { agent: ['--agent', 'agy'], model: [], starts: 'agy -i 任务：row-agy\n' },
+  { agent: ['--agent', 'agy'], model: ['--model', 'gemini-4'], starts: 'agy --model gemini-4 -i 任务：row-agy-m\n' },
+])('starts $starts', async ({ agent, model, starts }) => {
+  const name = starts.slice(starts.indexOf('任务：') + 3, -1)
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', name, ...agent, ...model, '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.hc).toContain(`--name ${name} --cwd ${join(tmp, `repo-${name}`)} env BOARD_URL=${url} ${starts}`)
+})
+
+it('hands the worker the Codex config the dispatcher runs under', async () => {
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'cx-home', '--agent', 'codex', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1', CODEX_HOME: '/tmp/cx' })
+  expect(r.code).toBe(0)
+  expect(r.hc).toContain(`env BOARD_URL=${url} CODEX_HOME=/tmp/cx codex 任务：cx-home`)
+})
+
+it('refuses --agent with no value as a usage mistake', async () => {
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'row-none', '--brief', 'b', '--accept', 'a', '--agent'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(2)
+  expect(r.hc).toBe('')
+})
+
+it('refuses an agent it has no row for, and starts nothing', async () => {
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'row-gemini', '--agent', 'gemini', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(2)
+  expect(r.stderr).toContain('--agent claude|codex|agy')
+  expect(r.hc).toBe('')
+  expect(existsSync(join(tmp, 'repo-row-gemini'))).toBe(false)
 })
