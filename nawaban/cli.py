@@ -1839,7 +1839,7 @@ def unrecorded_ask(message: str, transcript: str | None) -> str | None:
     unreadable_transcript_passes = inputs is None
     if unreadable_transcript_passes or any(_RECORDED.search(s) for s in inputs):
         return None
-    return ("这轮在向决策者要决定，却没记成待决策项，收件箱里看不到它。先把问题记成待决策项："
+    return ("这轮在向决策者要决定，却没记成待决策项，待决提示行里看不到它。先把问题记成待决策项："
             "nawaban event '#N' --kind ask --body <决策事项> --kr <关联 KR> --context <背景> --option <方案｜代价｜单向门/双向门> --option <方案｜代价｜单向门/双向门> --rec <建议>"
             "（本地看板：nawaban event <ID> --kind note --body 'triage: needs-info — 等你：<问题>'），问法不用改。")
 

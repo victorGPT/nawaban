@@ -24,7 +24,8 @@ The shared language for tasks recorded by agents and read by people. English ter
 - **红黄绿灯** — KR 状态：红＝未达标，黄＝过期或有风险，绿＝达标；没有读数的写「未测」 — 出处：RAG status（PRINCE2）。
 - **偏差** — 实际减目标，按目标方向算：+ 领先，- 落后；百分比按「点」计 — 出处：Variance。
 - **OKR 行** — 「<KR>  <实际> / 目标 <op 目标> · 偏差 <±n 单位> · <红|黄|绿> · 截至 <MM-DD>」，`okr` 输出和面板都用；面板上偏差和灯另用颜色 — 出处：OKR（Grove，Doerr）。
-- **面板 tab** — 待决 / OKR / 任务；收件箱那一行是「待决 N 件：…」 — 出处：本仓库。
+- **面板 tab** — 待决 / OKR / 任务 / 收件箱；编排者每轮回复下方「待决 N 件：…」那一行是待决提示行，不叫收件箱 — 出处：本仓库。
+- **收件箱** — 面板第四个 tab：决策者随手记下的想法，按项目存在面板本地；点「交给编排者」由编排者转成任务或命令，交过的标「已交」沉底折叠 — 出处：Capture Inbox（GTD，Allen）。
 
 ## Language
 
@@ -213,20 +214,20 @@ _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`.
 
 **Index**(索引)
-The md text an orchestrator reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), 停滞 (no activity for 24 hours, with on whom) and 进行中, each with its spec, latest progress and next step (`下一步：` of a 进展同步); the user's 决策记录 of the last 48 hours; the 待办; and a count of the closed. On GitHub it opens with `## 待决`, the 待决策项, oldest first, by issue number and title. It is printed from `json board`'s data each time and never stored (on GitHub the same read rewrites the inbox cache).
-索引是编排者开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、停滞（24 小时没动静，写明停在谁身上）、进行中分组，每件带所属的 spec、最新进展和下一步；48 小时内用户的决策记录；待办；关掉的个数。在 GitHub 上最上面先列 `## 待决`，按提出先后，只写 issue 号和标题。每次从 `json board` 的数据现打，从不存（GitHub 上同一次读取会重写收件箱缓存）。
+The md text an orchestrator reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), 停滞 (no activity for 24 hours, with on whom) and 进行中, each with its spec, latest progress and next step (`下一步：` of a 进展同步); the user's 决策记录 of the last 48 hours; the 待办; and a count of the closed. On GitHub it opens with `## 待决`, the 待决策项, oldest first, by issue number and title. It is printed from `json board`'s data each time and never stored (on GitHub the same read rewrites the pending line's cache).
+索引是编排者开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、停滞（24 小时没动静，写明停在谁身上）、进行中分组，每件带所属的 spec、最新进展和下一步；48 小时内用户的决策记录；待办；关掉的个数。在 GitHub 上最上面先列 `## 待决`，按提出先后，只写 issue 号和标题。每次从 `json board` 的数据现打，从不存（GitHub 上同一次读取会重写待决提示行缓存）。
 _Avoid_: wiki, summary file, status report.
 _Current identifiers_: CLI `index`; `NAWABAN_OWNER_NAMES`; on the Vercel Board `nawaban index --project` (`board/src/orchestrator.ts`).
 
-**Inbox**(收件箱)
+**Pending line**(待决提示行)
 The one line under each of the orchestrator's replies that says what waits on the decision-maker: `待决 N 件：<id title> · …｜说「同步」看待决`. Its items are the repository's 待决策项 on GitHub, and the 等你 tasks of the repository's project on the board; nothing else, and never read from the chat. It lists the items this session has not been shown yet, says only `待决 N 件（无变化）` when the set is the same as last time, and is absent when there are none. On GitHub it reads a cache file that every `index`, `brief`, `json board` and `event --kind ask|resolve` rewrites; a cache older than 5 minutes is still shown, marked `· x 分钟前`, while a refresh runs in the background. Only the terminal labelled orchestrator shows it.
-收件箱是编排者每轮回复下方的那一行，写要决策者定的事：`待决 N 件：<号 标题> · …｜说「同步」看待决`。条目只来自 tracker：GitHub 上是本仓库的待决，本地看板上是本仓库项目的等你；不从聊天里读。只列这个窗口还没看过的条目，集合和上次相同时只写 `（无变化）`，没有就不出。GitHub 上读缓存文件，每次 `index`、`brief`、`json board` 和 `event --kind ask|resolve` 都会重写它；缓存超过 5 分钟照样显示，标上 `· x 分钟前`，同时在后台刷新。只在打了编排者标签的终端出现。
-_Avoid_: notification, reminder, todo list.
+待决提示行是编排者每轮回复下方的那一行，写要决策者定的事：`待决 N 件：<号 标题> · …｜说「同步」看待决`。条目只来自 tracker：GitHub 上是本仓库的待决，本地看板上是本仓库项目的等你；不从聊天里读。只列这个窗口还没看过的条目，集合和上次相同时只写 `（无变化）`，没有就不出。GitHub 上读缓存文件，每次 `index`、`brief`、`json board` 和 `event --kind ask|resolve` 都会重写它；缓存超过 5 分钟照样显示，标上 `· x 分钟前`，同时在后台刷新。只在打了编排者标签的终端出现。
+_Avoid_: notification, reminder, todo list, inbox, 收件箱 (the panel's 收件箱 tab is the Capture Inbox).
 _Current identifiers_: `hooks/inbox.sh` (Stop hook); `~/.nawaban/inbox/`; `hooks/ask-guard.sh` (sends back a decision asked only in chat); on the Vercel Board `nawaban inbox` (`board/src/orchestrator.ts`, no cache), `~/.nawaban/board/inbox/`; `hooks/route.mjs` (which CLI a hook runs).
 
 **Herdr panel**(Herdr 面板)
 A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each orchestrator and its workers are doing. On GitHub the top shows the blocked windows' waiting cards, when there are any, then the pending decisions, each opening its issue, with the window groups folded under them. Claiming, closing and dispatching stay with agents and the CLI.
-Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按编排者列出当前 space 所在项目里每个编排者和它的 worker 在做什么。自上而下三层，所有项目一样：三个 tab：待决（等你卡和待决策项，展开为决策事项、关联 KR、背景、最新进展、备选方案、建议）、OKR（每条 KR 一行 OKR 行，状态用红黄绿灯）、任务（停滞、进行中、待办、已完成四组）。认领、关闭、派活仍由 agent 通过 CLI 完成。
+Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按编排者列出当前 space 所在项目里每个编排者和它的 worker 在做什么。自上而下三层，所有项目一样：四个 tab：待决（等你卡和待决策项，展开为决策事项、关联 KR、背景、最新进展、备选方案、建议）、OKR（每条 KR 一行 OKR 行，状态用红黄绿灯）、任务（停滞、进行中、待办、已完成四组）、收件箱（决策者记下的想法，可一键交给编排者）。认领、关闭、派活仍由 agent 通过 CLI 完成。
 _Avoid_: sidebar, shepherdr, board tab.
 _Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `cmd-shift-j`.
 

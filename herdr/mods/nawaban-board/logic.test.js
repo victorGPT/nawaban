@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { projectFor, cliFor, BOARD_PROJECTS, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, panelView, sinceLabel, decisionDate, WINDOW_WORDS,
-  okrView, OKR_WORDS, gapOf, varianceText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, ROWS_SHOWN_PER_GROUP, moreKey, TABS, openingTab, tabBadges } from "./logic.js";
+  okrView, OKR_WORDS, gapOf, varianceText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, ROWS_SHOWN_PER_GROUP, moreKey, TABS, openingTab, tabBadges,
+  CAPTURE_FOLD, captureStoreKey, capturesFrom, addCapture, removeCapture, markHanded, captureView, unhandedCount, localMonthDayTime } from "./logic.js";
 import { readFileSync } from "node:fs";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
@@ -468,7 +469,7 @@ test("an incomplete card is returned once: what was sent stays remembered while 
 });
 
 test("the panel opens on the tab the owner last picked; the first time on 待决 when something waits, else OKR", () => {
-  assert.deepEqual(TABS, ["decide", "okr", "tasks"]);
+  assert.deepEqual(TABS, ["decide", "okr", "tasks", "capture"]);
   assert.deepEqual([openingTab("tasks", 3), openingTab("okr", 3), openingTab(undefined, 2), openingTab(undefined, 0), openingTab("bogus", 0)],
     ["tasks", "okr", "decide", "okr", "okr"]);
 });
@@ -476,10 +477,11 @@ test("the panel opens on the tab the owner last picked; the first time on 待决
 test("each tab's badge says whether it needs the owner: pending in amber, missed KRs in red or ✓ when all met, a plain count of open tasks", () => {
   const v = okrView(okrFixture, "zh");
   assert.deepEqual(tabBadges({ pending: 5, okr: v, openTasks: 7 }),
-    { decide: { text: "5", tone: "ask" }, okr: { text: "1", tone: "missed" }, tasks: { text: "7", tone: "plain" } });
+    { decide: { text: "5", tone: "ask" }, okr: { text: "1", tone: "missed" }, tasks: { text: "7", tone: "plain" }, capture: null });
+  assert.deepEqual(tabBadges({ pending: 0, okr: null, openTasks: 0, unhanded: 2 }).capture, { text: "2", tone: "plain" });
   const met = okrView({ ...okrFixture, objectives: [{ name: "O", krs: [{ name: "k", target: ">= 1", target_op: ">=", target_value: 1, status: "met", value: 2 }] }] }, "zh");
   const unsure = okrView({ ...okrFixture, objectives: [{ name: "O", krs: [{ name: "k", target: ">= 1", status: "untested" }] }] }, "zh");
-  assert.deepEqual(tabBadges({ pending: 0, okr: met, openTasks: 0 }), { decide: null, okr: { text: "✓", tone: "met" }, tasks: null });
+  assert.deepEqual(tabBadges({ pending: 0, okr: met, openTasks: 0 }), { decide: null, okr: { text: "✓", tone: "met" }, tasks: null, capture: null });
   assert.deepEqual([tabBadges({ pending: 0, okr: unsure, openTasks: 0 }).okr, tabBadges({ pending: 0, okr: null, openTasks: 0 }).okr], [null, null]);
 });
 
@@ -487,4 +489,29 @@ test("a card's subtitle leaves out a KR that is empty or 无", () => {
   const withKr = (kr) => ({ tracker: "github", columns: [{ key: "open", tasks: [asked(1280, 300, { card: { ...cardOf(), kr } })] }] });
   assert.deepEqual(["无", " 无 ", "", null].map((kr) => decisionCardsView(withKr(kr)).cards[0].sub), Array(4).fill("#1280 · " + decisionDate(300)));
   assert.equal(decisionCardsView(withKr("留存")).cards[0].sub, "#1280 · 留存 · " + decisionDate(300));
+});
+
+test("收件箱 keeps a trimmed idea and never a blank one; handed ones sink below the rest, newest first on both sides; only the unhanded count", () => {
+  const at = (h, m) => new Date(2026, 10, 24, h, m).getTime();
+  let list = addCapture([], "  看下 OKR 的量法  ", at(9, 5));
+  assert.equal(addCapture(list, " \n ", at(9, 6)), list);
+  list = addCapture(list, "换个 hook", at(9, 7));
+  list = addCapture(list, "第三条", at(9, 8));
+  assert.deepEqual(list.map((x) => x.text), ["看下 OKR 的量法", "换个 hook", "第三条"]);
+  assert.equal(new Set(list.map((x) => x.id)).size, 3);
+  list = markHanded(list, list[0].id, at(10, 0));
+  list = markHanded(list, list[1].id, at(11, 30));
+  const v = captureView(list);
+  assert.deepEqual([v.open.map((x) => x.text), v.handed.map((x) => x.text)], [["第三条"], ["换个 hook", "看下 OKR 的量法"]]);
+  assert.equal(unhandedCount(list), 1);
+  assert.equal(localMonthDayTime(v.handed[0].handedAt), "11-24 11:30");
+  assert.deepEqual(removeCapture(list, list[2].id).map((x) => x.text), ["看下 OKR 的量法", "换个 hook"]);
+  assert.equal(TO_ORCHESTRATOR.capture("换个 hook"), "[决策者经面板] 收件箱：换个 hook。请转成任务或命令，回我结果");
+});
+
+test("收件箱 storage is per project, folded 已交 by default, and anything unreadable comes back empty", () => {
+  assert.notEqual(captureStoreKey("nawaban"), captureStoreKey("roubao"));
+  assert.equal(isGroupOpen({}, "nawaban", CAPTURE_FOLD), false);
+  assert.deepEqual([null, "x", { a: 1 }, 3].map(capturesFrom), [[], [], [], []]);
+  assert.deepEqual(capturesFrom([{ id: "1", text: "ok", at: 1 }, { text: "no id" }, null]), [{ id: "1", text: "ok", at: 1 }]);
 });

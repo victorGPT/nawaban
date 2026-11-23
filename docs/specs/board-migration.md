@@ -7,7 +7,7 @@
 
 ## Problem
 
-nawaban 是一个 1733 行的单文件 Python CLI，背后是一个手写 schema 的 SQLite。认领没有租约：窗口死了，任务就一直挂在它名下。存储、身份、事件流、依赖、阻塞这些看板底座都是自己维护的，真正属于我们的只有上面那层 OKR、决策卡、收件箱和派活。
+nawaban 是一个 1733 行的单文件 Python CLI，背后是一个手写 schema 的 SQLite。认领没有租约：窗口死了，任务就一直挂在它名下。存储、身份、事件流、依赖、阻塞这些看板底座都是自己维护的，真正属于我们的只有上面那层 OKR、决策卡、待决提示行和派活。
 
 Vercel Board 已经提供了这层底座：任务带租约和 fencing、依赖、awaiting_approval 阻塞、按 schema 校验的结构化 block、watchers、middleware，外加能嵌入的 CLI。决策者 11-20 决定迁过去，nawaban 只保留自己那层。
 
@@ -78,7 +78,7 @@ Vercel Board 已经提供了这层底座：任务带租约和 fencing、依赖�
 | **close 锁** | 我们的 CLI `close --done` 先查 impact block，没有就拒；插件 PreToolUse hook 拦 agent 直接调 `vb tasks complete|fail|cancel`（决策者自己手敲不拦） | 任务状态写不经过 middleware；不做 backend 包装，避免依赖仅源码可见的 `completeTask`。威胁模型是防忘、不防故意（已定 6） |
 | **合并 hook 锁**（impact-guard.sh） | 保留插件 PreToolUse hook，改成读板上的 impact block | 无 |
 | **OKR**：okr.toml、measure、读数、轮次 | okr.toml 和 measure 照旧，由我们的 CLI `nawaban okr` 执行。读数写成 block `nawaban-kr-reading@1 {objective, kr, value, asof, commit}`，放在 channel `okr/<project>`，每条 KR 一个线程。accept 是 `nawaban-okr-accept@1`。轮次、stuck、five、wait、accept、mismatch 都是我们 TS 里的纯函数，移植自 cli.py，test_okr.py 的用例一并移植 | Board 没有聚合查询，每次 `json okr` 都要读整个 `okr/<project>` 子树。现在才 27 条读数，量很小 |
-| **收件箱**（Stop hook） | `hooks/inbox.sh` 改成调 `nawaban inbox`，读本项目 channel 里 blocked/needs_input 的任务和 `pending=ask` 的线程。GitHub 项目读同步进来的 issue 线程（见 T10）。**本地读只要几毫秒，5 分钟缓存可以删掉** | INBOX-02（ask-guard）已合（#86），一并移植 |
+| **待决提示行**（Stop hook） | `hooks/inbox.sh` 改成调 `nawaban inbox`，读本项目 channel 里 blocked/needs_input 的任务和 `pending=ask` 的线程。GitHub 项目读同步进来的 issue 线程（见 T10）。**本地读只要几毫秒，5 分钟缓存可以删掉** | INBOX-02（ask-guard）已合（#86），一并移植 |
 | **index / brief** | 照搬，数据源换成板 | 无 |
 | **dispatch** | worktree 和 `hc run` 的流程不变。原来的 `dispatch:` note 改成 block `nawaban-dispatch@1 {worker, terminal, accept}`，回报照旧发给 `role=orchestrator` 的终端 | 无 |
 | **Herdr 面板** | 面板现在写死调用 `python3 ~/nawaban/nawaban/cli.py json …`（main.js:22,40）。只改这两行，换成新 CLI 的 `nawaban json projects\|db\|board\|task\|okr`，**JSON 形状保持不变**，用 logic.test.js 和 okr.fixture.json 做契约测试。`json db` 返回 `~/.nawaban/board/local.db`，供面板监听变化 | 面板现在监听 db 文件；Board 用 WAL，要确认文件变化事件照样触发，不触发就改用 `tail` 推送 |
@@ -270,7 +270,7 @@ Vercel Board 已经提供了这层底座：任务带租约和 fencing、依赖�
 
 **Blocked by**：T2、T3、T5
 
-### T8 编排者窗口照常：开工索引、收件箱、编排者 hooks 全部接新板
+### T8 编排者窗口照常：开工索引、待决提示行、编排者 hooks 全部接新板
 **What to build**
 
 - `index`、`inbox` 移植，去掉缓存。
@@ -302,13 +302,13 @@ Vercel Board 已经提供了这层底座：任务带租约和 fencing、依赖�
 
 - 按待决 3 的推荐：`nawaban serve` 内跑一个 `gh` 轮询器，每 60 秒拉 roubao 开着的 issue 及新评论，用 handle 幂等写入 channel `roubao`。root 打 `issue=owner/repo#N`、`state` label，评论写成 reply。
 - 首次运行全量补导入。
-- 面板、索引、收件箱、brief 的 GitHub 分支改读这些线程，`待决：/已决：` 解析规则不变。
+- 面板、索引、待决提示行、brief 的 GitHub 分支改读这些线程，`待决：/已决：` 解析规则不变。
 - agent 写 GitHub 仍通过 `nawaban event '#N' …`（移植旧 CLI 的 GitHub 写路径，包括 claim、ask、resolve、impact、close），写完由轮询带回板上。合并锁对 `#N` 改读新板。
 - 导入 roubao 的 OKR 三张表，删掉插件和面板里的分流，旧 CLI 只剩读历史。
 
 **Acceptance**
 
-- 在 roubao 某个 issue 上评论一条 `待决：…`，2 分钟内出现在面板和收件箱。
+- 在 roubao 某个 issue 上评论一条 `待决：…`，2 分钟内出现在面板和待决提示行。
 - 关闭 issue 后，面板显示已关。
 - 板上什么也不回写到 GitHub。
 - 决策者一整天不打开 GitHub 也能看全待决。
@@ -360,4 +360,4 @@ Vercel Board 已经提供了这层底座：任务带租约和 fencing、依赖�
 6. 自起 `nawaban serve`（`board()` + `local({dir})`），只用文档扩展点：自写 bearer verifier、middleware（卡片/声明字段与 O/KR 名字）、watchers。不用 `oidcTokens({local})` 和 backend 包装（`completeTask`）；关单锁 = CLI 拒绝 + PreToolUse hook 拦 agent 直调 `vb tasks complete|fail|cancel`。
 7. 等你/待决照 Board 语义交还认领；不做 assign 保留、`pending` label/watcher、一件待决 middleware、`--reopen`、`--take`。
 
-需求依据（第一性原理）：R1 待决唯一来源且每轮摆到眼前；R2 声明由代码强制、只管决策者的窗口、防忘不防故意；R3 不留挂在不干活持有者名下的卡；R4 进度只来自 measure；R5 同事工作流不受约束；R6 只维护 OKR/决策卡/收件箱/派活；R7 全本机、照 Board 规范。
+需求依据（第一性原理）：R1 待决唯一来源且每轮摆到眼前；R2 声明由代码强制、只管决策者的窗口、防忘不防故意；R3 不留挂在不干活持有者名下的卡；R4 进度只来自 measure；R5 同事工作流不受约束；R6 只维护 OKR/决策卡/待决提示行/派活；R7 全本机、照 Board 规范。

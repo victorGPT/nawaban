@@ -336,6 +336,7 @@ export const TO_ORCHESTRATOR = {
   unclear: (id) => `[决策者经面板] ${id} 背景不够，请补写后重发待决`,
   decided: (id) => `[决策者经面板] ${id} 已定，请核实后记已决（决策记录）`,
   incomplete: (ids) => `[决策者经面板] 待决未就绪（不满足就绪标准），请按待决策项格式重写：${ids.join(" ")}`,
+  capture: (text) => `[决策者经面板] 收件箱：${text}。请转成任务或命令，回我结果`,
 };
 
 export const marksStillToKeep = (returned, incomplete, justReturned) =>
@@ -412,7 +413,8 @@ export const WINDOW_WORDS = {
   zh: { waiting: "等你", pushing: "进行中", stopped: "停滞", done: "已完成", working: "在干", idle: "空闲", todo: "待办", yesterday: "昨天", confirm: "在等你确认",
     windows: (n) => `${n} 个窗口`, elsewhere: (n) => (n ? `其他项目 ${n} 件等你` : "其他项目没有等你的"),
     gone: "窗口已关，任务还拿着没交还", none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言",
-    nothingToDecide: "没有等你决定的待决", tabs: { decide: "待决", okr: "OKR", tasks: "任务" }, groups: { stopped: "停滞", working: "进行中", todo: "待办", done: "已完成" },
+    nothingToDecide: "没有等你决定的待决", tabs: { decide: "待决", okr: "OKR", tasks: "任务", capture: "收件箱" },
+    capture: { placeholder: "记一条想法，回车存", hand: "交给编排者", remove: "删除", noOrchestrator: "没有编排者", handed: (at) => `已交 ${at}`, handedGroup: (n) => `已交 ${n}`, empty: "还没有记下的想法" }, groups: { stopped: "停滞", working: "进行中", todo: "待办", done: "已完成" },
     more: (n) => `再显示 ${n} 条`, less: "收起", go: "去窗口", issue: "去 GitHub",
     facts: { id: "编号", question: "问题", note: "进展", window: "窗口", since: "多久", spec: "票" },
     cards: { chip: { pick: "选一项", maybe: "可能已定", talk: "去窗口聊" }, decision: "决策事项", kr: "关联 KR", context: "背景", progress: "最新进展",
@@ -425,7 +427,9 @@ export const WINDOW_WORDS = {
   en: { waiting: "Waiting", pushing: "WIP", stopped: "Stale", done: "Done", working: "Working", idle: "Idle", todo: "Backlog", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
     gone: "Window closed, task still held", none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language",
-    nothingToDecide: "No Decision Requests", tabs: { decide: "Decisions", okr: "OKR", tasks: "Tasks" }, groups: { stopped: "Stale", working: "WIP", todo: "Backlog", done: "Done" },
+    nothingToDecide: "No Decision Requests", tabs: { decide: "Decide", okr: "OKR", tasks: "Tasks", capture: "Inbox" },
+    capture: { placeholder: "Jot an idea, Enter to keep it", hand: "Hand to orchestrator", remove: "Delete", noOrchestrator: "No orchestrator", handed: (at) => `Handed ${at}`,
+      handedGroup: (n) => `Handed ${n}`, empty: "Nothing jotted down yet" }, groups: { stopped: "Stale", working: "WIP", todo: "Backlog", done: "Done" },
     more: (n) => `Show ${n} more`, less: "Show less", go: "Go to window", issue: "Open on GitHub",
     facts: { id: "ID", question: "Question", note: "Progress", window: "Window", since: "For", spec: "Tickets" },
     cards: { chip: { pick: "Pick one", maybe: "Maybe decided", talk: "Talk in a window" }, decision: "BLUF", kr: "KR", context: "Context",
@@ -448,7 +452,7 @@ export function moveSelection(keys, key, delta) {
   return keys[clampIndex(keys, at + delta)];
 }
 
-const KEYS = { down: "down", up: "up", enter: "open", escape: "back", left: "left", right: "right", 1: "1", 2: "2", 3: "3" };
+const KEYS = { down: "down", up: "up", enter: "open", escape: "back", left: "left", right: "right", 1: "1", 2: "2", 3: "3", 4: "4" };
 export const keyCommand = (e) => KEYS[e.keystroke] ?? null;
 
 const OKR_STATES = ["met", "missed", "stale", "untested"];
@@ -527,7 +531,7 @@ export const OKR_WORDS = {
     variance: "variance", asOfShort: "as of", point: "pt", metFolded: (n) => `${n} Green`, untestedFolded: (n) => `${n} untested`, allMet: "all Green" },
 };
 
-export const TABS = ["decide", "okr", "tasks"];
+export const TABS = ["decide", "okr", "tasks", "capture"];
 export const openingTab = (picked, pending) => (TABS.includes(picked) ? picked : pending > 0 ? "decide" : "okr");
 
 const missedKrs = (okr) => okr.objectives.flatMap((o) => o.krs).filter((k) => k.status === "missed").length;
@@ -537,7 +541,29 @@ function okrBadge(okr) {
   if (missed) return { text: String(missed), tone: "missed" };
   return okr.objectives.every((o) => o.standing === "met") ? { text: "✓", tone: "met" } : null;
 }
-export const tabBadges = ({ pending, okr, openTasks }) => ({
+export const tabBadges = ({ pending, okr, openTasks, unhanded }) => ({
   decide: pending ? { text: String(pending), tone: "ask" } : null,
   okr: okrBadge(okr),
-  tasks: openTasks ? { text: String(openTasks), tone: "plain" } : null });
+  tasks: openTasks ? { text: String(openTasks), tone: "plain" } : null,
+  capture: unhanded ? { text: String(unhanded), tone: "plain" } : null });
+
+export const CAPTURE_FOLD = "captureHanded";
+export const captureStoreKey = (project) => "capture:" + (project ?? "");
+const isCapture = (x) => x && typeof x.id === "string" && typeof x.text === "string" && Number.isFinite(x.at);
+export const capturesFrom = (stored) => (Array.isArray(stored) ? stored.filter(isCapture) : []);
+export const addCapture = (list, text, at) => {
+  const kept = String(text ?? "").trim();
+  return kept ? [...list, { id: at + "-" + list.length, text: kept, at }] : list;
+};
+export const removeCapture = (list, id) => list.filter((x) => x.id !== id);
+export const markHanded = (list, id, at) => list.map((x) => (x.id === id ? { ...x, handedAt: at } : x));
+const isHanded = (x) => Number.isFinite(x.handedAt);
+export const captureView = (list) => ({
+  open: list.filter((x) => !isHanded(x)).sort((a, b) => b.at - a.at),
+  handed: list.filter(isHanded).sort((a, b) => b.handedAt - a.handedAt) });
+export const unhandedCount = (list) => list.filter((x) => !isHanded(x)).length;
+const twoDigits = (n) => String(n).padStart(2, "0");
+export const localMonthDayTime = (ms) => {
+  const d = new Date(ms);
+  return twoDigits(d.getMonth() + 1) + "-" + twoDigits(d.getDate()) + " " + twoDigits(d.getHours()) + ":" + twoDigits(d.getMinutes());
+};
