@@ -165,7 +165,7 @@ function App() {
     <main>
       <header class="top">
         <select class="project" aria-label="项目" value={picked() ?? ''} onChange={(e) => pick(e.currentTarget.value)}>
-          <For each={projects()}>{(p) => <option value={p.name}>{p.name}</option>}</For>
+          <For each={projects()}>{(p) => <option value={p.name} selected={p.name === picked()}>{p.name}</option>}</For>
         </select>
         <p class="summary">{summary()}</p>
       </header>
