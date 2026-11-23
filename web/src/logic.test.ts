@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { linkOf, projectShown, routeOf, STOPPED_AFTER_SILENT_FOR, summaryOf, taskGroups, taskHref, taskSections, type Board, type BoardTask } from './logic'
+import fixture from '../../herdr/mods/nawaban-board/okr.fixture.json'
+import { krFill, okrReadingOfFailure, okrView, OKR_WORDS, linkOf, projectShown, routeOf, STOPPED_AFTER_SILENT_FOR, summaryOf, taskGroups, taskHref, taskSections, type Board, type BoardTask } from './logic'
 
 const NOW = 1_800_000_000
 const task = (id: string, over: Partial<BoardTask> = {}): BoardTask => ({
@@ -89,5 +90,33 @@ describe('linkOf', () => {
   it('links only http(s)', () => {
     expect(linkOf('pr:https://github.com/x/y/pull/1')).toEqual({ kind: 'pr', ref: 'https://github.com/x/y/pull/1', href: 'https://github.com/x/y/pull/1' })
     expect(linkOf('doc:javascript:alert(1)').href).toBe(null)
+  })
+})
+
+describe('OKR, as the Herdr panel reads okr.fixture.json', () => {
+  const view = okrView(fixture)!
+  const krs = view.objectives.flatMap((o) => [...o.krs, ...o.untestedKrs, ...o.metKrs])
+  const kr = (name: string) => krs.find((k) => k.name === name)!
+  it('puts an Objective with a red KR first, its unmet KRs before the folded met ones', () => {
+    const [first] = view.objectives
+    expect(first!.name).toBe('听得懂需求')
+    expect(first!.krs.map((k) => k.status)).toEqual(['missed', 'stale'])
+    expect(first!.metKrs.length).toBe(2)
+    expect(first!.untestedKrs.length).toBe(1)
+  })
+  it('reads 实际 / 目标 · 偏差 · 灯 · 截至', () => {
+    expect(kr('长对话换题多带旧条件')).toMatchObject({ value: '84.6%', target: '≤ 20%', gap: '-64.6 点', status: 'missed', day: '11-19' })
+    expect(OKR_WORDS.zh.status.missed).toBe('红')
+  })
+  it('fills the bar toward the goal only for a target that starts with an operator and a number', () => {
+    expect(krFill(kr('长对话换题多带旧条件'))).toBeCloseTo(20 / 84.6)
+    expect(krFill(kr('意图准确率'))).toBe(1)
+    expect(krFill(kr('误拦率'))).toBe(null)
+    expect(krFill({ measured: true, target: '尽量少', value: '3' })).toBe(null)
+    expect(krFill({ measured: true, target: '≥ 0', value: '-1' })).toBe(0)
+  })
+  it('reads a repo without okr.toml as no Objective, and any other refusal as an error', () => {
+    expect(okrReadingOfFailure(new Error('没有 docs/agents/okr.toml:KR 定义写在仓库里'))).toEqual({ objectives: [] })
+    expect(okrReadingOfFailure(new Error('项目 x 没在 repos.json 登记仓库'))).toBe(null)
   })
 })

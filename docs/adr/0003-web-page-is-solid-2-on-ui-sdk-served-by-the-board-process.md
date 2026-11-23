@@ -39,7 +39,7 @@ The built files are not committed: the install builds them (`pnpm --dir web inst
 
 ### Reads
 
-- **A view API in the board process (chosen)**: `GET /api/nawaban/board?project=`, `/projects`, `/task/:key`, `/okr?repo=`, each the JSON `nawaban json …` prints (`views.ts`, `okr.ts`), so the page and the Herdr panel draw one contract. `GET /api/nawaban/changes` is a server-sent stream that says "something changed" whenever the board's event feed moves (`team.events()` in the process), and the page reads its views again.
+- **A view API in the board process (chosen)**: `GET /api/nawaban/board?project=`, `/projects`, `/task/:key`, `/okr?repo=` (or `?project=`, found through the board's `repos.json`, since the page knows the project and not the repository), each the JSON `nawaban json …` prints (`views.ts`, `okr.ts`), so the page and the Herdr panel draw one contract. `GET /api/nawaban/changes` is a server-sent stream that says "something changed" whenever the board's event feed moves (`team.events()` in the process), and the page reads its views again.
 - **The page holds a `board()` handle, as the inspector's does**: rejected, the panel's views (`boardData` walks every task's history) would be rebuilt in the browser, and the page would need a credential the board accepts.
 - **The page calls `/api/board` directly**: rejected, that puts the board's token, which can write anything, in the browser.
 

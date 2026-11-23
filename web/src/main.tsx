@@ -2,8 +2,9 @@ import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import { render } from '@solidjs/web'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/solid/tabs'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@ui-sdk/solid/collapsible'
+import { Progress, ProgressIndicator, ProgressTrack } from '@ui-sdk/solid/progress'
 import {
-  foldKey, linkOf, localMonthDayTime, pendingCount, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
+  foldKey, krFill, linkOf, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, pendingCount, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
   WINDOW_WORDS, type Board, type Item, type Project, type Route, type Tab,
 } from './logic'
 import './style.css'
@@ -14,6 +15,7 @@ const FOLDS_KEY = 'nawaban-web-folds'
 const SHOWN_ALL_KEY = 'nawaban-web-shown-all'
 const RECONNECT_MS = 3000
 const W = WINDOW_WORDS.zh
+const O = OKR_WORDS.zh
 const TAB_NAMES: Record<Tab, string> = { decide: W.tabs.decide, okr: W.tabs.okr, tasks: W.tabs.tasks, inbox: '收件箱' }
 const STATUS_NAMES: Record<string, string> = { open: '待办', in_progress: '进行中', done: '已完成', cancelled: '已取消' }
 
@@ -92,6 +94,7 @@ function App() {
   const [detail, setDetail] = createSignal<Detail | null>(null)
   const [detailError, setDetailError] = createSignal('')
   const [error, setError] = createSignal('')
+  const [okr, setOkr] = createSignal<{ of: string; reading: unknown; error: string } | null>(null)
   const [changes, setChanges] = createSignal(0)
   const [folds, setFolds] = createSignal<Record<string, boolean>>(stored(FOLDS_KEY, {}))
   const [shownAll, setShownAll] = createSignal<Record<string, boolean>>(stored(SHOWN_ALL_KEY, {}))
@@ -105,6 +108,12 @@ function App() {
     try {
       const list = (await read<{ projects: Project[] }>('projects')).projects
       const project = projectShown(list, want)
+      const readOkr = (name: string) =>
+        read(`okr?project=${encodeURIComponent(name)}`).then(
+          (x) => [x, ''] as const,
+          (e: Error) => [okrReadingOfFailure(e), okrReadingOfFailure(e) ? '' : e.message] as const,
+        )
+      const okrRead = project && r.tab === 'okr' ? readOkr(project) : null
       const [b, d] = await Promise.all([
         project ? read<Board>(`board?project=${encodeURIComponent(project)}`) : null,
         r.task ? read<Detail>(`task/${encodeURIComponent(r.task)}`).then((x) => [x, ''] as const, (e: Error) => [null, e.message] as const) : ([null, ''] as const),
@@ -116,6 +125,8 @@ function App() {
       setDetailError(d[1])
       setError('')
       if (project !== want) setPicked(project)
+      const o = await okrRead
+      if (o && project) setOkr({ of: project, reading: o[0], error: o[1] })
     } catch (e) {
       if (mine === reads) setError((e as Error).message)
     }
@@ -127,7 +138,7 @@ function App() {
 
   const groups = createMemo(() => taskGroups(board(), nowInSeconds()))
   const sections = createMemo(() => taskSections(groups(), { folds: folds(), project: picked(), shownAll: shownAll() }))
-  const summary = createMemo(() => summaryOf(groups(), pendingCount(board())))
+  const summary = createMemo(() => (board() ? summaryOf(groups(), pendingCount(board())) : ''))
 
   const pick = (name: string) => {
     keep(PROJECT_KEY, name)
@@ -154,7 +165,7 @@ function App() {
             <For each={Object.keys(TAB_NAMES) as Tab[]}>{(t) => <TabsTab value={t} class="segment">{TAB_NAMES[t]}</TabsTab>}</For>
           </TabsList>
           <TabsPanel value="decide" class="panel"><p class="quiet">待决下一版接上，现在请在 Herdr 面板或终端里答。</p></TabsPanel>
-          <TabsPanel value="okr" class="panel"><p class="quiet">OKR 页下一版接上。</p></TabsPanel>
+          <TabsPanel value="okr" class="panel"><OkrPage okr={okr()?.of === picked() ? okr()!.reading : null} error={okr()?.of === picked() ? okr()!.error : ''} /></TabsPanel>
           <TabsPanel value="tasks" class="panel">
             <Show when={route().task} fallback={
               <Show when={board()} fallback={<p class="quiet">{W.loading}</p>}>
@@ -311,3 +322,91 @@ function Part(props: { title: string; empty: string; items: Event[]; tagged?: bo
 }
 
 render(() => <App />, document.getElementById('root')!)
+
+function OkrPage(props: { okr: unknown; error: string }) {
+  const view = createMemo(() => okrView(props.okr))
+  return (
+    <Show when={!props.error} fallback={<p class="notice">{props.error}</p>}>
+      <Show when={props.okr} fallback={<p class="quiet">{W.loading}</p>}>
+        <Show when={view()} fallback={<p class="quiet">{O.noObjective}</p>}>
+          {(v) => (
+            <>
+              <p class="quiet tally">{O.tally(v().met, v().total, v().measured)}</p>
+              <For each={v().objectives}>{(o) => <ObjectiveCard o={o} />}</For>
+            </>
+          )}
+        </Show>
+      </Show>
+    </Show>
+  )
+}
+
+function ObjectiveCard(props: { o: ObjectiveRow }) {
+  const o = () => props.o
+  return (
+    <section class="card objective">
+      <Show
+        when={o().standing !== 'met'}
+        fallback={
+          <Collapsible>
+            <CollapsibleTrigger class="o-head fold-head">
+              <span class="o-name quiet-name">{o().name}</span>
+              <span class="o-tally" data-standing="met">{O.allMet} {o().met}/{o().total}</span>
+            </CollapsibleTrigger>
+            <CollapsiblePanel class="krs"><For each={o().metKrs}>{(k) => <KrLine k={k} quiet />}</For></CollapsiblePanel>
+          </Collapsible>
+        }
+      >
+        <header class="o-head">
+          <h2 class="o-name">{o().name}</h2>
+          <span class="o-tally" data-standing={o().standing}>{o().met}/{o().total}</span>
+        </header>
+        <div class="krs"><For each={o().krs}>{(k) => <KrLine k={k} />}</For></div>
+        <Fold label={O.untestedFolded(o().untestedKrs.length)} krs={o().untestedKrs} />
+        <Fold label={O.metFolded(o().metKrs.length)} krs={o().metKrs} />
+      </Show>
+    </section>
+  )
+}
+
+function Fold(props: { label: string; krs: KrRow[] }) {
+  return (
+    <Show when={props.krs.length}>
+      <Collapsible>
+        <CollapsibleTrigger class="fold-head">
+          <span class="chevron" aria-hidden="true" />
+          {props.label}
+        </CollapsibleTrigger>
+        <CollapsiblePanel class="krs"><For each={props.krs}>{(k) => <KrLine k={k} quiet />}</For></CollapsiblePanel>
+      </Collapsible>
+    </Show>
+  )
+}
+
+function KrLine(props: { k: KrRow; quiet?: boolean }) {
+  const k = () => props.k
+  const fill = () => krFill(k())
+  return (
+    <div class="kr" data-status={k().status} data-quiet={props.quiet ? '' : undefined}>
+      <div class="kr-name">{k().name}</div>
+      <Show when={fill() != null}>
+        <Progress value={Math.round(fill()! * 100)} aria-label={k().name} class="kr-bar">
+          <ProgressTrack class="track"><ProgressIndicator class="fill" /></ProgressTrack>
+        </Progress>
+      </Show>
+      <div class="reading">
+        <Show when={k().measured} fallback={<span class="dim">{O.status.untested} / {O.target} {k().target}</span>}>
+          <span class="value">{k().value}</span>
+          <span class="dim">/ {O.target} {k().target}</span>
+          <Show when={k().gap}>
+            <span class="dim">· {O.variance}</span>
+            <span class="light">{k().gap}</span>
+          </Show>
+          <span class="dim">·</span>
+          <span class="light">{O.status[k().status]}</span>
+          <Show when={k().day}><span class="dim">· {O.asOfShort} {k().day}</span></Show>
+        </Show>
+      </div>
+    </div>
+  )
+}
