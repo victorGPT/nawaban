@@ -99,7 +99,7 @@ error: the board didn't answer: fetch failed
 ### 派活
 
 - `board/src/dispatch.ts` starts `hc run … claude --model <m> <brief>`, and the brief opens with `/pstack:poteto-mode`. Both are Claude Code's. `--agent` picks a row from one table: `claude` → `claude --model m <brief>`, `codex` → `codex -m m <brief>`, `agy` → `agy -i <brief>` (plus `--model` if given). The `/pstack:poteto-mode` prefix belongs to the `claude` row, and `--model` has no default for the other rows. Herdr still runs the terminal and carries the reports (`hc send`), so the report protocol does not change.
-- Untested: whether `codex "<brief>"` submits on its own in a fresh worktree, or stops at Codex's trust prompt for a new directory first.
+- Here (NAWABAN-AGENTS-05): in a repository Codex has not trusted, `codex "<brief>"` stops at the trust prompt first, and trusting applies to the repository root. After that one answer the brief submits on its own, and later worktrees of the same repository start without the prompt. Dispatching the first Codex worker in a repository needs the owner to trust it once, in `/hooks`-style install steps or at that prompt. `CODEX_HOME` is passed to the worker with the board variables, so it runs under the dispatcher's Codex config.
 
 ### 装
 
