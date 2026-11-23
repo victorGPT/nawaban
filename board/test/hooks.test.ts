@@ -164,6 +164,27 @@ it('runs one impact guard per repository: the board\'s where the project moved, 
   expect(await log()).toContain('pr view 7')
 })
 
+it('keeps a worker running while its terminal holds a claimed task, and lets it go once released or when the board is down', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const hcKnowingT1AsTheWorkerInThisRepository = join(tmp, 'worker-bin')
+  await mkdir(hcKnowingT1AsTheWorkerInThisRepository)
+  await writeFile(join(hcKnowingT1AsTheWorkerInThisRepository, 'hc'), `#!/bin/sh\n[ "$2" = w-r1 ] && echo '{"address":"t1","cwd":"${repo}"}' || exit 3\n`)
+  await chmod(join(hcKnowingT1AsTheWorkerInThisRepository, 'hc'), 0o755)
+  const worker = { PATH: `${hcKnowingT1AsTheWorkerInThisRepository}:${env.PATH}` }
+  const kill = (target: string) => ({ cwd: repo, tool_input: { command: `hc kill ${target}` } })
+  await nawaban('create', 'R1', '--title', '收之前要交还', '--project', 'proj')
+  await nawaban('claim', 'R1')
+
+  const held = await hook('retire-guard.sh', kill('w-r1'), worker)
+  expect([held.code, held.err]).toEqual([2, expect.stringContaining('终端 t1 还拿着 R1')])
+  expect((await hook('retire-guard.sh', kill('w-other'), worker)).code).toBe(0)
+  const boardDown = await hook('retire-guard.sh', kill('w-r1'), { ...worker, BOARD_URL: 'http://127.0.0.1:9/api/board' })
+  expect([boardDown.code, JSON.parse(boardDown.out).systemMessage]).toEqual([0, expect.stringContaining('放行')])
+
+  await nawaban('claim', 'R1', '--release')
+  const released = await hook('retire-guard.sh', kill('w-r1'), worker)
+  expect([released.code, released.out]).toEqual([0, ''])
+})
+
 it('registers the renewal on every prompt and tool call, and both impact guards before Bash', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   const { hooks } = JSON.parse(await readFile(join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, 'hooks.json'), 'utf8'))
   const names = (event: string) => hooks[event].flatMap((g: { hooks: { command: string }[] }) => g.hooks.map((h) => h.command.split('/').pop()!.replace('"', '')))

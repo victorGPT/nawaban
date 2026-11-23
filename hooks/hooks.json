@@ -55,6 +55,12 @@
           },
           {
             "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/retire-guard.sh\"",
+            "timeout": 30,
+            "onFailure": "continue"
+          },
+          {
+            "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/impact-guard.sh\"",
             "timeout": 60,
             "onFailure": "continue"
