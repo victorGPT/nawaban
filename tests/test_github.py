@@ -297,6 +297,13 @@ def test_a_card_missing_a_field_or_a_second_option_is_no_card(board, monkeypatch
     assert out["tasks"]["#1"]["pending"]["card"] is None
 
 
+@pytest.mark.parametrize("heading", ["## 待决：", "待决（agent）：", "**待决**：", "需要你定："])
+def test_a_card_under_any_pending_heading_is_read(board, monkeypatch, capsys, heading):
+    brief = CARD.replace("待决：", heading, 1)
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", brief)])])
+    assert out["tasks"]["#1"]["pending"]["card"]["decision"] == "sourcemap 传不传"
+
+
 def test_a_field_running_over_several_lines_keeps_every_line(board, monkeypatch, capsys):
     brief = CARD.replace("【Context】前端只有压缩堆栈", "【Context】前端只有压缩堆栈\n线上报错查不到源码行")
     out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", brief)])])

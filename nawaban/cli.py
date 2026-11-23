@@ -1555,13 +1555,14 @@ def _issue_pending(i: dict) -> dict | None:
             "ruled_after": _owner_ruled_since([b for b, t in notes if t > at], _owner_names())}
 
 
-_CARD_FIELD = re.compile(r"^\s*(?:\**(?:待决|需要你定)\**\s*[：:]\**)?\s*【(Decision|Objective / KR|Context|Options|Recommendation)】(.*)")
+_CARD_FIELD = re.compile(r"^\s*【(Decision|Objective / KR|Context|Options|Recommendation)】(.*)")
 _CARD_OPTION_LINE = re.compile(r"^\s*[-*]\s+(.*)")
 _CARD_OPTION_LETTER = re.compile(r"^([A-Z])\s*[：:]\s*")
 _CARD_OPTION_NOTE = "｜"
 _CARD_FIELD_KEYS = {"Decision": "decision", "Objective / KR": "kr", "Context": "context", "Recommendation": "rec"}
 
 
+_PENDING_HEADING = re.compile(_GH_PREFIX_HEADING_BOLD_WORD_WHO_COLON.format("(?:待决|需要你定)"))
 _WORDS_THAT_SAY_NOTHING = {"", "无", "none", "-"}
 _CARD_PARTS_THAT_MUST_SAY_SOMETHING = (("decision", "Decision(--body)"), ("context", "Context(--context)"),
                                        ("rec", "Recommendation(--rec)"))
@@ -1569,7 +1570,7 @@ _CARD_PARTS_THAT_MUST_SAY_SOMETHING = (("decision", "Decision(--body)"), ("conte
 
 def _decision_card_parts(brief: str) -> tuple[dict, list[dict]]:
     fields, options, current = {}, [], None
-    for ln in brief.splitlines():
+    for ln in _PENDING_HEADING.sub("", brief, count=1).splitlines():
         o = _CARD_OPTION_LINE.match(ln) if current == "Options" else None
         m = None if o else _CARD_FIELD.match(ln)
         if o:
