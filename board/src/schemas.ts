@@ -112,8 +112,8 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
 export const SCHEMAS = VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE
 
 const MIN_DECISION_OPTIONS = 2
-const WORDS_THAT_SAY_NOTHING = new Set(['', '-', '--', '—', '——', '无', '暂无', '待定', '未定', '略', 'none', 'n/a', 'na', 'null', 'tbd', 'todo', '?', '？', '...', '…'])
-const saysNothing = (v: unknown) => WORDS_THAT_SAY_NOTHING.has(String(v ?? '').replace(/\s+/g, '').toLowerCase())
+const WORDS_THAT_SAY_NOTHING = new Set(['', '-', '--', '—', '——', '无', '暂无', '待定', '未定', '略', 'none', 'n/a', 'null', 'tbd', 'todo', '?', '？', '...', '…'])
+const saysNothing = (v: unknown) => WORDS_THAT_SAY_NOTHING.has(String(v ?? '').replace(/[ \t\n\r\f\v\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+/g, '').toLowerCase())
 const blank = (v: unknown) => !String(v ?? '').trim()
 
 export type DecisionCard = {

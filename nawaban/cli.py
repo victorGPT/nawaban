@@ -1586,7 +1586,7 @@ _CARD_FIELD_KEYS = {"Decision": "decision", "BLUF": "decision", "决策事项": 
 
 _PENDING_HEADING = re.compile(_GH_PREFIX_HEADING_BOLD_WORD_WHO_COLON.format("(?:待决|需要你定)"))
 _WORDS_THAT_SAY_NOTHING = frozenset({"", "-", "--", "—", "——", "无", "暂无", "待定", "未定", "略", "none", "n/a", "null", "tbd", "todo", "?", "？", "...", "…"})
-_SPACES_A_PLACEHOLDER_MAY_CARRY = r"[ \t\n\r\f\v\u00a0\u3000]+"
+_SPACES_A_PLACEHOLDER_MAY_CARRY = r"[ \t\n\r\f\v\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+"
 _CARD_PARTS_THAT_MUST_SAY_SOMETHING = (("decision", "决策事项(--body)"), ("context", "背景(--context)"),
                                        ("rec", "建议(--rec)"))
 

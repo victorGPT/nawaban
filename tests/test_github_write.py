@@ -266,7 +266,7 @@ def test_a_decision_card_needs_two_options(gh):
                                                ("--option", "B 重判｜ N / A ｜one-way", "第 2 项 的代价"),
                                                ("--option", "B 重判｜—｜one-way", "第 2 项 的代价"),
                                                ("--option", "待定｜贵｜one-way", "第 2 项 的方案"),
-                                               ("--context", "暂无", "背景"), ("--rec", " TBD ", "建议")])
+                                               ("--context", "暂无", "背景"), ("--context", "n\u2003o\u0085n\ufeffe", "背景"), ("--rec", " TBD ", "建议")])
 def test_a_decision_card_with_an_empty_part_is_refused_naming_it(gh, flag, value, named):
     card = list(CARD)
     card[len(card) - 1 - card[::-1].index(flag) + 1] = value
