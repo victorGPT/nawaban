@@ -1,6 +1,6 @@
 # The web page is Solid 2 on UI SDK, built by Vite and served by the board process
 
-Status: proposed. The stack (SolidJS 2 + Vercel UI SDK) is the decision-maker's (NAWABAN-WEB, 11-24); the rest are the orchestrator's defaults and can be overturned.
+Status: accepted (11-24, orchestrator on delegation; the decision-maker can overturn). The stack (SolidJS 2 + Vercel UI SDK) is the decision-maker's (NAWABAN-WEB, 11-24); the rest are the orchestrator's defaults and can be overturned.
 
 The web page (NAWABAN-WEB) gives someone without Herdr the panel's views of their own board: 待决, OKR, 任务, 收件箱, and a task's detail. It runs on each person's machine and reads the board `nawaban serve` already runs on `127.0.0.1:4100`. We write it in SolidJS 2 (`solid-js` 2.0.3, `@solidjs/web` 2.0.3) with Vercel's UI SDK (`@ui-sdk/solid` and `@ui-sdk/core`, both pinned at `0.1.0-beta.13`), build it with Vite 8 and `@solidjs/vite-plugin` 3, and serve the built files and a read-only view API from the same process that serves the board. The browser never holds the board's token. An answer or an inbox item written on the page lands on the board as a message the orchestrator reads and acts on; the page never records a decision as made.
 
