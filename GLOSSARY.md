@@ -112,7 +112,7 @@ _Current identifiers_: CLI `dispatch`.
 
 **Decision card**(决策卡)
 A pending decision put to the owner, hung on the Objective or KR it serves: the Decision, the Objective / KR, the Context (only the facts the decision turns on), at least two Options each with its trade-off and whether it is a one-way or two-way door, and a Recommendation. The command refuses a card missing any of these.
-决策卡是交给决策者拍板的一件待决，挂在它服务的 Objective 或 KR 下：Decision、Objective / KR、Context（只写这次决策取决于的事实）、至少两个 Options（各写 trade-off，以及是 one-way 还是 two-way door）、Recommendation。缺任何一项，命令就拒。
+决策卡是交给决策者拍板的一件待决，挂在它服务的 Objective 或 KR 下：Decision、Objective / KR、Context（只写这次决策取决于的事实）、至少两个 Options（各写 trade-off，以及是 one-way 还是 two-way door，写在 ｜ 之后）、Recommendation。缺任何一项，或 Decision、Context、Recommendation 只写「无」「none」「-」，命令就拒；读出来的卡不全就不算卡，不进面板的待决。
 _Avoid_: 决策简报, 来龙去脉.
 _Current identifiers_: CLI `event --kind ask --kr --context --option --rec`.
 

@@ -119,8 +119,8 @@ const namer = (terminals) => {
   return (a) => names.get(a.address) || (isBareTabIndex(a.tab_name) ? "" : a.tab_name) || a.title;
 };
 
-const withoutQuestions = (board) => ({ ...board,
-  columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => ({ ...t, waiting: null })) })) });
+const withoutQuestionsThatAreDecisions = (board, github) => ({ ...board,
+  columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => (github || t.pending ? { ...t, waiting: null } : t)) })) });
 
 const TERMINAL_NUMBER_RADIX = 36;
 const TERMINAL_PREFIX = "t";
@@ -151,7 +151,7 @@ function boardContext(args) {
     ...herdrTree(args.agents, args.space, live) };
 }
 
-const questionsAskedOnBoard = (c) => (c.github ? { ...c, board: withoutQuestions(c.board) } : c);
+const questionsAskedOnBoard = (c) => (c.board ? { ...c, board: withoutQuestionsThatAreDecisions(c.board, c.github) } : c);
 
 function taskState(c, t) {
   if (isDone(t)) return "done";
@@ -289,8 +289,6 @@ export const panelKeys = (decisions, krs, sections) => [...decisions, ...krs, ..
 
 const pendingTasks = (board) => openTasks(board)
   .filter((t) => t.pending).sort((x, y) => x.pending.at - y.pending.at || issueNumber(x.id) - issueNumber(y.id));
-export const pendingView = (board) => pendingTasks(board)
-  .map((t) => ({ key: "pending:" + t.id, id: t.id, title: t.title, brief: t.pending.brief ? oneLine(t.pending.brief) : null, url: t.url ?? null }));
 
 export const repoRootOf = (gitCommonDir) => {
   const dir = String(gitCommonDir ?? "").trim();
@@ -316,8 +314,9 @@ function windowToTalkIn(p, terminals, orchestrator) {
 
 function decisionCardOf(t, kind, terminals, orchestrator) {
   const p = t.pending;
-  return { key: "pending:" + t.id, id: t.id, mark: returnMark(t), title: t.title, kind, url: t.url ?? null,
-    sub: [t.id, saysSomething(p.card.kr) && p.card.kr, decisionDate(p.at)].filter(Boolean).join(" · "), context: p.card.context,
+  return { key: "pending:" + t.id, id: t.id, mark: returnMark(t), title: oneLine(p.card.decision), kind, url: t.url ?? null,
+    sub: [t.id, saysSomething(p.card.kr) && p.card.kr, decisionDate(p.at)].filter(Boolean).join(" · "),
+    decision: p.card.decision, kr: p.card.kr, context: p.card.context,
     progress: stamped(p.progress?.at(-1)), options: p.card.options, rec: p.card.rec,
     window: kind === "talk" ? windowToTalkIn(p, terminals, orchestrator) : null };
 }
@@ -416,7 +415,8 @@ export const WINDOW_WORDS = {
     nothingToDecide: "没有等你决定的", tabs: { decide: "待决", okr: "OKR", tasks: "任务" }, groups: { stopped: "停了", working: "在做", todo: "没动", done: "完成" },
     more: (n) => `再显示 ${n} 条`, less: "收起", go: "去窗口", issue: "去 GitHub",
     facts: { id: "编号", question: "问题", note: "进展", window: "窗口", since: "多久", spec: "票" },
-    cards: { chip: { pick: "选一项", maybe: "可能已定", talk: "去窗口聊" }, context: "背景", progress: "最近进展", rec: "建议",
+    cards: { chip: { pick: "选一项", maybe: "可能已定", talk: "去窗口聊" }, decision: "要你定", kr: "KR", context: "背景", progress: "最近进展",
+      noProgress: "还没有进展", rec: "建议",
       settle: "就这么定", unclear: "不够，再说清楚", decided: "对，已经定了", notYet: "还没定", fullText: "GitHub 全文",
       goTalk: (name) => `去 ${name} 窗口`, noOrchestrator: "没有活着的编排者窗口，暂时交不出去", sending: "正在交给编排者…",
       failed: (e) => `没交到编排者：${e}`, picked: (id, option) => `已交给编排者：${id} 选 ${option}。它会在 issue 上记已决。`,
@@ -428,7 +428,8 @@ export const WINDOW_WORDS = {
     nothingToDecide: "Nothing waiting for you", tabs: { decide: "Decide", okr: "OKR", tasks: "Tasks" }, groups: { stopped: "Stopped", working: "Working", todo: "Not started", done: "Done" },
     more: (n) => `Show ${n} more`, less: "Show less", go: "Go to window", issue: "Open on GitHub",
     facts: { id: "ID", question: "Question", note: "Progress", window: "Window", since: "For", spec: "Tickets" },
-    cards: { chip: { pick: "Pick one", maybe: "Maybe decided", talk: "Talk in a window" }, context: "Context", progress: "Latest progress",
+    cards: { chip: { pick: "Pick one", maybe: "Maybe decided", talk: "Talk in a window" }, decision: "To decide", kr: "KR", context: "Context",
+      progress: "Latest progress", noProgress: "No progress yet",
       rec: "Recommended", settle: "Decide", unclear: "Not enough, explain more", decided: "Yes, already decided", notYet: "Not yet",
       fullText: "Full text on GitHub", goTalk: (name) => `Go to ${name}`, noOrchestrator: "No live orchestrator window to hand this to",
       sending: "Handing to the orchestrator…", failed: (e) => `Not handed over: ${e}`,

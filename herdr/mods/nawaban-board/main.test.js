@@ -253,9 +253,10 @@ test("去窗口 takes the place of the time while a row is hovered or selected, 
 });
 
 const cardOf = { decision: "放不放行", kr: "长对话接着轮保留全部修饰", context: "本机不跑推理", rec: "B：两台都是自己的测评机",
-  options: [{ key: "A", text: "一次性批准", note: "只管这一次" }, { key: "B", text: "加进白名单", note: "" }] };
+  options: [{ key: "A", text: "一次性批准", note: "只管这一次" }, { key: "B", text: "加进白名单", note: "以后都放｜two-way" }] };
 const pendingIssue = (n, at, x) => issue(n, { url: "https://gh/" + n,
-  pending: { brief: "待决：…", at: now - at, progress: [{ body: "出分了", at: now - at + 60 }], card: cardOf, talk: null, ruled_after: false, ...x } });
+  pending: { brief: "待决：…", at: now - at, progress: [{ body: "出分了", at: now - at + 60 }], card: { ...cardOf, decision: "放不放行 " + n },
+    talk: null, ruled_after: false, ...x } });
 const cardsBoard = { ...ghBoard, columns: ghBoard.columns.map((c) => c.key !== "open" ? c : { ...c, tasks: [
   pendingIssue(1428, 3000), pendingIssue(1536, 5000, { ruled_after: true }), pendingIssue(1472, 4000, { talk: { window: "t9" } }),
   pendingIssue(1280, 2000, { card: null })] }) };
@@ -275,7 +276,7 @@ test("on a GitHub board a blocked worker comes first, then each pending card, wh
     const cx = runningSpawns;
     const view = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
     assert.deepEqual(view.keys.slice(0, 4), ["card:0", "pending:#1536", "pending:#1472", "pending:#1428"]);
-    assert.equal(after("待决", "4", "issue 1536", "可能已定", "issue 1472", "去窗口聊", "issue 1428", "选一项",
+    assert.equal(after("待决", "4", "放不放行 1536", "可能已定", "放不放行 1472", "去窗口聊", "放不放行 1428", "选一项",
       "卡片不全 1 张（#1280），正在退回编排者"), true);
     clicks.get("nawaban-row-pending:#1428")({}, cx);
     texts.length = 0;
@@ -306,6 +307,33 @@ test("on a GitHub board a blocked worker comes first, then each pending card, wh
     terminals = realTerminals;
     hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
     runImpl = async () => {};
+    stored.clear();
+  }
+});
+
+test("every card in the 待决 tab, whatever its kind, opens to the whole card in order, then its own buttons and the GitHub text", () => {
+  inChinese();
+  clicks.clear();
+  const realTerminals = terminals;
+  terminals = [...terminals, orchestrator];
+  try {
+    const cx = runningSpawns;
+    const noProgress = { ...cardsBoard, columns: cardsBoard.columns.map((c) => c.key !== "open" ? c
+      : { ...c, tasks: c.tasks.map((t) => t.id === "#1472" ? { ...t, pending: { ...t.pending, progress: [] } } : t) }) };
+    const view = drawn({ board: noProgress, repo: "/r/roubao" }, cx);
+    const buttons = { "#1428": ["就这么定", "不够，再说清楚"], "#1536": ["对，已经定了", "还没定"], "#1472": ["去 t9 窗口"] };
+    for (const [id, own] of Object.entries(buttons)) {
+      clicks.get("nawaban-row-pending:" + id)({}, cx);
+      texts.length = 0;
+      view.render(cx);
+      const progress = id === "#1472" ? "还没有进展" : texts.find((t) => t.endsWith("出分了"));
+      assert.equal(after("放不放行 " + id.slice(1), "要你定", "长对话接着轮保留全部修饰", "KR", "本机不跑推理", "背景", progress, "最近进展",
+        "A · 一次性批准", "只管这一次", "B · 加进白名单", "以后都放｜two-way", "建议", "B：两台都是自己的测评机", ...own, "GitHub 全文 →"), true, id);
+      clicks.get("nawaban-row-pending:" + id)({}, cx);
+    }
+    assert.ok(!clicks.has("nawaban-option-pending:#1536-A") && !clicks.has("nawaban-option-pending:#1472-A"), "only a pick card's options are picked");
+  } finally {
+    terminals = realTerminals;
     stored.clear();
   }
 });

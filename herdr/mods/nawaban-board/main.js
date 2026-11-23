@@ -2,7 +2,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, HoverCard } from "gpui-base";
 import { spaces, focused, agents, terminals, run, exec, hc, checking, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
 import { projectFor, repoName, cliFor, resolveLang, moveSelection, keyCommand, boardChanged, okrChanged, folderOf, canGo, panelView,
-  sinceLabel, isoMonthDay, WINDOW_WORDS, pendingView, okrView, OKR_WORDS, OKR_FOLDER_IN_REPO, okrReadingOfFailure, hasNoObjective,
+  sinceLabel, isoMonthDay, WINDOW_WORDS, okrView, OKR_WORDS, OKR_FOLDER_IN_REPO, okrReadingOfFailure, hasNoObjective,
   taskSections, panelKeys, groupOfKey, foldKey, isGroupOpen, moreKey, groupOfMoreKey, decisionCardsView, repoRootOf, TO_ORCHESTRATOR,
   marksStillToKeep, TABS, openingTab, tabBadges } from "./logic.js";
 
@@ -213,7 +213,7 @@ export default class NawabanBoard extends View {
         const board = await this.boardReusingGithubWithinWindow(at, project, via);
         if (placeChangedFrom(key)) return;
         Object.assign(this, { project, projectsList: projects, board, repo, error: null });
-        if (board.tracker === "github") await this.returnIncompleteCards(board, repo);
+        await this.returnIncompleteCards(board, repo);
       } catch (e) {
         this.keepLastBoardShowing(e);
       } finally {
@@ -406,11 +406,9 @@ export default class NawabanBoard extends View {
     const v = panelView({ agents: all, terminals: terminals(), space, board: this.board, now, lang: this.lang,
       projects: this.projectsList, project: this.project });
     const project = this.projectKey();
-    const github = this.board?.tracker === "github";
-    const cards = github ? decisionCardsView(this.board, { terminals: terminals(), repo: this.repo, returned: this.returnedCards() }) : null;
+    const cards = this.board ? decisionCardsView(this.board, { terminals: terminals(), repo: this.repo, returned: this.returnedCards() }) : null;
     this.cardsView = cards;
-    const decisions = [...v.waiting.map((x) => this.cardRow(x, w)),
-      ...(cards ? cards.cards.map((c) => this.decisionRow(c, w)) : pendingView(this.board).map((p) => this.pendingRow(p, w)))];
+    const decisions = [...v.waiting.map((x) => this.cardRow(x, w)), ...(cards?.cards ?? []).map((c) => this.decisionRow(c, w))];
     const incomplete = cards?.incomplete.ids.length ? cards.incomplete : null;
     const okr = okrView(this.okr, this.lang);
     const objectives = this.objectiveRows(okr, project, o);
@@ -455,11 +453,6 @@ export default class NawabanBoard extends View {
       facts: [[w.facts.window, x.name], [w.facts.question, question], [w.facts.since, x.duration]] };
   }
 
-  pendingRow(p, w) {
-    return { key: p.key, dot: INK.amber, title: p.title, why: p.brief, side: "", url: p.url, goLabel: w.issue,
-      facts: [[w.facts.id, p.id], [w.facts.question, p.brief]] };
-  }
-
   taskRow(x, group, now, w) {
     const look = GROUP_LOOK[group], since = sinceLabel(x, now, this.lang);
     return { key: x.key, dot: look.dot, breathes: look.breathes, faded: look.faded, title: x.title, why: x.why ?? null,
@@ -470,7 +463,7 @@ export default class NawabanBoard extends View {
 
   decisionRow(c, w) {
     return { key: c.key, card: c, dot: INK.amber, title: c.title, why: c.sub, side: w.cards.chip[c.kind],
-      sideColor: c.kind === "maybe" ? INK.amberText : INK.dim, facts: [[w.facts.id, c.id], [w.facts.question, c.title]] };
+      sideColor: c.kind === "maybe" ? INK.amberText : INK.dim, facts: [[w.facts.id, c.id], [w.facts.question, c.decision]] };
   }
 
   krRow(k, objective, j, o) {
@@ -583,14 +576,17 @@ export default class NawabanBoard extends View {
     const body = v_flex().id("nawaban-card-" + c.key).flex_none().ml(ROW_PX + DOT + ROW_GAP).mr(ROW_PX).mb(10).gap(10)
       .text_size(WHY_SIZE).line_height(CARD_LINE_H + "px").text_color(INK.muted);
     if (said?.final) return body.child(div().whitespace_normal().child(said.text));
-    const picking = c.kind === "pick", needsOrchestrator = c.kind !== "talk";
+    const needsOrchestrator = c.kind !== "talk";
+    const part = (text, color) => div().text_size(KR_NAME_SIZE).text_color(color).whitespace_normal().child(text);
     return body
-      .when(picking, (el) => el.child(this.labelled(cw.context, div().text_size(KR_NAME_SIZE).text_color(INK.value).whitespace_normal().child(c.context))))
-      .when(Boolean(c.progress), (el) => el.child(this.labelled(cw.progress,
-        div().max_h(PROGRESS_LINES_SHOWN * CARD_LINE_H).overflow_hidden().whitespace_normal().child(c.progress))))
-      .when(picking, (el) => el.child(v_flex().gap(6).children(c.options.map((opt) => this.optionButton(c, opt))))
-        .child(h_flex().gap(6).items_start().child(div().flex_none().text_color(INK.dim).child(cw.rec))
-          .child(div().flex_1().min_w(0).whitespace_normal().text_color(INK.foreground).child(c.rec))))
+      .child(this.labelled(cw.decision, part(c.decision, INK.foreground)))
+      .child(this.labelled(cw.kr, part(c.kr, INK.value)))
+      .child(this.labelled(cw.context, part(c.context, INK.value)))
+      .child(this.labelled(cw.progress,
+        div().max_h(PROGRESS_LINES_SHOWN * CARD_LINE_H).overflow_hidden().whitespace_normal().child(c.progress ?? cw.noProgress)))
+      .child(v_flex().gap(6).children(c.options.map((opt) => this.optionButton(c, opt, c.kind === "pick"))))
+      .child(h_flex().gap(6).items_start().child(div().flex_none().text_color(INK.dim).child(cw.rec))
+        .child(div().flex_1().min_w(0).whitespace_normal().text_color(INK.foreground).child(c.rec)))
       .when(needsOrchestrator && !orchestrator, (el) => el.child(div().text_color(INK.amberText).child(cw.noOrchestrator)))
       .when(Boolean(said), (el) => el.child(div().text_color(INK.red).child(said.text)))
       .child(h_flex().gap(8).items_center().flex_wrap().children(this.cardActions(c, orchestrator, cw))
@@ -626,13 +622,13 @@ export default class NawabanBoard extends View {
       .child(label);
   }
 
-  optionButton(c, opt) {
-    const on = this.picked[this.answerKey(c)] === opt.key;
-    return v_flex().id("nawaban-option-" + c.key + "-" + opt.key).flex_none().px(10).py(7).gap(1).rounded(6).border_1().cursor_pointer()
+  optionButton(c, opt, pickable) {
+    const on = pickable && this.picked[this.answerKey(c)] === opt.key;
+    return v_flex().id("nawaban-option-" + c.key + "-" + opt.key).flex_none().px(10).py(7).gap(1).rounded(6).border_1()
       .border_color(on ? INK.sky : INK.border)
       .when(on, (el) => el.bg(INK.selected))
-      .when(!on, (el) => el.hover((s) => s.bg(INK.hover)))
-      .on_click((_e, cx) => { this.picked = { ...this.picked, [this.answerKey(c)]: opt.key }; cx.notify(); })
+      .when(pickable && !on, (el) => el.cursor_pointer().hover((s) => s.bg(INK.hover)))
+      .when(pickable, (el) => el.on_click((_e, cx) => { this.picked = { ...this.picked, [this.answerKey(c)]: opt.key }; cx.notify(); }))
       .child(div().text_size(KR_NAME_SIZE).text_color(INK.title).whitespace_normal().child(opt.key + " · " + opt.text))
       .when(Boolean(opt.note), (el) => el.child(div().text_size(GROUP_SIZE).text_color(INK.dim).child(opt.note)));
   }

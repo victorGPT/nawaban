@@ -395,9 +395,12 @@ def card(a) -> None:
     if a.kind != "ask":
         _tag_decision_with_its_kr(a)
         return
-    _refuse_incomplete_decision_card(a)
-    a.body = "\n".join([f"【Decision】{a.body}", f"【Objective / KR】{a.kr}", f"【Context】{a.context}",
-                        "【Options】", *(f"- {o}" for o in a.option), f"【Recommendation】{a.rec}"])
+    card_text = "\n".join([f"【Decision】{a.body}", f"【Objective / KR】{a.kr or ''}", f"【Context】{a.context or ''}",
+                           "【Options】", *(f"- {o}" for o in a.option or []), f"【Recommendation】{a.rec or ''}"])
+    gaps = _decision_card_gaps(*_decision_card_parts(card_text))
+    if gaps:
+        raise Refused("决策卡缺 " + "、".join(gaps) + "(--option 写成 选项｜trade-off｜one-way 或 two-way door)")
+    a.body = card_text
 
 
 def _check_impact_card(a) -> None:
@@ -424,14 +427,6 @@ def _tag_decision_with_its_kr(a) -> None:
 
 
 MIN_DECISION_OPTIONS = 2
-
-
-def _refuse_incomplete_decision_card(a) -> None:
-    missing = [f for f, v in (("--kr", a.kr), ("--context", a.context), ("--rec", a.rec)) if not v]
-    if len(a.option or []) < MIN_DECISION_OPTIONS:
-        missing.append("--option(至少两个)")
-    if missing:
-        raise Refused("决策卡缺 " + " ".join(missing))
 
 
 def event(con, a) -> str:
@@ -1560,25 +1555,53 @@ def _issue_pending(i: dict) -> dict | None:
             "ruled_after": _owner_ruled_since([b for b, t in notes if t > at], _owner_names())}
 
 
-_CARD_FIELD = re.compile(r"【(Decision|Objective / KR|Context|Options|Recommendation)】(.*)")
+_CARD_FIELD = re.compile(r"^\s*【(Decision|Objective / KR|Context|Options|Recommendation)】(.*)")
 _CARD_OPTION_LINE = re.compile(r"^\s*[-*]\s+(.*)")
 _CARD_OPTION_LETTER = re.compile(r"^([A-Z])\s*[：:]\s*")
 _CARD_OPTION_NOTE = "｜"
 _CARD_FIELD_KEYS = {"Decision": "decision", "Objective / KR": "kr", "Context": "context", "Recommendation": "rec"}
 
 
-def _decision_card(brief: str) -> dict | None:
-    fields, options, in_options = {}, [], False
-    for ln in brief.splitlines():
-        m = _CARD_FIELD.search(ln)
-        if m:
-            in_options = m.group(1) == "Options"
-            if not in_options:
-                fields[_CARD_FIELD_KEYS[m.group(1)]] = m.group(2).strip()
-        elif in_options and (o := _CARD_OPTION_LINE.match(ln)):
+_PENDING_HEADING = re.compile(_GH_PREFIX_HEADING_BOLD_WORD_WHO_COLON.format("(?:待决|需要你定)"))
+_WORDS_THAT_SAY_NOTHING = {"", "无", "none", "-"}
+_CARD_PARTS_THAT_MUST_SAY_SOMETHING = (("decision", "Decision(--body)"), ("context", "Context(--context)"),
+                                       ("rec", "Recommendation(--rec)"))
+
+
+def _decision_card_parts(brief: str) -> tuple[dict, list[dict]]:
+    fields, options, current = {}, [], None
+    for ln in _PENDING_HEADING.sub("", brief, count=1).splitlines():
+        o = _CARD_OPTION_LINE.match(ln) if current == "Options" else None
+        m = None if o else _CARD_FIELD.match(ln)
+        if o:
             options.append(_card_option(o.group(1).strip(), len(options)))
-    complete = all(fields.get(k) for k in _CARD_FIELD_KEYS.values()) and len(options) >= MIN_DECISION_OPTIONS
-    return {**fields, "options": options} if complete else None
+        elif m:
+            current = _CARD_FIELD_KEYS.get(m.group(1), m.group(1))
+            if current != "Options":
+                fields[current] = m.group(2).strip()
+        elif current in fields:
+            fields[current] = "\n".join(filter(None, [fields[current], ln.strip()]))
+    return fields, options
+
+
+def _decision_card_gaps(fields: dict, options: list[dict]) -> list[str]:
+    gaps = [name for key, name in _CARD_PARTS_THAT_MUST_SAY_SOMETHING
+            if (fields.get(key) or "").strip().lower() in _WORDS_THAT_SAY_NOTHING]
+    if not (fields.get("kr") or "").strip():
+        gaps.append("Objective / KR(--kr)")
+    if len(options) < MIN_DECISION_OPTIONS:
+        gaps.append(f"Options(至少 {MIN_DECISION_OPTIONS} 个)")
+    gaps += [f"{o['key']} 的{'选项' if not o['text'] else ' trade-off(｜后)'}" for o in options if not o["text"] or not _trade_off_of(o)]
+    return gaps
+
+
+def _trade_off_of(option: dict) -> str:
+    return option["note"].partition(_CARD_OPTION_NOTE)[0].strip()
+
+
+def _decision_card(brief: str) -> dict | None:
+    fields, options = _decision_card_parts(brief)
+    return None if _decision_card_gaps(fields, options) else {**fields, "options": options}
 
 
 def _card_option(line: str, position: int) -> dict:
@@ -1792,7 +1815,7 @@ def unrecorded_ask(message: str, transcript: str | None) -> str | None:
     if unreadable_transcript_passes or any(_RECORDED.search(s) for s in inputs):
         return None
     return ("这轮在向决策者要决定，却没记成待决，收件箱里看不到它。先把问题记成决策卡："
-            "nawaban event '#N' --kind ask --body <要定的事> --kr <KR> --context <事实> --option <A> --option <B> --rec <推荐>"
+            "nawaban event '#N' --kind ask --body <要定的事> --kr <KR> --context <事实> --option <A｜trade-off｜door> --option <B｜trade-off｜door> --rec <推荐>"
             "（本地看板：nawaban event <ID> --kind note --body 'triage: needs-info — 等你：<问题>'），问法不用改。")
 
 
@@ -2141,7 +2164,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--kr", action="append", help="挂哪个 Objective / KR;ask 必填,decision 可选;impact 写 " + IMPACT_FORMAT + ",可重复")
     p.add_argument("--o", help="impact:O 名,纯基础设施写 无")
     p.add_argument("--context", help="ask:只写影响这次决策的事实")
-    p.add_argument("--option", action="append", help="ask:每个选项一次,写 trade-off 和 one-way / two-way door;至少两个")
+    p.add_argument("--option", action="append", help="ask:每个选项一次,写 选项｜trade-off｜one-way 或 two-way door;至少两个")
     p.add_argument("--rec", help="ask:Recommendation")
     p = sub.add_parser("show", help="看一个任务")
     p.add_argument("id")

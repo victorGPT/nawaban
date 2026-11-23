@@ -13,7 +13,7 @@ import { run } from '../src/tasks.ts'
 import { json } from '../src/views.ts'
 
 const PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS = new URL('../../herdr/mods/nawaban-board/logic.js', import.meta.url).href
-const { panelView } = await import(PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS)
+const { panelView, decisionCardsView } = await import(PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS)
 
 const SECRET = 'test-secret'
 const ORCHESTRATOR_WINDOW_IN_T1 = 'aaaa1111-0000-0000-0000-000000000000'
@@ -119,6 +119,8 @@ it('prints the board in the shape the panel reads, and the panel draws the 等�
   expect(byId['S-01'].done_at).toBeGreaterThan(0)
   expect(byId['Q']).toMatchObject({ status: 'in_progress', session: 'cc-bbbb2222', terminal: 't3', waiting: '放行吗？', pending: null })
   expect(byId['P']).toMatchObject({ session: 'cc-cccc3333', terminal: 't4', waiting: '发不发', pending: { brief: '发不发', progress: [] } })
+  expect(byId['P'].pending.card).toEqual({ decision: '发不发', kr: 'K', context: '事实', rec: '发',
+    options: [{ key: '第 1 项', text: '发', note: '快｜two-way' }, { key: '第 2 项', text: '不发', note: '稳｜two-way' }] })
   expect(byId['D']).toMatchObject({ status: 'open', session: null, terminal: null, leader: 'cc-aaaa1111', claimed_at: null })
   expect(data.decisions).toEqual([expect.objectContaining({ task: 'S-02', verdict: '先只读\n第二行', owner: false })])
 
@@ -127,10 +129,8 @@ it('prints the board in the shape the panel reads, and the panel draws the 等�
   const agents = [agent('t1', 'working', '编排'), agent('t3', 'idle', 'worker'), agent('t4', 'idle', 'worker 2')]
   const terminals = agents.map((a) => ({ address: a.address, name: null, parent: null, status: a.status, state: 'live' }))
   const v = panelView({ agents, terminals, space: 'here', board: data, now, lang: 'zh' })
-  expect(v.waiting.map((c: { question: string; focus: string }) => [c.question, c.focus]).sort()).toEqual([
-    ['发不发', 't4'],
-    ['放行吗？', 't3'],
-  ])
+  expect(v.waiting.map((c: { question: string; focus: string }) => [c.question, c.focus]).sort()).toEqual([['放行吗？', 't3']])
+  expect(decisionCardsView(data).cards.map((c: { title: string }) => c.title)).toEqual(['发不发'])
   const listed = v.tasks.flatMap((g: { group: string; items: { title: string; state: string; where: string | null }[] }) =>
     g.items.map((i) => [g.group, i.title, i.state, i.where]),
   )

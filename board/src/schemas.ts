@@ -111,6 +111,31 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
 } as const
 export const SCHEMAS = VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE
 
+const MIN_DECISION_OPTIONS = 2
+const WORDS_THAT_SAY_NOTHING = new Set(['', '无', 'none', '-'])
+const saysNothing = (v: unknown) => WORDS_THAT_SAY_NOTHING.has(String(v ?? '').trim().toLowerCase())
+const blank = (v: unknown) => !String(v ?? '').trim()
+
+export type DecisionCard = {
+  decision?: unknown
+  kr?: unknown
+  context?: unknown
+  options?: { choice?: unknown; tradeoff?: unknown; door?: unknown }[]
+  recommendation?: unknown
+}
+
+export function gapsOfADecisionCard(c: DecisionCard): string[] {
+  const options = c.options ?? []
+  return [
+    ...(saysNothing(c.decision) ? ['decision (--body)'] : []),
+    ...(blank(c.kr) ? ['kr (--kr)'] : []),
+    ...(saysNothing(c.context) ? ['context (--context)'] : []),
+    ...(options.length < MIN_DECISION_OPTIONS ? [`options (--option, at least ${MIN_DECISION_OPTIONS})`] : []),
+    ...options.flatMap((o, i) => [...(blank(o.choice) ? [`option ${i + 1}'s choice`] : []), ...(blank(o.tradeoff) ? [`option ${i + 1}'s trade-off`] : [])]),
+    ...(saysNothing(c.recommendation) ? ['recommendation (--rec)'] : []),
+  ]
+}
+
 export type SchemaId = keyof typeof SCHEMAS
 
 export async function registerSchemas(team: ReturnType<typeof board>) {

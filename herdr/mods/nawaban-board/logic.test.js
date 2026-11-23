@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { projectFor, cliFor, BOARD_PROJECTS, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, panelView, sinceLabel, decisionDate, WINDOW_WORDS,
-  pendingView, okrView, OKR_WORDS, gapOf, gapText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, ROWS_SHOWN_PER_GROUP, moreKey, TABS, openingTab, tabBadges } from "./logic.js";
+  okrView, OKR_WORDS, gapOf, gapText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, ROWS_SHOWN_PER_GROUP, moreKey, TABS, openingTab, tabBadges } from "./logic.js";
 import { readFileSync } from "node:fs";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
@@ -288,17 +288,31 @@ const pend = (id, at, x) => ({ id, title: `issue ${id}`, status: "open", parent:
 const pendBoard = (tasks) => ({ tracker: "github",
   columns: [{ key: "open", tasks: tasks.filter((t) => t.status !== "done") }, { key: "done", tasks: tasks.filter((t) => t.status === "done") }] });
 
-test("pending decisions run oldest first, a tie by issue number as a number, each with its title, brief on one line and URL; a closed issue holds none", () => {
-  const v = pendingView(pendBoard([
+const fullCard = { decision: "定不定", kr: "无", context: "c", rec: "A", options: [{ key: "A", text: "a", note: "x" }, { key: "B", text: "b", note: "y" }] };
+test("pending cards run oldest first, a tie by issue number as a number, each with its URL; a closed issue holds none", () => {
+  const withCard = (t) => (t.pending ? { ...t, pending: { ...t.pending, card: fullCard } } : t);
+  const v = decisionCardsView(pendBoard([
     pend("#7", 300),
     pend("#12", 100),
     pend("#10", 200),
     pend("#9", 200),
     { id: "#8", title: "无待决", status: "open", pending: null },
     pend("#5", 50, { status: "done" }),
-  ]));
+  ].map(withCard))).cards;
   assert.deepEqual(v.map((p) => p.id), ["#12", "#9", "#10", "#7"]);
-  assert.deepEqual(v[3], { key: "pending:#7", id: "#7", title: "issue #7", brief: "待决：#7 定不定？", url: "https://gh/7" });
+  assert.deepEqual([v[3].key, v[3].url], ["pending:#7", "https://gh/7"]);
+});
+
+test("a card's row title is its Decision on one line, whatever the issue is called; on the Vercel Board too, where a hold with no complete card stays out", () => {
+  const board = { columns: [{ key: "open", tasks: [
+    pend("#7", 300, { pending: { at: 300, progress: [], card: { ...fullCard, decision: "传不传\nsourcemap" } } }),
+    pend("#8", 200, { pending: { brief: "只有一句", at: 200, progress: [], card: null } })] }] };
+  const v = decisionCardsView(board);
+  assert.deepEqual(v.cards.map((c) => [c.id, c.title, c.decision, c.kind]), [["#7", "传不传 sourcemap", "传不传\nsourcemap", "pick"]]);
+  assert.deepEqual(v.incomplete.ids, ["#8"]);
+  const asking = panelView({ board: { columns: [{ key: "open", tasks: [{ ...board.columns[0].tasks[1], waiting: "只有一句", terminal: null, active_at: 2 }] }] },
+    agents: [], terminals: [], space: "s", now: 10, lang: "zh" });
+  assert.deepEqual(asking.waiting, [], "a hold for a decision is not a 等你 question beside its card");
 });
 
 const items = (prefix, n) => Array.from({ length: n }, (_, i) => ({ key: "task:" + prefix + i, id: prefix + i, note: null, gone: false }));
