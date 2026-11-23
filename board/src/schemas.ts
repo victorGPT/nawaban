@@ -112,8 +112,8 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
 export const SCHEMAS = VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE
 
 const MIN_DECISION_OPTIONS = 2
-const WORDS_THAT_SAY_NOTHING = new Set(['', '无', 'none', '-'])
-const saysNothing = (v: unknown) => WORDS_THAT_SAY_NOTHING.has(String(v ?? '').trim().toLowerCase())
+const WORDS_THAT_SAY_NOTHING = new Set(['', '-', '--', '—', '——', '无', '暂无', '待定', '未定', '略', 'none', 'n/a', 'null', 'tbd', 'todo', '?', '？', '...', '…'])
+const saysNothing = (v: unknown) => WORDS_THAT_SAY_NOTHING.has(String(v ?? '').replace(/[ \t\n\r\f\v\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+/g, '').toLowerCase())
 const blank = (v: unknown) => !String(v ?? '').trim()
 
 export type DecisionCard = {
@@ -131,7 +131,7 @@ export function gapsOfADecisionCard(c: DecisionCard): string[] {
     ...(blank(c.kr) ? ['关联 KR (--kr)'] : []),
     ...(saysNothing(c.context) ? ['背景 (--context)'] : []),
     ...(options.length < MIN_DECISION_OPTIONS ? [`备选方案 (--option，至少 ${MIN_DECISION_OPTIONS} 条)`] : []),
-    ...options.flatMap((o, i) => [...(blank(o.choice) ? [`第 ${i + 1} 条的方案`] : []), ...(saysNothing(o.tradeoff) ? [`第 ${i + 1} 条的代价`] : [])]),
+    ...options.flatMap((o, i) => [...(saysNothing(o.choice) ? [`第 ${i + 1} 条的方案`] : []), ...(saysNothing(o.tradeoff) ? [`第 ${i + 1} 条的代价`] : [])]),
     ...(saysNothing(c.recommendation) ? ['建议 (--rec)'] : []),
   ]
 }
