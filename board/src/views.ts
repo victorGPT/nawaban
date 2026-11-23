@@ -125,6 +125,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
             at: card?.at ?? h.active,
             progress: notes.slice(-NOTES_CARRIED_BY_A_PENDING_DECISION).map(progress),
             card: completeCardElseNull(card && data(card.message, 'nawaban-ask')),
+            ask: card?.message.id ?? null,
           }
         : null,
   }

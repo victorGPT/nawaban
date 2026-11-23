@@ -1,6 +1,7 @@
 import {
   foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WINDOW_WORDS,
 } from '../../herdr/mods/nawaban-board/logic.js'
+import type { Pending } from './decide-logic'
 
 export { foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, sinceLabel, taskSections, WINDOW_WORDS }
 
@@ -49,7 +50,7 @@ export type BoardTask = {
   done_at?: number | null
   progress?: Progress
   waiting?: string | null
-  pending?: unknown
+  pending?: Pending | null
   blocked_by?: string[]
 }
 export type Board = { columns: { key: string; tasks: BoardTask[] }[]; decisions: unknown[] }

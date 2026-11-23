@@ -14,7 +14,7 @@ import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.t
 import { okrData } from './okr.ts'
 import { Refused } from './tasks.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
-import { dropInboxItem, inboxEntries, keepInboxItem } from './page.ts'
+import { answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, webAnswers, webAnswerText } from './page.ts'
 
 const DEFAULT_PORT = 4100
 const TOKEN_BYTES = 32
@@ -164,6 +164,7 @@ async function view(team: Team, dir: string, path: string, query: URLSearchParam
     return project ? refuse(404, `项目 ${project} 没在 repos.json 登记仓库`) : refuse(400, 'usage: /api/nawaban/okr?project=<name>|repo=<path>')
   }
   if (what === 'changes' && !rest.length) return changes(team, signal)
+  if (what === 'answers' && !rest.length) return Response.json({ answers: await webAnswers(team, query.get('project') || undefined) })
   if (what === 'inbox' && !rest.length) {
     const project = query.get('project')
     return project ? Response.json({ items: await inboxEntries(team, project) }) : refuse(400, 'usage: /api/nawaban/inbox?project=<name>')
@@ -180,22 +181,62 @@ async function view(team: Team, dir: string, path: string, query: URLSearchParam
   return refuse(404, 'no such view')
 }
 
-async function wordsSent(request: Request) {
+async function jsonSent(request: Request, shape: string): Promise<unknown> {
   const body = await request.text()
   if (Buffer.byteLength(body) > WRITE_BODY_MAX_BYTES) throw new Refused('too long')
-  let sent: unknown
   try {
-    sent = JSON.parse(body)
+    return JSON.parse(body)
   } catch {
-    throw new Refused('send JSON { words }')
+    throw new Refused(`send JSON ${shape}`)
   }
+}
+
+async function wordsSent(request: Request) {
+  const sent = await jsonSent(request, '{ words }')
   const words = (sent as { words?: unknown } | null)?.words
   if (typeof words !== 'string') throw new Refused('send JSON { words }')
   return words
 }
 
-async function write(team: Team, path: string, query: URLSearchParams, request: Request) {
+const ANSWER_SHAPE = '{ ask, option?, words }'
+const LONGEST_ANSWER = 2000
+
+function answerSent(body: unknown) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Refused(`send JSON ${ANSWER_SHAPE}`)
+  const { ask, option, words, ...extra } = body as Record<string, unknown>
+  if (Object.keys(extra).length) throw new Refused(`send JSON ${ANSWER_SHAPE}`)
+  const said = (v: unknown) => typeof v === 'string' && v.trim() !== '' && v.length <= LONGEST_ANSWER
+  if (!said(ask)) throw new Refused('ask must name the card answered')
+  if (!said(words)) throw new Refused('words must be text')
+  if (option !== undefined && !said(option)) throw new Refused('option must be text')
+  return { ask: ask as string, answer: { words: words as string, ...(option !== undefined && { option: option as string }) } }
+}
+
+const theCardChanged = (ref: string) => refuse(409, `${ref} 的待决卡已经换了，刷新后再答`)
+
+async function answer(team: Team, asThisPerson: (body: unknown) => Promise<Response>, segment: string, request: Request) {
+  let ref
+  try {
+    ref = decodeURIComponent(segment)
+  } catch {
+    return refuse(400, 'bad task key')
+  }
+  const said = answerSent(await jsonSent(request, ANSWER_SHAPE))
+  const [task] = await team.tasks.list({ state: 'blocked', label: { key: ref } }).then((p) => p.tasks.map((t) => t.message))
+  if (task?.task?.blocked?.kind !== 'awaiting_approval') return refuse(409, `${ref} 没有在等决策者答复`)
+  const { replies } = await team.thread(task.id)
+  const current = replies.findLast((m) => !m.deleted && m.blocks.some((b) => b.schema === 'nawaban-ask'))
+  if (current?.id !== said.ask) return theCardChanged(ref)
+  const posted = await asThisPerson({ re: task.id, after: replies.at(-1)!.id, text: webAnswerText(said.answer) })
+  if (posted.status === 409) return theCardChanged(ref)
+  if (!posted.ok) return refuse(502, `看板没收下答复：${posted.status}`)
+  const written = await team.thread(task.id)
+  return Response.json(answerToTheCurrentHold(written.message, written.replies), { status: 201 })
+}
+
+async function write(team: Team, asThisPerson: (body: unknown) => Promise<Response>, path: string, query: URLSearchParams, request: Request) {
   const [what, ...rest] = path.split('/')
+  if (what === 'answer' && request.method === 'POST' && rest.length === 1 && rest[0]) return answer(team, asThisPerson, rest[0], request)
   if (what === 'inbox' && request.method === 'POST' && !rest.length) {
     return Response.json(await keepInboxItem(team, query.get('project') ?? '', await wordsSent(request)), { status: 201 })
   }
@@ -223,8 +264,10 @@ async function builtFile(pathname: string, dist: string) {
   }
 }
 
-export function site(team: Team, { dir, webToken, port, dist = BUILT_PAGE }: { dir: string; webToken: string; port: number; dist?: string }) {
+export function site(team: Team, { dir, webToken, boardToken, port, dist = BUILT_PAGE }: { dir: string; webToken: string; boardToken: string; port: number; dist?: string }) {
   const want = Buffer.from(webToken)
+  const asThisPerson = (body: unknown) =>
+    team.fetch(new Request(`${urlFor(port)}/messages`, { method: 'POST', headers: { authorization: `Bearer ${boardToken}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }))
   return async (request: Request): Promise<Response> => {
     const { pathname, searchParams } = new URL(request.url)
     if (pathname === '/api/board' || pathname.startsWith('/api/board/')) return team.fetch(request)
@@ -236,7 +279,7 @@ export function site(team: Team, { dir, webToken, port, dist = BUILT_PAGE }: { d
     if (!isApi) return READS.has(request.method) ? builtFile(pathname, dist) : refuse(405, 'read-only')
     const path = pathname.slice(API.length)
     try {
-      return await (READS.has(request.method) ? view(team, dir, path, searchParams, request.signal) : write(team, path, searchParams, request))
+      return await (READS.has(request.method) ? view(team, dir, path, searchParams, request.signal) : write(team, asThisPerson, path, searchParams, request))
     } catch (error) {
       if (error instanceof Refused) return refuse(400, error.message)
       throw error
@@ -265,7 +308,7 @@ export async function serve(dir = DIR, port = PORT) {
   const url = urlFor(port)
   const team = board({ backend: local({ dir }), authenticate: verifier(await token(dir)), url, middleware: [impactNames(dir)] })
   await registerSchemas(team)
-  const server = await listen(site(team, { dir, webToken: await token(dir, WEB_TOKEN), port }), port)
+  const server = await listen(site(team, { dir, webToken: await token(dir, WEB_TOKEN), boardToken: await token(dir), port }), port)
   console.log(`serving the board at ${url} and its page at http://127.0.0.1:${port}/, its log in ${dir.replace(homedir(), '~')}`)
   return server
 }

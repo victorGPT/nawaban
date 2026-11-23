@@ -13,6 +13,7 @@ import { listen, pageUrl, site, token, verifier, web } from '../src/server.ts'
 import { inboxChannel, inboxItemText, openInboxItems } from '../src/page.ts'
 import { registerSchemas } from '../src/schemas.ts'
 import { run } from '../src/tasks.ts'
+import { event } from '../src/events.ts'
 import { boardData, taskDetail } from '../src/views.ts'
 
 const SECRET = 'board-secret'
@@ -36,7 +37,7 @@ beforeAll(async () => {
   await writeFile(join(dist, 'index.html'), '<div id="root"></div>')
   await writeFile(join(dist, 'assets', 'page.js'), 'export {}')
   await writeFile(join(dir, 'secret.txt'), 'outside the page')
-  handler = site(team, { dir, webToken: WEB_SECRET, port, dist })
+  handler = site(team, { dir, webToken: WEB_SECRET, boardToken: SECRET, port, dist })
 })
 afterAll(() => server.close())
 
@@ -61,7 +62,9 @@ async function create(...argv: string[]) {
   vi.stubEnv('NAWABAN_BOARD_DIR', dir)
   const quiet = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
   try {
-    expect((await run(argv)) ?? (await createApp({ appName: 'nawaban' }).run(argv))).toBe(0)
+    const app = createApp({ appName: 'nawaban' })
+    const [command, ...rest] = argv
+    expect(command === 'event' ? await event(rest, (args) => app.run(args), board()) : ((await run(argv)) ?? (await app.run(argv)))).toBe(0)
   } finally {
     quiet.mockRestore()
     vi.unstubAllEnvs()
@@ -130,6 +133,51 @@ it('takes a write only from the page\'s own origin', async () => {
   expect((await send('/api/nawaban/board', { method: 'POST', headers: { origin: `http://127.0.0.1:${port}` } })).status).toBe(405)
 })
 
+it('writes an answer to a 待决 as the local person, keeps the hold, and reads it back', async () => {
+  await create('create', 'D1', '--title', '发不发', '--project', 'decide')
+  const id = (await team.tasks.list({ state: 'all', label: { key: 'D1' } })).tasks[0]!.message.id
+  const asPage = (key: string, answer: unknown) =>
+    send(`/api/nawaban/answer/${key}`, { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify(answer) })
+
+  expect((await asPage('D1', { ask: 'none', words: '还没挂' })).status).toBe(409)
+  await create('event', id, '--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '发')
+
+  const askOf = async () => JSON.parse((await send('/api/nawaban/board?project=decide')).body).columns.flatMap((c: { tasks: { id: string; pending?: { ask: string } }[] }) => c.tasks).find((t: { id: string }) => t.id === 'D1').pending.ask as string
+  const ask = await askOf()
+  for (const bad of [{}, { ask, words: '' }, { ask, words: '  ' }, { ask, words: 1 }, { ask, words: 'x', option: '' }, { ask, words: 'x', resolve: true }, { words: 'x' }, { ask: 1, words: 'x' }, ['x'], 'x'.repeat(3)]) {
+    expect((await asPage('D1', bad)).status, JSON.stringify(bad)).toBe(400)
+  }
+  expect((await asPage('NOPE', { ask, words: '发' })).status).toBe(409)
+  expect((await asPage('%E0%A4%A', { ask, words: '发' })).status).toBe(400)
+  expect((await asPage('D1', { ask: 'another-card', words: '发' })).status).toBe(409)
+  expect((await send('/api/nawaban/answer/D1', { method: 'POST', headers: { origin: 'http://evil.test' }, body: '{"words":"发"}' })).status).toBe(403)
+
+  const written = await asPage('D1', { ask, option: '发', words: '就这么定' })
+  expect(written.status).toBe(201)
+  expect(JSON.parse(written.body)).toMatchObject({ task: 'D1', option: '发', words: '就这么定', by: 'victor' })
+  const thread = await team.thread(id)
+  expect(thread.message.task?.blocked?.kind).toBe('awaiting_approval')
+  expect(thread.replies.at(-1)?.author).toMatchObject({ kind: 'person', handle: 'victor' })
+  expect(JSON.parse((await send('/api/nawaban/answers?project=decide')).body).answers).toMatchObject([{ task: 'D1', option: '发', words: '就这么定' }])
+  expect(JSON.parse((await send('/api/nawaban/answers?project=nawaban')).body).answers).toEqual([])
+
+  await team.tasks.unblock(id)
+  await create('event', id, '--kind', 'ask', '--body', '还发不发', '--kr', 'K', '--context', '新事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '不发')
+  expect(await askOf()).not.toBe(ask)
+  expect((await asPage('D1', { ask, option: '发', words: '对旧卡的答复' })).status).toBe(409)
+  expect(JSON.parse((await send('/api/nawaban/answers?project=decide')).body).answers).toEqual([])
+
+  const fetchOfTheBoard = team.fetch
+  team.fetch = async (request) => {
+    team.fetch = fetchOfTheBoard
+    await team.reply(id, { text: '进展：检查和写入之间插进一条' })
+    return fetchOfTheBoard.call(team, request)
+  }
+  expect((await asPage('D1', { ask: await askOf(), words: '晚到的答复' })).status).toBe(409)
+  team.fetch = fetchOfTheBoard
+  expect(JSON.parse((await send('/api/nawaban/answers?project=decide')).body).answers).toEqual([])
+})
+
 it('serves the built page without a token, and nothing outside it', async () => {
   const page = await send('/', { headers: { authorization: '' } })
   expect(page).toMatchObject({ status: 200, body: '<div id="root"></div>' })
@@ -144,13 +192,13 @@ it('serves the built page without a token, and nothing outside it', async () => 
 })
 
 it('answers / with how to build when the page is not built', async () => {
-  handler = site(team, { dir, webToken: WEB_SECRET, port, dist: join(dist, 'missing') })
+  handler = site(team, { dir, webToken: WEB_SECRET, boardToken: SECRET, port, dist: join(dist, 'missing') })
   try {
     const r = await send('/')
     expect(r.status).toBe(404)
     expect(r.body).toContain('build')
   } finally {
-    handler = site(team, { dir, webToken: WEB_SECRET, port, dist })
+    handler = site(team, { dir, webToken: WEB_SECRET, boardToken: SECRET, port, dist })
   }
 })
 
