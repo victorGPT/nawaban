@@ -136,7 +136,7 @@ it('answers / with how to build when the page is not built', async () => {
   }
 })
 
-it('says something changed when the board moves, and stops following when the page goes', async () => {
+it('says something changed when the board moves', async () => {
   const stop = new AbortController()
   const r = await fetch(`http://127.0.0.1:${port}/api/nawaban/changes`, { headers: { authorization: `Bearer ${WEB_SECRET}` }, signal: stop.signal })
   expect(r.headers.get('content-type')).toBe('text/event-stream')
