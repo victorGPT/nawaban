@@ -738,5 +738,6 @@ test("a KR's bar fills by value against target, the other way round when lower i
   assert.equal(krFill(kr("640ms", "< 800ms")), 1);
   assert.equal(krFill(kr("未测", "≥ 5%", false)), null);
   assert.equal(krFill(kr("3", "上线")), null);
+  assert.equal(krFill(kr("1", "完成 2 项验收后上线")), null);
   assert.equal(krFill(kr("-2", "≥ 0")), 0);
 });

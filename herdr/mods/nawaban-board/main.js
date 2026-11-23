@@ -64,7 +64,8 @@ const RETURNED_STORE = "incompleteCardsReturned";
 const TAB_STORE = "tab";
 const DISABLED_OPACITY = 0.3;
 const PROGRESS_LINES_SHOWN = 2;
-const LOWER_IS_BETTER = /^[≤<]/;
+const STRUCTURED_TARGET = /^([≥≤<>=])\s*(-?\d+(?:\.\d+)?)/;
+const LOWER_IS_BETTER = new Set(["≤", "<"]);
 
 function place() {
   const space = spaces().find((s) => s.active);
@@ -119,11 +120,11 @@ async function systemLanguage() {
   return env?.stdout;
 }
 
-const numberIn = (text) => parseFloat(String(text ?? "").replace(/^[^\d.-]+/, ""));
 export const krFill = (k) => {
-  const value = numberIn(k.value), target = numberIn(k.target);
-  if (!k.measured || !Number.isFinite(value) || !Number.isFinite(target)) return null;
-  const fill = LOWER_IS_BETTER.test(k.target) ? (value <= target ? 1 : target / value) : target > 0 ? value / target : value >= target ? 1 : 0;
+  const goal = STRUCTURED_TARGET.exec(String(k.target ?? "")), value = parseFloat(k.value);
+  if (!k.measured || !goal || !Number.isFinite(value)) return null;
+  const target = Number(goal[2]);
+  const fill = LOWER_IS_BETTER.has(goal[1]) ? (value <= target ? 1 : target / value) : target > 0 ? value / target : value >= target ? 1 : 0;
   return Math.min(1, Math.max(0, fill));
 };
 
