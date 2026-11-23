@@ -5,6 +5,7 @@ import { parseArgs } from 'node:util'
 import type { board } from '@vercel/board'
 import { Refused } from './tasks.ts'
 import { boardData, tasksOf } from './views.ts'
+import { openInboxItems, pageText, webAnswers, type InboxItem, type WebAnswer } from './page.ts'
 
 type Team = ReturnType<typeof board>
 type Row = {
@@ -142,22 +143,54 @@ const fail = (error: unknown) => {
 export async function index(argv: string[], team: Team): Promise<number> {
   try {
     const { values } = parseArgs({ args: argv, options: { project: { type: 'string' } } })
-    process.stdout.write(indexText((await boardData(team, values.project)) as Data, values.project ?? '看板') + '\n')
+    const [data, fromThePage] = await Promise.all([boardData(team, values.project), whatThePageWrote(team, values.project)])
+    process.stdout.write(indexText(data as Data, values.project ?? '看板') + '\n')
+    if (fromThePage) process.stdout.write('\n' + fromThePage + '\n')
     return 0
   } catch (error) {
     return fail(error)
   }
 }
 
-export function inboxLine(items: { id: string; title: string }[], shownLast: string[] | null): string | null {
+const answeredSeen = (a: Pick<WebAnswer, 'message'>) => `答 ${a.message}`
+const inboxSeen = (i: Pick<InboxItem, 'id'>) => `收 ${i.id}`
+
+export function inboxLine(
+  items: { id: string; title: string }[],
+  shownLast: string[] | null,
+  page: { answered: Pick<WebAnswer, 'task' | 'message'>[]; inbox: Pick<InboxItem, 'id'>[] } = { answered: [], inbox: [] },
+): string | null {
   const alreadySaidNothingWaits = !!shownLast && !shownLast.length
-  if (!items.length) return alreadySaidNothingWaits ? null : '待决 0 件'
-  const ids = items.map((i) => i.id)
-  const sameSetAsShownLast = !!shownLast && shownLast.length === ids.length && ids.every((id) => shownLast.includes(id))
-  if (sameSetAsShownLast) return `待决 ${items.length} 件（无变化）`
-  const fresh = items.filter((i) => !shownLast?.includes(i.id))
-  const listed = short((fresh.length ? fresh : items).map((i) => `${i.id} ${short(i.title, INBOX_TITLE_WIDTH)}`).join(' · '), INBOX_LINE_WIDTH)
-  return `待决 ${items.length} 件：${listed}｜说「同步」看待决`
+  if (!items.length && !page.inbox.length) return alreadySaidNothingWaits ? null : '待决 0 件'
+  const seen = [...items.map((i) => i.id), ...page.answered.map(answeredSeen), ...page.inbox.map(inboxSeen)]
+  const head = `待决 ${items.length} 件${page.answered.length ? `，网页已答 ${page.answered.length} 件` : ''}`
+  const inbox = page.inbox.length ? `；收件箱 ${page.inbox.length} 条` : ''
+  const sameSetAsShownLast = !!shownLast && shownLast.length === seen.length && seen.every((id) => shownLast.includes(id))
+  if (sameSetAsShownLast) return `${head}${inbox}（无变化）`
+  const answeredTasks = new Set(page.answered.map((a) => a.task))
+  const freshlyAnswered = new Set(page.answered.filter((a) => !shownLast?.includes(answeredSeen(a))).map((a) => a.task))
+  const fresh = items.filter((i) => !shownLast?.includes(i.id) || freshlyAnswered.has(i.id))
+  const shown = fresh.length ? fresh : items
+  const listed = short(shown.map((i) => `${i.id} ${short(i.title, INBOX_TITLE_WIDTH)}${answeredTasks.has(i.id) ? '（网页已答）' : ''}`).join(' · '), INBOX_LINE_WIDTH)
+  return `${head}${listed ? `：${listed}` : ''}${inbox}｜说「同步」看待决`
+}
+
+async function whatThePageWrote(team: Team, project?: string) {
+  if (!project) return ''
+  const [answers, items] = await Promise.all([webAnswers(team, project), openInboxItems(team, project)])
+  return pageText(answers, items, project)
+}
+
+export async function page(argv: string[], team: Team): Promise<number> {
+  try {
+    const { values } = parseArgs({ args: argv, options: { project: { type: 'string' } } })
+    if (!values.project) throw new Refused('usage: nawaban page --project <p>', 2)
+    const text = await whatThePageWrote(team, values.project)
+    if (text) process.stdout.write(text + '\n')
+    return 0
+  } catch (error) {
+    return fail(error)
+  }
 }
 
 async function writeWholeSoAReaderNeverSeesHalf(file: string, content: string) {
@@ -172,11 +205,12 @@ export async function inbox(argv: string[], team: Team, dir: string): Promise<nu
     const items = (await tasksOf(team, values.project, 'blocked'))
       .filter((m) => HOLDS_THE_DECISION_MAKER_ANSWERS.has(m.task?.blocked?.kind ?? ''))
       .map((m) => ({ id: m.labels.key ?? `#${m.id}`, title: m.text.split('\n')[0]! }))
+    const [answered, open] = values.project ? await Promise.all([webAnswers(team, values.project), openInboxItems(team, values.project)]) : [[], []]
     const file = join(dir, 'inbox', `seen-${(stop.session_id || 'x').replace(/[^\w-]/g, '_')}.json`)
     const shownLast = await readFile(file, 'utf8').then((s) => JSON.parse(s) as unknown, () => null)
     await mkdir(join(dir, 'inbox'), { recursive: true })
-    await writeWholeSoAReaderNeverSeesHalf(file, JSON.stringify(items.map((i) => i.id)))
-    const line = inboxLine(items, Array.isArray(shownLast) ? shownLast : null)
+    await writeWholeSoAReaderNeverSeesHalf(file, JSON.stringify([...items.map((i) => i.id), ...answered.map(answeredSeen), ...open.map(inboxSeen)]))
+    const line = inboxLine(items, Array.isArray(shownLast) ? shownLast : null, { answered, inbox: open })
     if (line) process.stdout.write(JSON.stringify({ systemMessage: line }) + '\n')
     return 0
   } catch (error) {

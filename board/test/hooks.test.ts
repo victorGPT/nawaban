@@ -9,6 +9,7 @@ import { board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { listen, verifier } from '../src/server.ts'
 import { registerSchemas } from '../src/schemas.ts'
+import { INBOX_OPEN, inboxChannel, inboxItemText, webAnswerText } from '../src/page.ts'
 
 const ROOT = new URL('../..', import.meta.url).pathname
 const PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM = join(ROOT, 'hooks')
@@ -141,6 +142,52 @@ it('shows what waits on the decision-maker under each reply, new items first, th
 
 it('stays silent when the board is down', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   expect(await inbox('s1', { BOARD_URL: 'http://127.0.0.1:9/api/board' })).toBeNull()
+})
+
+it('lets a session outside Herdr that the owner declared read what the web page wrote, and act on it', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const noHerdr = { HC_TERMINAL_ID: '' }
+  const stop = (session: string) => inbox(session, noHerdr)
+  const prompt = (text: string) => hook('page-writes.sh', { session_id: SESSION, cwd: repo, prompt: text }, noHerdr)
+  expect(await stop(SESSION)).toBeNull()
+
+  const declared = await hook('orchestrator-declare.sh', { session_id: SESSION, cwd: repo, prompt: '/nawaban:orchestrator' }, noHerdr)
+  expect(declared.out).toContain(`已把会话 ${SESSION} 记为 proj 的编排者`)
+  expect(declared.out).toContain('proj 进行中的事')
+  expect((await hook('leader-index.sh', { session_id: SESSION }, noHerdr)).out).toContain('proj 进行中的事')
+  expect((await hook('leader-index.sh', { session_id: 'someone-else' }, noHerdr)).out).toBe('')
+  expect(await stop('someone-else')).toBeNull()
+  expect(await stop(SESSION)).toBe('待决 0 件')
+
+  await nawaban('create', 'P1', '--title', '发不发', '--project', 'proj')
+  const p1 = await idOf('P1')
+  const card = ['--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '发']
+  await nawaban('event', p1, ...card, '--as', AS)
+  expect(await stop(SESSION)).toBe('待决 1 件：P1 发不发｜说「同步」看待决')
+  expect((await prompt('继续')).out).toBe('')
+
+  await team.reply(p1, { text: webAnswerText({ option: '发', words: '发吧，周五前' }) })
+  expect((await team.thread(p1)).message.task?.blocked?.kind).toBe('awaiting_approval')
+  expect(await stop(SESSION)).toBe('待决 1 件，网页已答 1 件：P1 发不发（网页已答）｜说「同步」看待决')
+  expect(await stop(SESSION)).toBe('待决 1 件，网页已答 1 件（无变化）')
+  expect((await prompt('继续')).out).toContain('- P1 发不发：选「发」，发吧，周五前')
+
+  const item = await team.post(inboxChannel('proj'), { text: inboxItemText('面板加夜间模式'), labels: INBOX_OPEN })
+  expect(await stop(SESSION)).toBe('待决 1 件，网页已答 1 件：P1 发不发（网页已答）；收件箱 1 条｜说「同步」看待决')
+  const context = (await prompt('同步')).out
+  expect(context).toContain(`- #${item.id} 面板加夜间模式`)
+  expect(await nawaban('index', '--project', 'proj')).toContain(`- #${item.id} 面板加夜间模式`)
+
+  await nawaban('event', p1, '--kind', 'resolve', '--body', '发吧，周五前')
+  await nawaban('create', 'IN1', '--project', 'proj', '--title', '面板加夜间模式', '--body', `收件箱 #${item.id}`)
+  await nawaban('label', item.id, 'inbox=done', 'task=IN1', '--if', 'inbox=open')
+  expect(await stop(SESSION)).toBe('待决 0 件')
+  expect((await prompt('继续')).out).toBe('')
+  expect(await nawaban('index', '--project', 'proj')).toContain('- IN1 面板加夜间模式')
+
+  await nawaban('event', p1, ...card, '--as', AS)
+  const anAnswerToTheLastCardIsNoAnswerToThisOne = await stop(SESSION)
+  expect(anAnswerToTheLastCardIsNoAnswerToThisOne).toBe('待决 1 件：P1 发不发｜说「同步」看待决')
+  await nawaban('event', p1, '--kind', 'resolve', '--body', '不发')
 })
 
 it('runs one impact guard per repository: the board\'s where the project moved, the old one elsewhere', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {

@@ -99,6 +99,15 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
     description: "The decision-maker's sign-off on an Objective whose KRs were all met when it was given; the message's time is when.",
     schema: { type: 'object', required: ['objective'], additionalProperties: false, properties: { objective: text } },
   },
+  'nawaban-web-answer@1': {
+    description:
+      "The decision-maker's answer to a task's hold, written on the web page: the option they picked, if any, and their words. It lifts no hold; the orchestrator checks it and records the resolve.",
+    schema: { type: 'object', required: ['words'], additionalProperties: false, properties: { option: text, words: text } },
+  },
+  'nawaban-inbox@1': {
+    description: "An idea the decision-maker jotted on the web page, for the orchestrator to make a task or a command of. The thread's inbox label says whether it is still open.",
+    schema: { type: 'object', required: ['words'], additionalProperties: false, properties: { words: text } },
+  },
   'nawaban-dispatch@1': {
     description: 'A task handed to a worker: who, in which terminal, and what counts as done.',
     schema: {
