@@ -27,7 +27,7 @@ const GH_VALUE_FLAGS = new Set(['-R', '--repo', '-b', '--body', '-F', '--body-fi
 
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
 
-async function reposReadOnEveryUseSoEditsNeedNoRestart(dir: string): Promise<Record<string, string>> {
+export async function reposReadOnEveryUseSoEditsNeedNoRestart(dir: string): Promise<Record<string, string>> {
   try {
     const map = JSON.parse(await readFile(join(dir, 'repos.json'), 'utf8'))
     return Object.fromEntries(Object.entries(map).filter(([, path]) => typeof path === 'string').map(([k, path]) => [k, resolve((path as string).replace(/^~(?=\/|$)/, homedir()))]))

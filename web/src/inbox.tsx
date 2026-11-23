@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, Show } from 'solid-js'
-import { localMonthDayTime } from '../../herdr/mods/nawaban-board/logic.js'
+import { localMonthDayTime } from './logic'
 import './inbox.css'
 
 export type InboxEntry = { id: string; words: string; at: string; done: boolean; task: string | null }

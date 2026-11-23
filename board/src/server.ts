@@ -10,7 +10,7 @@ import { board } from '@vercel/board'
 import type { CallerRequest } from '@vercel/board/access'
 import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from './schemas.ts'
-import { impactNames } from './impact.ts'
+import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { okrData } from './okr.ts'
 import { Refused } from './tasks.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
@@ -157,8 +157,11 @@ async function view(team: Team, dir: string, path: string, query: URLSearchParam
   if (what === 'board' && !rest.length) return Response.json(await boardData(team, query.get('project') || undefined))
   if (what === 'projects' && !rest.length) return Response.json(await projectsData(team))
   if (what === 'okr' && !rest.length) {
-    const repo = query.get('repo')
-    return repo ? Response.json(await okrData(team, dir, repo)) : refuse(400, 'usage: /api/nawaban/okr?repo=<path>')
+    const project = query.get('project')
+    const repos = project ? await reposReadOnEveryUseSoEditsNeedNoRestart(dir) : {}
+    const repo = query.get('repo') ?? (project && Object.hasOwn(repos, project) ? repos[project] : null)
+    if (repo) return Response.json(await okrData(team, dir, repo))
+    return project ? refuse(404, `项目 ${project} 没在 repos.json 登记仓库`) : refuse(400, 'usage: /api/nawaban/okr?project=<name>|repo=<path>')
   }
   if (what === 'changes' && !rest.length) return changes(team, signal)
   if (what === 'inbox' && !rest.length) {

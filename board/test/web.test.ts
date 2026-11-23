@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { request as http } from 'node:http'
 import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -85,6 +87,21 @@ it('answers a missing task 404, a bad key 400, an unknown view 404, okr without 
   expect((await send('/api/nawaban/nothing')).status).toBe(404)
   expect((await send('/api/nawaban/okr')).status).toBe(400)
   expect((await send(`/api/nawaban/okr?repo=${encodeURIComponent(dir)}`)).status).toBe(400)
+})
+
+it('finds a project\'s okr through repos.json', async () => {
+  const repo = realpathSync(await mkdtemp(join(tmpdir(), 'nawaban-web-repo-')))
+  const bare = realpathSync(await mkdtemp(join(tmpdir(), 'nawaban-web-bare-')))
+  await mkdir(join(repo, 'docs/agents'), { recursive: true })
+  await writeFile(join(repo, 'docs/agents/okr.toml'), '[[objective]]\nname = "O"\n\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\n')
+  for (const r of [repo, bare]) execFileSync('git', ['init', '-q'], { cwd: r })
+  await writeFile(join(dir, 'repos.json'), JSON.stringify({ nawaban: repo, bare }))
+  const okr = await send('/api/nawaban/okr?project=nawaban')
+  expect(okr.status).toBe(200)
+  expect(JSON.parse(okr.body).objectives.map((o: { name: string }) => o.name)).toEqual(['O'])
+  expect(JSON.parse((await send('/api/nawaban/okr?project=bare')).body).error).toMatch(/^没有 docs\/agents\/okr.toml/)
+  expect((await send('/api/nawaban/okr?project=nobody')).status).toBe(404)
+  expect((await send('/api/nawaban/okr?project=constructor')).status).toBe(404)
 })
 
 it('turns away a caller without the web token, and the board token is not it', async () => {

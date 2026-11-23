@@ -39,7 +39,7 @@ The built files are not committed: the install builds them (`pnpm --dir web inst
 
 ### Reads
 
-- **A view API in the board process (chosen)**: `GET /api/nawaban/board?project=`, `/projects`, `/task/:key`, `/okr?repo=`, each the JSON `nawaban json …` prints (`views.ts`, `okr.ts`), so the page and the Herdr panel draw one contract. `GET /api/nawaban/changes` is a server-sent stream that says "something changed" whenever the board's event feed moves (`team.events()` in the process), and the page reads its views again.
+- **A view API in the board process (chosen)**: `GET /api/nawaban/board?project=`, `/projects`, `/task/:key`, `/okr?repo=` (or `?project=`, found through the board's `repos.json`, since the page knows the project and not the repository), each the JSON `nawaban json …` prints (`views.ts`, `okr.ts`), so the page and the Herdr panel draw one contract. `GET /api/nawaban/changes` is a server-sent stream that says "something changed" whenever the board's event feed moves (`team.events()` in the process), and the page reads its views again.
 - **The page holds a `board()` handle, as the inspector's does**: rejected, the panel's views (`boardData` walks every task's history) would be rebuilt in the browser, and the page would need a credential the board accepts.
 - **The page calls `/api/board` directly**: rejected, that puts the board's token, which can write anything, in the browser.
 
@@ -64,7 +64,8 @@ The board token stays in the process. `/api/nawaban/*` answers only:
 
 - UI SDK is beta and ships almost daily. Both packages are pinned exactly and move together on purpose; a breaking beta is a pin we don't take yet.
 - The page needs Node and pnpm at install to build, the same as the board.
-- `web/` has its own `package.json` and lockfile, checked in CI by `pnpm check` (typecheck and build).
+- `web/` has its own `package.json` and lockfile, checked in CI by `pnpm check` (typecheck, vitest and build).
+- The page imports the Herdr panel's `logic.js` for what both draw alike (a task group's fold and its 3-row cap, time labels, words), so the two can't drift. Without Herdr's window states, a held task reads 停滞 when it is asking, or quiet for 24 hours (the orchestrator's `STALLED_AFTER_QUIET_FOR`).
 - Since NAWABAN-WEB-04, `board/src/schemas.ts` registers `nawaban-web-answer@1` and `nawaban-inbox@1`, and `board/src/page.ts` holds their readers (`webAnswers`, `openInboxItems`) and writers' text (`webAnswerText`, `inboxItemText`) for the page to reuse. An answer counts only when it comes after the card or `needs-info` note that raised the current hold.
 - Since NAWABAN-WEB-07, the inbox is the first write the page makes: `GET /api/nawaban/inbox?project=` lists the project's items, open ones newest first, then the ones the orchestrator set `inbox=done` (with `task` when it made one a task); `POST` with `{ words }` keeps one as `inboxItemText` with `inbox=open`; `DELETE /api/nawaban/inbox/<id>` deletes a root in an `inbox/` channel carrying `nawaban-inbox@1`, and nothing else. Every other write still answers 405.
 - Without Herdr there is no terminal to label: `/nawaban:orchestrator` records the Claude Code session as the project's orchestrator in `<board dir>/orchestrator/<project>` (one per project, the last declared), and the hooks recognise it by `session_id`. A Stop hook's line reaches only the person, so the details reach the orchestrator's model on each prompt through a UserPromptSubmit hook (`hooks/page-writes.sh`, `nawaban page --project`), and in `index`. With Herdr, the terminal label and `hc send` stay as they were.
