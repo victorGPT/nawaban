@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -39,4 +39,11 @@ it('writes a fresh CODEX_HOME config and the lease dir, and a second run changes
   expect(existsSync(join(tmp, 'xdg', 'board'))).toBe(true)
   await exec(process.execPath, [SCRIPT], { env })
   expect(await readFile(config, 'utf8')).toBe(first)
+})
+
+it('stops without writing when the config exists but cannot be read', async () => {
+  const tmp = await mkdtemp(join(tmpdir(), 'codex-'))
+  await mkdir(join(tmp, 'codex', 'config.toml'), { recursive: true })
+  const env = { ...process.env, CODEX_HOME: join(tmp, 'codex'), XDG_CONFIG_HOME: join(tmp, 'xdg') }
+  await expect(exec(process.execPath, [SCRIPT], { env })).rejects.toThrow(/EISDIR/)
 })

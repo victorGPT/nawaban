@@ -25,11 +25,12 @@ export function openSandboxToTheBoard(config: string, lease: string): SandboxOut
   return { kind: 'left-to-the-owner', lines: `network_access = true\nwritable_roots = ${JSON.stringify([...roots, lease].filter((r, i, all) => all.indexOf(r) === i))}` }
 }
 
-function readElseEmpty(path: string): string {
+function readElseEmptyWhenMissing(path: string): string {
   try {
     return readFileSync(path, 'utf8')
-  } catch {
-    return ''
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return ''
+    throw error
   }
 }
 
@@ -37,7 +38,7 @@ function main(): number {
   const config = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'config.toml')
   const lease = leaseDir()
   mkdirSync(lease, { recursive: true })
-  const outcome = openSandboxToTheBoard(readElseEmpty(config), lease)
+  const outcome = openSandboxToTheBoard(readElseEmptyWhenMissing(config), lease)
   if (outcome.kind === 'appended') {
     mkdirSync(dirname(config), { recursive: true })
     writeFileSync(config, outcome.text)
