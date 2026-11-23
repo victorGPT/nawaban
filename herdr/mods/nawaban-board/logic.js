@@ -333,9 +333,9 @@ export function decisionCardsView(board, { terminals = [], repo = null, returned
 
 export const TO_ORCHESTRATOR = {
   pick: (id, option) => `[决策者经面板] ${id} 选 ${option}`,
-  unclear: (id) => `[决策者经面板] ${id} Context 不够，请补写后重发 DR`,
-  decided: (id) => `[决策者经面板] ${id} 已定，请核实后 resolve 记 Decision Record`,
-  incomplete: (ids) => `[决策者经面板] DR not ready（不满足 DoR），请按 DR 格式重写：${ids.join(" ")}`,
+  unclear: (id) => `[决策者经面板] ${id} 背景不够，请补写后重发待决`,
+  decided: (id) => `[决策者经面板] ${id} 已定，请核实后记已决（决策记录）`,
+  incomplete: (ids) => `[决策者经面板] 待决未就绪（不满足就绪标准），请按待决策项格式重写：${ids.join(" ")}`,
 };
 
 export const marksStillToKeep = (returned, incomplete, justReturned) =>
@@ -409,19 +409,19 @@ export const decisionDate = (at) => {
 };
 
 export const WINDOW_WORDS = {
-  zh: { waiting: "等你", pushing: "WIP", stopped: "Stale", done: "Done", working: "在干", idle: "空闲", todo: "Backlog", yesterday: "昨天", confirm: "在等你确认",
+  zh: { waiting: "等你", pushing: "进行中", stopped: "停滞", done: "已完成", working: "在干", idle: "空闲", todo: "待办", yesterday: "昨天", confirm: "在等你确认",
     windows: (n) => `${n} 个窗口`, elsewhere: (n) => (n ? `其他项目 ${n} 件等你` : "其他项目没有等你的"),
     gone: "窗口已关，任务还拿着没交还", none: "这个 space 没有 agent 窗口", loading: "读取中…", error: "读不到看板", language: "语言",
-    nothingToDecide: "没有等你拍板的 DR", tabs: { decide: "Decisions", okr: "OKR", tasks: "Tasks" }, groups: { stopped: "Stale", working: "WIP", todo: "Backlog", done: "Done" },
+    nothingToDecide: "没有等你决定的待决", tabs: { decide: "待决", okr: "OKR", tasks: "任务" }, groups: { stopped: "停滞", working: "进行中", todo: "待办", done: "已完成" },
     more: (n) => `再显示 ${n} 条`, less: "收起", go: "去窗口", issue: "去 GitHub",
     facts: { id: "编号", question: "问题", note: "进展", window: "窗口", since: "多久", spec: "票" },
-    cards: { chip: { pick: "选一项", maybe: "可能已定", talk: "去窗口聊" }, decision: "BLUF", kr: "KR", context: "Context", progress: "Status",
-      noProgress: "还没有进展", rec: "Recommendation",
+    cards: { chip: { pick: "选一项", maybe: "可能已定", talk: "去窗口聊" }, decision: "决策事项", kr: "关联 KR", context: "背景", progress: "最新进展",
+      noProgress: "还没有进展", rec: "建议",
       settle: "就这么定", unclear: "不够，再说清楚", decided: "对，已经定了", notYet: "还没定", fullText: "GitHub 全文",
       goTalk: (name) => `去 ${name} 窗口`, noOrchestrator: "没有活着的编排者窗口，暂时交不出去", sending: "正在交给编排者…",
-      failed: (e) => `没交到编排者：${e}`, picked: (id, option) => `已交给编排者：${id} 选 ${option}。它会在 issue 上记 Decision Record。`,
-      sentBack: "已退回编排者补写 Context。", closing: (id) => `已请编排者在 ${id} 记 Decision Record 并关掉这个 DR。`,
-      incomplete: (ids, state) => `${ids.length} 个 DR not ready（${ids.join(" ")}），${{ returned: "已退回编排者重写", returning: "正在退回编排者", stuck: "没有编排者窗口，还没退回" }[state]}` } },
+      failed: (e) => `没交到编排者：${e}`, picked: (id, option) => `已交给编排者：${id} 选 ${option}。它会在 issue 上记已决（决策记录）。`,
+      sentBack: "已退回编排者补写背景。", closing: (id) => `已请编排者在 ${id} 记已决（决策记录）并关掉这件待决。`,
+      incomplete: (ids, state) => `未就绪 ${ids.length} 件（${ids.join(" ")}），${{ returned: "已退回编排者重写", returning: "正在退回编排者", stuck: "没有编排者窗口，还没退回" }[state]}` } },
   en: { waiting: "Waiting", pushing: "WIP", stopped: "Stale", done: "Done", working: "Working", idle: "Idle", todo: "Backlog", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
     gone: "Window closed, task still held", none: "No agent windows in this space", loading: "Loading…", error: "Can't read the board", language: "Language",
@@ -463,8 +463,8 @@ const oneDecimal = (v) => String(toTenths(v));
 export const gapOf = (op, goal, value) =>
   toTenths(op === "==" ? -Math.abs(value - goal) : LOWER_IS_BETTER.has(op) ? goal - value : value - goal);
 
-export const varianceText = (gap, unit) =>
-  [(gap < 0 ? "-" : "+") + Math.abs(gap).toFixed(1), UNITS_COUNTED_IN_POINTS.has(unit) ? "pt" : unit].filter(Boolean).join(" ");
+export const varianceText = (gap, unit, w) =>
+  [(gap < 0 ? "-" : "+") + Math.abs(gap).toFixed(1), UNITS_COUNTED_IN_POINTS.has(unit) ? w.point : unit].filter(Boolean).join(" ");
 
 const hasStructuredTarget = (k) => OPS[k.target_op] != null && Number.isFinite(k.target_value);
 const targetText = (k, unit) => (hasStructuredTarget(k) ? OPS[k.target_op] + " " + oneDecimal(k.target_value) + unit : k.target ?? "");
@@ -476,7 +476,7 @@ const krRow = (k, w) => {
   const unit = k.unit ?? "", measured = isMeasured(k);
   return { name: k.name, status: OKR_STATES.includes(k.status) ? k.status : "untested",
     value: measured ? oneDecimal(k.value) + unit : w.status.untested, target: targetText(k, unit), measured,
-    gap: measured && hasStructuredTarget(k) ? varianceText(gapOf(k.target_op, k.target_value, k.value), unit) : null,
+    gap: measured && hasStructuredTarget(k) ? varianceText(gapOf(k.target_op, k.target_value, k.value), unit, w) : null,
     as_of: k.as_of ?? null, day: measured && k.as_of ? isoMonthDay(k.as_of) : null, source: k.source ?? null,
     trend: w.trend[k.trend] ?? w.trend.null, missed_rounds: k.missed_rounds ?? 0, wait: k.wait ?? null,
     mismatch: hasMismatch(k) ? w.mismatch(k.mismatch.map((m) => m.ticket)) : null };
@@ -513,18 +513,18 @@ export function okrView(okr, lang) {
 }
 
 export const OKR_WORDS = {
-  zh: { tally: (met, total, at) => `Green ${met}/${total}${at ? ` · ${at} 量` : ""}`,
-    status: { met: "Green", missed: "Red", stale: "Amber", untested: "Untested" },
+  zh: { tally: (met, total, at) => `${met}/${total} 达标${at ? ` · ${at} 量` : ""}`,
+    status: { met: "绿", missed: "红", stale: "黄", untested: "未测" },
     trend: { closer: "在变好", away: "在变差", flat: "没动", null: "首次读数" },
-    target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮 Red`, wait: "要你做",
+    target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮未达标`, wait: "要你做",
     mismatch: (ts) => `预期不符 ${ts.join(" ")}`, noObjective: "这个项目还没有 O",
-    variance: "variance", asOfShort: "as of", metFolded: (n) => `Green ${n} 条`, untestedFolded: (n) => `Untested ${n} 条`, allMet: "全部 Green" },
+    variance: "偏差", asOfShort: "截至", point: "点", metFolded: (n) => `${n} 条已达标`, untestedFolded: (n) => `${n} 条未测`, allMet: "全部达标" },
   en: { tally: (met, total, at) => `Green ${met}/${total}${at ? ` · measured ${at}` : ""}`,
     status: { met: "Green", missed: "Red", stale: "Amber", untested: "Untested" },
     trend: { closer: "Getting closer", away: "Moving away", flat: "Flat", null: "First reading" },
     target: "Target", value: "Value", asOf: "As of", source: "Source", trendLabel: "Trend", rounds: (n) => `Red ${n} rounds in a row`, wait: "Needs you to",
     mismatch: (ts) => `Not as declared ${ts.join(" ")}`, noObjective: "No Objective for this project yet",
-    variance: "variance", asOfShort: "as of", metFolded: (n) => `Green ${n}`, untestedFolded: (n) => `Untested ${n}`, allMet: "all Green" },
+    variance: "variance", asOfShort: "as of", point: "pt", metFolded: (n) => `${n} Green`, untestedFolded: (n) => `${n} untested`, allMet: "all Green" },
 };
 
 export const TABS = ["decide", "okr", "tasks"];

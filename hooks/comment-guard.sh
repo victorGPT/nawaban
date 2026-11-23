@@ -14,7 +14,7 @@ if re.search(STATE_PREFIX, cmd, re.M):
     print(f"认领、进展、待决、已决、决定由 nawaban 写，评论会带机读标记。改用：\n"
           f"  python3 {cli} claim \x27#N\x27\n"
           f"  python3 {cli} event \x27#N\x27 --kind note|decision|link|ask|resolve --body \"…\"\n"
-          f"（note=进展/status update ask=待决/Decision Request resolve=已决/Decision Record decision=决定/Decision Record link=PR；在仓库目录里跑）", file=sys.stderr)
+          f"（note=进展 ask=待决 resolve=已决 decision=决定 link=PR；在仓库目录里跑）", file=sys.stderr)
     sys.exit(2)
 '
 }

@@ -171,7 +171,7 @@ const monthDayElseAsWritten = (asOf: string) => ISO_DAY.exec(asOf)?.[1] ?? asOf
 function varianceText(op: string, value: string, goal: string, unit: string) {
   const v = Number(value), g = Number(goal)
   const variance = op === '==' ? -Math.abs(v - g) : op === '<=' || op === '<' ? g - v : v - g
-  const shownUnit = UNITS_COUNTED_IN_POINTS.has(unit) ? 'pt' : unit
+  const shownUnit = UNITS_COUNTED_IN_POINTS.has(unit) ? '点' : unit
   return `${variance < 0 ? '-' : '+'}${Math.abs(variance).toFixed(1)}${shownUnit ? ' ' + shownUnit : ''}`
 }
 
@@ -179,14 +179,14 @@ function measuredRow(kr: Kr, got: [string, string] | string | null): { row: stri
   const [op, goal] = target(kr)
   const unit = kr.unit ?? ''
   const want = `${op} ${goal}${unit}`
-  if (got === null) return { row: `  ${kr.name}  Untested / ${want}`, met: false }
-  if (typeof got === 'string') return { row: `  ${kr.name}  Untested / ${want} · 测量失败：${got}`, met: false }
+  if (got === null) return { row: `  ${kr.name}  未测 / 目标 ${want}`, met: false }
+  if (typeof got === 'string') return { row: `  ${kr.name}  未测 / 目标 ${want} · 测量失败：${got}`, met: false }
   const line = (rag: string) =>
-    `  ${kr.name}  ${shownRoundedHalfUpForDisplayOnly(got[0], unit)} / ${want} · variance ${varianceText(op, got[0], goal, unit)} · ${rag} · as of ${monthDayElseAsWritten(got[1])}`
+    `  ${kr.name}  ${shownRoundedHalfUpForDisplayOnly(got[0], unit)} / 目标 ${want} · 偏差 ${varianceText(op, got[0], goal, unit)} · ${rag} · 截至 ${monthDayElseAsWritten(got[1])}`
   const why = kr.max_age_days !== undefined ? whyTooOldByLocalDate(got[1], kr.max_age_days) : ''
-  if (why) return { row: `${line('Amber')}  ${why}`, met: false }
+  if (why) return { row: `${line('黄')}  ${why}`, met: false }
   const met = meets(op, dec(got[0]), dec(goal))
-  return { row: line(met ? 'Green' : 'Red'), met }
+  return { row: line(met ? '绿' : '红'), met }
 }
 
 export async function run(root: string, timeout = MEASURE_READS_RESULTS_NEVER_RUNS_AN_EVAL_TIMEOUT) {
@@ -207,7 +207,7 @@ export async function run(root: string, timeout = MEASURE_READS_RESULTS_NEVER_RU
       met += Number(r.met)
       rows.push(r.row)
     }
-    out.push(`O ${o.name} · Green ${met}/${rows.length}`, ...rows)
+    out.push(`O ${o.name} · ${met}/${rows.length} 达标`, ...rows)
     full.set(o.name, rows.length > 0 && met === rows.length)
   }
   return { text: out.join('\n'), readings, full, commit: head === NOT_COMMITTED ? undefined : head.split(' ')[0] }
@@ -262,7 +262,7 @@ function attentionEvenWhenStale(name: string, kr: Kr, op: string, goalText: stri
   const out: Attention[] = []
   const seen = rs.slice(-READINGS_SHOWN).map((r) => r.value).join('、')
   const noRecentProgress = trends.length >= ROUNDS_WITHOUT_PROGRESS_TO_FLAG && !trends.slice(-ROUNDS_WITHOUT_PROGRESS_TO_FLAG).includes('closer')
-  if (missed >= MISSED_ROUNDS_TO_FLAG) out.push({ kind: 'five', objective: name, kr: kr.name, text: `连续 ${missed} 轮 Red（${op} ${goalText}），最近三次 ${seen}` })
+  if (missed >= MISSED_ROUNDS_TO_FLAG) out.push({ kind: 'five', objective: name, kr: kr.name, text: `连续 ${missed} 轮未达标（${op} ${goalText}），最近三次 ${seen}` })
   else if (status === 'missed' && noRecentProgress) {
     out.push({ kind: 'stuck', objective: name, kr: kr.name, text: `两轮没往目标走（${op} ${goalText}），最近三次 ${seen}` })
   }

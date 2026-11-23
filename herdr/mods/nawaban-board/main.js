@@ -705,12 +705,12 @@ export default class NawabanBoard extends View {
 
   krReading(k, o, quiet) {
     const dim = (text) => div().flex_none().text_color(INK.dim).child(text);
-    if (!k.measured) return h_flex().text_size(SIDE_SIZE).child(dim(o.status.untested + " / " + k.target));
+    if (!k.measured) return h_flex().text_size(SIDE_SIZE).child(dim(o.status.untested + " / " + o.target + " " + k.target));
     return h_flex().flex_wrap().items_baseline().gap(4).text_size(SIDE_SIZE)
       .child(div().flex_none().text_size(quiet ? KR_NAME_SIZE : KR_VALUE_SIZE).when(!quiet, (el) => el.font_semibold())
         .text_color(k.status === "missed" ? INK.red : INK.value).child(k.value))
-      .child(dim("/ " + k.target))
-      .when(Boolean(k.gap), (el) => el.child(dim("· " + o.variance + " " + k.gap)))
+      .child(dim("/ " + o.target + " " + k.target))
+      .when(Boolean(k.gap), (el) => el.child(dim("· " + o.variance)).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(k.gap)))
       .child(dim("·")).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(o.status[k.status]))
       .when(Boolean(k.day), (el) => el.child(dim("· " + o.asOfShort + " " + k.day)));
   }

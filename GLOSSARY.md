@@ -2,28 +2,29 @@
 
 The shared language for tasks recorded by agents and read by people. English terms are authoritative; each Chinese line expresses the same concept, while current identifiers register the runtime vocabulary.
 
-## Management vocabulary
+## 管理用语
 
-Nouns people and agents read are these English terms; sentences around them stay Chinese. One line each: term — what it means in nawaban — source.
+人和 agent 读到的名词用中文领域约定俗成的说法，英文原名只作出处。一行一条：词 — 在 nawaban 里的确切含义 — 出处。
 
-- **Management by Exception** — the owner sees only what is off plan: a Decision Request, a Red or Amber KR, a Stale task — management practice (Taylor; ITIL).
-- **Progressive Disclosure** — the panel and the index show one line first and the rest on demand — interaction design (Nielsen).
-- **Mission Command** — the owner sets the Objective and approves KRs; below a KR the agent decides and records a Decision Record — military doctrine (Auftragstaktik).
-- **Decision Request (DR)** — a decision put to the owner: `BLUF`, `KR`, `Context`, `Options` (each `<COA> ｜ <cost> ｜ one-way door|two-way door`), `Recommendation`; was 待决 / 决策卡 / ask — staff work (BLUF, COA).
-- **Decider** — the owner, the "D" of a DR; escalate means raise a DR — RAPID (Bain).
-- **Definition of Ready (DoR)** — a DR with every part present and not a placeholder, each option with its cost; one that is not is "not ready", is refused when written, kept out of the panel and returned (was 卡片不全) — Scrum.
-- **Decision Record** — a choice recorded on a task: `Decision:`, `Context:`, `Rejected: <option> — <why>`, optional `Consequences:`; was 已决 / resolve / decision event — ADR (Nygard), lite.
-- **Definition of Done (DoD)** — a task closes as done only after its merged link (`pr:` or `commit:`) is recorded — Scrum.
-- **Status update** — a note `Done: … / Next: … / Blockers: …`; the release handoff uses the same form — stand-up triad (Scrum).
-- **Stale** — open, started, no activity for 24 hours (was 停了) — Kanban.
-- **WIP** — open, started, active within 24 hours (was 在做 / 在推) — Kanban (work in progress).
-- **Backlog** — open, never claimed, no progress (was 没动) — Scrum / Kanban.
-- **Done** — closed as done (was 完成) — Scrum / Kanban.
-- **DRI** — the one session or terminal holding a task — Apple (Directly Responsible Individual).
-- **RAG** — a KR's status: Red missed, Amber stale or at risk, Green met; no reading is Untested — project status reporting (PRINCE2).
-- **Variance** — actual minus target in the target's direction, `+` ahead and `-` behind, percent counted in `pt` (was 差 / 超) — earned value / budget variance.
-- **OKR line** — `<KR>  <actual> / <op target> · variance <±n unit> · <RAG> · as of <MM-DD>`, in `okr` and the panel — OKR (Grove, Doerr).
-- **Panel tabs** — Decisions / OKR / Tasks; the inbox line is `Decisions N：…` — this repository.
+- **例外管理** — 决策者只看偏离计划的：待决、红灯或黄灯的 KR、停滞的任务 — 出处：Management by Exception（Taylor；ITIL）。
+- **渐进披露** — 面板和索引先给一行，细节按需展开 — 出处：Progressive Disclosure（Nielsen）。
+- **任务式指挥** — 决策者定 O、点头 KR；KR 以下 agent 自己定，记成决策记录 — 出处：Mission Command（Auftragstaktik）。
+- **待决策项（待决）** — 交给决策者拍板的一件事：「决策事项：」「关联 KR：」「背景：」「备选方案：」（每条「- 方案 ｜ 代价 ｜ 单向门/双向门」，至少两条）「建议：」；英文 BLUF / KR / Context / Options / Recommendation 和旧【Decision】…【Recommendation】照样读 — 出处：Decision Request；BLUF、COA（参谋作业）。
+- **决策者** — 待决的拍板人 — 出处：RAPID 的 Decide（Bain）。
+- **上升** — 把一件事记成待决交给决策者 — 出处：Escalate。
+- **就绪标准** — 待决每项都写了且不是占位（无 / none / -），每条方案有代价；不满足即「未就绪」，写入时被拒，读出来的不进面板、退回编排者重写 — 出处：Definition of Ready（Scrum）。
+- **决策记录** — 一次选择：「决定：」「背景：」「否决方案：<方案> — <原因>」，可选「影响：」；英文 Decision / Context / Rejected / Consequences 和旧 Question / Verdict 照样读 — 出处：Decision Record（ADR，Nygard）。
+- **完成标准** — 任务记了已合并的 `pr:` 或 `commit:` 链接才能关成完成 — 出处：Definition of Done（Scrum）。
+- **进展同步** — 一条备注「已完成：… / 下一步：… / 卡点：…」，交还任务时同样格式；英文 Done / Next / Blockers 照样读 — 出处：Status update（站会三问）。
+- **停滞** — 开着、开工过、24 小时没动静 — 出处：Stale（Kanban）。
+- **进行中** — 开着、开工过、24 小时内有动静 — 出处：WIP（Kanban）。
+- **待办** — 开着、从没认领也没写进展 — 出处：Backlog（Scrum / Kanban）。
+- **已完成** — 关成完成 — 出处：Done。
+- **负责人** — 持有一张票的那一个会话或终端 — 出处：DRI（Apple）。
+- **红黄绿灯** — KR 状态：红＝未达标，黄＝过期或有风险，绿＝达标；没有读数的写「未测」 — 出处：RAG status（PRINCE2）。
+- **偏差** — 实际减目标，按目标方向算：+ 领先，- 落后；百分比按「点」计 — 出处：Variance。
+- **OKR 行** — 「<KR>  <实际> / 目标 <op 目标> · 偏差 <±n 单位> · <红|黄|绿> · 截至 <MM-DD>」，`okr` 输出和面板都用；面板上偏差和灯另用颜色 — 出处：OKR（Grove，Doerr）。
+- **面板 tab** — 待决 / OKR / 任务；收件箱那一行是「待决 N 件：…」 — 出处：本仓库。
 
 ## Language
 
@@ -68,7 +69,7 @@ _Current identifiers_: `blockers`; CLI `block`, `create --blocked-by`.
 **Frontier**(可开工)
 The open tasks that no session holds and whose blockers are all done or cancelled.
 可开工是没有被会话认领、所有前置都已完成或作废的未关闭任务。
-_Avoid_: ready queue. Backlog is the index group of never-started tasks, blocked ones included.
+_Avoid_: ready queue. 待办 (Backlog) is the index group of never-started tasks, blocked ones included.
 _Current identifiers_: CLI `list --frontier`.
 
 ### Status and sessions
@@ -133,14 +134,14 @@ Starting a worker on one issue of a GitHub-tracked repository with one command: 
 _Avoid_: 派单, assign.
 _Current identifiers_: CLI `dispatch`.
 
-**Decision Request (DR)**(决策请求)
-A decision put to the owner, hung on the Objective or KR it serves, written as `BLUF:` (the one decision asked), `KR:`, `Context:` (only the facts it turns on), `Options:` with at least two `- <COA> ｜ <cost> ｜ one-way door|two-way door`, and `Recommendation:`. Its Definition of Ready: every part present and not a placeholder, each option with its cost; the command refuses one that is not ready. Readers still take the older `【Decision】【Objective / KR】【Context】【Options】【Recommendation】` form.
-DR 是交给决策者拍板的一件事，挂在它服务的 Objective 或 KR 下：BLUF、KR、Context（只写这次决策取决于的事实）、至少两个 Options（每个写 COA ｜ cost ｜ one-way door 或 two-way door）、Recommendation。缺任何一项，或 BLUF、Context、Recommendation 只写「无」「none」「-」，就是 not ready（不满足 DoR），命令就拒；读出来 not ready 的 DR 不进面板，退回编排者重写。
+**Decision Request**(待决策项)
+A decision put to the owner, hung on the Objective or KR it serves, written as `决策事项：` (the one decision asked), `关联 KR：`, `背景：` (only the facts it turns on), `备选方案：` with at least two `- <方案> ｜ <代价> ｜ 单向门|双向门`, and `建议：`. Its 就绪标准 (Definition of Ready): every part present and not a placeholder, each option with its 代价; the command refuses one that is 未就绪. Readers also take the English `BLUF: / KR: / Context: / Options: / Recommendation:` form. Readers still take the older `【Decision】【Objective / KR】【Context】【Options】【Recommendation】` form.
+待决策项是交给决策者拍板的一件事，挂在它服务的 Objective 或 KR 下：决策事项、关联 KR、背景（只写这次决策取决于的事实）、至少两条备选方案（每条写 方案 ｜ 代价 ｜ 单向门或双向门）、建议。缺任何一项，或决策事项、背景、建议只写「无」「none」「-」，就是未就绪（不满足就绪标准），命令就拒；读出来未就绪的不进面板，退回编排者重写。
 _Avoid_: 决策卡, 待决卡, decision card, 决策简报, 来龙去脉.
-_Current identifiers_: CLI `event --kind ask --kr --context --option --rec`; block `nawaban-ask@1` (`decision` holds the BLUF, `tradeoff` the cost).
+_Current identifiers_: CLI `event --kind ask --kr --context --option --rec`; block `nawaban-ask@1` (`decision` holds 决策事项, `tradeoff` holds 代价, `door` is `one-way`/`two-way`).
 
 **OKR progress**(OKR 进度)
-The owner's Progress view: each Objective with its KRs, each KR's current value measured now against its target. A repository defines them in `docs/agents/okr.toml`; each KR's `measure` is a command that reads results already produced and prints `<number> <as-of>`. Only a measured value that meets its target counts as met (Green; missed is Red, stale is Amber); a KR with no measure is Untested, and one whose measure fails says why. A KR with `max_age_days` whose reading is older than that is stale and does not count as met. Each dated reading is kept on the board (`kr_readings`); `json okr` judges the kept readings against the current definitions without measuring, and lists what the decision-maker must watch (stuck, five missed rounds, waiting on them, an Objective all met awaiting `okr --accept`).
+The owner's Progress view: each Objective with its KRs, each KR's current value measured now against its target. A repository defines them in `docs/agents/okr.toml`; each KR's `measure` is a command that reads results already produced and prints `<number> <as-of>`. Only a measured value that meets its target counts as met (绿灯; missed is 红灯, stale is 黄灯); a KR with no measure is 未测, and one whose measure fails says why. A KR with `max_age_days` whose reading is older than that is stale and does not count as met. Each dated reading is kept on the board (`kr_readings`); `json okr` judges the kept readings against the current definitions without measuring, and lists what the decision-maker must watch (stuck, five missed rounds, waiting on them, an Objective all met awaiting `okr --accept`).
 OKR 进度是决策者看的 Progress：每个 Objective 和它的 KR，每条 KR 当场量出的现值对目标。仓库在 `docs/agents/okr.toml` 定义；每条 KR 的 `measure` 是一条命令，只读已有结果，打印「数值 截至」。只有量出来且满足目标的才算达标；没写测量的算未测，测量失败的写明原因；设了 `max_age_days` 而读数比它旧的算过期，不算达标。带日期的读数记进看板（`kr_readings`）；`json okr` 不量，只拿存下的读数对当前定义现算，并列出要决策者盯的（两轮没动、连续 5 轮未达标、等决策者做事、O 全 ✓ 待 `okr --accept` 验收）。
 _Avoid_: 进度汇报（口述的）.
 _Current identifiers_: CLI `okr`, `okr --accept`, `json okr`, file `docs/agents/okr.toml`, tables `kr_readings`, `okr_accepts`.
@@ -172,10 +173,10 @@ _Avoid_: now, handoff, label field.
 _Current identifiers_: `events.kind` = `note`; CLI `event --kind note`.
 
 **Decision Record**(决策记录)
-An event recording a choice, ADR-lite: `Decision:`, `Context:`, `Rejected: <option> — <why>`, optional `Consequences:`, and who decided: the agent or the user. The older `Question:` / `Verdict:` lines are still read.
-Decision Record 是记录一次选择的事件：Decision、Context、Rejected（被否方案和原因）、可选的 Consequences，以及由谁决定（agent 或用户）。旧的 Question / Verdict 写法照样读。
+An event recording a choice: `决定：`, `背景：`, `否决方案：<方案> — <原因>`, optional `影响：`, and who decided: the agent or the user. The English `Decision: / Context: / Rejected: / Consequences:` and the older `Question:` / `Verdict:` lines are still read.
+决策记录是记录一次选择的事件：决定、背景、否决方案（被否方案和原因）、可选的影响，以及由谁决定（agent 或用户）。英文写法和旧的 Question / Verdict 写法照样读。
 _Avoid_: 拍板 as a noun, ask, approval, verdict as a separate record.
-_Current identifiers_: `events.kind` = `decision`; CLI `event --kind decision`, `event --by user`; block `nawaban-decision@1` (`verdict` holds Decision and Consequences, `question` holds Context).
+_Current identifiers_: `events.kind` = `decision`; CLI `event --kind decision`, `event --by user`; block `nawaban-decision@1` (`verdict` holds 决定 and 影响, `question` holds 背景).
 
 **Link**(链接)
 An event pointing at evidence: a pull request URL, an artifact path or an ADR number, optionally prefixed `pr:`, `artifact:` or `adr:`.
@@ -192,13 +193,13 @@ _Avoid_: ask, question, proposal.
 _Current identifiers_: `json board` `pending.brief`.
 
 **Pending decision**(待决)
-The GitHub form of an open Decision Request: an open issue in which the latest line starting `待决：` is followed by no line starting `已决：`. A line starting `需要你定：` counts as `待决：`. The lines may be in the body or in any comment. It is derived from the issue's text, never from a label. An issue holds at most one pending decision at a time.
+The GitHub form of an open 待决策项: an open issue in which the latest line starting `待决：` is followed by no line starting `已决：`. A line starting `需要你定：` counts as `待决：`. The lines may be in the body or in any comment. It is derived from the issue's text, never from a label. An issue holds at most one pending decision at a time.
 待决是一张开着的 issue：最新一个以 `待决：` 开头的行之后，没有以 `已决：` 开头的行。旧写法 `需要你定：` 也算待决。这些行可以在正文里，也可以在评论里。由数据推出，不看标签。一张 issue 同时只挂一件待决。
 _Avoid_: waiting on you (local board only), needs-info, blocked, D1-style numbering.
 _Current identifiers_: line prefixes `待决：`, `需要你定：`; CLI `brief`; `json board` task `pending` (`brief`, `at`, `progress`).
 
 **Resolution**(已决)
-The Decision Record that ends a Decision Request on GitHub: the line that ends a pending decision, recording the user's words or the outcome. Only a resolution ends one; a `决定：` line is still recorded but does not.
+The 决策记录 that ends a 待决策项 on GitHub: the line that ends a pending decision, recording the user's words or the outcome. Only a resolution ends one; a `决定：` line is still recorded but does not.
 已决是结掉待决的那一行，记下用户原话或结论。只有它能结案；`决定：` 照常记账，但不结案。
 _Avoid_: decided, answered, removing a label.
 _Current identifiers_: line prefix `已决：`.
@@ -212,20 +213,20 @@ _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`.
 
 **Index**(索引)
-The md text an orchestrator reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), Stale (no activity for 24 hours, with on whom) and WIP, each with its spec, latest progress and next step (`Next:` of a status update, or `下一步：`); the user's Decision Records of the last 48 hours; the Backlog; and a count of the closed. On GitHub it opens with `## Decisions`, the Decision Requests, oldest first, by issue number and title. It is printed from `json board`'s data each time and never stored (on GitHub the same read rewrites the inbox cache).
-索引是编排者开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、Stale（24 小时没动静，写明停在谁身上）、WIP 分组，每件带所属的 spec、最新进展和下一步；48 小时内用户的 Decision Record；Backlog；关掉的个数。在 GitHub 上最上面先列 `## Decisions`，按提出先后，只写 issue 号和标题。每次从 `json board` 的数据现打，从不存（GitHub 上同一次读取会重写收件箱缓存）。
+The md text an orchestrator reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), 停滞 (no activity for 24 hours, with on whom) and 进行中, each with its spec, latest progress and next step (`下一步：` of a 进展同步); the user's 决策记录 of the last 48 hours; the 待办; and a count of the closed. On GitHub it opens with `## 待决`, the 待决策项, oldest first, by issue number and title. It is printed from `json board`'s data each time and never stored (on GitHub the same read rewrites the inbox cache).
+索引是编排者开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、停滞（24 小时没动静，写明停在谁身上）、进行中分组，每件带所属的 spec、最新进展和下一步；48 小时内用户的决策记录；待办；关掉的个数。在 GitHub 上最上面先列 `## 待决`，按提出先后，只写 issue 号和标题。每次从 `json board` 的数据现打，从不存（GitHub 上同一次读取会重写收件箱缓存）。
 _Avoid_: wiki, summary file, status report.
 _Current identifiers_: CLI `index`; `NAWABAN_OWNER_NAMES`; on the Vercel Board `nawaban index --project` (`board/src/orchestrator.ts`).
 
 **Inbox**(收件箱)
-The one line under each of the orchestrator's replies that says what waits on the decision-maker: `Decisions N：<id title> · …｜说「同步」看 DR`. Its items are the repository's Decision Requests on GitHub, and the 等你 tasks of the repository's project on the board; nothing else, and never read from the chat. It lists the items this session has not been shown yet, says only `Decisions N（无变化）` when the set is the same as last time, and is absent when there are none. On GitHub it reads a cache file that every `index`, `brief`, `json board` and `event --kind ask|resolve` rewrites; a cache older than 5 minutes is still shown, marked `· x 分钟前`, while a refresh runs in the background. Only the terminal labelled orchestrator shows it.
-收件箱是编排者每轮回复下方的那一行，写要决策者定的事：`Decisions N：<号 标题> · …｜说「同步」看 DR`。条目只来自 tracker：GitHub 上是本仓库的 DR，本地看板上是本仓库项目的等你；不从聊天里读。只列这个窗口还没看过的条目，集合和上次相同时只写 `（无变化）`，没有就不出。GitHub 上读缓存文件，每次 `index`、`brief`、`json board` 和 `event --kind ask|resolve` 都会重写它；缓存超过 5 分钟照样显示，标上 `· x 分钟前`，同时在后台刷新。只在打了编排者标签的终端出现。
+The one line under each of the orchestrator's replies that says what waits on the decision-maker: `待决 N 件：<id title> · …｜说「同步」看待决`. Its items are the repository's 待决策项 on GitHub, and the 等你 tasks of the repository's project on the board; nothing else, and never read from the chat. It lists the items this session has not been shown yet, says only `待决 N 件（无变化）` when the set is the same as last time, and is absent when there are none. On GitHub it reads a cache file that every `index`, `brief`, `json board` and `event --kind ask|resolve` rewrites; a cache older than 5 minutes is still shown, marked `· x 分钟前`, while a refresh runs in the background. Only the terminal labelled orchestrator shows it.
+收件箱是编排者每轮回复下方的那一行，写要决策者定的事：`待决 N 件：<号 标题> · …｜说「同步」看待决`。条目只来自 tracker：GitHub 上是本仓库的待决，本地看板上是本仓库项目的等你；不从聊天里读。只列这个窗口还没看过的条目，集合和上次相同时只写 `（无变化）`，没有就不出。GitHub 上读缓存文件，每次 `index`、`brief`、`json board` 和 `event --kind ask|resolve` 都会重写它；缓存超过 5 分钟照样显示，标上 `· x 分钟前`，同时在后台刷新。只在打了编排者标签的终端出现。
 _Avoid_: notification, reminder, todo list.
 _Current identifiers_: `hooks/inbox.sh` (Stop hook); `~/.nawaban/inbox/`; `hooks/ask-guard.sh` (sends back a decision asked only in chat); on the Vercel Board `nawaban inbox` (`board/src/orchestrator.ts`, no cache), `~/.nawaban/board/inbox/`; `hooks/route.mjs` (which CLI a hook runs).
 
 **Herdr panel**(Herdr 面板)
 A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each orchestrator and its workers are doing. On GitHub the top shows the blocked windows' waiting cards, when there are any, then the pending decisions, each opening its issue, with the window groups folded under them. Claiming, closing and dispatching stay with agents and the CLI.
-Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按编排者列出当前 space 所在项目里每个编排者和它的 worker 在做什么。自上而下三层，所有项目一样：三个 tab：Decisions（等你卡和 DR，DR 展开为 BLUF、KR、Context、Status、Options、Recommendation）、OKR（每条 KR 一行 OKR line，状态用 RAG）、Tasks（Stale、WIP、Backlog、Done 四组）。认领、关闭、派活仍由 agent 通过 CLI 完成。
+Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按编排者列出当前 space 所在项目里每个编排者和它的 worker 在做什么。自上而下三层，所有项目一样：三个 tab：待决（等你卡和待决策项，展开为决策事项、关联 KR、背景、最新进展、备选方案、建议）、OKR（每条 KR 一行 OKR 行，状态用红黄绿灯）、任务（停滞、进行中、待办、已完成四组）。认领、关闭、派活仍由 agent 通过 CLI 完成。
 _Avoid_: sidebar, shepherdr, board tab.
 _Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `cmd-shift-j`.
 

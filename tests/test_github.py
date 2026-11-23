@@ -275,12 +275,28 @@ CARD = "\n".join(["待决：【Decision】sourcemap 传不传", "【Objective / 
                   "【Options】", "- A：传｜可撤回", "- B：不传｜省事", "【Recommendation】A：好查"])
 
 
+ZH_DR = "\n".join(["待决：决策事项：sourcemap 传不传", "关联 KR：无", "背景：前端只有压缩堆栈", "KR: 背景里的一行",
+                   "备选方案：", "- A：传｜可撤回｜双向门", "- B：不传｜省事｜单向门", "建议：A：好查"])
+
+
+def test_a_decision_request_in_chinese_fields_comes_apart_and_keeps_an_english_looking_line_in_its_context(board, monkeypatch, capsys):
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", ZH_DR)])])
+    assert out["tasks"]["#1"]["pending"]["card"] == {
+        "decision": "sourcemap 传不传", "kr": "无", "context": "前端只有压缩堆栈\nKR: 背景里的一行", "rec": "A：好查",
+        "options": [{"key": "A", "text": "传", "note": "可撤回｜双向门"}, {"key": "B", "text": "不传", "note": "省事｜单向门"}]}
+
+
+@pytest.mark.parametrize("brief", [ZH_DR.replace("背景：前端只有压缩堆栈\nKR: 背景里的一行\n", "背景：无\n"), ZH_DR.replace("- B：不传｜省事｜单向门", "- B：不传")])
+def test_a_decision_request_in_chinese_fields_missing_its_ready_parts_is_not_ready(board, monkeypatch, capsys, brief):
+    assert _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", brief)])])["tasks"]["#1"]["pending"]["card"] is None
+
+
 DR = "\n".join(["待决：BLUF: sourcemap 传不传", "KR: 无", "Context: 前端只有压缩堆栈",
                 "Options:", "- A：传｜可撤回｜two-way door", "- B：不传｜省事｜one-way door", "Recommendation: A：好查"])
 
 
 @pytest.mark.parametrize("heading", ["待决：", "## 待决：", "**待决**：", "需要你定："])
-def test_a_decision_request_in_the_bluf_format_comes_apart_like_the_old_card(board, monkeypatch, capsys, heading):
+def test_a_decision_request_in_english_fields_comes_apart_like_the_old_card(board, monkeypatch, capsys, heading):
     out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", DR.replace("待决：", heading, 1))])])
     assert out["tasks"]["#1"]["pending"]["card"] == {
         "decision": "sourcemap 传不传", "kr": "无", "context": "前端只有压缩堆栈", "rec": "A：好查",

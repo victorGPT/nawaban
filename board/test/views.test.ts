@@ -148,7 +148,7 @@ it('prints a task with its parent, blockers, notes, decisions and events', async
   const t = await read('task', 'S-02')
   expect(Object.keys(t).sort()).toEqual(['id', 'title', 'body', 'status', 'project', 'session', 'created_at', 'parent', 'children', 'blocked_by', 'dependents', 'latest_note', 'decisions', 'links', 'events'].sort())
   expect(t).toMatchObject({ id: 'S-02', status: 'in_progress', session: 'cc-aaaa1111', parent: { id: 'S', status: 'open' }, blocked_by: [{ id: 'S-01', status: 'done' }], latest_note: { kind: 'note', body: 'verify：测试通过' } })
-  expect((await read('task', 'S-02')).decisions[0].body).toBe('Decision: 先只读\n第二行\nContext: 先迁哪个\nRejected: 全迁')
+  expect((await read('task', 'S-02')).decisions[0].body).toBe('决定：先只读\n第二行\n背景：先迁哪个\n否决方案：全迁')
   expect((await read('task', 'S')).children.map((c: { id: string }) => c.id)).toEqual(['S-01', 'S-02'])
   const missing = await nawaban(ORCHESTRATOR_WINDOW_IN_T1, '', 'json', 'task', 'NOPE')
   expect([missing.code, JSON.parse(missing.out).error]).toEqual([1, '任务不存在:NOPE'])

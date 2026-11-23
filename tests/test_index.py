@@ -56,18 +56,18 @@ def github(tmp_path, monkeypatch, capsys):
 
 GITHUB_GOLDEN = """\
 roubao 进行中的事 · 11-07 12:00 生成
-Stale 2 · WIP 3 · Backlog 2
+停滞 2 · 进行中 3 · 待办 2
 
-## Decisions 0
+## 待决 0
 
-## Stale
+## 停滞
 - #264 web：推荐卡片标题显示 content_id（示例）（28 小时没动静 · 停在：@someone）
   进展 28 小时前：后端在 #266。@someone 请看新字段 (链接) 。
 - #301 首卡提速（示例）（26 小时没动静 · 停在：没写）
   进展 27 小时前：首卡压到目标内。
   最近决定 26 小时前：(roubao-e8)合并标准见正文。
 
-## WIP
+## 进行中
 - #275 角色方向分不清（示例）
   进展 17 小时前：人标写回。 核查略。
   最近决定 18 小时前：改动不合 → 停在这里，理由：打平。
@@ -78,11 +78,11 @@ Stale 2 · WIP 3 · Backlog 2
   进展 3 小时前：等合并。
   最近决定 4 小时前：（owner 2026-11-07，经 roubao-e8 转达）审过，可以合。
 
-## 48 小时内你的 Decision Record 2（agent 自己定的另有 4 条，在各任务里）
+## 48 小时内你的决策记录 2（agent 自己定的另有 4 条，在各任务里）
 - 2 小时前 #306 ADR 0033 是否采纳 → 采纳，负责人 11-07 拍板。
 - 4 小时前 #292 （owner 2026-11-07，经 roubao-e8 转达）审过，可以合。
 
-## Backlog 2（开着，从没认领也没写进展）
+## 待办 2（开着，从没认领也没写进展）
 - #239 evals: 两臂正面比（#236-C） · 属于 #236
 - #294 增量抽取（示例） · 属于 #289
 
@@ -96,7 +96,7 @@ def test_github_golden(github, monkeypatch):
 
 
 def test_without_owner_names_only_a_decision_that_says_拍板_is_the_owner_s(github):
-    assert "## 48 小时内你的 Decision Record 1（agent 自己定的另有 5 条，在各任务里）\n- 2 小时前 #306 ADR 0033" in github()
+    assert "## 48 小时内你的决策记录 1（agent 自己定的另有 5 条，在各任务里）\n- 2 小时前 #306 ADR 0033" in github()
 
 
 def _decision(body, at, by=None):
@@ -114,7 +114,7 @@ def test_a_marked_decision_is_the_owner_s_by_its_by_not_its_text(github, monkeyp
         _decision("Verdict: 负责人拍板了，合", "2026-11-07T09:00:00Z", by="agent")]}
     monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
     out = github()
-    assert "## 48 小时内你的 Decision Record 1（agent 自己定的另有 2 条，在各任务里）\n- 1 小时前 #900 先发 A" in out
+    assert "## 48 小时内你的决策记录 1（agent 自己定的另有 2 条，在各任务里）\n- 1 小时前 #900 先发 A" in out
 
 
 def test_a_marked_decision_without_by_still_counts_by_its_text(github, monkeypatch):
@@ -122,7 +122,7 @@ def test_a_marked_decision_without_by_still_counts_by_its_text(github, monkeypat
     issue = {**FIXTURE[0], "number": 901, "state": "OPEN", "stateReason": None, "comments": [
         _decision("（owner 2026-11-07，经 roubao-e8 转达）审过，可以合。", "2026-11-07T11:00:00Z")]}
     monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
-    assert "## 48 小时内你的 Decision Record 1（agent 自己定的另有 0 条" in github()
+    assert "## 48 小时内你的决策记录 1（agent 自己定的另有 0 条" in github()
 
 
 @pytest.fixture
@@ -141,25 +141,25 @@ def run(tmp_path, capsys):
 
 BOARD_GOLDEN = """\
 p 进行中的事 · 04-26 17:46 生成
-等你 1 · Stale 1 · WIP 1 · Backlog 2
+等你 1 · 停滞 1 · 进行中 1 · 待办 2
 
 ## 等你
 - W 等用户
   下一步：选 A 还是 B？
 
-## Stale
+## 停滞
 - S 卡住的（26 小时没动静 · 停在：@alice）
   进展 26 小时前：跑到一半 @alice 在看
 
-## WIP
+## 进行中
 - C1 子任务 · 属于 SPEC 总规格
   进展 1 小时前：写完测试
   最近决定 30 分钟前：先不接 CLI
 
-## 48 小时内你的 Decision Record 1（agent 自己定的另有 1 条，在各任务里）
+## 48 小时内你的决策记录 1（agent 自己定的另有 1 条，在各任务里）
 - 3 小时前 D 发布
 
-## Backlog 2（开着，从没认领也没写进展）
+## 待办 2（开着，从没认领也没写进展）
 - TRI 分诊过的
 - IDLE 没人碰
 
@@ -231,7 +231,7 @@ BRIEF_ISSUES = [
 ]
 
 BRIEF_GOLDEN = """\
-## Decisions 3
+## 待决 3
 
 ### #9 甲 · 11-06 20:00 提出
 https://github.com/example/roubao/issues/9
@@ -275,7 +275,7 @@ def test_brief_gives_each_pending_decision_oldest_first_its_text_its_issue_and_i
 
 def test_index_opens_with_the_pending_decisions_by_issue_number(briefed):
     _, rest = briefed("index").split("\n\n", 1)  # after the title and counts lines
-    assert rest.startswith("## Decisions 3\n- #9 甲\n- #10 乙\n- #2 上线方案\n\n## ")
+    assert rest.startswith("## 待决 3\n- #9 甲\n- #10 乙\n- #2 上线方案\n\n## ")
 
 
 def test_index_on_github_never_says_等你(github):
@@ -287,16 +287,19 @@ def test_brief_on_the_board_is_refused(run, capsys, tmp_path):
     assert "GitHub" in capsys.readouterr().err
 
 
-def test_a_status_update_in_done_next_blockers_form_shows_what_is_done_and_the_next_step():
+@pytest.mark.parametrize("body", ["已完成：写完测试 / 下一步：接 CLI / 卡点：无", "Done: 写完测试 / Next: 接 CLI / Blockers: 无"])
+def test_a_status_update_shows_what_is_done_and_the_next_step(body):
     now = time.time()
     t = {"id": "T", "title": "三段", "status": "open", "parent": None, "session": "s", "created_at": now, "active_at": now,
-         "claimed_at": now, "progress": {"body": "Done: 写完测试 / Next: 接 CLI / Blockers: 无", "at": now}, "decision": None}
+         "claimed_at": now, "progress": {"body": body, "at": now}, "decision": None}
     out = cli.index_text({"columns": [{"key": "in_progress", "tasks": [t]}]}, "p")
     assert "- T 三段\n  进展 0 分钟前：写完测试\n  下一步：接 CLI\n" in out
 
 
-@pytest.mark.parametrize("body, verdict", [("Decision: 先只读\nContext: 先迁哪个\nRejected: 全迁 — 太大", "先只读"),
+@pytest.mark.parametrize("body, verdict", [("决定：先只读\n背景：先迁哪个\n否决方案：全迁 — 太大", "先只读"),
+                                           ("[KR1] 决定：先只读\n背景：先迁哪个", "先只读"),
+                                           ("Decision: 先只读\nContext: 先迁哪个\nRejected: 全迁 — 太大", "先只读"),
                                            ("[KR1] Decision: 先只读\nContext: 先迁哪个", "先只读"),
                                            ("Question: 先迁哪个\nVerdict: 先只读\nRejected: 全迁", "先只读")])
-def test_a_decision_record_and_the_older_question_verdict_form_both_give_the_verdict(body, verdict):
+def test_a_decision_record_in_chinese_or_english_and_the_older_question_verdict_form_all_give_the_verdict(body, verdict):
     assert cli._verdict(body) == verdict
