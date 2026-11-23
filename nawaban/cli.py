@@ -1555,7 +1555,7 @@ def _issue_pending(i: dict) -> dict | None:
             "ruled_after": _owner_ruled_since([b for b, t in notes if t > at], _owner_names())}
 
 
-_CARD_FIELD = re.compile(r"^(?:[^【\n]*[：:])?\s*【(Decision|Objective / KR|Context|Options|Recommendation)】(.*)")
+_CARD_FIELD = re.compile(r"^\s*(?:\**(?:待决|需要你定)\**\s*[：:]\**)?\s*【(Decision|Objective / KR|Context|Options|Recommendation)】(.*)")
 _CARD_OPTION_LINE = re.compile(r"^\s*[-*]\s+(.*)")
 _CARD_OPTION_LETTER = re.compile(r"^([A-Z])\s*[：:]\s*")
 _CARD_OPTION_NOTE = "｜"
@@ -1570,15 +1570,16 @@ _CARD_PARTS_THAT_MUST_SAY_SOMETHING = (("decision", "Decision(--body)"), ("conte
 def _decision_card_parts(brief: str) -> tuple[dict, list[dict]]:
     fields, options, current = {}, [], None
     for ln in brief.splitlines():
-        m = _CARD_FIELD.match(ln)
-        if m:
+        o = _CARD_OPTION_LINE.match(ln) if current == "Options" else None
+        m = None if o else _CARD_FIELD.match(ln)
+        if o:
+            options.append(_card_option(o.group(1).strip(), len(options)))
+        elif m:
             current = _CARD_FIELD_KEYS.get(m.group(1), m.group(1))
             if current != "Options":
                 fields[current] = m.group(2).strip()
         elif current in fields:
             fields[current] = "\n".join(filter(None, [fields[current], ln.strip()]))
-        elif current == "Options" and (o := _CARD_OPTION_LINE.match(ln)):
-            options.append(_card_option(o.group(1).strip(), len(options)))
     return fields, options
 
 

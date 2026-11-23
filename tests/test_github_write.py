@@ -274,10 +274,18 @@ def test_a_trade_off_left_empty_before_the_door_is_refused(gh):
     assert code == 1 and "第 1 项 的 trade-off" in out and posted(gh) == []
 
 
-def test_an_option_quoting_a_field_heading_is_still_an_option(gh):
+@pytest.mark.parametrize("option", ["保留【Options】标题｜读起来清楚", "A：【Options】标题保留｜清楚"])
+def test_an_option_quoting_a_field_heading_is_still_an_option(gh, option):
     card = list(CARD)
-    card[card.index("A 接受｜two-way")] = "保留【Options】标题｜读起来清楚"
+    card[card.index("A 接受｜two-way")] = option
     assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *card)[0] == 0
+
+
+def test_a_context_line_quoting_a_field_heading_stays_in_the_context(gh):
+    card = list(CARD)
+    card[card.index("--context") + 1] = "第 5 轮 84.3%\n结论：【Recommendation】x"
+    assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *card)[0] == 0
+    assert "结论：【Recommendation】x\n【Options】" in posted(gh)[0]
 
 
 def test_a_decision_card_whose_decision_says_nothing_is_refused(gh):
