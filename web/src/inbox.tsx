@@ -1,6 +1,6 @@
 import { createEffect, createSignal, For, Show } from 'solid-js'
 import { localMonthDayTime } from './logic'
-import './inbox.css'
+import { button, card, cn, empty, input } from './ui'
 
 export type InboxEntry = { id: string; words: string; at: string; done: boolean; task: string | null }
 
@@ -77,57 +77,67 @@ export function Inbox(props: Props) {
   const handled = () => (items() ?? []).filter((x) => x.done)
 
   const Item = (p: { x: InboxEntry }) => (
-    <div class="card inbox-item" data-done={p.x.done ? '' : undefined}>
-      <p class="words">{p.x.words}</p>
-      <div class="line meta">
-        <span class="since">{localMonthDayTime(Date.parse(p.x.at))}</span>
+    <div class="flex flex-col gap-1.5 px-4 py-3">
+      <p class={cn('whitespace-pre-wrap [overflow-wrap:anywhere]', p.x.done ? 'text-muted-foreground' : 'text-foreground')}>{p.x.words}</p>
+      <div class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+        <span class="shrink-0 text-subtle-foreground tabular-nums">{localMonthDayTime(Date.parse(p.x.at))}</span>
         <Show when={p.x.done}>
           <Show when={p.x.task} fallback={<span>编排者已处理</span>}>
             {(task) => (
-              <a class="task-link" href={props.taskHref(task())}>
+              <a class="text-primary underline-offset-4 hover:underline" href={props.taskHref(task())}>
                 已转任务 {task()}
               </a>
             )}
           </Show>
         </Show>
-        <button type="button" class="quiet-button" disabled={dropping() === p.x.id} onClick={() => void drop(p.x.id)}>
+        <button type="button" class={cn(button('ghost', 'xs'), 'ml-auto text-muted-foreground')} disabled={dropping() === p.x.id} onClick={() => void drop(p.x.id)}>
           {dropping() === p.x.id ? '删除中…' : '删除'}
         </button>
       </div>
       <Show when={dropError()?.id === p.x.id}>
-        <p class="failed">没删掉：{dropError()!.message}</p>
+        <p class="text-xs text-destructive [overflow-wrap:anywhere]">没删掉：{dropError()!.message}</p>
       </Show>
     </div>
   )
 
+  const list = 'flex flex-col divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card text-sm shadow-card'
+
   return (
-    <section class="inbox">
-      <form class="capture" onSubmit={keep}>
+    <section class="flex flex-col gap-4">
+      <form class={cn(card, 'flex-row gap-2 px-4 max-md:flex-col')} onSubmit={keep}>
         <input
-          class="capture-input"
+          class={input}
+          data-slot="input"
           aria-label="记一条想法"
           placeholder="记一条想法，回车交给编排者"
           maxlength={2000}
           value={draft()}
           onInput={(e) => setDraft(e.currentTarget.value)}
         />
-        <button type="submit" class="primary-button" disabled={!draft().trim() || saving()}>
+        <button type="submit" class={button()} disabled={!draft().trim() || saving()}>
           {saving() ? '正在交…' : '交给编排者'}
         </button>
       </form>
       <Show when={saveError()}>
-        <p class="failed">没交上：{saveError()}。字还在框里，可以再交一次</p>
+        <p class="px-1 text-xs text-destructive [overflow-wrap:anywhere]">没交上：{saveError()}。字还在框里，可以再交一次</p>
       </Show>
-      <Show when={!loadError()} fallback={<p class="notice">{loadError()}</p>}>
-        <Show when={items()} fallback={<p class="quiet">读取中…</p>}>
-          <Show when={items()!.length} fallback={<p class="quiet">还没有记下的想法</p>}>
-            <div class="rows">
-              <For each={open()}>{(x) => <Item x={x} />}</For>
-            </div>
+      <Show when={!loadError()} fallback={<p class={cn(card, 'px-4 text-warning')}>{loadError()}</p>}>
+        <Show when={items()} fallback={<p class={empty}>读取中…</p>}>
+          <Show when={items()!.length} fallback={<p class={empty}>还没有记下的想法</p>}>
+            <Show when={open().length}>
+              <div class={list}>
+                <For each={open()}>{(x) => <Item x={x} />}</For>
+              </div>
+            </Show>
             <Show when={handled().length}>
-              <h2 class="inbox-group">已处理 {handled().length}</h2>
-              <div class="rows">
-                <For each={handled()}>{(x) => <Item x={x} />}</For>
+              <div class="flex flex-col gap-2">
+                <h2 class="flex h-8 items-center gap-2 px-4 text-sm">
+                  <span class="font-medium">已处理</span>
+                  <span class="text-subtle-foreground tabular-nums">{handled().length}</span>
+                </h2>
+                <div class={list}>
+                  <For each={handled()}>{(x) => <Item x={x} />}</For>
+                </div>
               </div>
             </Show>
           </Show>

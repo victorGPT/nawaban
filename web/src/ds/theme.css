@@ -1,0 +1,102 @@
+/* 令牌 → Tailwind 的映射和基础样式,组件包(ds.css)和 app(index.css)共用这一份;令牌值来自 tokens.css(由 tokens.json 生成) */
+/* 令牌只有浅色:dark: 只认显式 .dark 祖先,不跟系统深色模式走(否则深色 Mac 上输入框、选中分段会叠一层灰) */
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-ui);
+  --font-heading: var(--font-ui);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-brand: var(--brand);
+  --color-status-todo: var(--status-todo);
+  --color-status-progress: var(--status-progress);
+  --color-status-done: var(--status-done);
+  --color-priority-urgent: var(--priority-urgent);
+  --color-priority-normal: var(--priority-normal);
+  --color-priority-medium: var(--priority-medium);
+  --color-priority-low: var(--priority-low);
+  --color-warning: var(--warning);
+  --font-mono: var(--font-mono-ui);
+  --shadow-card: var(--card-shadow);
+  --shadow-control: var(--control-shadow);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  /* 统计块 StatTiles:每格至少 168px,一行放不下自动折行 */
+  --grid-template-columns-tiles: repeat(auto-fit, minmax(10.5rem, 1fr));
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+  /* C 主题(Kanbaaan)的正文:14px 常规字重、正常字距。中文落到苹方,500 是中黑、收字距显挤(用户 2026-09-28 改,原 500 / -0.02em) */
+  [data-theme="kanbaaan"]:not(html),
+  [data-theme="kanbaaan"] body {
+    @apply text-sm font-normal tracking-normal;
+  }
+}
+
+/* 输入提示语用第三级文字色(不放进 @layer,优先于组件自带的 placeholder:text-muted-foreground) */
+[data-slot="input"]::placeholder,
+[data-slot="textarea"]::placeholder,
+[data-slot="progress-field"]::placeholder,
+[data-slot="input-group-control"]::placeholder,
+[data-slot="select-trigger"] [data-placeholder] {
+  color: var(--subtle-foreground);
+}
+
+/* iOS 式平滑圆角(用户 2026-09-28):支持 corner-shape 的浏览器用 squircle。
+   squircle 在同一圆角值下看着小一圈,所以圆角基准翻倍,看着和原来的 round 一样大;
+   胶囊和头像(rounded-full)用 squircle 会变方,保持 round。不支持的浏览器整块不生效,照旧 round。
+   :root:root 提高优先级,不受 tokens.css 加载先后影响(画布里它在组件包之后加载) */
+@supports (corner-shape: squircle) {
+  :root:root {
+    --radius: 1.25rem;
+  }
+  *,
+  ::before,
+  ::after {
+    corner-shape: squircle;
+  }
+  .rounded-full {
+    corner-shape: round;
+  }
+}

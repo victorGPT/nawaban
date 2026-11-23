@@ -5,7 +5,7 @@ type HeldTask = { id: string; title: string; status: string; pending?: Pending |
 export type DecideBoard = { columns: { key: string; tasks: HeldTask[] }[] }
 export type WebAnswer = { task: string; option: string | null; words: string; at: string }
 export type Reply = { option?: string; words: string }
-export type DecisionCard = Card & { id: string; at: number; ask: string; handed: WebAnswer | null }
+export type DecisionCard = Card & { id: string; at: number; ask: string; handed: WebAnswer | null; headline: string; more: string }
 
 export const REPLIES = {
   pick: (option: string): Reply => ({ option, words: '就这么定' }),
@@ -16,8 +16,21 @@ export const REPLIES = {
 export function decisionCards(board: DecideBoard | null, answers: WebAnswer[]): DecisionCard[] {
   const answered = new Map(answers.map((a) => [a.task, a]))
   return heldCards(board)
-    .map((c) => ({ ...c, handed: answered.get(c.id) ?? null }))
+    .map((c) => ({ ...c, ...headlineAndMore(c.decision), options: c.options.map((o) => ({ ...o, note: doorsInChinese(o.note) })), handed: answered.get(c.id) ?? null }))
     .sort((x, y) => x.at - y.at || (x.id < y.id ? -1 : 1))
+}
+
+const DOOR_NAMES: Record<string, string> = { 'one-way': '单向门', 'two-way': '双向门' }
+
+const doorsInChinese = (note: string) =>
+  note
+    .split('｜')
+    .map((part) => DOOR_NAMES[part.trim()] ?? part)
+    .join('｜')
+
+const headlineAndMore = (decision: string) => {
+  const [headline, ...more] = decision.split('\n')
+  return { headline, more: more.join('\n').trim() }
 }
 
 const heldCards = (board: DecideBoard | null) =>

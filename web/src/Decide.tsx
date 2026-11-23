@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import { Radio, RadioGroup } from '@ui-sdk/solid/radio'
 import { answersStillAbout, decisionCards, handedText, REPLIES, type DecideBoard, type DecisionCard, type FetchedAnswers, type Reply, type WebAnswer } from './decide-logic'
-import './decide.css'
+import { badge, button, card, cn, empty } from './ui'
 
 const WORDS = {
   chip: '选一项',
@@ -41,9 +41,9 @@ export function DecidePage(props: Props) {
   const [picked, setPicked] = createSignal<Record<string, string>>({})
   const markOf = (c: DecisionCard) => `${c.id}@${c.at}`
   return (
-    <section class="decide">
-      <Show when={props.board} fallback={<p class="quiet">{WORDS.loading}</p>}>
-        <Show when={cards().length} fallback={<p class="quiet">{WORDS.nothing}</p>}>
+    <section class="flex flex-col gap-4">
+      <Show when={props.board} fallback={<p class={empty}>{WORDS.loading}</p>}>
+        <Show when={cards().length} fallback={<p class={empty}>{WORDS.nothing}</p>}>
           <For each={cards()}>{(c) => (
               <DecisionCardView
                 card={c}
@@ -86,50 +86,54 @@ function DecisionCardView(props: CardProps) {
     }
   }
   return (
-    <article class="decision" data-handed={props.card.handed ? '' : undefined}>
-      <header class="decision-head">
-        <span class="decision-title">{props.card.decision.split('\n')[0]}</span>
-        <span class="decision-chip">{WORDS.chip}</span>
+    <article class={cn(card, 'gap-4 px-4')} data-handed={props.card.handed ? '' : undefined}>
+      <header class="flex flex-col gap-1">
+        <div class="flex items-start gap-3">
+          <h2 class="min-w-0 flex-1 text-base leading-snug font-medium [overflow-wrap:anywhere]">{props.card.headline}</h2>
+          <span class={badge('warning')}>{WORDS.chip}</span>
+        </div>
+        <p class="text-xs text-muted-foreground tabular-nums [overflow-wrap:anywhere]">{[id(), props.card.kr, day(props.card.at)].join(' · ')}</p>
       </header>
-      <p class="decision-sub">{[id(), props.card.kr, day(props.card.at)].join(' · ')}</p>
-      <div class="decision-rule" />
-      <Fact label={WORDS.decision} text={props.card.decision} strong />
+      <Show when={props.card.more}>{(more) => <Fact label={WORDS.decision} text={more()} strong />}</Show>
       <Fact label={WORDS.kr} text={props.card.kr} />
       <Fact label={WORDS.context} text={props.card.context} />
-      <div class="decision-fact">
-        <span class="decision-fact-label">{WORDS.options}</span>
-        <RadioGroup class="options" aria-label={WORDS.options} value={option()} onValueChange={(v) => props.onPick(v ?? '')} disabled={sending()}>
+      <div class="flex flex-col gap-1.5">
+        <span class="text-xs text-muted-foreground">{WORDS.options}</span>
+        <RadioGroup class="flex flex-col gap-2 outline-none" aria-label={WORDS.options} value={option()} onValueChange={(v) => props.onPick(v ?? '')} disabled={sending()}>
           <For each={props.card.options}>
             {(o) => (
-              <Radio value={o.text} class="option">
-                <span class="option-text">
+              <Radio
+                value={o.text}
+                class="flex cursor-pointer flex-col items-stretch gap-0.5 rounded-lg border border-border bg-card px-3 py-2 text-left outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50 aria-checked:border-ring aria-checked:ring-1 aria-checked:ring-ring aria-disabled:cursor-default aria-disabled:opacity-50"
+              >
+                <span class="[overflow-wrap:anywhere]">
                   {o.key} · {o.text}
                 </span>
                 <Show when={o.note}>
-                  <span class="option-note">{o.note}</span>
+                  <span class="text-xs text-muted-foreground [overflow-wrap:anywhere]">{o.note}</span>
                 </Show>
               </Radio>
             )}
           </For>
         </RadioGroup>
       </div>
-      <div class="decision-rec">
-        <span class="decision-fact-label">{WORDS.rec}</span>
-        <span class="decision-rec-text">{props.card.rec}</span>
+      <div class="flex items-baseline gap-3">
+        <span class="shrink-0 text-xs text-muted-foreground">{WORDS.rec}</span>
+        <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">{props.card.rec}</span>
       </div>
-      <Show when={props.card.handed}>{(a) => <p class="handed" role="status">{handedText(a())}</p>}</Show>
-      <Show when={failed()}>{(why) => <p class="failed" role="alert">{WORDS.failed(why())}</p>}</Show>
+      <Show when={props.card.handed}>{(a) => <p class="text-xs text-status-done" role="status">{handedText(a())}</p>}</Show>
+      <Show when={failed()}>{(why) => <p class="text-xs text-destructive [overflow-wrap:anywhere]" role="alert">{WORDS.failed(why())}</p>}</Show>
       <Show when={sending()}>
-        <p class="quiet">{WORDS.sending}</p>
+        <p class="text-xs text-muted-foreground">{WORDS.sending}</p>
       </Show>
-      <div class="actions">
-        <button type="button" class="action primary" disabled={sending() || !option()} onClick={() => send(REPLIES.pick(option()))}>
+      <div class="flex flex-wrap gap-2 border-t border-border pt-4">
+        <button type="button" class={button()} disabled={sending() || !option()} onClick={() => send(REPLIES.pick(option()))}>
           {WORDS.settle}
         </button>
-        <button type="button" class="action" disabled={sending()} onClick={() => send(REPLIES.unclear)}>
+        <button type="button" class={button('dismiss')} disabled={sending()} onClick={() => send(REPLIES.unclear)}>
           {WORDS.unclear}
         </button>
-        <button type="button" class="action" disabled={sending()} onClick={() => send(REPLIES.decided)}>
+        <button type="button" class={button('dismiss')} disabled={sending()} onClick={() => send(REPLIES.decided)}>
           {WORDS.decided}
         </button>
       </div>
@@ -139,9 +143,9 @@ function DecisionCardView(props: CardProps) {
 
 function Fact(props: { label: string; text: string; strong?: boolean }) {
   return (
-    <div class="decision-fact">
-      <span class="decision-fact-label">{props.label}</span>
-      <span class={props.strong ? 'decision-fact-text strong' : 'decision-fact-text'}>{props.text}</span>
+    <div class="flex flex-col gap-1">
+      <span class="text-xs text-muted-foreground">{props.label}</span>
+      <span class={cn('whitespace-pre-wrap [overflow-wrap:anywhere]', props.strong ? 'text-foreground' : 'text-muted-foreground')}>{props.text}</span>
     </div>
   )
 }
