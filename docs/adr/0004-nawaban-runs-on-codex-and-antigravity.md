@@ -16,27 +16,27 @@ Labels used below: **docs** is the vendor's documentation, **here** was run on t
 
 ## What each agent offers, as found on 11-24
 
-Versions: Claude Code is what this plugin already targets. Codex is `codex-cli 0.171.0` (release `rust-v0.171.0`, 2026-11-20) [C0]. Antigravity is App `v2.34.0` and CLI `v1.5.12`, the newest entries on its changelog on 11-24 [A3]. Antigravity is not installed here (no `agy` or `antigravity` on PATH, nothing in `/Applications`), so every Antigravity line is docs, untested.
+Versions: Claude Code is what this plugin already targets. Codex is `codex-cli 0.171.0` (release `rust-v0.171.0`, 2026-11-20) [C0]. Antigravity is App `v2.34.0` and CLI `v1.5.12`, the newest entries on its changelog on 11-24 [A3]. Antigravity was not installed when this was first written. CLI `1.5.15` was installed and signed in here later on 11-24 (NAWABAN-AGENTS-06), and every Antigravity line marked here was run with it; the rest are docs.
 
 | What nawaban uses in Claude Code | Codex 0.171.0 | Antigravity App 2.34.0 / CLI 1.5.12 |
 | --- | --- | --- |
-| Plugin: `.claude-plugin/plugin.json`, `marketplace.json` | Manifest `plugin.json` at the root, with `.codex-plugin/plugin.json` kept for older packages. Marketplace `.agents/plugins/marketplace.json`, or `.claude-plugin/marketplace.json` for compatibility. `codex plugin marketplace add` then `codex plugin add` (docs [C1]; here: `nawaban@nawaban` is installed from a local marketplace). | Manifest `plugin.json` or `.antigravity-plugin/plugin.json`. Components are `skills/`, `agents/`, `rules/`, a root `hooks.json` and `mcp_config.json`. `agy plugin install <dir or GitHub URL>`, and `agy plugin import claude` exists (docs [A4][A5]). |
-| Skills: `skills/*/SKILL.md` | `.agents/skills` from cwd up to the repository root, `~/.agents/skills`, and a plugin's `skills/`. The model picks one by its description, or the user names it with `$skill` (docs [C2]). | Agent Skills standard. Workspace `.agents/skills/`, global `~/.gemini/config/skills/`. In the CLI each skill is a `/<skill>` command, and a plugin's skill is `<plugin>:<skill>` (docs [A6][A7]). |
-| Slash command `/nawaban:orchestrator` (a skill with `disable-model-invocation`) | Custom prompts are deprecated in favour of skills. A plugin's `commands/` is migrated into skills (docs [C3]; source [C4]). | Workflows are deprecated in favour of skills (docs [A7]). |
-| `AGENTS.md` / `CLAUDE.md` | `AGENTS.md`, global then root to cwd, 32 KiB cap (docs [C5]). | `AGENTS.md` or `GEMINI.md` in each directory up to the root, `.agents/rules/*.md`, and global `~/.gemini/AGENTS.md` (docs [A8]). |
-| Hook input `session_id` on stdin | Same field, plus `turn_id` and `cwd` (docs [C6]; here). | `conversationId` (docs [A9]). |
-| SessionStart, UserPromptSubmit: stdout or `additionalContext` reaches the model | Same events, same effect (docs [C6]; here: SessionStart `additionalContext` reached the model). | `SessionStart`, and `PreInvocation` carrying `lastUserInput`. Both answer with `injectSteps` (docs [A9]). |
-| PreToolUse on `Bash`, deny | `Bash` matcher, `permissionDecision: "deny"` or exit 2 (docs [C6]; here: a PreToolUse hook blocked `echo forbidden-xyz`). | Matcher `run_command`, the command in `toolCall.args.CommandLine`, `decision: "deny"`. A non-zero exit is logged and the call goes ahead (docs [A9][A4]). |
-| PostToolUse | Yes (docs [C6]). | Yes, output `{}` only (docs [A9]). |
-| Stop: block with a reason, and a line shown to the person | `decision: "block"` continues with the reason, and the next call has `stop_hook_active`. `systemMessage` is shown as a warning (docs [C6]; here: block, untested: `systemMessage` display). | `decision: "continue"` puts `reason` before the model. No documented line for the person on Stop (docs [A9]). |
-| Hooks in a plugin | `hooks/hooks.json`, with `CLAUDE_PLUGIN_ROOT` given for compatibility. Each hook must be trusted by hash in `/hooks`, again after any change (docs [C1][C6]). Here: `~/.codex/config.toml` has trust entries `nawaban@nawaban:hooks/hooks.json:pre_tool_use…`, `:session_start…` and `:stop…`, so Codex reads this plugin's hooks file. Untested: whether they run and whether `onFailure` is accepted. | Root `hooks.json` in Antigravity's own shape (docs [A4]). |
-| Session id in a shell command's environment (`CLAUDE_CODE_SESSION_ID`) | `CODEX_THREAD_ID`, equal to the hooks' `session_id` (source [C7]; here). | None documented (docs [A9]); untested. |
-| Start a session with a first prompt (`claude --model m "<brief>"`) | `codex -m m -C dir "<brief>"`. The TUI turns the prompt into the session's first user message, and submits it unless something suppresses that (source [C8]: `create_initial_user_message`, `set_initial_user_message_submit_suppressed`; untested live). `codex exec` runs headless (docs [C9]). | `agy -i "<brief>"` opens an interactive session with that prompt. `agy -p` is headless, and `--output-format json` returns `conversation_id` (docs [A10][A11]). |
-| Running `node <cli>` | Default sandbox `workspace-write`: no network and no writes outside the workspace (here, see below). | Permission rules such as `command(node …)` in `permissions.allow`, a Seatbelt sandbox on macOS, `agentMode` auto by default in the CLI (docs [A12]). |
+| Plugin: `.claude-plugin/plugin.json`, `marketplace.json` | Manifest `plugin.json` at the root, with `.codex-plugin/plugin.json` kept for older packages. Marketplace `.agents/plugins/marketplace.json`, or `.claude-plugin/marketplace.json` for compatibility. `codex plugin marketplace add` then `codex plugin add` (docs [C1]; here: `nawaban@nawaban` is installed from a local marketplace). | Manifest `plugin.json` or `.antigravity-plugin/plugin.json`. Components are `skills/`, `agents/`, `rules/`, a root `hooks.json` and `mcp_config.json` (docs [A4][A5]; here: `agy plugin validate` reads this repository's `.antigravity-plugin/plugin.json`, finds its two skills, and warns that `hooks/hooks.json` is never loaded). `agy plugin install` takes a directory or `plugin@marketplace`; a GitHub URL is what `validate` takes (here: `--help`). Installing copies the directory into `~/.gemini/config/plugins/<name>`, replacing an earlier copy, and turns pnpm's symlinks into plain directories (here). `agy plugin import claude` exists (here: `--help`). |
+| Skills: `skills/*/SKILL.md` | `.agents/skills` from cwd up to the repository root, `~/.agents/skills`, and a plugin's `skills/`. The model picks one by its description, or the user names it with `$skill` (docs [C2]). | Agent Skills standard. Workspace `.agents/skills/`, global `~/.gemini/config/skills/`. In the CLI each skill is a `/<skill>` command, and a plugin's skill is `<plugin>:<skill>` (docs [A6][A7]; here: `agy -p "/nawaban:nawaban …"` answered from the skill). |
+| Slash command `/nawaban:orchestrator` (a skill with `disable-model-invocation`) | Custom prompts are deprecated in favour of skills. A plugin's `commands/` is migrated into skills (docs [C3]; source [C4]). | Workflows are deprecated in favour of skills (docs [A7]). `/nawaban:orchestrator` resolves to the skill in `agy -p` (here). |
+| `AGENTS.md` / `CLAUDE.md` | `AGENTS.md`, global then root to cwd, 32 KiB cap (docs [C5]). | `AGENTS.md` or `GEMINI.md` in each directory up to the root, `.agents/rules/*.md`, and global `~/.gemini/AGENTS.md` (docs [A8]; here: a workspace `AGENTS.md` and `~/.gemini/AGENTS.md` both reached the model). |
+| Hook input `session_id` on stdin | Same field, plus `turn_id` and `cwd` (docs [C6]; here). | `conversationId`, with `cwd`, `hookEventName`, `lastUserInput`, `transcriptPath` and `workspacePaths`, on every event (docs [A9]; here). |
+| SessionStart, UserPromptSubmit: stdout or `additionalContext` reaches the model | Same events, same effect (docs [C6]; here: SessionStart `additionalContext` reached the model). | `SessionStart`, and `PreInvocation` carrying `lastUserInput`. Both answer with `injectSteps` (docs [A9]; here: both fire, and SessionStart carries `lastUserInput` too; `injectSteps` untested). |
+| PreToolUse on `Bash`, deny | `Bash` matcher, `permissionDecision: "deny"` or exit 2 (docs [C6]; here: a PreToolUse hook blocked `echo forbidden-xyz`). | Matcher `run_command`, the command in `toolCall.args.CommandLine` (here). `{"decision": "allow"}` lets the call run. `{}` denies it (`tool call denied by pre-tool hook`), and so does a non-zero exit (`JSON hook … failing (exit status 1)`) (here). This corrects docs [A9][A4], which say a non-zero exit lets the call through. |
+| PostToolUse | Yes (docs [C6]). | Yes, output `{}` only (docs [A9]; here: it fires with `toolCall` and `error`). |
+| Stop: block with a reason, and a line shown to the person | `decision: "block"` continues with the reason, and the next call has `stop_hook_active`. `systemMessage` is shown as a warning (docs [C6]; here: block, untested: `systemMessage` display). | `decision: "continue"` puts `reason` before the model. No documented line for the person on Stop (docs [A9]). Here: Stop fires with `terminationReason`, `fullyIdle` and `continuationActive`; `continue` untested. |
+| Hooks in a plugin | `hooks/hooks.json`, with `CLAUDE_PLUGIN_ROOT` given for compatibility. Each hook must be trusted by hash in `/hooks`, again after any change (docs [C1][C6]). Here: `~/.codex/config.toml` has trust entries `nawaban@nawaban:hooks/hooks.json:pre_tool_use…`, `:session_start…` and `:stop…`, so Codex reads this plugin's hooks file. Untested: whether they run and whether `onFailure` is accepted. | Root `hooks.json` in Antigravity's own shape, `{"<plugin>": {"enabled": true, "<Event>": [...]}}`, with PreToolUse and PostToolUse entries under a `matcher` (docs [A4]; here: a probe plugin's root `hooks.json` ran on SessionStart, PreInvocation, PostInvocation, PreToolUse, PostToolUse and Stop). |
+| Session id in a shell command's environment (`CLAUDE_CODE_SESSION_ID`) | `CODEX_THREAD_ID`, equal to the hooks' `session_id` (source [C7]; here). | `ANTIGRAVITY_CONVERSATION_ID`, equal to the hooks' `conversationId` and to `conversation_id` from `agy -p --output-format json` (here; not documented [A9]). |
+| Start a session with a first prompt (`claude --model m "<brief>"`) | `codex -m m -C dir "<brief>"`. The TUI turns the prompt into the session's first user message, and submits it unless something suppresses that (source [C8]: `create_initial_user_message`, `set_initial_user_message_submit_suppressed`; untested live). `codex exec` runs headless (docs [C9]). | `agy -i "<brief>"` opens an interactive session and submits that prompt (docs [A10]; here, in a pty: the hooks saw the turn). In a folder it has not trusted, it also asks "Do you trust the contents of this project?", and the turn ran with an empty `cwd` (here). `agy -p` is headless, and `--output-format json` returns `conversation_id` (docs [A11]; here). |
+| Running `node <cli>` | Default sandbox `workspace-write`: no network and no writes outside the workspace (here, see below). | Permission rules such as `command(node)` in `permissions.allow` (docs [A12]). Here: the default `toolPermission` is `request-review`. Each command first runs in a terminal sandbox without network, so the board CLI fails with `fetch failed` and the model reruns it with `BypassSandbox`. A headless run denies that rerun unless `command(node)` is in `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`. A command that starts with a variable assignment (`NAWABAN_OWNER=x node …`) is refused as `unallowed_env_var`. |
 
 ## Tried on this machine
 
-The acceptance asks for one minimal run where the agent is installed. Codex is installed, so it ran here. Antigravity is not installed, so that part does not apply to it here.
+The acceptance asks for one minimal run where the agent is installed. Codex ran first. Antigravity ran later the same day, once it was installed (runs 4 and 5).
 
 Setup: a temporary board (`NAWABAN_BOARD_DIR=<scratchpad>/board`, `NAWABAN_BOARD_PORT=4199`, with `BOARD_TOKEN` and `BOARD_URL` unset) and two tasks, `AGTEST-01` and `AGTEST-02`. Each run was `codex exec --ephemeral --skip-git-repo-check -s workspace-write -C <scratchpad>/cx "<prompt>"`. The prompt said: read `skills/nawaban/SKILL.md`, claim the task, record a 进展同步 note, and `show` it. Output is trimmed to the commands and results.
 
@@ -81,30 +81,63 @@ $ node <cli> show AGTEST-01
 error: the board didn't answer: fetch failed
 ```
 
+**Antigravity, CLI 1.5.15 (NAWABAN-AGENTS-06).** Setup: a temporary board as above (port `4196`). `HOME` pointed at a scratch directory with a copy of `~/.gemini` (its plugins, hooks and settings removed) and a link to `~/Library/Keychains`, where the sign-in lives. The plugin was installed there with `agy plugin install <checkout>`, and the workspace was a scratch git repository. Each run was `agy -p "<prompt>" --output-format json`, with the prompt used above. The model's commands come from the run's `transcript.jsonl`, and holders from `show` run outside agy.
+
+Before any run worked, the installed copy failed with `Cannot find package 'zod'`. The checkout's `board/node_modules` has 5 symlinks at depth 2, and the copy had 0. `rm -rf <copy>/board/node_modules && pnpm --dir <copy>/board install --frozen-lockfile` restores them. Without the `rm`, pnpm stops with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`.
+
+**Run 4. Before the identity change, `CLAUDE_CODE_SESSION_ID` inherited, no allow rule: the agy session writes as the Claude Code session, and a command is denied.**
+
+```text
+$ node <cli> show AGTEST-02
+#4  claimed    AGTEST-02  agy 最小验证 02
+  holder      cc-71f718e3 via <user>
+"denied_actions":[{"action":"command","display_name":"Bash"}]
+```
+
+`claim` ran outside the sandbox and the following `event` was denied, because the headless run cannot ask. The same run without `CLAUDE_CODE_SESSION_ID` followed the skill's identity line and wrote `NAWABAN_OWNER=agy-77dfc55c node <cli> claim AGTEST-01`, which agy refused as `unallowed_env_var`.
+
+**Run 5. With the identity change, `"permissions": {"allow": ["command(node)"]}` in `~/.gemini/antigravity-cli/settings.json`, no `CLAUDE_CODE_SESSION_ID`: 记账 works.**
+
+```text
+conversation_id 0fb198a3-b867-4b1f-aacb-e257a3deafe3
+$ node <cli> claim AGTEST-08                                   (sandbox)
+error: the board didn't answer: fetch failed
+$ node <cli> claim AGTEST-08                                   (BypassSandbox)
+#27  yours for 1h  agy 最小验证 08
+$ node <cli> event AGTEST-08 --kind note --body '已完成：agy 最小验证 / 下一步：无 / 卡点：无'   (sandbox, then BypassSandbox)
+$ node <cli> show AGTEST-08
+#27  claimed    AGTEST-08  agy 最小验证 08
+  holder      agy-0fb198a3 via <user> · until 2026-11-23T21:21:51.952Z
+  latest      <user> · 2026-11-23T20:22:43.083Z  已完成：agy 最小验证 / 下一步：无 / 卡点：无
+```
+
+The lease file was written under `$HOME/.config/board/claims/`. Two more runs with `CLAUDE_CODE_SESSION_ID` inherited, one of them with `--sandbox`, gave holders `agy-cbc04baf` and `agy-5c0eb984`, with the same sandbox-then-bypass pattern.
+
 ## How each part lands
 
 ### 记账
 
 - **Claude Code**: unchanged.
 - **Codex**: runs today with two settings. `[sandbox_workspace_write] network_access = true` lets the CLI reach `127.0.0.1` (here, runs 1 and 3). `~/.config/board` must be among `writable_roots` so that claim and renew can write their lease (here, run 1). Identity comes from `CODEX_THREAD_ID` as `cx-<first 8>`, read before `CLAUDE_CODE_SESSION_ID`, which fixes run 2.
-- **Antigravity**: the skill loads from the plugin's `skills/` (docs). Allow `command(node <cli>)` in `permissions.allow` (docs). There is no session variable, so a SessionStart hook injects `NAWABAN_OWNER=agy-<first 8 of conversationId>` as a step, and the skill's existing line tells the model to set `NAWABAN_OWNER` (inferred, untested).
+- **Antigravity**: runs with the install in `docs/install.md` (here, run 5). The skill loads from the plugin's `skills/`. `command(node)` goes in `permissions.allow`: each CLI call first fails in agy's sandbox for lack of network, and a headless run denies the rerun outside it without that rule. Identity comes from `ANTIGRAVITY_CONVERSATION_ID` as `agy-<first 8>`, read after `CODEX_THREAD_ID` and before `CLAUDE_CODE_SESSION_ID`, which fixes run 4. No hook is needed for it, and a command that sets `NAWABAN_OWNER` inline is refused anyway.
 - **Degraded**: anywhere hooks don't run, `NAWABAN_OWNER` set by hand, as `docs/install.md` already says for Codex.
 
 ### 编排者
 
 - **Codex**: `hooks/hooks.json` is read as written (`CLAUDE_PLUGIN_ROOT` is provided, `session_id` is on stdin, the event names match). The declaration hook matches the prompt `/nawaban:orchestrator*`. On Codex the owner names the skill as `$orchestrator` (or `$nawaban:orchestrator`, untested), so the hook also matches that form. The pending line goes out as `systemMessage` (docs; display untested). The owner must trust the hooks in `/hooks` after each plugin update (docs). That is an install step, and a hook left untrusted fails silently into the degraded mode.
-- **Antigravity**: one adapter, `hooks/agy.mjs`, listed in the root `hooks.json` for `SessionStart`, `PreInvocation`, `PreToolUse` (`run_command`) and `Stop`. It rewrites `conversationId` to `session_id`, `lastUserInput` to `prompt`, and `toolCall.args.CommandLine` to `tool_input.command`. It runs the existing script and maps the reply back: context to `injectSteps`, deny to `decision: "deny"`, block to `decision: "continue"`. A failing adapter must print `{}`, because Antigravity lets the call through on a non-zero exit (docs). The pending line has no documented place on Stop, so it reaches the model at the next prompt through `PreInvocation`, as `page-writes.sh` already does in Claude Code. It does not reach the person directly.
+- **Antigravity**: one adapter, `hooks/agy.mjs`, listed in the root `hooks.json` for `SessionStart`, `PreInvocation`, `PreToolUse` (`run_command`) and `Stop`. It rewrites `conversationId` to `session_id`, `lastUserInput` to `prompt`, and `toolCall.args.CommandLine` to `tool_input.command`. It runs the existing script and maps the reply back: context to `injectSteps`, deny to `decision: "deny"`, block to `decision: "continue"`. The adapter must answer `{"decision": "allow"}` for every command it does not deny, because `{}` and a non-zero exit both deny the call (here). A broken adapter therefore blocks every command. The pending line has no documented place on Stop, so it reaches the model at the next prompt through `PreInvocation`, as `page-writes.sh` already does in Claude Code. It does not reach the person directly.
 - **Degraded** (no hooks, or untrusted): the `nawaban` skill already tells the orchestrator to run `nawaban index` at start. It gains one line: on an agent without the hooks, run `nawaban page --project <p>` and `nawaban inbox` before each reply. The ask guard has no fallback; the rule "record the ask, then ask" is all that holds it.
 
 ### 派活
 
 - `board/src/dispatch.ts` starts `hc run … claude --model <m> <brief>`, and the brief opens with `/pstack:poteto-mode`. Both are Claude Code's. `--agent` picks a row from one table: `claude` → `claude --model m <brief>`, `codex` → `codex -m m <brief>`, `agy` → `agy -i <brief>` (plus `--model` if given). The `/pstack:poteto-mode` prefix belongs to the `claude` row, and `--model` has no default for the other rows. Herdr still runs the terminal and carries the reports (`hc send`), so the report protocol does not change.
 - Here (NAWABAN-AGENTS-05): in a repository Codex has not trusted, `codex "<brief>"` stops at the trust prompt first, and trusting applies to the repository root. After that one answer the brief submits on its own, and later worktrees of the same repository start without the prompt. So the first Codex worker in a repository waits until the owner answers that prompt once. `CODEX_HOME` is passed to the worker with the board variables, so it runs under the dispatcher's Codex config.
+- Here (NAWABAN-AGENTS-06): `agy -i "<brief>"` in a folder it has not trusted submits the brief and also shows its trust prompt.
 
 ### 装
 
 - **Codex**: what `docs/install.md` says today, plus the two sandbox settings and trusting the hooks in `/hooks`. Codex copies the plugin into its cache, so `codex plugin add` again after each pull (docs; here, the cached copy is `0.2.0` while the checkout is `0.3.0`).
-- **Antigravity**: `.antigravity-plugin/plugin.json` and a root `hooks.json`, then `agy plugin install <checkout>` and the `permissions.allow` rule.
+- **Antigravity**: `.antigravity-plugin/plugin.json` (06) and a root `hooks.json` (07). `agy plugin install <checkout>` copies the checkout, so after each pull install again and rebuild the copy's `board/node_modules`. Then the `permissions.allow` rule (here; `docs/install.md`).
 - `README.md` and `docs/install.md` say the plugin "registers no hooks". That is stale: `hooks/hooks.json` registers SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop hooks.
 
 ## Considered Options
@@ -118,7 +151,8 @@ error: the board didn't answer: fetch failed
 
 ## Consequences
 
-- `profile()` reads `CODEX_THREAD_ID` before `CLAUDE_CODE_SESSION_ID`. The reverse case, Claude Code started inside Codex, then writes as the Codex session. We take that because the case seen here (Codex inside Claude Code, for example `codex:rescue`) is the common one.
+- `profile()` reads `CODEX_THREAD_ID`, then `ANTIGRAVITY_CONVERSATION_ID`, then `CLAUDE_CODE_SESSION_ID`. The reverse cases, Claude Code started inside Codex or Antigravity, then write as the Codex or Antigravity session. We take that because the cases seen here (Codex or agy inside Claude Code) are the common ones. Codex inside Antigravity writes as Codex, and agy inside Codex writes as Codex too; neither was seen.
+- Antigravity users put `command(node)` in `permissions.allow`, which lets agy run any `node` command outside its sandbox without asking.
 - Codex users must turn on network access for `workspace-write` and add `~/.config/board` to `writable_roots`, which widens their sandbox.
 - Hook scripts stay in Claude Code's JSON shape. Antigravity pays a translation step, and a hook protocol change there touches only `hooks/agy.mjs`.
 - On Antigravity the person sees no pending line after each reply. The orchestrator sees it at the next prompt, and the web page or the Herdr panel shows it to the person.
@@ -126,7 +160,7 @@ error: the board didn't answer: fetch failed
 ## Open for the decision-maker
 
 - Support Gemini CLI (enterprise Code Assist) as well? The default is no, per the spec's "Gemini 指 Antigravity".
-- Installing and signing in to Antigravity here is the first Antigravity task's precondition. Only the decision-maker can do it.
+- Installing and signing in to Antigravity here was the first Antigravity task's precondition. Done on 11-24 (CLI `1.5.15`).
 
 ## Suggested tasks
 

@@ -25,7 +25,7 @@ python3 <plugin root>/nawaban/cli.py --db <absolute board path>
 
 Which CLI a repository uses: `node <plugin root>/hooks/route.mjs` run in it prints `board <project>` or `old`. On `board` (a fresh install, where the old CLI finds no board and no GitHub tracker), `nawaban` is `node <plugin root>/board/src/cli.ts` instead, with no `--db`, and the verbs below keep their names. On `old`, use the board the project names (its `CLAUDE.md` or `docs/agents/issue-tracker.md`); otherwise the CLI finds `.nawaban/nawaban.db` in the repository's main checkout. Always pass the absolute `--db`, also from worktrees, so every worktree writes one board. Write the whole command out in every call. Do not keep it in a shell variable (`N="python3 ..."; $N list`): a subagent's Bash refuses a command whose name is computed at runtime, and zsh does not split the variable. `nawaban <verb> --help` lists a verb's flags. Output is in Chinese: `✓` is success; `✗` with exit 1 is a refusal or an unknown id.
 
-Identity comes from `CODEX_THREAD_ID` (Codex, shown as `cx-<first 8>`), then `CLAUDE_CODE_SESSION_ID` (Claude Code, `cc-<first 8>`), then `NAWABAN_OWNER`. A session with none of them sets `NAWABAN_OWNER` to a stable name before claiming or writing events.
+Identity comes from `CODEX_THREAD_ID` (Codex, shown as `cx-<first 8>`), then `ANTIGRAVITY_CONVERSATION_ID` (Antigravity, `agy-<first 8>`), then `CLAUDE_CODE_SESSION_ID` (Claude Code, `cc-<first 8>`), then `NAWABAN_OWNER`. A session with none of them sets `NAWABAN_OWNER` to a stable name before claiming or writing events.
 
 ## Task shape
 
