@@ -33,6 +33,12 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/renew.sh\"",
             "timeout": 10,
             "onFailure": "continue"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/page-writes.sh\"",
+            "timeout": 15,
+            "onFailure": "continue"
           }
         ]
       }
