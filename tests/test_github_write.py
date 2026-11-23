@@ -309,6 +309,7 @@ def test_python_and_the_board_call_the_same_words_placeholders():
     schemas = (Path(__file__).parents[1] / "board/src/schemas.ts").read_text()
     listed = re.search(r"WORDS_THAT_SAY_NOTHING = new Set\(\[(.*?)\]\)", schemas).group(1)
     assert set(re.findall(r"'([^']*)'", listed)) == cli._WORDS_THAT_SAY_NOTHING
+    assert f".replace(/{cli._SPACES_A_PLACEHOLDER_MAY_CARRY}/g, '')" in schemas
 
 
 def test_a_decision_card_whose_decision_says_nothing_is_refused(gh):
