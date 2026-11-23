@@ -129,6 +129,9 @@ export const krFill = (k) => {
   return Math.min(1, Math.max(0, fill));
 };
 
+const capturesInFlight = new Set();
+const inFlightKey = (project, id) => captureStoreKey(project) + ":" + id;
+
 const windowStatesOf = (windows) => windows.map((a) => a.address + ":" + a.status).join(",");
 const oneLine = (text) => String(text ?? "").replace(/\s+/g, " ").trim();
 
@@ -170,7 +173,6 @@ export default class NawabanBoard extends View {
   }
 
   listenToCaptureInput() {
-    this.captureSending = {};
     this.captureFailed = {};
     this.captureInput = InputState.new({ placeholder: WINDOW_WORDS[this.lang].capture.placeholder });
     this.captureInput.on("submit", (_e, cx) => { this.keepCapture(); cx.notify(); });
@@ -194,13 +196,15 @@ export default class NawabanBoard extends View {
   }
 
   handCapture(item, orchestrator, cx) {
-    const project = this.projectKey(), id = item.id;
-    this.captureSending = { ...this.captureSending, [id]: true };
+    const project = this.projectKey(), id = item.id, flight = inFlightKey(project, id);
+    const stillUnhanded = this.captures(project).some((x) => x.id === id && !Number.isFinite(x.handedAt));
+    if (capturesInFlight.has(flight) || !stillUnhanded) return;
+    capturesInFlight.add(flight);
     this.captureFailed = { ...this.captureFailed, [id]: null };
     cx.spawn(async (cx) => {
       const failed = await say(orchestrator, TO_ORCHESTRATOR.capture(item.text));
       if (!failed) this.changeCaptures(project, (list) => markHanded(list, id, Date.now()));
-      this.captureSending = { ...this.captureSending, [id]: false };
+      capturesInFlight.delete(flight);
       this.captureFailed = { ...this.captureFailed, [id]: failed };
       cx.notify();
     });
@@ -506,7 +510,7 @@ export default class NawabanBoard extends View {
   }
 
   captureCard(x, orchestrator, w, handed) {
-    const cw = w.capture, sending = Boolean(this.captureSending[x.id]), failed = this.captureFailed[x.id];
+    const cw = w.capture, sending = capturesInFlight.has(inFlightKey(this.projectKey(), x.id)), failed = this.captureFailed[x.id];
     const id = (what) => "nawaban-capture-" + what + "-" + x.id;
     return this.card().id(id("card")).p(CARD_PAD).gap(SPACE.s)
       .child(div().text_size(TYPE.body).text_color(handed ? INK.dim : INK.title).whitespace_normal().child(x.text))

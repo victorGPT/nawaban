@@ -784,8 +784,16 @@ test("收件箱 keeps what is typed on Enter per project, hands it to this repo'
     texts.length = 0;
     view.render(cx);
     assert.ok(texts.includes(WINDOW_WORDS.zh.cards.failed("no such terminal")) && texts.includes("改一下 hook") && texts.includes("交给编排者"));
-    hcImpl = async (args) => { sends.push(args); return { code: 0, stdout: "", stderr: "" }; };
+    let answer;
+    hcImpl = (args) => { sends.push(args); return new Promise((r) => { answer = r; }); };
+    const other = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
     clicks.get("nawaban-capture-hand-" + item.id)({}, cx);
+    other.handCapture(item, "t0", cx);
+    view.render(cx);
+    assert.equal(sends.length, 1, "one hand-over at a time across panels");
+    answer({ code: 0, stdout: "", stderr: "" });
+    await settle();
+    other.handCapture(item, "t0", cx);
     await settle();
     assert.deepEqual(sends, [["send", "t0", "[决策者经面板] 收件箱：改一下 hook。请转成任务或命令，回我结果"]]);
     const reopened = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
