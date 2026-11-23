@@ -42,6 +42,16 @@ it('keeps answers read for an earlier board only for cards that did not change s
   expect(answersStillAbout(board, { board: null, answers: [answer] })).toEqual([])
 })
 
+it('names the door in Chinese and keeps the rest of the option note as written', () => {
+  const doors: DecideBoard = { columns: [{ key: 'open', tasks: [held('D', 1, { ...card('门'), options: [{ key: '第 1 项', text: '发', note: '快｜two-way' }, { key: '第 2 项', text: '撤', note: 'one-way' }, { key: '第 3 项', text: '等', note: '慢' }] })] }] }
+  expect(decisionCards(doors, [])[0].options.map((o) => o.note)).toEqual(['快｜双向门', '单向门', '慢'])
+})
+
+it('heads the card with the first line of the decision and keeps only the lines after it below', () => {
+  const lines: DecideBoard = { columns: [{ key: 'open', tasks: [held('L', 1, card('发不发 v2？\n影响 3 个仓库\n周五前要定')), held('S', 2, card('只有一行'))] }] }
+  expect(decisionCards(lines, []).map((c) => [c.headline, c.more])).toEqual([['发不发 v2？', '影响 3 个仓库\n周五前要定'], ['只有一行', '']])
+})
+
 it('answers with an option or words only, never a resolve', () => {
   expect(REPLIES.pick('发')).toEqual({ option: '发', words: '就这么定' })
   expect(Object.keys(REPLIES.unclear)).toEqual(['words'])
