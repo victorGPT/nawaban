@@ -294,6 +294,12 @@ def test_a_decision_request_missing_a_dor_field_is_not_ready(board, monkeypatch,
     assert out["tasks"]["#1"]["pending"]["card"] is None
 
 
+def test_an_old_card_keeps_a_context_line_that_looks_like_a_new_field_in_its_context(board, monkeypatch, capsys):
+    brief = CARD.replace("【Context】前端只有压缩堆栈", "【Context】前端只有压缩堆栈\nKR: 无")
+    card = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", brief)])])["tasks"]["#1"]["pending"]["card"]
+    assert card["kr"] == "无" and card["context"] == "前端只有压缩堆栈\nKR: 无"
+
+
 def test_a_full_decision_card_comes_apart_into_its_fields_and_lettered_options(board, monkeypatch, capsys):
     out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", CARD)])])
     assert out["tasks"]["#1"]["pending"]["card"] == {
