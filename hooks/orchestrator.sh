@@ -1,5 +1,22 @@
 board_dir="${NAWABAN_BOARD_DIR:-$HOME/.nawaban/board}"
 
+the_terminal_runs_this_hook() {
+  root=$(hc get "$HC_TERMINAL_ID" --json 2>/dev/null | python3 -c 'import json, sys; print(json.load(sys.stdin).get("pid") or "")' 2>/dev/null)
+  [ -n "$root" ] || return 1
+  p=$$
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+    [ "$p" = "$root" ] && return 0
+    set -- $(ps -o ppid=,command= -p "$p" 2>/dev/null)
+    case " $* " in *" app-server "*) return 1 ;; esac
+    p=$1
+  done
+  return 1
+}
+
+if [ -n "$HC_TERMINAL_ID" ] && ! the_terminal_runs_this_hook; then
+  unset HC_TERMINAL_ID
+fi
+
 session_of() {
   printf '%s' "$1" | sed -n 's/.*"session_id" *: *"\([^"]*\)".*/\1/p' | head -n 1
 }

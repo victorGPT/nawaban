@@ -22,7 +22,7 @@ def _transcript(tmp_path, *commands, earlier=()):
 
 def _hook(tmp_path, message, transcript, role="orchestrator", active=False):
     bin_ = tmp_path / "bin"; bin_.mkdir(exist_ok=True)
-    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': {'role': role}})}'\n"); (bin_ / "hc").chmod(0o755)
+    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': {'role': role}, 'pid': os.getpid()})}'\n"); (bin_ / "hc").chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "HC_TERMINAL_ID": "t1"}
     r = subprocess.run(["sh", str(HOOK)], env=env, capture_output=True, text=True, timeout=10, input=json.dumps(
         {"session_id": "s", "cwd": str(tmp_path), "stop_hook_active": active, "transcript_path": transcript,

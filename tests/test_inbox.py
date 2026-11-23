@@ -22,7 +22,7 @@ def _cache(repo, items, age=0):
 
 def _hook(tmp_path, cwd, role="orchestrator", session="s1", gh_exit=1):
     bin_ = tmp_path / "bin"; bin_.mkdir(exist_ok=True)
-    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': {'role': role}})}'\n"); (bin_ / "hc").chmod(0o755)
+    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': {'role': role}, 'pid': os.getpid()})}'\n"); (bin_ / "hc").chmod(0o755)
     (bin_ / "gh").write_text(f"#!/bin/sh\necho gh down >&2\nexit {gh_exit}\n"); (bin_ / "gh").chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "HC_TERMINAL_ID": "t1"}
     r = subprocess.run(["sh", str(HOOK)], input=json.dumps({"session_id": session, "cwd": str(cwd), "stop_hook_active": False}),
