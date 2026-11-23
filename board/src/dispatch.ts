@@ -12,12 +12,20 @@ const exec = promisify(execFile)
 const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
 const PROBE_TIMEOUT_MS = 10_000
 const WORKER_NAME = /^[a-z0-9_-]{1,32}$/
+const PARSE_ARGS_MISTAKES = ['ERR_PARSE_ARGS_UNKNOWN_OPTION', 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE']
 const CLOSED_STATES = ['completed', 'canceled', 'failed']
-const ENV_NAMING_THIS_BOARD_NOT_ITS_TOKEN = ['NAWABAN_BOARD_DIR', 'NAWABAN_BOARD_PORT', 'BOARD_URL']
+const ENV_NAMING_THIS_BOARD_AND_CODEX_CONFIG_NOT_THE_BOARD_TOKEN = ['NAWABAN_BOARD_DIR', 'NAWABAN_BOARD_PORT', 'BOARD_URL', 'CODEX_HOME']
+const WORKER_ARGV = {
+  claude: (model: string | undefined, brief: string) => ['claude', '--model', model ?? 'opus', `/pstack:poteto-mode ${brief}`],
+  codex: (model: string | undefined, brief: string) => ['codex', ...(model ? ['-m', model] : []), brief],
+  agy: (model: string | undefined, brief: string) => ['agy', ...(model ? ['--model', model] : []), '-i', brief],
+}
+type Agent = keyof typeof WORKER_ARGV
+const isAgent = (name: string): name is Agent => Object.hasOwn(WORKER_ARGV, name)
 const USAGE =
-  'usage: nawaban dispatch [<key>] --brief "<goal, scope>" --accept "<what counts as done>" [--name <worker>] [--model opus]; no key (a nightly retro, say) takes --name and records nothing'
+  `usage: nawaban dispatch [<key>] --brief "<goal, scope>" --accept "<what counts as done>" [--name <worker>] [--agent ${Object.keys(WORKER_ARGV).join('|')}] [--model <m>, opus for claude]; no key (a nightly retro, say) takes --name and records nothing`
 
-type Args = { ref: string | undefined; name: string | undefined; brief: string; accept: string; model: string }
+type Args = { ref: string | undefined; name: string | undefined; brief: string; accept: string; agent: Agent; model: string | undefined }
 type Checked = { as: string; task: MessageView | null; root: string; orch: string; name: string; who: string }
 type Worktree = { path: string; branch: string }
 
@@ -69,11 +77,17 @@ function parseDispatchArgs(argv: string[]): Args {
   const { values: a, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { name: { type: 'string' }, brief: { type: 'string' }, accept: { type: 'string' }, model: { type: 'string', default: 'opus' } },
+    options: {
+      name: { type: 'string' },
+      brief: { type: 'string' },
+      accept: { type: 'string' },
+      agent: { type: 'string', default: 'claude' },
+      model: { type: 'string' },
+    },
   })
   const [ref] = positionals
-  if (positionals.length > 1 || !(ref || a.name) || !a.brief || !a.accept) throw new Refused(USAGE, 2)
-  return { ref, name: a.name, brief: a.brief, accept: a.accept, model: a.model! }
+  if (positionals.length > 1 || !(ref || a.name) || !a.brief || !a.accept || !isAgent(a.agent!)) throw new Refused(USAGE, 2)
+  return { ref, name: a.name, brief: a.brief, accept: a.accept, agent: a.agent, model: a.model }
 }
 
 async function refuseBeforeAnythingStarts(a: Args): Promise<Checked> {
@@ -106,7 +120,7 @@ async function worktreeOffOriginMain(root: string, name: string): Promise<Worktr
 function briefReportingTo(c: Checked, a: Args, wt: Worktree): string {
   const nawaban = `node ${CLI}`
   return [
-    `/pstack:poteto-mode 任务：${a.ref ? `${a.ref}（${nawaban} show ${a.ref} 看全文；认领、进展、关闭用 ${nawaban} claim|event|close 记）` : c.name}`,
+    `任务：${a.ref ? `${a.ref}（${nawaban} show ${a.ref} 看全文；认领、进展、关闭用 ${nawaban} claim|event|close 记）` : c.name}`,
     `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改，PR 合并或作废后 git worktree remove）`,
     a.brief,
     `验收：${a.accept}`,
@@ -117,12 +131,12 @@ function briefReportingTo(c: Checked, a: Args, wt: Worktree): string {
   ].join('\n')
 }
 
-const envReachingThisBoardWithoutToken = () => ENV_NAMING_THIS_BOARD_NOT_ITS_TOKEN.flatMap((k) => (process.env[k] ? [`${k}=${process.env[k]}`] : []))
+const envReachingThisBoardWithoutToken = () => ENV_NAMING_THIS_BOARD_AND_CODEX_CONFIG_NOT_THE_BOARD_TOKEN.flatMap((k) => (process.env[k] ? [`${k}=${process.env[k]}`] : []))
 
 async function startWorkerElseRemoveWorktree(c: Checked, a: Args, wt: Worktree, brief: string): Promise<string> {
   const env = envReachingThisBoardWithoutToken()
   try {
-    const run = await exec('hc', ['run', '--bg', '--json', '--name', c.name, '--cwd', wt.path, ...(env.length ? ['env', ...env] : []), 'claude', '--model', a.model, brief])
+    const run = await exec('hc', ['run', '--bg', '--json', '--name', c.name, '--cwd', wt.path, ...(env.length ? ['env', ...env] : []), ...WORKER_ARGV[a.agent](a.model, brief)])
     const address = JSON.parse(run.stdout).address
     if (!address) throw new Error(run.stdout)
     return address
@@ -145,7 +159,7 @@ async function recordDispatchAsThisWindow(c: Checked, a: Args, wt: Worktree, add
 }
 
 const exitCodeOf = (error: unknown) =>
-  error instanceof Refused ? error.code : (error as { code?: unknown }).code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION' ? 2 : 1
+  error instanceof Refused ? error.code : PARSE_ARGS_MISTAKES.includes((error as { code?: string }).code ?? '') ? 2 : 1
 
 export async function dispatch(argv: string[]): Promise<number> {
   try {
