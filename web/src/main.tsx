@@ -103,17 +103,28 @@ function App() {
   void onEachChange(() => setChanges((n) => n + 1))
 
   let reads = 0
+  let okrWanted: string | null = null
+  let okrFlight: { of: string; read: ReturnType<typeof readOkr> } | null = null
+  const readOkr = (name: string) =>
+    read(`okr?project=${encodeURIComponent(name)}`).then(
+      (x) => [x, ''] as const,
+      (e: Error) => [okrReadingOfFailure(e), okrReadingOfFailure(e) ? '' : e.message] as const,
+    )
+  const okrReadSharedWhileInFlight = (name: string) => {
+    if (okrFlight?.of === name) return okrFlight.read
+    const flight = { of: name, read: readOkr(name).finally(() => okrFlight === flight && (okrFlight = null)) }
+    okrFlight = flight
+    return flight.read
+  }
   async function load(r: Route, want: string | null) {
     const mine = ++reads
     try {
       const list = (await read<{ projects: Project[] }>('projects')).projects
       const project = projectShown(list, want)
-      const readOkr = (name: string) =>
-        read(`okr?project=${encodeURIComponent(name)}`).then(
-          (x) => [x, ''] as const,
-          (e: Error) => [okrReadingOfFailure(e), okrReadingOfFailure(e) ? '' : e.message] as const,
-        )
-      const okrRead = project && r.tab === 'okr' ? readOkr(project) : null
+      if (project && r.tab === 'okr' && mine === reads) {
+        okrWanted = project
+        void okrReadSharedWhileInFlight(project).then((o) => okrWanted === project && setOkr({ of: project, reading: o[0], error: o[1] }))
+      }
       const [b, d] = await Promise.all([
         project ? read<Board>(`board?project=${encodeURIComponent(project)}`) : null,
         r.task ? read<Detail>(`task/${encodeURIComponent(r.task)}`).then((x) => [x, ''] as const, (e: Error) => [null, e.message] as const) : ([null, ''] as const),
@@ -125,8 +136,6 @@ function App() {
       setDetailError(d[1])
       setError('')
       if (project !== want) setPicked(project)
-      const o = await okrRead
-      if (o && project) setOkr({ of: project, reading: o[0], error: o[1] })
     } catch (e) {
       if (mine === reads) setError((e as Error).message)
     }
