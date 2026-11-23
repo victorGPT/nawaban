@@ -38,6 +38,17 @@ for t in json.load(sys.stdin).get("terminals", []):
 ' "$HC_TERMINAL_ID" "$(repository_the_session_is_in "$input")" 2>/dev/null
 }
 
+register_the_main_checkout_unless_known() {
+  checkout=$(dirname "$(git -C "${CLAUDE_PROJECT_DIR:-$PWD}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)")
+  node -e '
+const { readFileSync, writeFileSync } = require("node:fs");
+const [file, project, checkout] = process.argv.slice(1);
+let known = {};
+try { known = JSON.parse(readFileSync(file, "utf8")); } catch {}
+if (!(project in known)) writeFileSync(file, JSON.stringify({ ...known, [project]: checkout }, null, 2) + "\n");
+' "$board_dir/repos.json" "$1" "$checkout"
+}
+
 declare_this_session_outside_herdr() {
   route=$(node "$hooks/route.mjs" "$(repository_the_session_is_in "$input")" 2>/dev/null)
   sid=$(session_of "$input")
@@ -45,6 +56,7 @@ declare_this_session_outside_herdr() {
   [ "${route%% *}" = board ] && [ -n "$sid" ] || return 1
   file=$(declared_session_file "$project")
   mkdir -p "$(dirname "$file")" && printf '%s' "$sid" > "$file"
+  register_the_main_checkout_unless_known "$project"
 }
 
 owner_typed_the_declaration || exit 0

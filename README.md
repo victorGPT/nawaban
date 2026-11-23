@@ -28,7 +28,7 @@ In the project that should get a board, paste this into Claude Code or Codex:
 Install nawaban by following https://github.com/victorGPT/nawaban/blob/main/docs/install.md and create a board in this project.
 ```
 
-The agent clones nawaban to `~/nawaban`, installs the plugin and creates the board. Start a new session afterwards so the `nawaban` skill loads. [docs/install.md](docs/install.md) has the same steps by hand, the Codex setup and how to add the panel to a Herdr layout.
+The agent clones nawaban to `~/nawaban`, installs the plugin and creates the board. Without Herdr, on macOS, one command installs the board, its web page and the plugin instead: see [docs/install.md](docs/install.md#without-herdr-one-command-macos). Start a new session afterwards so the `nawaban` skill loads. [docs/install.md](docs/install.md) has the same steps by hand, the Codex setup and how to add the panel to a Herdr layout.
 
 ## More
 

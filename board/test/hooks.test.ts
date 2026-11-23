@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -83,14 +83,38 @@ const inbox = async (session: string, more: Record<string, string> = {}) => {
 }
 const idOf = async (key: string) => (await team.tasks.list({ state: 'all', label: { key } })).tasks[0]!.message.id
 
-it('routes a project as the panel does: the old CLI unless it moved to the board', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
-  const route = (dir: string, more: Record<string, string> = {}) => runWithTheHooksEnvironment(['node', join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, 'route.mjs'), dir], '', more)
-  const projNotInBoardProjects = { NAWABAN_CLI: '' }
-  const noRepositoryNoProject = tmp
-  expect((await route(repo, projNotInBoardProjects)).out).toBe('old\n')
-  expect((await route(repo)).out).toBe('board proj\n')
-  expect((await route(join(repo, 'docs/agents'))).out).toBe('board proj\n')
-  expect((await route(noRepositoryNoProject)).out).toBe('old\n')
+it('routes a repository to the board unless the old CLI already tracks it', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const route = async (dir: string, more: Record<string, string> = {}) =>
+    (await runWithTheHooksEnvironment(['node', join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, 'route.mjs'), dir], '', { NAWABAN_CLI: '', ...more })).out
+  const newRepo = async (name: string) => {
+    const dir = join(tmp, 'routes', name)
+    await mkdir(dir, { recursive: true })
+    await sh('git', ['init', '-q', '-b', 'main', dir])
+    return dir
+  }
+  const fresh = await newRepo('fresh')
+  const withOldBoard = await newRepo('withold')
+  await mkdir(join(withOldBoard, '.nawaban'))
+  await writeFile(join(withOldBoard, '.nawaban/nawaban.db'), '')
+  const besideAFileNamedNawaban = join(tmp, 'routes', 'nested', 'inner')
+  await mkdir(join(tmp, 'routes', 'nested', '.nawaban'), { recursive: true })
+  await writeFile(join(tmp, 'routes', 'nested', '.nawaban/nawaban.db'), '')
+  await mkdir(besideAFileNamedNawaban, { recursive: true })
+  await sh('git', ['init', '-q', '-b', 'main', besideAFileNamedNawaban])
+  await writeFile(join(besideAFileNamedNawaban, '.nawaban'), '')
+  const onGithub = await newRepo('ongithub')
+  await mkdir(join(onGithub, 'docs/agents'), { recursive: true })
+  await writeFile(join(onGithub, 'docs/agents/issue-tracker.md'), '# Issue tracker: GitHub\n')
+
+  expect(await route(fresh)).toBe('board fresh\n')
+  expect(await route(join(fresh, '.git'))).toBe('board fresh\n')
+  expect(await route(withOldBoard)).toBe('old\n')
+  expect(await route(onGithub)).toBe('old\n')
+  expect(await route(besideAFileNamedNawaban)).toBe('old\n')
+  expect(await route(fresh, { NAWABAN_DB: join(withOldBoard, '.nawaban/nawaban.db') })).toBe('old\n')
+  expect(await route(fresh, { NAWABAN_CLI: 'old' })).toBe('old\n')
+  expect(await route(withOldBoard, { NAWABAN_CLI: 'board' })).toBe('board withold\n')
+  expect(await route(tmp)).toBe('old\n')
 })
 
 it('prints the index off the board when an orchestrator window starts, and nothing in any other window', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
@@ -163,6 +187,13 @@ it('lets a session outside Herdr that the owner declared read what the web page 
   expect(declared.out).toContain(`已把会话 ${SESSION} 记为 proj 的编排者`)
   expect(declared.out).toContain('proj 进行中的事')
   expect(declared.out).not.toContain('声明失败')
+  const freshBoard = join(tmp, 'fresh-board')
+  await mkdir(freshBoard)
+  await writeFile(join(freshBoard, 'repos.json'), JSON.stringify({ other: '/elsewhere' }))
+  await hook('orchestrator-declare.sh', { session_id: SESSION, cwd: repo, prompt: '/nawaban:orchestrator' }, { ...noHerdr, NAWABAN_BOARD_DIR: freshBoard })
+  const registered = JSON.parse(await readFile(join(freshBoard, 'repos.json'), 'utf8'))
+  expect(registered.other).toBe('/elsewhere')
+  expect(await realpath(registered.proj)).toBe(await realpath(repo))
   expect((await hook('leader-index.sh', { session_id: SESSION }, noHerdr)).out).toContain('proj 进行中的事')
   expect((await hook('leader-index.sh', { session_id: 'someone-else' }, noHerdr)).out).toBe('')
   expect(await stop('someone-else')).toBeNull()

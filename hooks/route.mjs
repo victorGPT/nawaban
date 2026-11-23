@@ -1,17 +1,52 @@
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { cliFor, repoName } from "../herdr/mods/nawaban-board/logic.js";
 
-const CLI_EVERY_PROJECT_HAD_BEFORE = "old";
+const OLD_CLI = "old";
 
-function projectAt(dir) {
+function gitCommonDirAt(dir) {
   try {
-    return repoName(execFileSync("git", ["-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
+    return execFileSync("git", ["-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   } catch {
     return null;
   }
 }
 
-const project = projectAt(process.argv[2] || ".");
-const via = process.env.NAWABAN_CLI || cliFor(project);
-console.log(via === "board" && project ? `board ${project}` : CLI_EVERY_PROJECT_HAD_BEFORE);
+function tracksOnGithub(repoRoot) {
+  try {
+    const lines = readFileSync(join(repoRoot, "docs/agents/issue-tracker.md"), "utf8").split("\n");
+    return (lines.find((l) => l.startsWith("#")) ?? "").includes("GitHub");
+  } catch {
+    return false;
+  }
+}
+
+function mainCheckoutThenDirAndAncestors(dir, repoRoot) {
+  const chain = [];
+  for (let d = resolve(dir); ; d = dirname(d)) {
+    chain.push(d);
+    if (d === dirname(d)) break;
+  }
+  return repoRoot ? [repoRoot, ...chain] : chain;
+}
+
+function oldCliFindsABoard(dir, repoRoot) {
+  if (process.env.NAWABAN_DB) return true;
+  const holder = mainCheckoutThenDirAndAncestors(dir, repoRoot).find((d) => statSync(join(d, ".nawaban"), { throwIfNoEntry: false })?.isDirectory());
+  return holder !== undefined && existsSync(join(holder, ".nawaban", "nawaban.db"));
+}
+
+function trackerOf(dir, gitCommonDir) {
+  const project = repoName(gitCommonDir);
+  if (process.env.NAWABAN_CLI) return process.env.NAWABAN_CLI;
+  if (cliFor(project) === "board") return "board";
+  const repoRoot = dirname(gitCommonDir);
+  return tracksOnGithub(repoRoot) || oldCliFindsABoard(dir, repoRoot) ? OLD_CLI : "board";
+}
+
+const dir = process.argv[2] || ".";
+const gitCommonDir = gitCommonDirAt(dir);
+const project = gitCommonDir && repoName(gitCommonDir);
+console.log(project && trackerOf(dir, gitCommonDir) === "board" ? `board ${project}` : OLD_CLI);
