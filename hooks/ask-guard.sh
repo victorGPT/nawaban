@@ -1,16 +1,19 @@
 #!/bin/sh
-plugin_root="$(cd "$(dirname "$0")/.." && pwd)"
+input=$(cat)
+hooks="$(cd "$(dirname "$0")" && pwd)"
+. "$hooks/orchestrator.sh"
 
-outside_herdr() { [ -z "$HC_TERMINAL_ID" ]; }
+route=$(node "$hooks/route.mjs" "$(repository_the_session_is_in "$input")" 2>/dev/null)
+project=${route#* }
 
 send_an_unrecorded_ask_back_to_the_tracker() {
-  ROOT="$plugin_root" python3 -c '
+  printf '%s' "$input" | ROOT="$(cd "$hooks/.." && pwd)" python3 -c '
 import json, os, sys
 sys.path.insert(0, os.environ["ROOT"])
 from nawaban import cli
 d = json.load(sys.stdin)
 continuing_its_own_block = d.get("stop_hook_active")
-if continuing_its_own_block or cli._role(os.environ["HC_TERMINAL_ID"]) != "orchestrator":
+if continuing_its_own_block:
     sys.exit()
 why = cli.unrecorded_ask(d.get("last_assistant_message") or "", d.get("transcript_path"))
 if why:
@@ -18,6 +21,6 @@ if why:
 ' 2>/dev/null
 }
 
-outside_herdr && exit 0
+is_the_orchestrator "$input" "$project" || exit 0
 send_an_unrecorded_ask_back_to_the_tracker
 exit 0

@@ -6,7 +6,7 @@ HOOK = Path(__file__).resolve().parent.parent / "hooks" / "leader-index.sh"
 
 def _run(tmp_path, labels, branch=None, rules_file="orchestrator.md", hc_exit=0):
     bin_ = tmp_path / "bin"; bin_.mkdir(parents=True, exist_ok=True)
-    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': labels})}'\nexit {hc_exit}\n"); (bin_ / "hc").chmod(0o755)
+    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': labels, 'pid': os.getpid()})}'\nexit {hc_exit}\n"); (bin_ / "hc").chmod(0o755)
     proj = tmp_path / "p"; (proj / "docs/agents").mkdir(parents=True, exist_ok=True)
     (proj / f"docs/agents/{rules_file}").write_text("规矩正文\n")
     if branch:
@@ -39,7 +39,7 @@ FIXTURE_ISSUES = Path(__file__).resolve().parent / "fixtures" / "gh_issues.json"
 
 def test_an_orchestrator_launched_outside_its_github_repository_gets_that_repositorys_issues(tmp_path):
     bin_ = tmp_path / "bin"; bin_.mkdir()
-    (bin_ / "hc").write_text("#!/bin/sh\necho '{\"labels\": {\"role\": \"orchestrator\"}}'\n"); (bin_ / "hc").chmod(0o755)
+    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': {'role': 'orchestrator'}, 'pid': os.getpid()})}'\n"); (bin_ / "hc").chmod(0o755)
     (bin_ / "gh").write_text(f'#!/bin/sh\ncase "$*" in *"--state open"*) cat {FIXTURE_ISSUES} ;; *) echo "[]" ;; esac\n'); (bin_ / "gh").chmod(0o755)
     repo = tmp_path / "roubao"; (repo / "docs/agents").mkdir(parents=True)
     (repo / "docs/agents/issue-tracker.md").write_text("# Issue tracker: GitHub\n")
@@ -63,7 +63,7 @@ def _declare(tmp_path, prompt, terminal="t1"):
     # the fake hc records each call; `get` answers with the label only once `label` has run
     (bin_ / "hc").write_text(
         f'#!/bin/sh\necho "$@" >> {log}\n'
-        f'if [ "$1" = get ]; then grep -q "^label" {log} && echo \'{{"labels":{{"role":"orchestrator"}}}}\' || echo \'{{}}\'; fi\n')
+        f'if [ "$1" = get ]; then grep -q "^label" {log} && echo \'{{"labels":{{"role":"orchestrator"}},"pid":{os.getpid()}}}\' || echo \'{{"pid":{os.getpid()}}}\'; fi\n')
     (bin_ / "hc").chmod(0o755)
     proj = tmp_path / "p"; (proj / "docs/agents").mkdir(parents=True, exist_ok=True)
     (proj / "docs/agents/orchestrator.md").write_text("规矩正文\n")
@@ -77,9 +77,41 @@ def test_the_owner_typing_the_command_labels_the_terminal_and_loads_the_rules(tm
     assert "label t1 role=orchestrator" in calls and "已给终端 t1" in out and "规矩正文" in out
 
 
+def test_the_codex_skill_mention_declares_too(tmp_path):
+    for prompt in ("$orchestrator", "$nawaban:orchestrator"):
+        out, calls = _declare(tmp_path / prompt.strip("$").replace(":", "_"), prompt)
+        assert "label t1 role=orchestrator" in calls and "已给终端 t1" in out, prompt
+
+
+def test_a_terminal_that_does_not_run_the_hook_is_not_labelled(tmp_path):
+    bin_ = tmp_path / "bin"; bin_.mkdir()
+    log = tmp_path / "hc.log"
+    (bin_ / "hc").write_text(f'#!/bin/sh\necho "$@" >> {log}\necho \'{{"labels":{{}},"pid":1}}\'\n'); (bin_ / "hc").chmod(0o755)
+    proj = tmp_path / "proj"; proj.mkdir()
+    subprocess.run(["git", "init", "-q", str(proj)], check=True)
+    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "HC_TERMINAL_ID": "t9",
+           "NAWABAN_CLI": "board", "NAWABAN_BOARD_DIR": str(tmp_path / "board")}
+    out = subprocess.run(["sh", str(DECLARE)], input=json.dumps({"prompt": "$orchestrator", "session_id": "s", "cwd": str(proj)}),
+                         cwd=tmp_path, env=env, capture_output=True, text=True).stdout
+    assert "已把会话 s 记为 proj 的编排者" in out, out
+    assert (tmp_path / "board/orchestrator/proj").read_text() == "s"
+    assert "label" not in log.read_text()
+
+
+def test_a_hook_run_by_a_shared_codex_app_server_does_not_label_the_terminal_above_it(tmp_path):
+    bin_ = tmp_path / "bin"; bin_.mkdir()
+    log = tmp_path / "hc.log"
+    (bin_ / "hc").write_text(f'#!/bin/sh\necho "$@" >> {log}\necho \'{{"labels":{{}},"pid":{os.getpid()}}}\'\n'); (bin_ / "hc").chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "HC_TERMINAL_ID": "t1"}
+    shared_server = ["sh", "-c", 'sh "$1"; true', "app-server", str(DECLARE)]
+    out = subprocess.run(shared_server, input=json.dumps({"prompt": "$orchestrator", "session_id": "s", "cwd": str(tmp_path)}),
+                         cwd=tmp_path, env=env, capture_output=True, text=True).stdout
+    assert "声明失败" in out and "label" not in log.read_text()
+
+
 def test_any_other_prompt_labels_nothing(tmp_path):
     out, calls = _declare(tmp_path, "继续推进 /nawaban:orchestrator 的事")
-    assert out == "" and calls == ""
+    assert out == "" and "label" not in calls
 
 
 def test_outside_herdr_the_declaration_says_it_failed(tmp_path):
@@ -136,7 +168,7 @@ def test_declaring_clears_the_old_orchestrator_in_the_same_repository_only(tmp_p
                         [("t1", str(proj)), ("t2", str(proj / "docs/agents/sub")), ("t3", str(other)), ("t4", str(inner)), ("t5", str(proj) + "x")]]}
     (bin_ / "hc").write_text(
         f'#!/bin/sh\necho "$@" >> {log}\n'
-        f'case "$1" in ls) echo \'{json.dumps(ls)}\';; get) echo \'{{"labels":{{"role":"orchestrator"}}}}\';; esac\n')
+        f'case "$1" in ls) echo \'{json.dumps(ls)}\';; get) echo \'{{"labels":{{"role":"orchestrator"}},"pid":{os.getpid()}}}\';; esac\n')
     (bin_ / "hc").chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "HC_TERMINAL_ID": "t1", "CLAUDE_PROJECT_DIR": str(proj)}
     out = subprocess.run(["sh", str(DECLARE)], input=json.dumps({"prompt": "/nawaban:orchestrator"}),

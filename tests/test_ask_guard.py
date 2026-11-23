@@ -22,7 +22,7 @@ def _transcript(tmp_path, *commands, earlier=()):
 
 def _hook(tmp_path, message, transcript, role="orchestrator", active=False):
     bin_ = tmp_path / "bin"; bin_.mkdir(exist_ok=True)
-    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': {'role': role}})}'\n"); (bin_ / "hc").chmod(0o755)
+    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': {'role': role}, 'pid': os.getpid()})}'\n"); (bin_ / "hc").chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "HC_TERMINAL_ID": "t1"}
     r = subprocess.run(["sh", str(HOOK)], env=env, capture_output=True, text=True, timeout=10, input=json.dumps(
         {"session_id": "s", "cwd": str(tmp_path), "stop_hook_active": active, "transcript_path": transcript,
@@ -78,3 +78,57 @@ def test_quoted_or_split_ask_arguments_count(tmp_path):
         {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "REPL",
             "input": {"code": "await $`nawaban ${['event', '#7', '--kind', 'ask']}`"}}]}}]))
     assert _hook(tmp_path, QUESTION, str(p)) is None
+
+
+def _codex_rollout(tmp_path, *calls, earlier=()):
+    """A Codex rollout: each turn opens with task_started; a tool call is a response_item whose payload type ends in _call."""
+    def turn(cmds):
+        yield {"type": "event_msg", "payload": {"type": "task_started", "turn_id": "x"}}
+        yield {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "继续"}]}}
+        for c in cmds:
+            yield {"type": "response_item", "payload": {"type": "custom_tool_call", "name": "exec",
+                   "input": f"text(await tools.exec_command({json.dumps({'cmd': c})}))"}}
+            yield {"type": "response_item", "payload": {"type": "custom_tool_call_output", "output": "ok"}}
+    p = tmp_path / "rollout.jsonl"
+    p.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in [*turn(earlier), *turn(calls)]) + "\n")
+    return str(p)
+
+
+def test_a_codex_rollout_is_read_turn_by_turn(tmp_path):
+    assert _hook(tmp_path, QUESTION, _codex_rollout(tmp_path, "ls", ASK)) is None
+    assert _hook(tmp_path, QUESTION, _codex_rollout(tmp_path, "ls"))["decision"] == "block"
+    assert _hook(tmp_path, QUESTION, _codex_rollout(tmp_path, "ls", earlier=[ASK]))["decision"] == "block"
+    p = tmp_path / "fn.jsonl"
+    p.write_text("\n".join(json.dumps(x) for x in [
+        {"type": "event_msg", "payload": {"type": "task_started"}},
+        {"type": "response_item", "payload": {"type": "function_call", "name": "exec_command",
+            "arguments": json.dumps({"cmd": "nawaban event X-1 --kind note --body 'triage: needs-info — 等你：用哪个'"})}}]))
+    assert _hook(tmp_path, QUESTION, str(p)) is None
+
+
+def _outside_herdr(tmp_path, declared_session):
+    proj = tmp_path / "proj"; proj.mkdir()
+    subprocess.run(["git", "init", "-q", str(proj)], check=True)
+    board = tmp_path / "board"
+    if declared_session:
+        (board / "orchestrator").mkdir(parents=True)
+        (board / "orchestrator" / "proj").write_text(declared_session)
+    env = {k: v for k, v in os.environ.items() if k != "HC_TERMINAL_ID"}
+    env.update(NAWABAN_CLI="board", NAWABAN_BOARD_DIR=str(board))
+    r = subprocess.run(["sh", str(HOOK)], env=env, capture_output=True, text=True, timeout=10, input=json.dumps(
+        {"session_id": "s", "cwd": str(proj), "stop_hook_active": False,
+         "transcript_path": _codex_rollout(tmp_path, "ls"), "last_assistant_message": QUESTION}))
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout) if r.stdout.strip() else None
+
+
+def test_outside_herdr_the_session_declared_orchestrator_is_sent_back(tmp_path):
+    assert _outside_herdr(tmp_path, "s")["decision"] == "block"
+
+
+def test_outside_herdr_another_session_passes(tmp_path):
+    assert _outside_herdr(tmp_path, "other") is None
+
+
+def test_outside_herdr_an_undeclared_project_passes(tmp_path):
+    assert _outside_herdr(tmp_path, None) is None
