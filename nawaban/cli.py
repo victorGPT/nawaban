@@ -399,7 +399,7 @@ def card(a) -> None:
                            "备选方案：", *(f"- {o}" for o in a.option or []), f"建议：{a.rec or ''}"])
     gaps = _decision_card_gaps(*_decision_card_parts(card_text))
     if gaps:
-        raise Refused("待决策项未就绪(不满足就绪标准,缺 " + "、".join(gaps) + ")：--option 写成 方案｜代价｜单向门 或 双向门")
+        raise Refused("待决策项未就绪(不满足就绪标准,缺 " + "、".join(gaps) + ";- / none / 无 / 待定 这类占位算缺)：--option 写成 方案｜代价｜单向门 或 双向门")
     a.body = card_text
 
 
@@ -1585,7 +1585,7 @@ _CARD_FIELD_KEYS = {"Decision": "decision", "BLUF": "decision", "决策事项": 
 
 
 _PENDING_HEADING = re.compile(_GH_PREFIX_HEADING_BOLD_WORD_WHO_COLON.format("(?:待决|需要你定)"))
-_WORDS_THAT_SAY_NOTHING = {"", "无", "none", "-"}
+_WORDS_THAT_SAY_NOTHING = frozenset({"", "-", "--", "—", "——", "无", "暂无", "待定", "未定", "略", "none", "n/a", "na", "null", "tbd", "todo", "?", "？", "...", "…"})
 _CARD_PARTS_THAT_MUST_SAY_SOMETHING = (("decision", "决策事项(--body)"), ("context", "背景(--context)"),
                                        ("rec", "建议(--rec)"))
 
@@ -1610,14 +1610,18 @@ def _decision_card_parts(brief: str) -> tuple[dict, list[dict]]:
 
 
 def _decision_card_gaps(fields: dict, options: list[dict]) -> list[str]:
-    gaps = [name for key, name in _CARD_PARTS_THAT_MUST_SAY_SOMETHING
-            if (fields.get(key) or "").strip().lower() in _WORDS_THAT_SAY_NOTHING]
+    gaps = [name for key, name in _CARD_PARTS_THAT_MUST_SAY_SOMETHING if _says_nothing(fields.get(key))]
     if not (fields.get("kr") or "").strip():
         gaps.append("关联 KR(--kr)")
     if len(options) < MIN_DECISION_OPTIONS:
         gaps.append(f"备选方案(至少 {MIN_DECISION_OPTIONS} 个)")
-    gaps += [f"{o['key']} 的{'方案' if not o['text'] else '代价(｜后)'}" for o in options if not o["text"] or _trade_off_of(o).lower() in _WORDS_THAT_SAY_NOTHING]
+    gaps += [f"{o['key']} 的{'方案' if _says_nothing(o['text']) else '代价(｜后)'}" for o in options
+             if _says_nothing(o["text"]) or _says_nothing(_trade_off_of(o))]
     return gaps
+
+
+def _says_nothing(part: str | None) -> bool:
+    return re.sub(r"\s+", "", part or "").lower() in _WORDS_THAT_SAY_NOTHING
 
 
 def _trade_off_of(option: dict) -> str:
