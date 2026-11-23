@@ -31,7 +31,7 @@ beforeAll(async () => {
   team = board({ backend: local({ memory: true }), authenticate: verifier(SECRET, 'victor'), url })
   await registerSchemas(team)
   tmp = await mkdtemp(join(tmpdir(), 'nawaban-hooks-'))
-  const fakeHcWhoseRoleLabelIsRole = '#!/bin/sh\necho "{\\"labels\\":{\\"role\\":\\"$ROLE\\"}}"\n'
+  const fakeHcWhoseRoleLabelIsRole = `#!/bin/sh\necho "{\\"labels\\":{\\"role\\":\\"$ROLE\\"},\\"pid\\":${process.pid}}"\n`
   const fakeGhRecordingCallsReachingNoGitHub = `#!/bin/sh\necho "$@" >> ${tmp}/gh.log\necho gh down >&2\nexit 1\n`
   await mkdir(join(tmp, 'bin'))
   await writeFile(join(tmp, 'bin/hc'), fakeHcWhoseRoleLabelIsRole)
