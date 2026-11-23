@@ -81,14 +81,14 @@ As the orchestrator you also get the pending line (待决提示行): after each 
 
 ### What the web page writes (Vercel Board)
 
-The web page never records a decision. It writes two things the orchestrator handles:
+The web page never records a decision. It writes two things the orchestrator handles. Here `event`, `create`, `label` and `page` are the board CLI, `node <plugin root>/board/src/cli.ts <verb>`, not `nawaban/cli.py`; ids are bare numbers, no `#`.
 
 - **网页答复**: a reply on a held task carrying `nawaban-web-answer@1` `{ option?, words }`; the hold stays. It counts only after the card or `needs-info` note that raised the current hold. The pending line says `，网页已答 M 件` and marks the item `（网页已答）`. Check it, then record it yourself: `event <ID> --kind resolve --body "<words>"` for a 待决策项, or `--kind decision --by user` and `triage: ready-for-agent` for a 等你.
 - **收件箱条目**: a root message in channel `inbox/<project>` labelled `inbox=open`, carrying `nawaban-inbox@1` `{ words }`. The pending line says `；收件箱 K 条`. Make a task with `create <KEY> --project <p>`, then `label <id> inbox=done task=<KEY> --if inbox=open`; for a command or nothing, `label <id> inbox=done --if inbox=open`. Not `tasks create <id>`: that leaves the task in `inbox/<project>` with no key, where the project's board never shows it.
 
 `node board/src/cli.ts page --project <p>` prints both, with each item's id and words; the UserPromptSubmit hook `hooks/page-writes.sh` puts it before the orchestrator's model on every prompt while any is open, and `index --project <p>` ends with it. The readers live in `board/src/page.ts` (`webAnswers`, `openInboxItems`).
 
-Outside Herdr there is no terminal to label: `/nawaban:orchestrator` records the session as the project's orchestrator (`~/.nawaban/board/orchestrator/<project>`, the last declared wins), and the index, pending-line and page hooks run for that session only. This works for a project on the Vercel Board only.
+Outside Herdr there is no terminal to label: `/nawaban:orchestrator` records the session as the project's orchestrator (`~/.nawaban/board/orchestrator/<project>`, the last declared wins), and the index, pending-line and page hooks run for that session only. This works for a project on the Vercel Board only: one in `BOARD_PROJECTS` (`herdr/mods/nawaban-board/logic.js`) or, for anyone else's repository, with `NAWABAN_CLI=board` in the environment Claude Code runs hooks in. A new session id (a new session, `/clear`) means typing `/nawaban:orchestrator` again.
 
 ## Frontier
 

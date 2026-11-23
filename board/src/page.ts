@@ -64,15 +64,15 @@ export async function openInboxItems(team: Team, project: string): Promise<Inbox
 export function pageText(answers: WebAnswer[], items: InboxItem[], project: string): string {
   const out = []
   if (answers.length) {
-    out.push(`## 网页已答 ${answers.length}（还挂着；核实后 nawaban event <号> --kind resolve --body "<原话>" 记已决，等你的改记 --kind decision --by user 再 triage: ready-for-agent）`)
+    out.push(`## 网页已答 ${answers.length}（还挂着；以下命令都是 node <插件>/board/src/cli.ts；核实后 nawaban event <号> --kind resolve --body "<原话>" 记已决，等你的改记 --kind decision --by user 再 triage: ready-for-agent）`)
     for (const a of answers) out.push(`- ${a.task} ${a.title}：${a.option ? `选「${a.option}」，` : ''}${a.words}${a.by ? `（${a.by}）` : ''}`)
   }
   if (items.length) {
     if (out.length) out.push('')
     out.push(
-      `## 收件箱 ${items.length}（${inboxChannel(project)} 里开着的；转任务：nawaban create <KEY> --project ${project} --title … --body "…（收件箱 #<id>）"，再 nawaban label <id> inbox=done task=<KEY> --if inbox=open；转命令或不做：nawaban label <id> inbox=done --if inbox=open）`,
+      `## 收件箱 ${items.length}（${inboxChannel(project)} 里开着的，行首是条目 id；命令都是 node <插件>/board/src/cli.ts；转任务：nawaban create <KEY> --project ${project} --title … --body "…（收件箱 <id>）"，再 nawaban label <id> inbox=done task=<KEY> --if inbox=open；转命令或不做：nawaban label <id> inbox=done --if inbox=open）`,
     )
-    for (const i of items) out.push(`- #${i.id} ${i.words}`)
+    for (const i of items) out.push(`- ${i.id} ${i.words}`)
   }
   return out.join('\n')
 }

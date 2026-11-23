@@ -175,11 +175,11 @@ it('lets a session outside Herdr that the owner declared read what the web page 
   const item = await team.post(inboxChannel('proj'), { text: inboxItemText('面板加夜间模式'), labels: INBOX_OPEN })
   expect(await stop(SESSION)).toBe('待决 1 件，网页已答 1 件：P1 发不发（网页已答）；收件箱 1 条｜说「同步」看待决')
   const context = (await prompt('同步')).out
-  expect(context).toContain(`- #${item.id} 面板加夜间模式`)
-  expect(await nawaban('index', '--project', 'proj')).toContain(`- #${item.id} 面板加夜间模式`)
+  expect(context).toContain(`- ${item.id} 面板加夜间模式`)
+  expect(await nawaban('index', '--project', 'proj')).toContain(`- ${item.id} 面板加夜间模式`)
 
   await nawaban('event', p1, '--kind', 'resolve', '--body', '发吧，周五前')
-  await nawaban('create', 'IN1', '--project', 'proj', '--title', '面板加夜间模式', '--body', `收件箱 #${item.id}`)
+  await nawaban('create', 'IN1', '--project', 'proj', '--title', '面板加夜间模式', '--body', `收件箱 ${item.id}`)
   await nawaban('label', item.id, 'inbox=done', 'task=IN1', '--if', 'inbox=open')
   expect(await stop(SESSION)).toBe('待决 0 件')
   expect((await prompt('继续')).out).toBe('')
