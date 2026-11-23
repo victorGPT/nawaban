@@ -8,6 +8,7 @@ import {
   WINDOW_WORDS, type Board, type Item, type Project, type Route, type Tab,
 } from './logic'
 import { Inbox } from './inbox'
+import { DecidePage } from './Decide'
 import './style.css'
 
 const TOKEN_KEY = 'nawaban-web-token'
@@ -175,7 +176,7 @@ function App() {
           <TabsList aria-label="视图" class="segments">
             <For each={Object.keys(TAB_NAMES) as Tab[]}>{(t) => <TabsTab value={t} class="segment">{TAB_NAMES[t]}</TabsTab>}</For>
           </TabsList>
-          <TabsPanel value="decide" class="panel"><p class="quiet">待决下一版接上，现在请在 Herdr 面板或终端里答。</p></TabsPanel>
+          <TabsPanel value="decide" class="panel"><DecidePage board={board()} project={picked()} headers={headers} /></TabsPanel>
           <TabsPanel value="okr" class="panel"><OkrPage okr={okr()?.of === picked() ? okr()!.reading : null} error={okr()?.of === picked() ? okr()!.error : ''} /></TabsPanel>
           <TabsPanel value="tasks" class="panel">
             <Show when={route().task} fallback={
