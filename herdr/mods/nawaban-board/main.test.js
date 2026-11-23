@@ -79,7 +79,7 @@ registerHooks({
   load: (url, context, next) => !url.startsWith("stub:") ? next(url, context) : { format: "module", shortCircuit: true,
     source: Object.keys(stubs[url.slice(5)]).map((k) => `export const ${k} = globalThis.__nawabanStubs[${JSON.stringify(url.slice(5))}].${k};`).join("\n") },
 });
-const { default: NawabanBoard } = await import("./main.js");
+const { default: NawabanBoard, krFill } = await import("./main.js");
 
 const dts = [`${homedir()}/.config/herdr-app/gpui-kit.d.ts`, new URL("./gpui-kit.d.ts", import.meta.url)]
   .map((p) => { try { return readFileSync(p, "utf8"); } catch { return null; } }).find(Boolean);
@@ -205,11 +205,11 @@ test("已完成 shows its newest 3, then 再显示 N 条; Enter on it shows all 
   stored.clear();
 });
 
-test("only 待决 rows get a second line; every task row stays one line, 停滞 included", () => {
+test("a waiting window's question is its card's main line; every task row stays one line, 停滞 included", () => {
   stored.clear();
   const view = drawn({}, cxOf());
   const why = (key) => view.selectableByKey.get(key).why;
-  assert.equal(why("card:0"), "放行吗？");
+  assert.equal(view.selectableByKey.get("card:0").title, "放行吗？");
   assert.deepEqual(["task:GONE", "task:CUR", "task:GH", "task:TODO", "task:DONE"].map(why), [null, null, null, null, null]);
   stored.clear();
 });
@@ -276,7 +276,7 @@ test("on a GitHub board a blocked worker comes first, then each pending card, wh
     const cx = runningSpawns;
     const view = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
     assert.deepEqual(view.keys.slice(0, 4), ["card:0", "pending:#1536", "pending:#1472", "pending:#1428"]);
-    assert.equal(after("待决", "4", "放不放行 1536", "可能已定", "放不放行 1472", "去窗口聊", "放不放行 1428", "选一项",
+    assert.equal(after("待决", "4", "可能已定", "放不放行 1536", "去窗口聊", "放不放行 1472", "选一项", "放不放行 1428",
       "未就绪 1 件（#1280），正在退回编排者"), true);
     clicks.get("nawaban-row-pending:#1428")({}, cx);
     texts.length = 0;
@@ -728,4 +728,16 @@ test("a tab pick is kept even on the tab already shown, never before the board i
   view.onKey({ keystroke: "enter" }, cx);
   assert.equal(stored.get("folds"), undefined);
   stored.clear();
+});
+
+test("a KR's bar fills by value against target, the other way round when lower is better, and is left out with no number to compare", () => {
+  const kr = (value, target, measured = true) => ({ value, target, measured });
+  assert.equal(krFill(kr("45%", "≥ 90%")), 0.5);
+  assert.equal(krFill(kr("97.5%", "≥ 95%")), 1);
+  assert.equal(krFill(kr("84.6%", "≤ 20%")), 20 / 84.6);
+  assert.equal(krFill(kr("640ms", "< 800ms")), 1);
+  assert.equal(krFill(kr("未测", "≥ 5%", false)), null);
+  assert.equal(krFill(kr("3", "上线")), null);
+  assert.equal(krFill(kr("1", "完成 2 项验收后上线")), null);
+  assert.equal(krFill(kr("-2", "≥ 0")), 0);
 });
