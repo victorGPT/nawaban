@@ -9,7 +9,7 @@ import { guard } from './guard.ts'
 import { importOld } from './import.ts'
 import { jsonOkr, okr } from './okr.ts'
 import { inbox, index } from './orchestrator.ts'
-import { boardDirAsConfiguredWhenAsked, DIR, PORT, serve, urlFor } from './server.ts'
+import { boardDirAsConfiguredWhenAsked, DIR, PORT, serve, urlFor, web } from './server.ts'
 import { run } from './tasks.ts'
 import { json } from './views.ts'
 
@@ -39,6 +39,7 @@ async function runCommand(argv: string[]): Promise<number> {
     okr: () => okr(rest, board(), DIR),
     index: () => index(rest, board()),
     inbox: () => inbox(rest, board(), DIR),
+    web: () => web(),
     json: () => (rest[0] === 'okr' ? jsonOkr(rest.slice(1), board(), DIR) : json(rest, board(), DIR)),
   }
   if (command !== undefined && Object.hasOwn(nawabanCommands, command)) return nawabanCommands[command]!()

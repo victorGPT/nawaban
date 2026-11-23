@@ -453,18 +453,22 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
   }
 }
 
+export async function okrData(team: Team, dir: string, inRepo: string) {
+  const repo = await mainCheckout(inRepo)
+  if (!repo) throw new Refused('json okr 要在 git 仓库里跑,或给 --repo')
+  const objectives = await defs(repo)
+  const project = await projectOf(dir, repo)
+  if (!project) throw new Refused(`仓库 ${repo} 不在 ${join(dir, 'repos.json')}`)
+  const { rows, accepts, declared } = await load(team, project)
+  return judge(objectives, rows, accepts, declared, repo, (await git(repo, 'log', '-1', '--format=%h', '--', OKR_FILE)) || null)
+}
+
 export async function jsonOkr(argv: string[], team: Team, dir: string, cwd = process.cwd()): Promise<number> {
   let out
   try {
     const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { repo: { type: 'string' } } })
     if (positionals.length) throw new Refused('usage: nawaban json okr [--repo <path>]', 2)
-    const repo = await mainCheckout(values.repo ?? cwd)
-    if (!repo) throw new Refused('json okr 要在 git 仓库里跑,或给 --repo')
-    const objectives = await defs(repo)
-    const project = await projectOf(dir, repo)
-    if (!project) throw new Refused(`仓库 ${repo} 不在 ${join(dir, 'repos.json')}`)
-    const { rows, accepts, declared } = await load(team, project)
-    out = judge(objectives, rows, accepts, declared, repo, (await git(repo, 'log', '-1', '--format=%h', '--', OKR_FILE)) || null)
+    out = await okrData(team, dir, values.repo ?? cwd)
   } catch (error) {
     process.stdout.write(JSON.stringify({ error: (error as Error).message }) + '\n')
     return error instanceof Refused ? error.code : 1
