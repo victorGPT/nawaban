@@ -51,6 +51,7 @@ Run these steps in order. Each one is safe to run again. Stop and tell the user 
 3. Install the plugin.
    - Claude Code: `claude plugin marketplace add ~/nawaban`, then `claude plugin install nawaban@nawaban`.
    - Codex: add the marketplace and plugin entries shown under [Plugin install](#plugin-install) to `~/.codex/config.toml` with `source = "<absolute path of ~/nawaban>"`, then run `codex plugin add nawaban@nawaban`. Open its sandbox to the board as [Codex sandbox](#codex-sandbox) says. Codex sessions are identified by `CODEX_THREAD_ID` ([Session identity](#session-identity)).
+   - Antigravity: run the three commands under [Plugin install](#plugin-install) with `~/nawaban`, and add the allow rule from [Antigravity permissions](#antigravity-permissions).
 4. In the user's project, create the board: `python3 ~/nawaban/nawaban/cli.py init`. It prints the board path, or says the board already exists.
 5. Tell the user three things: the board path from step 4, that the `nawaban` skill loads in a new session, so they should start one, and that they see the board in the Herdr panel, which they install by following [Herdr panel](#herdr-panel).
 
@@ -58,7 +59,7 @@ Optional, for a person who wants to type commands: add `nawaban() { python3 ~/na
 
 ## Plugin install
 
-The same checkout is a Claude Code plugin and a Codex plugin. It ships two skills, `nawaban` and `orchestrator`, and `hooks/hooks.json` registers SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop hooks that keep the orchestrator's declaration, pending line and ask guard. Claude Code runs them once the plugin is installed. Codex runs them only after you trust each one in `/hooks`, and again after any change to the file; untrusted, they stay off and the orchestrator falls back to running `nawaban page` itself.
+The same checkout is a Claude Code plugin, a Codex plugin and an Antigravity plugin. It ships two skills, `nawaban` and `orchestrator`, and `hooks/hooks.json` registers SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop hooks that keep the orchestrator's declaration, pending line and ask guard. Claude Code runs them once the plugin is installed. Codex runs them only after you trust each one in `/hooks`, and again after any change to the file; untrusted, they stay off and the orchestrator falls back to running `nawaban page` itself. Antigravity reads a plugin's hooks only from a `hooks.json` at its root, so it does not run them, and its orchestrator runs `nawaban page` itself.
 
 - **Claude Code:** `claude plugin marketplace add /path/to/nawaban`, then `claude plugin install nawaban@nawaban`. For a one-off session, `claude --plugin-dir /path/to/nawaban` also works. With this directory marketplace, Claude Code reads the plugin from the checkout; start a new session after pulling. If you also develop nawaban, point the marketplace at a separate clone that only follows `main`, so branch switches and uncommitted edits stay out of your sessions ([release and update](release.md)).
 - **From GitHub:** `claude plugin marketplace add victorGPT/nawaban`, then `claude plugin install nawaban@nawaban`. Claude Code updates the plugin only when `version` in `.claude-plugin/plugin.json` changes: run `claude plugin marketplace update nawaban && claude plugin update nawaban@nawaban`, then start a new session ([release and update](release.md)).
@@ -77,6 +78,14 @@ The same checkout is a Claude Code plugin and a Codex plugin. It ships two skill
   codex plugin add nawaban@nawaban
   ```
 
+- **Antigravity:** `agy plugin install` copies the checkout into `~/.gemini/config/plugins/nawaban` and loads the skills as `/nawaban:nawaban` and `/nawaban:orchestrator`. The copy turns pnpm's links under `board/node_modules` into plain directories, and the board CLI then fails with `Cannot find package 'zod'`, so rebuild them inside the copy. Run the three again after pulling; `install` replaces the earlier copy.
+
+  ```sh
+  agy plugin install /path/to/nawaban
+  rm -rf ~/.gemini/config/plugins/nawaban/board/node_modules
+  pnpm --dir ~/.gemini/config/plugins/nawaban/board install --frozen-lockfile
+  ```
+
 ### Codex sandbox
 
 Codex's default sandbox, `workspace-write`, has no network and writes only inside the workspace. The board CLI then cannot reach the board (`the board didn't answer: fetch failed`), and `claim` lands on the board but exits 1 with `EPERM`, because it writes its lease under `~/.config/board/claims/` (`$XDG_CONFIG_HOME/board` when that is set), and renewing the claim reads that file. Two settings in `~/.codex/config.toml` (`$CODEX_HOME/config.toml`) fix both:
@@ -88,6 +97,20 @@ writable_roots = ["/Users/<you>/.config/board"]
 ```
 
 `writable_roots` takes an absolute path. `install.sh` runs `node ~/.nawaban/plugin/board/src/codex.ts` when `codex` is on your `PATH`: it creates the lease directory and appends this table to a config that has none. A config that already has a `[sandbox_workspace_write]` table is left alone, and the script prints the two lines that table should read. This widens the sandbox: commands Codex runs can reach the network and write that directory.
+
+### Antigravity permissions
+
+Antigravity runs each command in its terminal sandbox first, which has no network, so the board CLI fails there with `the board didn't answer: fetch failed`, and the agent runs it again outside the sandbox. In `agy -p` that second run needs a permission it cannot ask for, and without a rule it is denied. Add the rule to `~/.gemini/antigravity-cli/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": ["command(node)"]
+  }
+}
+```
+
+This lets Antigravity run any `node` command outside its sandbox without asking.
 
 For a local checkout, clone `https://github.com/victorGPT/nawaban` and replace `/path/to/nawaban` with its absolute path. Private repositories require GitHub access.
 
@@ -104,7 +127,7 @@ Run `nawaban init` in the project to create `.nawaban/nawaban.db`, then `nawaban
 
 ## Session identity
 
-Commands that write as someone (`claim`, `close`, `event`) take the identity from `CODEX_THREAD_ID`, which Codex sets in every command it runs, then from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in every session, then from `NAWABAN_OWNER`. Codex comes first because a Codex session started from Claude Code inherits `CLAUDE_CODE_SESSION_ID`. Elsewhere, set `NAWABAN_OWNER` to a stable name; without any of the three those commands refuse and say so.
+Commands that write as someone (`claim`, `close`, `event`) take the identity from `CODEX_THREAD_ID`, which Codex sets in every command it runs, then from `ANTIGRAVITY_CONVERSATION_ID`, which Antigravity sets in every command it runs, then from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in every session, then from `NAWABAN_OWNER`. Codex and Antigravity come first because a session started from Claude Code inherits `CLAUDE_CODE_SESSION_ID`. Elsewhere, set `NAWABAN_OWNER` to a stable name; without any of the four those commands refuse and say so.
 
 A leader reads `nawaban index` when it starts or after its context is compacted: what waits on you, what stopped, what moves, from the board or, in a repository whose `docs/agents/issue-tracker.md` names GitHub, from its issues. In such a repository, set `NAWABAN_OWNER_NAMES` (comma-separated) to the names the owner signs decisions with, so the index can tell the owner's decisions from the agents' in older comments; a decision written with `event '#N' --kind decision --by user` is counted by its marker.
 

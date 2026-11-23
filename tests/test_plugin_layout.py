@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFESTS = [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"]
+MANIFESTS = [".claude-plugin/plugin.json", ".codex-plugin/plugin.json", ".antigravity-plugin/plugin.json"]
 
 
 @pytest.mark.parametrize("manifest", MANIFESTS)
@@ -15,6 +15,10 @@ def test_manifest_has_identity(manifest):
     data = json.loads((ROOT / manifest).read_text(encoding="utf-8"))
     assert data["name"] == "nawaban"
     assert data["version"] and data["description"] and data["author"]["name"]
+
+
+def test_manifests_share_one_version():
+    assert len({json.loads((ROOT / m).read_text(encoding="utf-8"))["version"] for m in MANIFESTS}) == 1
 
 
 def test_skill_names_every_tracker_verb():
