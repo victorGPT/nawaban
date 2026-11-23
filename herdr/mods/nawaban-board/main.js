@@ -406,10 +406,10 @@ export default class NawabanBoard extends View {
     const v = panelView({ agents: all, terminals: terminals(), space, board: this.board, now, lang: this.lang,
       projects: this.projectsList, project: this.project });
     const project = this.projectKey();
-    const cards = decisionCardsView(this.board, { terminals: terminals(), repo: this.repo, returned: this.returnedCards() });
+    const cards = this.board ? decisionCardsView(this.board, { terminals: terminals(), repo: this.repo, returned: this.returnedCards() }) : null;
     this.cardsView = cards;
-    const decisions = [...v.waiting.map((x) => this.cardRow(x, w)), ...cards.cards.map((c) => this.decisionRow(c, w))];
-    const incomplete = cards.incomplete.ids.length ? cards.incomplete : null;
+    const decisions = [...v.waiting.map((x) => this.cardRow(x, w)), ...(cards?.cards ?? []).map((c) => this.decisionRow(c, w))];
+    const incomplete = cards?.incomplete.ids.length ? cards.incomplete : null;
     const okr = okrView(this.okr, this.lang);
     const objectives = this.objectiveRows(okr, project, o);
     const sections = taskSections(v.tasks, { folds: this.folds, project, shownAll: this.shownAll })

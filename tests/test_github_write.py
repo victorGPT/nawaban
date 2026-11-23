@@ -267,6 +267,19 @@ def test_a_decision_card_with_an_empty_part_is_refused_naming_it(gh, flag, value
     assert code == 1 and named in out and posted(gh) == []
 
 
+def test_a_trade_off_left_empty_before_the_door_is_refused(gh):
+    card = list(CARD)
+    card[card.index("A 接受｜two-way")] = "A 接受｜｜two-way"
+    code, out = gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *card)
+    assert code == 1 and "第 1 项 的 trade-off" in out and posted(gh) == []
+
+
+def test_an_option_quoting_a_field_heading_is_still_an_option(gh):
+    card = list(CARD)
+    card[card.index("A 接受｜two-way")] = "保留【Options】标题｜读起来清楚"
+    assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *card)[0] == 0
+
+
 def test_a_decision_card_whose_decision_says_nothing_is_refused(gh):
     code, out = gh.nawaban("event", "#950", "--kind", "ask", "--body", "无", *CARD)
     assert code == 1 and "Decision" in out and posted(gh) == []

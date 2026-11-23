@@ -310,6 +310,9 @@ test("a card's row title is its Decision on one line, whatever the issue is call
   const v = decisionCardsView(board);
   assert.deepEqual(v.cards.map((c) => [c.id, c.title, c.decision, c.kind]), [["#7", "传不传 sourcemap", "传不传\nsourcemap", "pick"]]);
   assert.deepEqual(v.incomplete.ids, ["#8"]);
+  const asking = panelView({ board: { columns: [{ key: "open", tasks: [{ ...board.columns[0].tasks[1], waiting: "只有一句", terminal: null, active_at: 2 }] }] },
+    agents: [], terminals: [], space: "s", now: 10, lang: "zh" });
+  assert.deepEqual(asking.waiting, [], "a hold for a decision is not a 等你 question beside its card");
 });
 
 const items = (prefix, n) => Array.from({ length: n }, (_, i) => ({ key: "task:" + prefix + i, id: prefix + i, note: null, gone: false }));

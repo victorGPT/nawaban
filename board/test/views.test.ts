@@ -13,7 +13,7 @@ import { run } from '../src/tasks.ts'
 import { json } from '../src/views.ts'
 
 const PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS = new URL('../../herdr/mods/nawaban-board/logic.js', import.meta.url).href
-const { panelView } = await import(PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS)
+const { panelView, decisionCardsView } = await import(PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS)
 
 const SECRET = 'test-secret'
 const ORCHESTRATOR_WINDOW_IN_T1 = 'aaaa1111-0000-0000-0000-000000000000'
@@ -129,10 +129,8 @@ it('prints the board in the shape the panel reads, and the panel draws the 等�
   const agents = [agent('t1', 'working', '编排'), agent('t3', 'idle', 'worker'), agent('t4', 'idle', 'worker 2')]
   const terminals = agents.map((a) => ({ address: a.address, name: null, parent: null, status: a.status, state: 'live' }))
   const v = panelView({ agents, terminals, space: 'here', board: data, now, lang: 'zh' })
-  expect(v.waiting.map((c: { question: string; focus: string }) => [c.question, c.focus]).sort()).toEqual([
-    ['发不发', 't4'],
-    ['放行吗？', 't3'],
-  ])
+  expect(v.waiting.map((c: { question: string; focus: string }) => [c.question, c.focus]).sort()).toEqual([['放行吗？', 't3']])
+  expect(decisionCardsView(data).cards.map((c: { title: string }) => c.title)).toEqual(['发不发'])
   const listed = v.tasks.flatMap((g: { group: string; items: { title: string; state: string; where: string | null }[] }) =>
     g.items.map((i) => [g.group, i.title, i.state, i.where]),
   )

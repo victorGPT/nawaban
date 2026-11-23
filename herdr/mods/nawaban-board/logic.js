@@ -119,8 +119,8 @@ const namer = (terminals) => {
   return (a) => names.get(a.address) || (isBareTabIndex(a.tab_name) ? "" : a.tab_name) || a.title;
 };
 
-const withoutQuestions = (board) => ({ ...board,
-  columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => ({ ...t, waiting: null })) })) });
+const withoutQuestionsThatAreDecisions = (board, github) => ({ ...board,
+  columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => (github || t.pending ? { ...t, waiting: null } : t)) })) });
 
 const TERMINAL_NUMBER_RADIX = 36;
 const TERMINAL_PREFIX = "t";
@@ -151,7 +151,7 @@ function boardContext(args) {
     ...herdrTree(args.agents, args.space, live) };
 }
 
-const questionsAskedOnBoard = (c) => (c.github ? { ...c, board: withoutQuestions(c.board) } : c);
+const questionsAskedOnBoard = (c) => (c.board ? { ...c, board: withoutQuestionsThatAreDecisions(c.board, c.github) } : c);
 
 function taskState(c, t) {
   if (isDone(t)) return "done";

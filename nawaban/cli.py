@@ -1555,7 +1555,7 @@ def _issue_pending(i: dict) -> dict | None:
             "ruled_after": _owner_ruled_since([b for b, t in notes if t > at], _owner_names())}
 
 
-_CARD_FIELD = re.compile(r"【(Decision|Objective / KR|Context|Options|Recommendation)】(.*)")
+_CARD_FIELD = re.compile(r"^(?:[^【\n]*[：:])?\s*【(Decision|Objective / KR|Context|Options|Recommendation)】(.*)")
 _CARD_OPTION_LINE = re.compile(r"^\s*[-*]\s+(.*)")
 _CARD_OPTION_LETTER = re.compile(r"^([A-Z])\s*[：:]\s*")
 _CARD_OPTION_NOTE = "｜"
@@ -1570,7 +1570,7 @@ _CARD_PARTS_THAT_MUST_SAY_SOMETHING = (("decision", "Decision(--body)"), ("conte
 def _decision_card_parts(brief: str) -> tuple[dict, list[dict]]:
     fields, options, current = {}, [], None
     for ln in brief.splitlines():
-        m = _CARD_FIELD.search(ln)
+        m = _CARD_FIELD.match(ln)
         if m:
             current = _CARD_FIELD_KEYS.get(m.group(1), m.group(1))
             if current != "Options":
@@ -1589,8 +1589,12 @@ def _decision_card_gaps(fields: dict, options: list[dict]) -> list[str]:
         gaps.append("Objective / KR(--kr)")
     if len(options) < MIN_DECISION_OPTIONS:
         gaps.append(f"Options(至少 {MIN_DECISION_OPTIONS} 个)")
-    gaps += [f"{o['key']} 的{'选项' if not o['text'] else ' trade-off(｜后)'}" for o in options if not o["text"] or not o["note"]]
+    gaps += [f"{o['key']} 的{'选项' if not o['text'] else ' trade-off(｜后)'}" for o in options if not o["text"] or not _trade_off_of(o)]
     return gaps
+
+
+def _trade_off_of(option: dict) -> str:
+    return option["note"].partition(_CARD_OPTION_NOTE)[0].strip()
 
 
 def _decision_card(brief: str) -> dict | None:
