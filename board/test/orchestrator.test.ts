@@ -12,31 +12,31 @@ const born = NOW - 40 * HOUR
 const decisionOvertakingTheNextStep = { at: NOW - HOUR / 2, verdict: '先不接 CLI' }
 
 const OLD_CLIS_INDEX_GOLDEN_FROM_THE_SAME_JSON_BOARD_DATA = `p 进行中的事 · 04-26 17:46 生成
-等你 1 · 停了 1 · 在推 1 · 没动 2
+等你 1 · Stale 1 · WIP 1 · Backlog 2
 
 ## 等你
 - W 等用户
   下一步：选 A 还是 B？
 
-## 停了
+## Stale
 - S 卡住的（26 小时没动静 · 停在：@alice）
   进展 26 小时前：跑到一半 @alice 在看
 
-## 在推
+## WIP
 - C1 子任务 · 属于 SPEC 总规格
   进展 1 小时前：写完测试
   最近决定 30 分钟前：先不接 CLI
 
-## 48 小时内你拍的板 1（agent 自己定的另有 1 条，在各任务里）
+## 48 小时内你的 Decision Record 1（agent 自己定的另有 1 条，在各任务里）
 - 3 小时前 D 发布
 
-## 没动 2（开着，从没认领也没写进展）
+## Backlog 2（开着，从没认领也没写进展）
 - TRI 分诊过的
 - IDLE 没人碰
 
 48 小时内关了 1 个。`
 
-it('groups the open work into 等你, 停了 and 在推, then the decisions, the untouched and the closed', () => {
+it('groups the open work into 等你, Stale and WIP, then the Decision Records, the Backlog and the closed', () => {
   const data = {
     columns: [
       {
@@ -84,4 +84,10 @@ it('ends a link before the CJK text after it', () => {
   const body = '详见 https://github.com/o/r/pull/300（PR #300 的评论）'
   const data = { columns: [{ key: 'in_progress', tasks: [task('L', '带链接', NOW, { session: 'l', progress: { body, at: NOW } })] }] }
   expect(indexText(data, 'p', NOW)).toContain('进展 0 分钟前：详见 (链接)（PR #300 的评论）')
+})
+
+it('reads a status update written as Done / Next / Blockers: progress is what is done, the next step stops before Blockers', () => {
+  const body = 'Done: 写完测试 / Next: 接 CLI / Blockers: 无'
+  const data = { columns: [{ key: 'in_progress', tasks: [task('T', '三段', NOW, { session: 't', claimed_at: NOW, progress: { body, at: NOW } })] }] }
+  expect(indexText(data, 'p', NOW)).toContain('- T 三段\n  进展 0 分钟前：写完测试\n  下一步：接 CLI\n')
 })

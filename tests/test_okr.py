@@ -69,14 +69,14 @@ def line(out, name):
 def test_a_kr_counts_as_met_only_when_its_measured_value_meets_the_target(repo, capsys):
     code, out = okr(capsys)
     assert code == 0, out
-    assert "听得懂需求 · 1/3 达标" in out and "推荐能减少筛选 · 0/3 达标" in out
-    assert line(out, "意图准确率").startswith("  ✓") and "100.0% / >= 95%" in out and "截至 2026-11-17" in out
-    assert line(out, "L1 首位").startswith("  ✗") and "89.0% / >= 95%" in out
+    assert "听得懂需求 · Green 1/3" in out and "推荐能减少筛选 · Green 0/3" in out
+    assert line(out, "意图准确率") == "  意图准确率  100.0% / >= 95% · variance +5.0 pt · Green · as of 11-17"
+    assert line(out, "L1 首位").startswith("  L1 首位  89.0% / >= 95% · variance -6.0 pt · Red · as of ")
 
 
 def test_no_measure_is_untested_and_a_broken_measure_says_why(repo, capsys):
     _, out = okr(capsys)
-    assert "未测" in line(out, "边界难例")
+    assert line(out, "边界难例") == "  边界难例  Untested / >= 80"
     assert "测量失败" in line(out, "硬条件违反") and "missing data" in line(out, "硬条件违反")
     assert "测量失败" in line(out, "没写日期") and "测量失败" in line(out, "不是数")
 
@@ -142,7 +142,7 @@ def test_a_measure_printing_bad_bytes_fails_that_kr_only(repo, capsys):
         '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "坏字节"\ntarget = ">= 1"\nmeasure = "printf \'\\\\377\'"\n'
         '[[objective.kr]]\nname = "好的"\ntarget = ">= 1"\nmeasure = "echo \'2 today\'"\n')
     code, out = okr(capsys)
-    assert code == 0 and "测量失败" in line(out, "坏字节") and line(out, "好的").startswith("  ✓")
+    assert code == 0 and "测量失败" in line(out, "坏字节") and line(out, "好的") == "  好的  2.0 / >= 1 · variance +1.0 · Green · as of today"
 
 
 @pytest.mark.parametrize("body", [b"\xff", b"objective = 5\n", b'[[objective]]\nname = "O"\nkr = [1]\n',
@@ -160,7 +160,7 @@ def test_a_reading_just_below_the_target_is_missed_however_many_digits(repo, cap
         '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 9007199254740993"\nmeasure = "echo 9007199254740992 today"\n'
         '[[objective.kr]]\nname = "J"\ntarget = ">= 1.0000000000000001"\nmeasure = "echo 1 today"\n')
     _, out = okr(capsys)
-    assert "0/2 达标" in out
+    assert "Green 0/2" in out
 
 
 def test_a_reading_older_than_max_age_days_is_stale_not_met(repo, capsys):
@@ -172,8 +172,8 @@ def test_a_reading_older_than_max_age_days_is_stale_not_met(repo, capsys):
         f'[[objective.kr]]\nname = "旧"\ntarget = ">= 1"\nmax_age_days = 7\nmeasure = "echo \'5 {d(10)}\'"\n'
         '[[objective.kr]]\nname = "无日期"\ntarget = ">= 1"\nmax_age_days = 7\nmeasure = "echo \'5 latest\'"\n')
     _, out = okr(capsys)
-    assert "1/3 达标" in out and line(out, "新").startswith("  ✓")
-    assert line(out, "旧").startswith("  ⌛") and "测量过期" in line(out, "旧")
+    assert "Green 1/3" in out and " · Green · " in line(out, "新")
+    assert " · Amber · as of " in line(out, "旧") and "测量过期" in line(out, "旧")
     assert "测量失败" in line(out, "无日期")
 
 
@@ -191,7 +191,7 @@ def test_a_reading_with_bad_bytes_or_a_compact_date_never_counts(repo, capsys):
         '[[objective.kr]]\nname = "坏截至"\ntarget = ">= 1"\nmeasure = "printf \'2 \\\\377\'"\n'
         '[[objective.kr]]\nname = "紧凑日期"\ntarget = ">= 1"\nmax_age_days = 7\nmeasure = "echo 2 $(date +%Y%m%d)"\n')
     _, out = okr(capsys)
-    assert "0/2 达标" in out and "测量失败" in line(out, "坏截至") and "测量失败" in line(out, "紧凑日期")
+    assert "Green 0/2" in out and "测量失败" in line(out, "坏截至") and "测量失败" in line(out, "紧凑日期")
 
 
 def test_a_nul_in_a_measure_refuses_the_file(repo, capsys):
@@ -205,7 +205,7 @@ def test_a_reading_in_scientific_notation_is_read(repo, capsys):
     (repo / "docs" / "agents" / "okr.toml").write_text(
         '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = "> 0"\nmeasure = "echo 1e-05 today"\n')
     _, out = okr(capsys)
-    assert "1/1 达标" in out
+    assert "Green 1/1" in out
 
 
 # ── readings kept on the board, json okr, attention (spec NAWABAN-OKRP, ticket 01) ──
@@ -413,7 +413,7 @@ def test_okr_and_json_okr_judge_the_same_kept_value(repo, board, capsys):
     define(repo, [("等于", "== 1", 'measure = "echo 1.0000000000000001 2026-11-18"'),
                   ("大数", ">= 9007199254740993", 'measure = "echo 9007199254740992 2026-11-18"')])
     assert cli.main(["--db", str(board), "okr"]) == 0
-    assert "0/2 达标" in capsys.readouterr().out
+    assert "Green 0/2" in capsys.readouterr().out
     assert [k["status"] for k in jokr(board, capsys)[1]["objectives"][0]["krs"]] == ["missed", "missed"]
 
 

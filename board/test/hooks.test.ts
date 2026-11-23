@@ -100,8 +100,8 @@ it('prints the index off the board when an orchestrator window starts, and nothi
   const start = await hook('leader-index.sh')
   expect(start.code, start.err).toBe(0)
   expect(start.out).toContain('proj 进行中的事')
-  expect(start.out).toContain('在推 1 · 没动 1')
-  expect(start.out).toContain('## 在推\n- K2 在干的\n  进展 0 分钟前：写完测试\n  下一步：接 CLI')
+  expect(start.out).toContain('WIP 1 · Backlog 1')
+  expect(start.out).toContain('## WIP\n- K2 在干的\n  进展 0 分钟前：写完测试\n  下一步：接 CLI')
   expect(start.out).toContain('- K1 要密钥')
   expect(start.out).toContain('规矩正文')
   expect((await hook('leader-index.sh', '', { ROLE: 'worker' })).out).toBe('')
@@ -114,28 +114,28 @@ async function dengniOfAnotherProjectNotThisRepositorys() {
 }
 
 it('shows what waits on the decision-maker under each reply, new items first, then that nothing changed', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
-  expect(await inbox('s1')).toBe('待你决定 0 件')
+  expect(await inbox('s1')).toBe('Decisions 0')
   expect(await inbox('s1')).toBeNull()
   await nawaban('claim', 'K1')
   await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: needs-info — 等你：给密钥', '--as', AS)
   await dengniOfAnotherProjectNotThisRepositorys()
 
   const first = await inbox('s1')
-  expect(first).toBe('待你决定 1 件：K1 要密钥｜说「同步」看卡')
-  expect(await inbox('s1')).toBe('待你决定 1 件（无变化）')
+  expect(first).toBe('Decisions 1：K1 要密钥｜说「同步」看 DR')
+  expect(await inbox('s1')).toBe('Decisions 1（无变化）')
   expect(await inbox('s1', { ROLE: 'worker' })).toBeNull()
 
   const cardWaitsTooOnlyTheNewOneListedToASessionThatSawTheOld = ['--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '发']
   await nawaban('event', await idOf('K2'), ...cardWaitsTooOnlyTheNewOneListedToASessionThatSawTheOld, '--as', AS)
-  expect(await inbox('s1')).toBe('待你决定 2 件：K2 在干的｜说「同步」看卡')
-  expect(await inbox('s2')).toMatch(/^待你决定 2 件：K\d .* · K\d /)
+  expect(await inbox('s1')).toBe('Decisions 2：K2 在干的｜说「同步」看 DR')
+  expect(await inbox('s2')).toMatch(/^Decisions 2：K\d .* · K\d /)
 
   const answeredSoNothingWaits = async () => {
     await nawaban('event', await idOf('K1'), '--kind', 'note', '--body', 'triage: ready-for-agent')
     await nawaban('event', await idOf('K2'), '--kind', 'resolve', '--body', '发')
   }
   await answeredSoNothingWaits()
-  expect(await inbox('s1')).toBe('待你决定 0 件')
+  expect(await inbox('s1')).toBe('Decisions 0')
   expect(await inbox('s1')).toBeNull()
 })
 

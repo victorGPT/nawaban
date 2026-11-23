@@ -275,6 +275,25 @@ CARD = "\n".join(["待决：【Decision】sourcemap 传不传", "【Objective / 
                   "【Options】", "- A：传｜可撤回", "- B：不传｜省事", "【Recommendation】A：好查"])
 
 
+DR = "\n".join(["待决：BLUF: sourcemap 传不传", "KR: 无", "Context: 前端只有压缩堆栈",
+                "Options:", "- A：传｜可撤回｜two-way door", "- B：不传｜省事｜one-way door", "Recommendation: A：好查"])
+
+
+@pytest.mark.parametrize("heading", ["待决：", "## 待决：", "**待决**：", "需要你定："])
+def test_a_decision_request_in_the_bluf_format_comes_apart_like_the_old_card(board, monkeypatch, capsys, heading):
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", DR.replace("待决：", heading, 1))])])
+    assert out["tasks"]["#1"]["pending"]["card"] == {
+        "decision": "sourcemap 传不传", "kr": "无", "context": "前端只有压缩堆栈", "rec": "A：好查",
+        "options": [{"key": "A", "text": "传", "note": "可撤回｜two-way door"}, {"key": "B", "text": "不传", "note": "省事｜one-way door"}]}
+
+
+@pytest.mark.parametrize("brief", [DR.replace("Context: 前端只有压缩堆栈\n", ""), DR.replace("BLUF: sourcemap 传不传", "BLUF: 无"),
+                                   DR.replace("- B：不传｜省事｜one-way door", "- B：不传"), DR.replace("Recommendation: A：好查", "Recommendation: -")])
+def test_a_decision_request_missing_a_dor_field_is_not_ready(board, monkeypatch, capsys, brief):
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", brief)])])
+    assert out["tasks"]["#1"]["pending"]["card"] is None
+
+
 def test_a_full_decision_card_comes_apart_into_its_fields_and_lettered_options(board, monkeypatch, capsys):
     out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", CARD)])])
     assert out["tasks"]["#1"]["pending"]["card"] == {

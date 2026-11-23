@@ -22,7 +22,7 @@ type Row = {
   decision?: { at: number; verdict: string } | null
 }
 type Data = { columns: { key: string; tasks: Row[] }[]; decisions?: { task: string; at: number; verdict: string; owner: boolean }[] }
-type State = '等你' | '停了' | '在推' | '没动'
+type State = '等你' | 'Stale' | 'WIP' | 'Backlog'
 
 const HOUR = 3600
 const STALLED_AFTER_QUIET_FOR = 24 * HOUR
@@ -39,8 +39,9 @@ const INBOX_TITLE_WIDTH = 24
 const INBOX_LINE_WIDTH = 90
 const NOTE_THAT_IS_A_LABEL_NOT_PROGRESS = /^\s*(?:triage|wayfinder|impact):/
 const MENTION = /(?<![\p{L}\p{N}_.])@([\p{L}\p{N}_-]+)/u
-const NEXT_SPLIT = /[，,]?\s*下一步[：:]/
-const NEXT = /下一步[：:]\s*([^。\n]+)/
+const NEXT_SPLIT = /[，,]?\s*(?:\/\s*)?(?:下一步|\bNext)[：:]/
+const NEXT = /(?:下一步|\bNext)[：:]\s*(.+?)(?=\s*\/\s*Blockers\s*[：:]|[。\n]|$)/
+const DONE_LABEL = /^\s*Done[：:]\s*/
 const LINK_UNTIL_WHITESPACE_OR_CJK_OR_FULL_WIDTH = /https?:\/\/[^\s\u{3000}-\u{303f}\u{ff00}-\u{ffef}\u{4e00}-\u{9fff}]+/gu
 const HOLDS_THE_DECISION_MAKER_ANSWERS = new Set(['needs_input', 'awaiting_approval'])
 
@@ -66,8 +67,8 @@ const progressNotBookkeeping = (t: Row) => (t.progress && !NOTE_THAT_IS_A_LABEL_
 function stateOf(t: Row, now: number): State {
   if (t.waiting != null) return '等你'
   const started = progressNotBookkeeping(t) || t.claimed_at || t.session
-  if (!started) return '没动'
-  return now - t.active_at > STALLED_AFTER_QUIET_FOR ? '停了' : '在推'
+  if (!started) return 'Backlog'
+  return now - t.active_at > STALLED_AFTER_QUIET_FOR ? 'Stale' : 'WIP'
 }
 
 function nextStepLine(t: Row, now: number): string | null {
@@ -84,11 +85,11 @@ function nextStepLine(t: Row, now: number): string | null {
 function taskLines(k: State, t: Row, belongs: (t: Row) => string, now: number): string[] {
   const p = progressNotBookkeeping(t)
   const out = []
-  if (k === '停了') {
+  if (k === 'Stale') {
     const mention = p ? MENTION.exec(p.body) : null
     out.push(`- ${t.id} ${short(t.title, TITLE_WIDTH)}${belongs(t)}（${ago(now, t.active_at)}没动静 · 停在：${mention ? '@' + mention[1] : '没写'}）`)
   } else out.push(`- ${t.id} ${short(t.title, TITLE_WIDTH)}${belongs(t)}`)
-  if (p) out.push(`  进展 ${ago(now, p.at)}前：${short(p.body.split(NEXT_SPLIT)[0]!, PROGRESS_WIDTH)}`)
+  if (p) out.push(`  进展 ${ago(now, p.at)}前：${short(p.body.split(NEXT_SPLIT)[0]!.replace(DONE_LABEL, ''), PROGRESS_WIDTH)}`)
   const next = nextStepLine(t, now)
   if (next) out.push(next)
   return out
@@ -98,7 +99,7 @@ function decisionsLines(data: Data, now: number): string[] {
   const decided = data.decisions ?? []
   const own = decided.filter((d) => d.owner)
   return [
-    `## 48 小时内你拍的板 ${own.length}（agent 自己定的另有 ${decided.length - own.length} 条，在各任务里）`,
+    `## 48 小时内你的 Decision Record ${own.length}（agent 自己定的另有 ${decided.length - own.length} 条，在各任务里）`,
     ...own.map((d) => `- ${ago(now, d.at)}前 ${d.task} ${short(d.verdict, OWN_DECISION_WIDTH)}`),
   ]
 }
@@ -112,14 +113,14 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
     const p = byId.get(t.parent)
     return ` · 属于 ${t.parent}` + (p ? ` ${short(p.title.replace(/^[\p{L}\p{N}_]+:\s*/u, ''), SPEC_TITLE_WIDTH)}` : '')
   }
-  const groups = (['等你', '停了', '在推'] as const).map(
+  const groups = (['等你', 'Stale', 'WIP'] as const).map(
     (k) => [k, live.filter((t) => stateOf(t, now) === k).sort((a, b) => a.active_at - b.active_at)] as const,
   )
   const specsWithMovingChildren = new Set(groups.flatMap(([, g]) => g.map((t) => t.parent)))
-  const idle = live.filter((t) => stateOf(t, now) === '没动' && !specsWithMovingChildren.has(t.id)).sort((a, b) => b.created_at - a.created_at)
+  const idle = live.filter((t) => stateOf(t, now) === 'Backlog' && !specsWithMovingChildren.has(t.id)).sort((a, b) => b.created_at - a.created_at)
   const out = [
     `${name} 进行中的事 · ${stamp(now)} 生成`,
-    groups.map(([k, g]) => `${k} ${g.length}`).join(' · ') + ` · 没动 ${idle.length}`,
+    groups.map(([k, g]) => `${k} ${g.length}`).join(' · ') + ` · Backlog ${idle.length}`,
     '',
   ]
   for (const [k, g] of groups) {
@@ -127,7 +128,7 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
     out.push(`## ${k}`, ...g.flatMap((t) => taskLines(k, t, belongs, now)), '')
   }
   out.push(...decisionsLines(data, now))
-  out.push('', `## 没动 ${idle.length}（开着，从没认领也没写进展）`)
+  out.push('', `## Backlog ${idle.length}（开着，从没认领也没写进展）`)
   out.push(...idle.map((t) => `- ${t.id} ${short(t.title, IDLE_TITLE_WIDTH)}${belongs(t)}`))
   const closedMayUndercount = tasks.filter((t) => t.status === 'done' && now - (t.done_at ?? 0) < CLOSED_COUNTED_WITHIN_BUT_BOARD_KEEPS_ONLY_LATEST_DONE).length
   return [...out, '', `48 小时内关了 ${closedMayUndercount} 个。`].join('\n')
@@ -150,13 +151,13 @@ export async function index(argv: string[], team: Team): Promise<number> {
 
 export function inboxLine(items: { id: string; title: string }[], shownLast: string[] | null): string | null {
   const alreadySaidNothingWaits = !!shownLast && !shownLast.length
-  if (!items.length) return alreadySaidNothingWaits ? null : '待你决定 0 件'
+  if (!items.length) return alreadySaidNothingWaits ? null : 'Decisions 0'
   const ids = items.map((i) => i.id)
   const sameSetAsShownLast = !!shownLast && shownLast.length === ids.length && ids.every((id) => shownLast.includes(id))
-  if (sameSetAsShownLast) return `待你决定 ${items.length} 件（无变化）`
+  if (sameSetAsShownLast) return `Decisions ${items.length}（无变化）`
   const fresh = items.filter((i) => !shownLast?.includes(i.id))
   const listed = short((fresh.length ? fresh : items).map((i) => `${i.id} ${short(i.title, INBOX_TITLE_WIDTH)}`).join(' · '), INBOX_LINE_WIDTH)
-  return `待你决定 ${items.length} 件：${listed}｜说「同步」看卡`
+  return `Decisions ${items.length}：${listed}｜说「同步」看 DR`
 }
 
 async function writeWholeSoAReaderNeverSeesHalf(file: string, content: string) {

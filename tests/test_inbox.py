@@ -37,15 +37,15 @@ ITEMS = [{"id": "#1213", "title": "停用/重置密码"}, {"id": "#1214", "title
 def test_orchestrator_sees_the_count_and_titles_then_only_the_count_when_nothing_changed(tmp_path):
     repo = _github_repo(tmp_path); _cache(repo, ITEMS)
     first = _hook(tmp_path, repo)
-    assert first.startswith("待你决定 2 件：") and "#1213 停用/重置密码 · #1214 反馈状态" in first and "同步" in first
-    assert _hook(tmp_path, repo) == "待你决定 2 件（无变化）"
+    assert first.startswith("Decisions 2：") and "#1213 停用/重置密码 · #1214 反馈状态" in first and "同步" in first
+    assert _hook(tmp_path, repo) == "Decisions 2（无变化）"
 
 
 def test_a_new_pending_decision_is_listed_alone(tmp_path):
     repo = _github_repo(tmp_path); _cache(repo, ITEMS[:1]); _hook(tmp_path, repo)
     _cache(repo, ITEMS)
     line = _hook(tmp_path, repo)
-    assert line.startswith("待你决定 2 件：#1214 反馈状态") and "#1213" not in line
+    assert line.startswith("Decisions 2：#1214 反馈状态") and "#1213" not in line
 
 
 def test_none_pending_shows_nothing(tmp_path):
@@ -66,7 +66,7 @@ def test_a_stale_cache_is_shown_with_its_age_and_refreshed_in_the_background(tmp
     started = []
     monkeypatch.setattr(cli, "inbox_refresh_later", started.append)
     line = cli.inbox_line(cli.resolve_db(None), "s")
-    assert "待你决定 2 件" in line and "12 分钟前" in line and started == [repo]
+    assert "Decisions 2" in line and "12 分钟前" in line and started == [repo]
     _cache(repo, ITEMS)
     cli.inbox_line(cli.resolve_db(None), "s")
     assert started == [repo]  # fresh: no refresh
@@ -95,7 +95,7 @@ def test_an_ask_rewrites_the_cache_before_the_turn_ends(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "github_board_data", lambda root: data)
     assert cli.main(["event", "#7", "--kind", "ask", "--body", "定 A", "--kr", "K", "--context", "c",
                      "--option", "A｜快", "--option", "B｜稳", "--rec", "A"]) == 0
-    assert cli.inbox_line(cli.resolve_db(None), "s").startswith("待你决定 1 件：#7 要你定")
+    assert cli.inbox_line(cli.resolve_db(None), "s").startswith("Decisions 1：#7 要你定")
 
 
 def test_a_slower_older_read_does_not_overwrite_a_newer_cache(tmp_path):
@@ -121,4 +121,4 @@ def test_on_the_board_the_waiting_tasks_are_the_inbox(tmp_path, monkeypatch):
     assert cli.main(["--db", str(db), "create", "T-2", "--title", "在干", "--body", "x", "--project", "p"]) == 0
     assert cli.main(["--db", str(db), "event", "T-1", "--kind", "note", "--body", "triage: needs-info — 等你：给密钥"]) == 0
     line = cli.inbox_line(db, "s")
-    assert line.startswith("待你决定 1 件：T-1 要密钥")
+    assert line.startswith("Decisions 1：T-1 要密钥")

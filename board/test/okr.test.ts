@@ -119,18 +119,18 @@ const day = (n: number) => {
 describe('okr measures each KR and never narrates', () => {
   it('counts a KR as met only when its measured value meets the target', async () => {
     const out = await text(await repo())
-    expect(out).toContain('听得懂需求 · 1/3 达标')
-    expect(out).toContain('推荐能减少筛选 · 0/3 达标')
-    expect(line(out, '意图准确率')).toMatch(/^  ✓/)
+    expect(out).toContain('听得懂需求 · Green 1/3')
+    expect(out).toContain('推荐能减少筛选 · Green 0/3')
+    expect(line(out, '意图准确率')).toMatch(/ · Green · /)
     expect(out).toContain('100.0% / >= 95%')
-    expect(out).toContain('截至 2026-11-17')
-    expect(line(out, 'L1 首位')).toMatch(/^  ✗/)
+    expect(out).toContain('as of 11-17')
+    expect(line(out, 'L1 首位')).toMatch(/ · variance -[\d.]+ .*· Red · as of /)
     expect(out).toContain('89.0% / >= 95%')
   })
 
   it('calls no measure untested, and says why a broken one failed', async () => {
     const out = await text(await repo())
-    expect(line(out, '边界难例')).toContain('未测')
+    expect(line(out, '边界难例')).toBe('  边界难例  Untested / >= 80')
     expect(line(out, '硬条件违反')).toMatch(/测量失败.*missing data/)
     expect(line(out, '没写日期')).toContain('测量失败')
     expect(line(out, '不是数')).toContain('测量失败')
@@ -182,7 +182,7 @@ describe('okr measures each KR and never narrates', () => {
     const root = await repo(`[[objective]]\nname = "O"\n[[objective.kr]]\nname = "坏字节"\ntarget = ">= 1"\nmeasure = '''printf '\\377' '''\n[[objective.kr]]\nname = "好的"\ntarget = ">= 1"\nmeasure = "echo '2 today'"\n`)
     const out = await text(root)
     expect(line(out, '坏字节')).toContain('测量失败')
-    expect(line(out, '好的')).toMatch(/^  ✓/)
+    expect(line(out, '好的')).toBe('  好的  2.0 / >= 1 · variance +1.0 · Green · as of today')
   })
 
   it.each([
@@ -201,7 +201,7 @@ describe('okr measures each KR and never narrates', () => {
       '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 9007199254740993"\nmeasure = "echo 9007199254740992 today"\n' +
         '[[objective.kr]]\nname = "J"\ntarget = ">= 1.0000000000000001"\nmeasure = "echo 1 today"\n',
     )
-    expect(await text(root)).toContain('0/2 达标')
+    expect(await text(root)).toContain('Green 0/2')
   })
 
   it('calls a reading older than max_age_days stale, not met', async () => {
@@ -212,9 +212,9 @@ describe('okr measures each KR and never narrates', () => {
         `[[objective.kr]]\nname = "无日期"\ntarget = ">= 1"\nmax_age_days = 7\nmeasure = "echo '5 latest'"\n`,
     )
     const out = await text(root)
-    expect(out).toContain('1/3 达标')
-    expect(line(out, '新')).toMatch(/^  ✓/)
-    expect(line(out, '旧')).toMatch(/^  ⌛.*测量过期/)
+    expect(out).toContain('Green 1/3')
+    expect(line(out, '新')).toMatch(/ · Green · /)
+    expect(line(out, '旧')).toMatch(/ · Amber · as of .*测量过期/)
     expect(line(out, '无日期')).toContain('测量失败')
   })
 
@@ -229,7 +229,7 @@ describe('okr measures each KR and never narrates', () => {
         '[[objective.kr]]\nname = "紧凑日期"\ntarget = ">= 1"\nmax_age_days = 7\nmeasure = "echo 2 $(date +%Y%m%d)"\n',
     )
     const out = await text(root)
-    expect(out).toContain('0/2 达标')
+    expect(out).toContain('Green 0/2')
     expect(line(out, '坏截至')).toContain('测量失败')
     expect(line(out, '紧凑日期')).toContain('测量失败')
   })
@@ -240,7 +240,7 @@ describe('okr measures each KR and never narrates', () => {
   })
 
   it('reads a reading in scientific notation', async () => {
-    expect(await text(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = "> 0"\nmeasure = "echo 1e-05 today"\n'))).toContain('1/1 达标')
+    expect(await text(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = "> 0"\nmeasure = "echo 1e-05 today"\n'))).toContain('Green 1/1')
   })
 })
 
@@ -287,7 +287,7 @@ describe('readings kept on the board', () => {
     await writeFile(join(p.dir, 'repos.json'), '{}')
     const { code, out, err } = await nawabanOkr(p)
     expect(code).toBe(0)
-    expect(out).toContain('1/3 达标')
+    expect(out).toContain('Green 1/3')
     expect(err).toContain('读数没记')
     expect(await readingsTheBoardKeepsKrValueAsOfSource(p)).toEqual([])
   })
@@ -386,7 +386,7 @@ describe("json okr's judgement on rows with their rounds given", () => {
       四轮: [[96, '2026-11-09'], ...[0, 1, 2, 3].map((i) => [80 + i, `2026-11-1${i}`] as [number, string])],
     }))
     expect(kinds(data)).toEqual([['five', '五轮']])
-    expect(data.attention[0]!.text).toBe('连续 5 轮未达标（>= 95），最近三次 82、83、84')
+    expect(data.attention[0]!.text).toBe('连续 5 轮 Red（>= 95），最近三次 82、83、84')
     expect([krOf(data, '五轮').missed_rounds, krOf(data, '四轮').missed_rounds]).toEqual([5, 4])
   })
 
@@ -441,7 +441,7 @@ describe("json okr's judgement on rows with their rounds given", () => {
   it('judges a kept value in json okr as okr judged it', async () => {
     const p = await projectOnItsOwnBoardWithItsOwnReposJson()
     await define(p.root, [['等于', '== 1', 'measure = "echo 1.0000000000000001 2026-11-18"'], ['大数', '>= 9007199254740993', 'measure = "echo 9007199254740992 2026-11-18"']])
-    expect((await nawabanOkr(p)).out).toContain('0/2 达标')
+    expect((await nawabanOkr(p)).out).toContain('Green 0/2')
     expect((await jokr(p)).data.objectives[0].krs.map((k: KrOut) => k.status)).toEqual(['missed', 'missed'])
   })
 

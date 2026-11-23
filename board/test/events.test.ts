@@ -76,6 +76,14 @@ it('records a note, a decision, and a link as replies, the last two as blocks', 
   expect(replies[2]!.blocks[0]!.data).toEqual({ kind: 'pr', ref: 'https://github.com/acme/web/pull/1' })
 })
 
+it('takes a Decision Record in the --body form: Decision, Context, Rejected and an optional Consequences', async () => {
+  const id = await newTask()
+  const body = 'Decision: sqlite\nContext: which db?\nRejected: pg — too big\nConsequences: one file to back up'
+  expect((await nawaban('event', id, '--kind', 'decision', '--body', body)).code).toBe(0)
+  const { replies } = await team.thread(id)
+  expect(replies[0]!.blocks[0]!.data).toEqual({ question: 'which db?', verdict: 'sqlite\nConsequences: one file to back up', rejected: ['pg — too big'], by: 'agent' })
+})
+
 it('takes a decision in the older --body form', async () => {
   const id = await newTask()
   const body = 'Question: which db?\nVerdict: sqlite\nRejected: pg - too big\nRejected: none - no'
@@ -111,17 +119,18 @@ it('refuses a card without --rec, and writes nothing', async () => {
   const id = await newTask()
   const ask = await nawaban('event', id, '--kind', 'ask', ...CARD)
   expect(ask.code).toBe(1)
-  expect(ask.err).toContain('recommendation')
+  expect(ask.err).toContain('not ready (DoR)')
+  expect(ask.err).toContain('Recommendation')
   expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', blocked: null, replies: [] })
 })
 
 it.each([
-  ['--body', '无', 'decision'],
+  ['--body', '无', 'BLUF'],
   ['--context', ' none ', 'context'],
-  ['--rec', '-', 'recommendation'],
+  ['--rec', '-', 'Recommendation'],
   ['--kr', ' ', 'kr'],
-  ['--option', 'wait｜ ｜two-way', "option 2's trade-off"],
-  ['--option', ' ｜safe｜two-way', "option 2's choice"],
+  ['--option', 'wait｜ ｜two-way', "option 2's cost"],
+  ['--option', ' ｜safe｜two-way', "option 2's COA"],
 ])('refuses a card whose %s says nothing (%j), naming it, and writes nothing', async (flag, value, named) => {
   const id = await newTask()
   const card = [...CARD, '--rec', 'ship']

@@ -148,16 +148,19 @@ async function note(e: Event): Promise<number> {
 
 const oldBodyLines = (body: string | undefined, key: string) => [...(body ?? '').matchAll(new RegExp(`^\\s*${key}:\\s*(.+)$`, 'gm'))].map((m) => m[1]!.trim())
 
+const verdictWithItsConsequences = (verdict: string | undefined, consequences: string | undefined) =>
+  verdict && consequences ? `${verdict}\nConsequences: ${consequences}` : verdict
+
 async function decision(e: Event): Promise<number> {
   const { a } = e
   const value = checkedBeforeAnythingLands('nawaban-decision@1', {
-    question: a.question ?? oldBodyLines(a.body, 'Question')[0],
-    verdict: a.verdict ?? oldBodyLines(a.body, 'Verdict')[0],
+    question: a.question ?? oldBodyLines(a.body, 'Context')[0] ?? oldBodyLines(a.body, 'Question')[0],
+    verdict: a.verdict ?? verdictWithItsConsequences(oldBodyLines(a.body, 'Decision')[0] ?? oldBodyLines(a.body, 'Verdict')[0], oldBodyLines(a.body, 'Consequences')[0]),
     rejected: a.rejected ?? oldBodyLines(a.body, 'Rejected'),
     by: a.by === 'user' ? 'user' : 'agent',
     ...(e.kr ? { kr: e.kr } : {}),
   })
-  return 'why' in value ? refuse(`${value.why} (--question, --verdict, --rejected; or --body with Question:, Verdict:, Rejected: lines)`) : e.reply(value.text)
+  return 'why' in value ? refuse(`${value.why} (--body with Decision:, Context:, Rejected: lines and an optional Consequences: line; Question:/Verdict: and --question/--verdict/--rejected still work)`) : e.reply(value.text)
 }
 
 async function link(e: Event): Promise<number> {
@@ -170,7 +173,7 @@ async function ask(e: Event): Promise<number> {
   const { a } = e
   const value = { decision: a.body, kr: e.kr, context: a.context, options: (a.option ?? []).map(cardOption), recommendation: a.rec }
   const gaps = gapsOfADecisionCard(value)
-  if (gaps.length) return refuse(`the decision card is missing ${gaps.join(', ')} (--option is choice｜trade-off｜one-way or two-way)`)
+  if (gaps.length) return refuse(`the Decision Request is not ready (DoR): missing ${gaps.join(', ')} (--option is COA｜cost｜one-way or two-way door)`)
   const card = checkedBeforeAnythingLands('nawaban-ask@1', value)
   if ('why' in card) return refuse(card.why)
   return e.holdFirstThenReply(a.body!, HOLD_FOR_DECISION, card.text)
