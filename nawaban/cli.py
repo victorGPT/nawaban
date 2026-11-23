@@ -854,10 +854,10 @@ def _gh(root: Path, *args: str) -> str:
     return r.stdout
 
 
-def _run_gh(root: Path, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+def _run_gh(root: Path, *args: str, env: dict | None = None,
+            timeout: int = GH_TIMEOUT_SECONDS) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(["gh", *args], cwd=root, capture_output=True, text=True, timeout=GH_TIMEOUT_SECONDS,
-                              env=env)
+        return subprocess.run(["gh", *args], cwd=root, capture_output=True, text=True, timeout=timeout, env=env)
     except (OSError, subprocess.SubprocessError) as e:
         raise Refused(f"gh 不可用:{e}") from e
 
@@ -1368,6 +1368,115 @@ def _record_dispatch_on_the_ticket(root: Path, a, con, n: str | None, name: str,
             gh_post(root, n, "note", note)
     except (Refused, OSError, sqlite3.Error) as e:
         raise Refused(f"已派给 hc {addr}（{wt}），但记票失败:{e}\n补记:nawaban event {shlex.quote(a.id)} --kind note --body {shlex.quote(note)}")
+
+
+RETIRE_GH_TIMEOUT_SECONDS = 8
+RETIRE_BOARD_TIMEOUT_SECONDS = 10
+RETIRE_CHECKS_START_WITHIN_SECONDS = 15
+_COMMAND_SEPARATORS = ";&|()<>\n"
+_ASSIGNMENT = re.compile(r"\w+=")
+_WORDS_BEFORE_A_COMMAND = {"then", "do", "else", "elif", "if", "while", "until", "!", "time", "exec", "command", "{"}
+_DISPATCHED_TO = re.compile(r"派给 hc (\S+?)（")
+
+
+def retiring_terminals(command: str) -> list[str]:
+    lex = shlex.shlex(command.replace("\\\n", " "), posix=True, punctuation_chars=_COMMAND_SEPARATORS)
+    lex.whitespace, lex.whitespace_split = " \t\r", True
+    try:
+        tokens = list(lex)
+    except ValueError:
+        return []
+    named, start = [], 0
+    for i, tok in enumerate(tokens + [";"]):
+        if set(tok) <= set(_COMMAND_SEPARATORS):
+            words = tokens[start:i]
+            while words and (_ASSIGNMENT.match(words[0]) or words[0] in _WORDS_BEFORE_A_COMMAND):
+                words.pop(0)
+            if words[:1] == ["hc"] and words[1:2] in (["kill"], ["rm"]):
+                named += [w for w in words[2:] if not w.startswith("-") and not re.search(r"[$`*]", w)]
+            start = i + 1
+    return named
+
+
+def retire_refusal(command: str, cwd: Path) -> tuple[str | None, str | None]:
+    held, unread = [], []
+    started = time.monotonic()
+    for t in retiring_terminals(command):
+        if time.monotonic() - started > RETIRE_CHECKS_START_WITHIN_SECONDS:
+            unread.append(f"{t}:来不及查")
+            continue
+        term = _terminal_or_none(t)
+        if not term:
+            continue
+        addr = term["address"]
+        start = Path(term.get("cwd") or cwd)
+        try:
+            held += [(addr, k) for k in _tickets_held_from(addr, start if start.is_dir() else cwd)]
+        except (Refused, OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as e:
+            unread.append(f"{addr}:{e}")
+    warning = f"没查清终端名下的票,放行(只凭确证才拦):{'; '.join(unread)}" if unread else None
+    return (_retire_refusal_text(held) if held else None), warning
+
+
+def _terminal_or_none(t: str) -> dict | None:
+    import json
+    try:
+        r = subprocess.run(["hc", "get", t, "--json"], capture_output=True, text=True, timeout=HC_TIMEOUT_SECONDS)
+        term = json.loads(r.stdout) if r.returncode == 0 else None
+    except (ValueError, OSError, subprocess.SubprocessError):
+        return None
+    return term if isinstance(term, dict) and term.get("address") else None
+
+
+def _tickets_held_from(addr: str, where: Path) -> list[str]:
+    if root := github_root(where):
+        return _issues_held_from(root, addr)
+    root = _repo_root(where.resolve())
+    via = os.environ.get("NAWABAN_CLI") or ("board" if root and root.name in moved_projects() else "old")
+    return _board_tasks_held_from(addr) if root and via == "board" else []
+
+
+def _issues_held_from(root: Path, addr: str) -> list[str]:
+    import json
+    r = _run_gh(root, "issue", "list", "--state", "open", "--search", f"{addr} in:comments", "--limit", GH_ISSUE_LIST_LIMIT,
+                "--json", "number,assignees,comments", timeout=RETIRE_GH_TIMEOUT_SECONDS)
+    if r.returncode != 0:
+        raise Refused(f"gh 失败:{r.stderr.strip()}")
+    return [f"#{i['number']}" for i in json.loads(r.stdout)
+            if i["assignees"] and _last_terminal_named_on(i["comments"]) == addr]
+
+
+def _last_terminal_named_on(comments: list[dict]) -> str | None:
+    named = None
+    for c in comments:
+        ev = read_marker(c["body"]) or {}
+        if ev.get("kind") == "claim" and ev.get("terminal"):
+            named = ev["terminal"]
+        elif ev.get("kind") == "note" and (m := _DISPATCHED_TO.match(str(ev.get("body", "")))):
+            named = m.group(1)
+    return named
+
+
+def _board_tasks_held_from(addr: str) -> list[str]:
+    import json
+    r = subprocess.run(["node", str(_PLUGIN / "board" / "src" / "cli.ts"), "list", "--json"],
+                       capture_output=True, text=True, timeout=RETIRE_BOARD_TIMEOUT_SECONDS)
+    if r.returncode != 0:
+        raise Refused(f"板读不到:{r.stderr.strip()}")
+    now = _dt.datetime.now(_dt.timezone.utc)
+    return [t["labels"].get("key") or f"#{t['id']}" for t in json.loads(r.stdout)["tasks"]
+            if t["task"].get("state") == "claimed" and t["labels"].get("terminal") == addr
+            and _dt.datetime.fromisoformat(t["task"]["claim"]["until"].replace("Z", "+00:00")) > now]
+
+
+def _retire_refusal_text(held: list[tuple[str, str]]) -> str:
+    lines = [f"终端 {addr} 还拿着 {key}(开着、在它名下)" for addr, key in held]
+    return "\n".join(lines + [
+        "收 worker 前,票要么关、要么交还,由 worker 自己做(hc send <终端> 让它做;GitHub 的票你也能直接做):",
+        "  做完:nawaban event <ID> --kind link --body \"pr:<url>\" 后 nawaban close <ID> --done",
+        "  没做完:nawaban event <ID> --kind note --body \"停在哪、下一步\" 后 nawaban claim <ID> --release",
+        "本地板上 worker 已不动了:等它的认领租约过期(最多 1h)再收。",
+    ])
 
 
 def gh_write(root: Path, a) -> str:
