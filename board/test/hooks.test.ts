@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -178,6 +178,13 @@ it('lets a session outside Herdr that the owner declared read what the web page 
   expect(declared.out).toContain(`已把会话 ${SESSION} 记为 proj 的编排者`)
   expect(declared.out).toContain('proj 进行中的事')
   expect(declared.out).not.toContain('声明失败')
+  const freshBoard = join(tmp, 'fresh-board')
+  await mkdir(freshBoard)
+  await writeFile(join(freshBoard, 'repos.json'), JSON.stringify({ other: '/elsewhere' }))
+  await hook('orchestrator-declare.sh', { session_id: SESSION, cwd: repo, prompt: '/nawaban:orchestrator' }, { ...noHerdr, NAWABAN_BOARD_DIR: freshBoard })
+  const registered = JSON.parse(await readFile(join(freshBoard, 'repos.json'), 'utf8'))
+  expect(registered.other).toBe('/elsewhere')
+  expect(await realpath(registered.proj)).toBe(await realpath(repo))
   expect((await hook('leader-index.sh', { session_id: SESSION }, noHerdr)).out).toContain('proj 进行中的事')
   expect((await hook('leader-index.sh', { session_id: 'someone-else' }, noHerdr)).out).toBe('')
   expect(await stop('someone-else')).toBeNull()

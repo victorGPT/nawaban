@@ -19,13 +19,13 @@ git clone https://github.com/victorGPT/nawaban ~/.nawaban/plugin && ~/.nawaban/p
 
 `install.sh` installs the board's packages and builds the web page, installs the Claude Code plugin `nawaban@nawaban` from that checkout, writes the `nawaban` command to `~/.local/bin`, and starts the board as the launchd agent `com.nawaban.board` on `127.0.0.1:4100`, which writes the board's token and the page's token into `~/.nawaban/board/` on first start. It stops and says why when a prerequisite is missing. If `~/.local/bin` is not on your `PATH`, it tells you the line to add. To update later, run `git -C ~/.nawaban/plugin pull --ff-only && ~/.nawaban/plugin/install.sh`; running it again is safe.
 
-`NAWABAN_BOARD_DIR`, `NAWABAN_BOARD_PORT`, `NAWABAN_LAUNCHD_LABEL` and `NAWABAN_BIN_DIR` change where it puts the board, the port, the agent's label and the command, for a second install beside the first.
+`NAWABAN_BOARD_DIR`, `NAWABAN_BOARD_PORT`, `NAWABAN_LAUNCHD_LABEL` and `NAWABAN_BIN_DIR` change where it puts the board, the port, the agent's label and the command, for a trial install beside an existing one. The `nawaban` command and the agent keep them, but the plugin's hooks read them from the environment Claude Code runs in, so start Claude Code with the same `NAWABAN_BOARD_DIR` and `NAWABAN_BOARD_PORT`; a normal install leaves them unset.
 
 Every repository you work in uses this board, unless the old CLI already tracks it (a `.nawaban/nawaban.db` it finds, or a `docs/agents/issue-tracker.md` that names GitHub). `node ~/.nawaban/plugin/hooks/route.mjs` in a repository prints `board <project>` or `old`.
 
 ### First use
 
-1. **Declare the orchestrator.** In your project, start a new Claude Code session and type `/nawaban:orchestrator`. It answers `已把会话 … 记为 <project> 的编排者（没有 Herdr，按会话认）` and prints the project's index. A new session or `/clear` needs the declaration again.
+1. **Declare the orchestrator.** In your project, start a new Claude Code session and type `/nawaban:orchestrator`. It answers `已把会话 … 记为 <project> 的编排者（没有 Herdr，按会话认）`, prints the project's index, and records the repository in `~/.nawaban/board/repos.json` so the page's OKR tab finds its `docs/agents/okr.toml`. A new session or `/clear` needs the declaration again.
 2. **Open the page.** Run `nawaban web`. The browser opens `http://127.0.0.1:4100/` with the page's token in the link; the page shows your projects' 待决, OKR, 任务 and 收件箱.
 3. **Answer a 待决.** When the orchestrator asks you to decide, the card shows under 待决. Pick an option, add your words and send it. The task stays held until the orchestrator records your answer: on its next prompt it sees `## 网页已答`, and the line after each reply reads `待决 1 件，网页已答 1 件`.
 4. **Note something in the 收件箱.** Type an idea under 收件箱 and keep it. The orchestrator sees it as `## 收件箱` and makes it a task, runs it, or drops it; a task made from it shows its key there.
