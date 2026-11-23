@@ -113,10 +113,10 @@ _Avoid_: deleted, abandoned.
 _Current identifiers_: `tasks.status` = `cancelled`; CLI `close --cancelled`.
 
 **Session**(窗口)
-The Claude Code or Codex session working on a task, identified from `CLAUDE_CODE_SESSION_ID`, then `NAWABAN_OWNER`.
-窗口是正在做这个任务的 Claude Code 或 Codex 会话，身份依次取 `CLAUDE_CODE_SESSION_ID`、`NAWABAN_OWNER`。
+The Claude Code or Codex session working on a task, identified from `CODEX_THREAD_ID` (as `cx-<first 8>`), then `CLAUDE_CODE_SESSION_ID` (as `cc-<first 8>`), then `NAWABAN_OWNER`. Codex comes first because a Codex session started from Claude Code inherits its `CLAUDE_CODE_SESSION_ID`.
+窗口是正在做这个任务的 Claude Code 或 Codex 会话，身份依次取 `CODEX_THREAD_ID`（记作 `cx-<前 8 位>`）、`CLAUDE_CODE_SESSION_ID`（记作 `cc-<前 8 位>`）、`NAWABAN_OWNER`。Codex 排在前面，因为从 Claude Code 里启动的 Codex 会继承它的 `CLAUDE_CODE_SESSION_ID`。
 _Avoid_: owner, worker, agent as the holder field.
-_Current identifiers_: `tasks.session`; `CLAUDE_CODE_SESSION_ID`; `NAWABAN_OWNER`.
+_Current identifiers_: `tasks.session`; `CODEX_THREAD_ID`; `CLAUDE_CODE_SESSION_ID`; `NAWABAN_OWNER`; `profile()` in `board/src/tasks.ts`.
 
 **Claim**(认领)
 Setting a task's session. A claim on a task another session holds fails and names the holder, unless it is a takeover; releasing returns the task to the frontier. Inside Herdr a claim also records the terminal it ran in.
