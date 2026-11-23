@@ -43,8 +43,8 @@ def _issue(n, comments, assigned=True):
 
 
 def test_killing_a_worker_whose_issue_is_still_assigned_is_refused_naming_the_issue_and_both_ways_out(tmp_path):
-    for cmd in ("hc kill t9", "hc kill w-1568", "cd x && hc kill --json t9", "hc rm t9"):
-        r = _run(tmp_path / cmd.replace(" ", "_").replace("&", ""), cmd, [_issue(1568, [DISPATCHED_TO_T9])])
+    for i, cmd in enumerate(("hc kill t9", "hc kill w-1568", "cd x && hc kill --json t9", "hc rm t9", "if true; then hc kill t9; fi")):
+        r = _run(tmp_path / str(i), cmd, [_issue(1568, [DISPATCHED_TO_T9])])
         assert r.returncode == 2 and "#1568" in r.stderr and "close <ID> --done" in r.stderr and "--release" in r.stderr, cmd
 
 
@@ -70,6 +70,6 @@ def test_github_down_lets_the_kill_through_with_a_visible_warning(tmp_path):
 
 
 def test_commands_that_retire_nothing_pass(tmp_path):
-    for cmd in ('echo "hc kill t9"', "hc ls --json", "hc kill $T", "hc send t9 'hc kill t9 later'"):
+    for cmd in ('echo "hc kill t9"', 'echo "done; hc kill t9"', "hc ls --json", "hc kill $T", "hc send t9 'hc kill t9 later'"):
         r = _run(tmp_path / str(abs(hash(cmd))), cmd, [_issue(1, [DISPATCHED_TO_T9])])
         assert r.returncode == 0 and r.stdout == "", cmd

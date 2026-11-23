@@ -1372,24 +1372,39 @@ def _record_dispatch_on_the_ticket(root: Path, a, con, n: str | None, name: str,
 
 RETIRE_GH_TIMEOUT_SECONDS = 8
 RETIRE_BOARD_TIMEOUT_SECONDS = 10
-_HC_RETIRE = re.compile(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*hc\s+(?:kill|rm)\b([^;&|\n)]*)", re.M)
+RETIRE_CHECKS_START_WITHIN_SECONDS = 15
+_COMMAND_SEPARATORS = ";&|()<>\n"
+_ASSIGNMENT = re.compile(r"\w+=")
+_WORDS_BEFORE_A_COMMAND = {"then", "do", "else", "elif", "if", "while", "until", "!", "time", "exec", "command", "{"}
 _DISPATCHED_TO = re.compile(r"派给 hc (\S+?)（")
 
 
 def retiring_terminals(command: str) -> list[str]:
-    named = []
-    for m in _HC_RETIRE.finditer(command):
-        try:
-            words = shlex.split(m.group(1))
-        except ValueError:
-            continue
-        named += [w for w in words if not w.startswith("-") and not re.search(r"[$`*]", w)]
+    lex = shlex.shlex(command.replace("\\\n", " "), posix=True, punctuation_chars=_COMMAND_SEPARATORS)
+    lex.whitespace, lex.whitespace_split = " \t\r", True
+    try:
+        tokens = list(lex)
+    except ValueError:
+        return []
+    named, start = [], 0
+    for i, tok in enumerate(tokens + [";"]):
+        if set(tok) <= set(_COMMAND_SEPARATORS):
+            words = tokens[start:i]
+            while words and (_ASSIGNMENT.match(words[0]) or words[0] in _WORDS_BEFORE_A_COMMAND):
+                words.pop(0)
+            if words[:1] == ["hc"] and words[1:2] in (["kill"], ["rm"]):
+                named += [w for w in words[2:] if not w.startswith("-") and not re.search(r"[$`*]", w)]
+            start = i + 1
     return named
 
 
 def retire_refusal(command: str, cwd: Path) -> tuple[str | None, str | None]:
     held, unread = [], []
+    started = time.monotonic()
     for t in retiring_terminals(command):
+        if time.monotonic() - started > RETIRE_CHECKS_START_WITHIN_SECONDS:
+            unread.append(f"{t}:来不及查")
+            continue
         term = _terminal_or_none(t)
         if not term:
             continue
@@ -1423,7 +1438,7 @@ def _tickets_held_from(addr: str, where: Path) -> list[str]:
 
 def _issues_held_from(root: Path, addr: str) -> list[str]:
     import json
-    r = _run_gh(root, "issue", "list", "--state", "open", "--search", f"{addr} in:comments", "--limit", "50",
+    r = _run_gh(root, "issue", "list", "--state", "open", "--search", f"{addr} in:comments", "--limit", GH_ISSUE_LIST_LIMIT,
                 "--json", "number,assignees,comments", timeout=RETIRE_GH_TIMEOUT_SECONDS)
     if r.returncode != 0:
         raise Refused(f"gh 失败:{r.stderr.strip()}")
