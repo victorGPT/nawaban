@@ -63,9 +63,18 @@ let hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
 const here = { spaces: () => [{ id: "here", active: true, name: "nawaban", folder: "/x" }], focused: () => ({ space: "here", cwd: "/x" }) };
 let where = here;
 
+let captureInput = null;
+const inputState = () => {
+  const handlers = {};
+  let value = "";
+  captureInput = { on: (event, h) => { handlers[event] = h; return true; }, fire: (event, cx) => handlers[event]({}, cx),
+    value: () => value, set_value: (next) => { value = next; }, type: (next) => { value = next; } };
+  return captureInput;
+};
+
 const stubs = {
   "gpui-kit": { View: class {}, div: make("div"), svg: make("svg") },
-  "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el },
+  "gpui-base": { v_flex: make("v_flex"), h_flex: make("h_flex"), Popover: el, HoverCard: el, InputState: { new: inputState }, Input: { new: () => el } },
   herdr: { spaces: () => where.spaces(), focused: () => where.focused(),
     agents: () => agents, terminals: () => terminals, home: () => "/h",
     run: (...a) => runImpl(...a), exec: (...a) => execImpl(...a), hc: (...a) => hcImpl(...a), checking: () => false, nextCommand: () => new Promise(() => {}), watchFolder: () => new Promise(() => {}), props: () => null, closeOverlay: () => null },
@@ -150,7 +159,7 @@ test("任务 opens 停滞 and 进行中, folds 待办 and 已完成; Enter or a 
   stored.clear();
 });
 
-test("three text tabs carry their badges; ← → and 1 2 3 switch them; the first time it opens on 待决 if something waits, else OKR", () => {
+test("four text tabs carry their badges; ← → and 1 2 3 4 switch them; the first time it opens on 待决 if something waits, else OKR", () => {
   stored.clear();
   const cx = cxOf(true);
   const view = drawn({ okr: okrFixture }, cx);
@@ -161,7 +170,8 @@ test("three text tabs carry their badges; ← → and 1 2 3 switch them; the fir
   view.onKey({ keystroke: "right" }, cx);
   view.onKey({ keystroke: "right" }, cx);
   view.render(cx);
-  assert.equal(view.tab, "tasks");
+  assert.equal(view.tab, "capture");
+  view.onKey({ keystroke: "left" }, cx);
   view.onKey({ keystroke: "left" }, cx);
   view.render(cx);
   assert.equal(view.tab, "okr");
@@ -740,4 +750,68 @@ test("a KR's bar fills by value against target, the other way round when lower i
   assert.equal(krFill(kr("3", "上线")), null);
   assert.equal(krFill(kr("1", "完成 2 项验收后上线")), null);
   assert.equal(krFill(kr("-2", "≥ 0")), 0);
+});
+
+test("收件箱 keeps what is typed on Enter per project, hands it to this repo's orchestrator, sinks it as 已交 into a folded group, and keeps it on a failed send", async () => {
+  inChinese();
+  clicks.clear();
+  const sends = [], realTerminals = terminals;
+  try {
+    const cx = runningSpawns;
+    const view = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
+    view.pickTab("capture");
+    captureInput.type("  \n ");
+    captureInput.fire("submit", cx);
+    assert.equal(stored.get("capture:nawaban"), undefined);
+    captureInput.type("  改一下 hook  ");
+    captureInput.fire("submit", cx);
+    assert.equal(captureInput.value(), "");
+    const [item] = JSON.parse(stored.get("capture:nawaban"));
+    assert.equal(item.text, "改一下 hook");
+    texts.length = 0;
+    view.render(cx);
+    assert.equal(after("收件箱", "1", "改一下 hook", "没有编排者", "交给编排者", "删除"), true);
+    assert.ok(!clicks.has("nawaban-capture-hand-" + item.id), "no orchestrator, no hand-over");
+    captureInput.fire("focus", cx);
+    view.onKey({ keystroke: "1" }, cx);
+    assert.equal(view.tab, "capture", "typing in the box never switches tabs");
+    captureInput.fire("blur", cx);
+    terminals = [...realTerminals, orchestrator];
+    hcImpl = async () => ({ code: 1, stdout: "", stderr: "no such terminal" });
+    view.render(cx);
+    clicks.get("nawaban-capture-hand-" + item.id)({}, cx);
+    await settle();
+    texts.length = 0;
+    view.render(cx);
+    assert.ok(texts.includes(WINDOW_WORDS.zh.cards.failed("no such terminal")) && texts.includes("改一下 hook") && texts.includes("交给编排者"));
+    let answer;
+    hcImpl = (args) => { sends.push(args); return new Promise((r) => { answer = r; }); };
+    const other = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
+    clicks.get("nawaban-capture-hand-" + item.id)({}, cx);
+    other.handCapture(item, "t0", cx);
+    view.render(cx);
+    assert.equal(sends.length, 1, "one hand-over at a time across panels");
+    answer({ code: 0, stdout: "", stderr: "" });
+    await settle();
+    other.handCapture(item, "t0", cx);
+    await settle();
+    assert.deepEqual(sends, [["send", "t0", "[决策者经面板] 收件箱：改一下 hook。请转成任务或命令，回我结果"]]);
+    const reopened = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
+    assert.equal(reopened.tab, "capture");
+    assert.ok(texts.includes("▸ 已交 1") && !texts.includes("改一下 hook") && !texts.includes(WINDOW_WORDS.zh.cards.failed("no such terminal")));
+    clicks.get("nawaban-group:captureHanded")({}, cx);
+    texts.length = 0;
+    reopened.render(cx);
+    assert.ok(texts.includes("改一下 hook") && texts.some((t) => /^已交 \d\d-\d\d \d\d:\d\d$/.test(t)));
+    clicks.get("nawaban-capture-remove-" + item.id)({}, cx);
+    assert.deepEqual(JSON.parse(stored.get("capture:nawaban")), []);
+    stored.set("capture:other", "{broken");
+    texts.length = 0;
+    drawn({ board: cardsBoard, project: "other", pickedTabs: { other: "capture" } }, cx);
+    assert.ok(texts.includes(WINDOW_WORDS.zh.capture.empty));
+  } finally {
+    terminals = realTerminals;
+    hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
+    stored.clear();
+  }
 });

@@ -1,4 +1,4 @@
-"""NAWABAN-INBOX-01: the Stop hook's 收件箱 line in the orchestrator's terminal."""
+"""NAWABAN-INBOX-01: the Stop hook's 待决提示行 in the orchestrator's terminal."""
 
 import json, os, subprocess, time
 from pathlib import Path

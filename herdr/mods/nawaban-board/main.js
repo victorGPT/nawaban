@@ -1,10 +1,11 @@
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, Popover, HoverCard } from "gpui-base";
+import { v_flex, h_flex, Popover, HoverCard, InputState, Input } from "gpui-base";
 import { spaces, focused, agents, terminals, run, exec, hc, checking, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
 import { projectFor, repoName, cliFor, resolveLang, moveSelection, keyCommand, boardChanged, okrChanged, folderOf, canGo, panelView,
   sinceLabel, isoMonthDay, WINDOW_WORDS, okrView, OKR_WORDS, OKR_FOLDER_IN_REPO, okrReadingOfFailure, hasNoObjective,
   taskSections, panelKeys, groupOfKey, foldKey, isGroupOpen, moreKey, groupOfMoreKey, decisionCardsView, repoRootOf, TO_ORCHESTRATOR,
-  marksStillToKeep, TABS, openingTab, tabBadges } from "./logic.js";
+  marksStillToKeep, TABS, openingTab, tabBadges, orchestratorOf, CAPTURE_FOLD, captureStoreKey, capturesFrom, addCapture, removeCapture,
+  markHanded, captureView, unhandedCount, localMonthDayTime } from "./logic.js";
 
 const UNWATCHED_BOARD_REREAD_MS = 5000;
 const WATCHED_BOARD_MISSED_CHANGE_REREAD_MS = 60000;
@@ -128,6 +129,9 @@ export const krFill = (k) => {
   return Math.min(1, Math.max(0, fill));
 };
 
+const capturesInFlight = new Set();
+const inFlightKey = (project, id) => captureStoreKey(project) + ":" + id;
+
 const windowStatesOf = (windows) => windows.map((a) => a.address + ":" + a.status).join(",");
 const oneLine = (text) => String(text ?? "").replace(/\s+/g, " ").trim();
 
@@ -158,12 +162,51 @@ export default class NawabanBoard extends View {
     this.selectedKey = null;
     this.lang = readSavedLang();
     if (this.lang !== "zh" && this.lang !== "en") this.followSystemLanguage(cx);
+    this.listenToCaptureInput();
     this.keyboard = cx.focus_handle();
     this.refresh(cx);
     this.obeyCommands(cx);
     cx.timer.every(UNWATCHED_BOARD_REREAD_MS, (cx) => {
       if (this.watchKeepsBoardFresh()) return;
       this.refresh(cx);
+    });
+  }
+
+  listenToCaptureInput() {
+    this.captureFailed = {};
+    this.captureInput = InputState.new({ placeholder: WINDOW_WORDS[this.lang].capture.placeholder });
+    this.captureInput.on("submit", (_e, cx) => { this.keepCapture(); cx.notify(); });
+    this.captureInput.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
+    this.captureInput.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
+  }
+
+  captures(project) {
+    return capturesFrom(readStored(captureStoreKey(project), []));
+  }
+
+  changeCaptures(project, change) {
+    store(captureStoreKey(project), change(this.captures(project)));
+  }
+
+  keepCapture() {
+    const text = this.captureInput.value();
+    if (!text.trim()) return;
+    this.changeCaptures(this.projectKey(), (list) => addCapture(list, text, Date.now()));
+    this.captureInput.set_value("");
+  }
+
+  handCapture(item, orchestrator, cx) {
+    const project = this.projectKey(), id = item.id, flight = inFlightKey(project, id);
+    const stillUnhanded = this.captures(project).some((x) => x.id === id && !Number.isFinite(x.handedAt));
+    if (capturesInFlight.has(flight) || !stillUnhanded) return;
+    capturesInFlight.add(flight);
+    this.captureFailed = { ...this.captureFailed, [id]: null };
+    cx.spawn(async (cx) => {
+      const failed = await say(orchestrator, TO_ORCHESTRATOR.capture(item.text));
+      if (!failed) this.changeCaptures(project, (list) => markHanded(list, id, Date.now()));
+      capturesInFlight.delete(flight);
+      this.captureFailed = { ...this.captureFailed, [id]: failed };
+      cx.notify();
     });
   }
 
@@ -390,9 +433,10 @@ export default class NawabanBoard extends View {
     this.openCard = this.openCard === key ? null : key;
   }
 
-  rememberSelectable(tab, decisions, objectives, sections, tasks) {
+  rememberSelectable(tab, decisions, objectives, sections, tasks, captureKeys) {
     const on = (t, keys) => (tab === t ? keys : []);
-    this.keys = panelKeys(on("decide", decisions.map((r) => r.key)), on("okr", objectives.flatMap((x) => x.keys)), on("tasks", sections));
+    this.keys = [...panelKeys(on("decide", decisions.map((r) => r.key)), on("okr", objectives.flatMap((x) => x.keys)), on("tasks", sections)),
+      ...on("capture", captureKeys)];
     this.selectableByKey = new Map([...decisions, ...objectives.flatMap((x) => [...x.krs, ...x.untested, ...x.met]), ...tasks].map((r) => [r.key, r]));
   }
 
@@ -426,13 +470,15 @@ export default class NawabanBoard extends View {
     const objectives = this.objectiveRows(okr, project, o);
     const sections = taskSections(v.tasks, { folds: this.folds, project, shownAll: this.shownAll })
       .map((s) => ({ ...s, rows: s.items.map((x) => this.taskRow(x, s.group, now, w)) }));
+    const captured = this.captures(project), captures = captureView(captured);
+    const handedRow = "group:" + CAPTURE_FOLD;
     const tab = this.tab = openingTab(this.pickedTabs[project], decisions.length);
-    this.rememberSelectable(tab, decisions, objectives, sections, sections.flatMap((s) => s.rows));
+    this.rememberSelectable(tab, decisions, objectives, sections, sections.flatMap((s) => s.rows), captures.handed.length ? [handedRow] : []);
     if (!this.keys.includes(this.selectedKey)) this.selectedKey = null;
     const keyboard = this.keyboard.is_focused();
     const note = this.statusNote(v, mine, w);
     const badges = tabBadges({ pending: decisions.length, okr,
-      openTasks: v.tasks.filter((g) => g.group !== "done").reduce((n, g) => n + g.items.length, 0) });
+      openTasks: v.tasks.filter((g) => g.group !== "done").reduce((n, g) => n + g.items.length, 0), unhanded: unhandedCount(captured) });
 
     return v_flex().id("nawaban-board").size_full().min_h(0).rounded(RADIUS.card).overflow_hidden()
       .bg(INK.canvas).border_1().border_color(INK.border).text_color(INK.foreground).text_size(TYPE.body)
@@ -447,10 +493,38 @@ export default class NawabanBoard extends View {
             ...(decisions.length || incomplete || !this.board ? [] : [this.quietLine(w.nothingToDecide)])])))
         .when(tab === "okr" && Boolean(okr), (el) => el.child(this.okrSection(okr, objectives, keyboard, o)))
         .when(tab === "okr" && hasNoObjective(this.okr), (el) => el.child(this.quietLine(o.noObjective)))
-        .when(tab === "tasks", (el) => el.children(sections.map((s) => this.taskSection(s, keyboard, w)))));
+        .when(tab === "tasks", (el) => el.children(sections.map((s) => this.taskSection(s, keyboard, w))))
+        .when(tab === "capture", (el) => el.child(this.captureSection(captures, handedRow, orchestratorOf(terminals(), this.repo)?.address ?? null, w))));
+  }
+
+  captureSection(captures, handedRow, orchestrator, w) {
+    const handedOpen = isGroupOpen(this.folds, this.projectKey(), CAPTURE_FOLD);
+    const nothing = !captures.open.length && !captures.handed.length;
+    return this.section(null, [
+      Input.new(this.captureInput).flex_none().h(ROW_H).px(SPACE.m).rounded(RADIUS.control).border_1()
+        .border_color(this.typing ? INK.cardSelectedEdge : INK.control).bg(INK.card).text_size(TYPE.body).text_color(INK.foreground),
+      ...(nothing ? [this.quietLine(w.capture.empty)] : []),
+      ...captures.open.map((x) => this.captureCard(x, orchestrator, w, false)),
+      ...(captures.handed.length ? [this.fold(handedRow, handedOpen, w.capture.handedGroup(captures.handed.length))] : []),
+      ...(handedOpen ? captures.handed.map((x) => this.captureCard(x, orchestrator, w, true)) : [])]);
+  }
+
+  captureCard(x, orchestrator, w, handed) {
+    const cw = w.capture, sending = capturesInFlight.has(inFlightKey(this.projectKey(), x.id)), failed = this.captureFailed[x.id];
+    const id = (what) => "nawaban-capture-" + what + "-" + x.id;
+    return this.card().id(id("card")).p(CARD_PAD).gap(SPACE.s)
+      .child(div().text_size(TYPE.body).text_color(handed ? INK.dim : INK.title).whitespace_normal().child(x.text))
+      .child(div().text_size(TYPE.meta).text_color(INK.dim).child(handed ? cw.handed(localMonthDayTime(x.handedAt)) : localMonthDayTime(x.at)))
+      .when(!handed && !orchestrator, (el) => el.child(div().text_size(TYPE.meta).text_color(INK.amberText).child(cw.noOrchestrator)))
+      .when(!handed && Boolean(failed), (el) => el.child(div().text_size(TYPE.meta).text_color(INK.red).whitespace_normal().child(w.cards.failed(failed))))
+      .child(h_flex().pt(SPACE.xs).gap(SPACE.m).items_center()
+        .when(!handed, (el) => el.child(this.button(id("hand"), sending ? w.cards.sending : cw.hand, true, !orchestrator || sending,
+          (cx) => this.handCapture(x, orchestrator, cx))))
+        .child(this.button(id("remove"), cw.remove, false, sending, () => this.changeCaptures(this.projectKey(), (list) => removeCapture(list, x.id)))));
   }
 
   onKey(e, cx) {
+    if (this.typing) return;
     const cmd = keyCommand(e);
     if (!cmd) return;
     this.act(cmd);
@@ -685,7 +759,7 @@ export default class NawabanBoard extends View {
       .when(on, (el) => el.bg(INK.segment).text_color(INK.foreground).font_semibold())
       .when(!on, (el) => el.text_color(INK.meta).hover((s) => s.text_color(INK.foreground)))
       .on_click((_e, cx) => { this.pickTab(t); cx.notify(); })
-      .child(w.tabs[t])
+      .child(div().min_w(0).truncate().child(w.tabs[t]))
       .when(Boolean(badge), (el) => el.child(div().flex_none().text_size(TYPE.meta).text_color(BADGE_COLOR[badge.tone]).child(badge.text)));
   }
 
