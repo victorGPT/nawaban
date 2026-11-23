@@ -103,18 +103,19 @@ function App() {
   void onEachChange(() => setChanges((n) => n + 1))
 
   let reads = 0
-  let okrWanted: string | null = null
-  let okrFlight: { of: string; read: ReturnType<typeof readOkr> } | null = null
+  type OkrFlight = { of: string; read: ReturnType<typeof readOkr> }
+  let okrFlight: OkrFlight | null = null
+  let okrShown: OkrFlight | null = null
   const readOkr = (name: string) =>
     read(`okr?project=${encodeURIComponent(name)}`).then(
       (x) => [x, ''] as const,
       (e: Error) => [okrReadingOfFailure(e), okrReadingOfFailure(e) ? '' : e.message] as const,
     )
   const okrReadSharedWhileInFlight = (name: string) => {
-    if (okrFlight?.of === name) return okrFlight.read
-    const flight = { of: name, read: readOkr(name).finally(() => okrFlight === flight && (okrFlight = null)) }
+    if (okrFlight?.of === name) return okrFlight
+    const flight: OkrFlight = { of: name, read: readOkr(name).finally(() => okrFlight === flight && (okrFlight = null)) }
     okrFlight = flight
-    return flight.read
+    return flight
   }
   async function load(r: Route, want: string | null) {
     const mine = ++reads
@@ -122,8 +123,8 @@ function App() {
       const list = (await read<{ projects: Project[] }>('projects')).projects
       const project = projectShown(list, want)
       if (project && r.tab === 'okr' && mine === reads) {
-        okrWanted = project
-        void okrReadSharedWhileInFlight(project).then((o) => okrWanted === project && setOkr({ of: project, reading: o[0], error: o[1] }))
+        const flight = (okrShown = okrReadSharedWhileInFlight(project))
+        void flight.read.then((o) => okrShown === flight && setOkr({ of: project, reading: o[0], error: o[1] }))
       }
       const [b, d] = await Promise.all([
         project ? read<Board>(`board?project=${encodeURIComponent(project)}`) : null,
