@@ -64,5 +64,6 @@ The board token stays in the process. `/api/nawaban/*` answers only:
 
 - UI SDK is beta and ships almost daily. Both packages are pinned exactly and move together on purpose; a breaking beta is a pin we don't take yet.
 - The page needs Node and pnpm at install to build, the same as the board.
-- `web/` has its own `package.json` and lockfile, checked in CI by `pnpm check` (typecheck and build).
+- `web/` has its own `package.json` and lockfile, checked in CI by `pnpm check` (typecheck, vitest and build).
+- The page imports the Herdr panel's `logic.js` for what both draw alike (a task group's fold and its 3-row cap, time labels, words), so the two can't drift. Without Herdr's window states, a held task reads 停滞 when it is asking, or quiet for 24 hours (the orchestrator's `STALLED_AFTER_QUIET_FOR`).
 - Until NAWABAN-WEB-04 lands, the hook does not tell the orchestrator about page answers, so the page shows no write controls.
