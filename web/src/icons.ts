@@ -10,6 +10,7 @@ export const ICONS = {
   ChevronDown: '<path d="m6 9 6 6 6-6" />',
   ChevronLeft: '<path d="m15 18-6-6 6-6" />',
   ChevronsUpDown: '<path d="m7 15 5 5 5-5" /><path d="m7 9 5-5 5 5" />',
+  List: '<path d="M3 12h.01" /><path d="M3 18h.01" /><path d="M3 6h.01" /><path d="M8 12h13" /><path d="M8 18h13" /><path d="M8 6h13" />',
   SquareKanban: '<rect width="18" height="18" x="3" y="3" rx="2" /><path d="M8 7v7" /><path d="M12 7v4" /><path d="M16 7v9" />',
 }
 

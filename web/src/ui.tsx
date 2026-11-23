@@ -63,6 +63,8 @@ export const input =
 export const selectTrigger =
   'flex h-8 w-full appearance-none items-center rounded-lg border border-input bg-transparent py-0 pr-8 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50'
 
+export const chip = 'inline-flex h-7.5 w-fit shrink-0 items-center gap-1.5 rounded-full bg-card px-2.5 text-sm text-foreground tabular-nums ring-1 ring-border'
+
 export const sectionHead = 'flex h-8 items-center gap-2 px-4 text-sm'
 
 export const empty = 'px-4 py-2 text-sm text-muted-foreground'
