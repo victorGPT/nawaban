@@ -10,7 +10,7 @@ nawaban has three parts:
 - **Skill** (`skills/nawaban/`): one instruction file that tells an agent how to publish a spec and its tasks, find the tasks ready to start, claim one, record notes, decisions and links, and close it.
 - **Herdr panel** (`herdr/mods/nawaban-board/`): a read-only view of the board in the [Herdr](https://herdr.dev) app.
 
-The checkout installs as a Claude Code plugin or a Codex plugin. It ships the one skill and registers no hooks.
+The checkout installs as a Claude Code plugin or a Codex plugin. It ships the `nawaban` and `orchestrator` skills, and `hooks/hooks.json` registers SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop hooks for the orchestrator. Codex runs them only after you trust them in `/hooks`.
 
 ## See it in Herdr
 

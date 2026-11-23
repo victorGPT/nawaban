@@ -48,6 +48,12 @@ EOF
   chmod 755 "$bin_dir/nawaban"
 }
 
+open_the_codex_sandbox_to_the_board() {
+  command -v codex >/dev/null || return 0
+  say "让 Codex 的 workspace-write 沙箱能连本机看板、写认领租约"
+  node "$plugin/board/src/codex.ts"
+}
+
 write_the_launch_agent() {
   mkdir -p "$board_dir" "$(dirname "$agent")"
   chmod 700 "$board_dir"
@@ -101,6 +107,7 @@ require_prerequisites
 install_dependencies_and_build_the_page
 install_the_claude_code_plugin
 write_the_nawaban_command
+open_the_codex_sandbox_to_the_board
 start_the_board_service
 
 echo
