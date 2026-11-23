@@ -108,6 +108,15 @@ it('prints the index off the board when an orchestrator window starts, and nothi
   expect((await hook('leader-index.sh', '', { ROLE: 'worker' })).out).toBe('')
 })
 
+it('reads the index of the repository the session is in, not of the folder Claude Code was launched from', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const launchedInHomeNotTheRepository = { CLAUDE_PROJECT_DIR: tmp }
+  const start = await hook('leader-index.sh', { session_id: SESSION, cwd: join(repo, 'docs') }, launchedInHomeNotTheRepository)
+  expect(start.out).toContain('proj 进行中的事')
+  expect(start.out).toContain('规矩正文')
+  const declared = await hook('orchestrator-declare.sh', { session_id: SESSION, cwd: repo, prompt: '/nawaban:orchestrator' }, launchedInHomeNotTheRepository)
+  expect(declared.out).toContain('proj 进行中的事')
+})
+
 async function dengniOfAnotherProjectNotThisRepositorys() {
   await nawaban('create', 'O1', '--title', '别的项目', '--project', 'other')
   await nawaban('claim', 'O1')

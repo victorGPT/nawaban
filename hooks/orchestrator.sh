@@ -4,6 +4,12 @@ session_of() {
   printf '%s' "$1" | sed -n 's/.*"session_id" *: *"\([^"]*\)".*/\1/p' | head -n 1
 }
 
+repository_the_session_is_in() {
+  session_dir=$(printf '%s' "$1" | sed -n 's/.*"cwd" *: *"\([^"]*\)".*/\1/p' | head -n 1)
+  session_dir=${session_dir:-${CLAUDE_PROJECT_DIR:-.}}
+  git -C "$session_dir" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$session_dir"
+}
+
 declared_session_file() {
   printf '%s/orchestrator/%s' "$board_dir" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_')"
 }

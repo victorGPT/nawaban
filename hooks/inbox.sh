@@ -3,12 +3,7 @@ input=$(cat)
 hooks="$(cd "$(dirname "$0")" && pwd)"
 . "$hooks/orchestrator.sh"
 
-session_cwd() {
-  cwd=$(printf '%s' "$input" | sed -n 's/.*"cwd" *: *"\([^"]*\)".*/\1/p' | head -n 1)
-  printf '%s' "${cwd:-.}"
-}
-
-route=$(node "$hooks/route.mjs" "$(session_cwd)" 2>/dev/null)
+route=$(node "$hooks/route.mjs" "$(repository_the_session_is_in "$input")" 2>/dev/null)
 tracker=${route%% *}
 project=${route#* }
 
