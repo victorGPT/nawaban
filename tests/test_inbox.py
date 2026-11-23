@@ -94,7 +94,7 @@ def test_an_ask_rewrites_the_cache_before_the_turn_ends(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "gh_write", lambda root, a: "✓ event")
     monkeypatch.setattr(cli, "github_board_data", lambda root: data)
     assert cli.main(["event", "#7", "--kind", "ask", "--body", "定 A", "--kr", "K", "--context", "c",
-                     "--option", "A", "--option", "B", "--rec", "A"]) == 0
+                     "--option", "A｜快", "--option", "B｜稳", "--rec", "A"]) == 0
     assert cli.inbox_line(cli.resolve_db(None), "s").startswith("待你决定 1 件：#7 要你定")
 
 

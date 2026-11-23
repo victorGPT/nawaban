@@ -2,6 +2,7 @@ import { realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { board, BoardEventView, MessageView } from '@vercel/board'
+import { gapsOfADecisionCard, type DecisionCard } from './schemas.ts'
 import { Refused } from './tasks.ts'
 
 type Team = ReturnType<typeof board>
@@ -65,6 +66,17 @@ async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: Message
   }
 }
 
+function completeCardElseNull(ask: DecisionCard | undefined) {
+  if (!ask || gapsOfADecisionCard(ask).length) return null
+  return {
+    decision: String(ask.decision),
+    kr: String(ask.kr),
+    context: String(ask.context),
+    options: ask.options!.map((o, i) => ({ key: `第 ${i + 1} 项`, text: String(o.choice), note: [o.tradeoff, o.door].filter(Boolean).join('｜') })),
+    rec: String(ask.recommendation),
+  }
+}
+
 const orchestratorAsTheGlossaryDefinesIt = (latestDispatch: Reply | undefined, holder: string | null, lastClaimer: string | null) =>
   latestDispatch?.by ?? holder ?? lastClaimer
 
@@ -112,6 +124,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
             brief: String(card ? data(card.message, 'nawaban-ask')!.decision : t.blocked.reason),
             at: card?.at ?? h.active,
             progress: notes.slice(-NOTES_CARRIED_BY_A_PENDING_DECISION).map(progress),
+            card: completeCardElseNull(card && data(card.message, 'nawaban-ask')),
           }
         : null,
   }

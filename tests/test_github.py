@@ -272,21 +272,35 @@ def test_a_进展_posted_the_same_second_as_the_pending_decision_still_counts(bo
 
 
 CARD = "\n".join(["待决：【Decision】sourcemap 传不传", "【Objective / KR】无", "【Context】前端只有压缩堆栈",
-                  "【Options】", "- A：传｜可撤回", "- B：不传", "【Recommendation】A：好查"])
+                  "【Options】", "- A：传｜可撤回", "- B：不传｜省事", "【Recommendation】A：好查"])
 
 
 def test_a_full_decision_card_comes_apart_into_its_fields_and_lettered_options(board, monkeypatch, capsys):
     out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", CARD)])])
     assert out["tasks"]["#1"]["pending"]["card"] == {
         "decision": "sourcemap 传不传", "kr": "无", "context": "前端只有压缩堆栈", "rec": "A：好查",
-        "options": [{"key": "A", "text": "传", "note": "可撤回"}, {"key": "B", "text": "不传", "note": ""}]}
+        "options": [{"key": "A", "text": "传", "note": "可撤回"}, {"key": "B", "text": "不传", "note": "省事"}]}
 
 
-@pytest.mark.parametrize("brief", [CARD.replace("【Context】前端只有压缩堆栈\n", ""), CARD.replace("\n- B：不传", ""),
-                                   "待决：定 A 还是 B\n【推荐】A"])
+@pytest.mark.parametrize("brief", [CARD.replace("【Context】前端只有压缩堆栈\n", ""), CARD.replace("\n- B：不传｜省事", ""),
+                                   "待决：定 A 还是 B\n【推荐】A",
+                                   CARD.replace("【Decision】sourcemap 传不传", "【Decision】"),
+                                   CARD.replace("【Objective / KR】无", "【Objective / KR】 "),
+                                   CARD.replace("【Recommendation】A：好查", "【Recommendation】"),
+                                   CARD.replace("- B：不传｜省事", "- B：不传"), CARD.replace("- B：不传｜省事", "- B：不传｜ "),
+                                   CARD.replace("- B：不传｜省事", "- B：｜省事"),
+                                   CARD.replace("【Decision】sourcemap 传不传", "【Decision】无"),
+                                   CARD.replace("【Context】前端只有压缩堆栈", "【Context】 None "),
+                                   CARD.replace("【Recommendation】A：好查", "【Recommendation】-")])
 def test_a_card_missing_a_field_or_a_second_option_is_no_card(board, monkeypatch, capsys, brief):
     out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", brief)])])
     assert out["tasks"]["#1"]["pending"]["card"] is None
+
+
+def test_a_field_running_over_several_lines_keeps_every_line(board, monkeypatch, capsys):
+    brief = CARD.replace("【Context】前端只有压缩堆栈", "【Context】前端只有压缩堆栈\n线上报错查不到源码行")
+    out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", brief)])])
+    assert out["tasks"]["#1"]["pending"]["card"]["context"] == "前端只有压缩堆栈\n线上报错查不到源码行"
 
 
 def test_unlettered_options_are_named_by_their_place(board, monkeypatch, capsys):
@@ -298,7 +312,7 @@ def test_unlettered_options_are_named_by_their_place(board, monkeypatch, capsys)
 @pytest.mark.parametrize("option, talk", [("- B：先去 t1d2 窗口盘问", {"window": "t1d2"}),
                                           ("- B：细节到窗口盘问", {"window": None}), ("- B：不传", None)])
 def test_a_card_that_sends_you_to_a_window_is_a_talk(board, monkeypatch, capsys, option, talk):
-    brief = CARD.replace("- B：不传", option)
+    brief = CARD.replace("- B：不传｜省事", option)
     out = _board(monkeypatch, capsys, [_issue(1, comments=[("2026-11-07T01:00:00Z", brief)])])
     assert out["tasks"]["#1"]["pending"]["talk"] == talk
 

@@ -115,6 +115,23 @@ it('refuses a card without --rec, and writes nothing', async () => {
   expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', blocked: null, replies: [] })
 })
 
+it.each([
+  ['--body', '无', 'decision'],
+  ['--context', ' none ', 'context'],
+  ['--rec', '-', 'recommendation'],
+  ['--kr', ' ', 'kr'],
+  ['--option', 'wait｜ ｜two-way', "option 2's trade-off"],
+  ['--option', ' ｜safe｜two-way', "option 2's choice"],
+])('refuses a card whose %s says nothing (%j), naming it, and writes nothing', async (flag, value, named) => {
+  const id = await newTask()
+  const card = [...CARD, '--rec', 'ship']
+  card[card.lastIndexOf(flag) + 1] = value
+  const ask = await nawaban('event', id, '--kind', 'ask', ...card)
+  expect(ask.code).toBe(1)
+  expect(ask.err).toContain(named)
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', blocked: null, replies: [] })
+})
+
 it('refuses a card whose option names no door', async () => {
   const id = await newTask()
   const ask = await nawaban('event', id, '--kind', 'ask', ...CARD.slice(0, -1), 'wait｜safe', '--rec', 'ship')

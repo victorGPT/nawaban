@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util'
 import { BoardError, block, type board } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
-import { SCHEMAS, type SchemaId } from './schemas.ts'
+import { gapsOfADecisionCard, SCHEMAS, type SchemaId } from './schemas.ts'
 import { IMPACT_FORMAT } from './impact.ts'
 import { Refused, resolve } from './tasks.ts'
 
@@ -168,13 +168,10 @@ async function link(e: Event): Promise<number> {
 
 async function ask(e: Event): Promise<number> {
   const { a } = e
-  const card = checkedBeforeAnythingLands('nawaban-ask@1', {
-    decision: a.body,
-    kr: e.kr,
-    context: a.context,
-    options: (a.option ?? []).map(cardOption),
-    recommendation: a.rec,
-  })
+  const value = { decision: a.body, kr: e.kr, context: a.context, options: (a.option ?? []).map(cardOption), recommendation: a.rec }
+  const gaps = gapsOfADecisionCard(value)
+  if (gaps.length) return refuse(`the decision card is missing ${gaps.join(', ')} (--option is choice｜trade-off｜one-way or two-way)`)
+  const card = checkedBeforeAnythingLands('nawaban-ask@1', value)
   if ('why' in card) return refuse(card.why)
   return e.holdFirstThenReply(a.body!, HOLD_FOR_DECISION, card.text)
 }

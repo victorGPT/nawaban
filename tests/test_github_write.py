@@ -257,6 +257,21 @@ def test_a_decision_card_needs_two_options(gh):
     assert code == 1 and "--option" in out and posted(gh) == []
 
 
+@pytest.mark.parametrize("flag, value, named", [("--option", "B 重判", "第 2 项 的 trade-off"),
+                                               ("--option", "｜one-way", "的选项"), ("--context", "无", "Context"),
+                                               ("--rec", " - ", "Recommendation"), ("--kr", " ", "Objective / KR")])
+def test_a_decision_card_with_an_empty_part_is_refused_naming_it(gh, flag, value, named):
+    card = list(CARD)
+    card[len(card) - 1 - card[::-1].index(flag) + 1] = value
+    code, out = gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *card)
+    assert code == 1 and named in out and posted(gh) == []
+
+
+def test_a_decision_card_whose_decision_says_nothing_is_refused(gh):
+    code, out = gh.nawaban("event", "#950", "--kind", "ask", "--body", "无", *CARD)
+    assert code == 1 and "Decision" in out and posted(gh) == []
+
+
 def test_ask_posts_the_card_in_order_and_marks_its_kr(gh):
     assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *CARD)[0] == 0
     [comment] = posted(gh)
