@@ -1,0 +1,23 @@
+{
+  "artifactDirectoryPath": "/tmp/agy-probe/home/.gemini/antigravity-cli/brain/4234b2f6-f445-44ec-99b9-874a44a00d51",
+  "conversationId": "4234b2f6-f445-44ec-99b9-874a44a00d51",
+  "cwd": "/tmp/agy-probe/agyws",
+  "hookEventName": "PreToolUse",
+  "lastUserInput": "AGY-01 有两条路：A 快，B 稳。别跑任何命令，直接用一句问句问我选哪个。",
+  "modelName": "gemini-4-neon-high",
+  "stepIdx": 31,
+  "toolCall": {
+    "args": {
+      "BypassSandbox": true,
+      "CommandLine": "node /tmp/agy-probe/home/.gemini/config/plugins/nawaban/board/src/cli.ts event AGY-01 --kind ask --body \"AGY-01 选方案 A（快）还是方案 B（稳）\" --kr 无 --context \"AGY-01 有两条路：A 快，B 稳。\" --option \"方案 A（快）｜速度更快但稳定性折中｜双向门\" --option \"方案 B（稳）｜更稳妥但进度较慢｜双向门\" --rec \"建议方案 B（稳），降低后续返工风险\"",
+      "WaitMsBeforeAsync": 5000,
+      "toolSummary": "Record ask event for AGY-01"
+    },
+    "id": "call_6531944483357342954",
+    "name": "run_command"
+  },
+  "transcriptPath": "/tmp/agy-probe/home/.gemini/antigravity-cli/brain/4234b2f6-f445-44ec-99b9-874a44a00d51/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/tmp/agy-probe/agyws"
+  ]
+}

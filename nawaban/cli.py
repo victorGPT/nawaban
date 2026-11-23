@@ -1834,6 +1834,14 @@ def _codex_rollout_step(d: dict):
     return None
 
 
+def _antigravity_step(d: dict):
+    if d.get("type") == "USER_INPUT":
+        return _TURN_STARTS
+    if d.get("type") == "PLANNER_RESPONSE":
+        return [_leaves(c.get("args")) for c in d.get("tool_calls") or [] if isinstance(c, dict)]
+    return None
+
+
 def _turn_tool_inputs(transcript: str | None) -> list[str] | None:
     import json
     out = []
@@ -1848,7 +1856,12 @@ def _turn_tool_inputs(transcript: str | None) -> list[str] | None:
             continue
         if not isinstance(d, dict):
             continue
-        step = _codex_rollout_step(d) if "payload" in d else _claude_code_step(d)
+        if "payload" in d:
+            step = _codex_rollout_step(d)
+        elif "step_index" in d:
+            step = _antigravity_step(d)
+        else:
+            step = _claude_code_step(d)
         if step is _TURN_STARTS:
             out = []
         elif step:

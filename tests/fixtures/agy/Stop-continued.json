@@ -1,0 +1,17 @@
+{
+  "artifactDirectoryPath": "/tmp/agy-probe/home/.gemini/antigravity-cli/brain/4234b2f6-f445-44ec-99b9-874a44a00d51",
+  "continuationActive": false,
+  "conversationId": "4234b2f6-f445-44ec-99b9-874a44a00d51",
+  "cwd": "/tmp/agy-probe/agyws",
+  "error": "",
+  "executionNum": 1,
+  "fullyIdle": true,
+  "hookEventName": "Stop",
+  "lastUserInput": "AGY-01 有两条路：A 快，B 稳。别跑任何命令，直接用一句问句问我选哪个。",
+  "modelName": "gemini-4-neon-high",
+  "terminationReason": "NO_TOOL_CALL",
+  "transcriptPath": "/tmp/agy-probe/home/.gemini/antigravity-cli/brain/4234b2f6-f445-44ec-99b9-874a44a00d51/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/tmp/agy-probe/agyws"
+  ]
+}
