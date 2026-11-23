@@ -54,7 +54,8 @@ if [ -z "$HC_TERMINAL_ID" ]; then
     exit 0
   fi
   echo "已把会话 ${sid} 记为 ${project} 的编排者（没有 Herdr，按会话认）。"
-  printf '%s' "$input" | exec "$hooks/leader-index.sh"
+  printf '%s' "$input" | "$hooks/leader-index.sh"
+  exit 0
 fi
 if ! label_this_terminal_the_orchestrator; then
   echo "声明失败：这个会话不在 Herdr 里，或 hc label 出错；没有打上编排者标签。"
@@ -62,4 +63,5 @@ if ! label_this_terminal_the_orchestrator; then
 fi
 echo "已给终端 ${HC_TERMINAL_ID} 打上编排者标签。"
 keep_one_orchestrator_per_repository
-printf '%s' "$input" | exec "$hooks/leader-index.sh"
+printf '%s' "$input" | "$hooks/leader-index.sh"
+exit 0

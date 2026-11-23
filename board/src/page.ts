@@ -9,7 +9,7 @@ export const INBOX_DONE = { inbox: 'done' } as const
 
 const THREADS_PAGE = 50
 const HOLDS_THE_DECISION_MAKER_ANSWERS = new Set(['needs_input', 'awaiting_approval'])
-const NOTE_THAT_RAISES_A_HOLD_FOR_A_PERSON = /^\s*triage:\s*needs-info\b/
+const NOTE_THAT_RAISES_OR_ENDS_A_HOLD_FOR_A_PERSON = /^\s*triage:\s*(?:needs-info|ready-for-agent)\b/
 
 const key = (m: MessageView) => m.labels.key ?? `#${m.id}`
 const author = (m: MessageView) => m.author?.name || m.author?.handle || ''
@@ -22,12 +22,13 @@ export type InboxItem = { id: string; words: string; by: string; at: string }
 export const webAnswerText = (answer: { option?: string; words: string }) => block('nawaban-web-answer@1', answer)
 export const inboxItemText = (words: string) => `${words.split('\n')[0]}\n\n${block('nawaban-inbox@1', { words })}`
 
-const raisesTheHold = (m: MessageView) => !!firstBlock(m, 'nawaban-ask') || (m.blocks.length === 0 && NOTE_THAT_RAISES_A_HOLD_FOR_A_PERSON.test(m.text))
+const startsOrEndsAHold = (m: MessageView) =>
+  !!firstBlock(m, 'nawaban-ask') || !!firstBlock(m, 'nawaban-resolve') || (m.blocks.length === 0 && NOTE_THAT_RAISES_OR_ENDS_A_HOLD_FOR_A_PERSON.test(m.text))
 
 export function answerToTheCurrentHold(root: MessageView, replies: MessageView[]): WebAnswer | null {
   const hold = root.task?.blocked?.kind ?? ''
   if (!HOLDS_THE_DECISION_MAKER_ANSWERS.has(hold)) return null
-  const asked = replies.findLastIndex(raisesTheHold)
+  const asked = replies.findLastIndex(startsOrEndsAHold)
   const answer = replies.slice(asked + 1).findLast((m) => firstBlock(m, 'nawaban-web-answer'))
   if (!answer) return null
   const d = firstBlock(answer, 'nawaban-web-answer')!

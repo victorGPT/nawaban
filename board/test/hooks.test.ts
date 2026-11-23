@@ -153,6 +153,7 @@ it('lets a session outside Herdr that the owner declared read what the web page 
   const declared = await hook('orchestrator-declare.sh', { session_id: SESSION, cwd: repo, prompt: '/nawaban:orchestrator' }, noHerdr)
   expect(declared.out).toContain(`已把会话 ${SESSION} 记为 proj 的编排者`)
   expect(declared.out).toContain('proj 进行中的事')
+  expect(declared.out).not.toContain('声明失败')
   expect((await hook('leader-index.sh', { session_id: SESSION }, noHerdr)).out).toContain('proj 进行中的事')
   expect((await hook('leader-index.sh', { session_id: 'someone-else' }, noHerdr)).out).toBe('')
   expect(await stop('someone-else')).toBeNull()
@@ -184,9 +185,12 @@ it('lets a session outside Herdr that the owner declared read what the web page 
   expect((await prompt('继续')).out).toBe('')
   expect(await nawaban('index', '--project', 'proj')).toContain('- IN1 面板加夜间模式')
 
+  await team.tasks.block(p1, '发不发', { kind: 'awaiting_approval' })
+  expect(await stop(SESSION)).toBe('待决 1 件：P1 发不发｜说「同步」看待决')
+  await team.tasks.unblock(p1)
   await nawaban('event', p1, ...card, '--as', AS)
   const anAnswerToTheLastCardIsNoAnswerToThisOne = await stop(SESSION)
-  expect(anAnswerToTheLastCardIsNoAnswerToThisOne).toBe('待决 1 件：P1 发不发｜说「同步」看待决')
+  expect(anAnswerToTheLastCardIsNoAnswerToThisOne).toBe('待决 1 件（无变化）')
   await nawaban('event', p1, '--kind', 'resolve', '--body', '不发')
 })
 
