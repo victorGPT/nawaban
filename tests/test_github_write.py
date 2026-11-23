@@ -257,7 +257,7 @@ def test_a_decision_card_needs_two_options(gh):
     assert code == 1 and "--option" in out and posted(gh) == []
 
 
-@pytest.mark.parametrize("flag, value, named", [("--option", "B 重判", "第 2 项 的代价"),
+@pytest.mark.parametrize("flag, value, named", [("--option", "B 重判", "第 2 项 的代价"), ("--option", "B 重判｜none｜one-way", "第 2 项 的代价"),
                                                ("--option", "｜one-way", "的方案"), ("--context", "无", "背景"),
                                                ("--rec", " - ", "建议"), ("--kr", " ", "关联 KR(--kr)")])
 def test_a_decision_card_with_an_empty_part_is_refused_naming_it(gh, flag, value, named):

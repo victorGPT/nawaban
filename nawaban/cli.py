@@ -1616,7 +1616,7 @@ def _decision_card_gaps(fields: dict, options: list[dict]) -> list[str]:
         gaps.append("关联 KR(--kr)")
     if len(options) < MIN_DECISION_OPTIONS:
         gaps.append(f"备选方案(至少 {MIN_DECISION_OPTIONS} 个)")
-    gaps += [f"{o['key']} 的{'方案' if not o['text'] else '代价(｜后)'}" for o in options if not o["text"] or not _trade_off_of(o)]
+    gaps += [f"{o['key']} 的{'方案' if not o['text'] else '代价(｜后)'}" for o in options if not o["text"] or _trade_off_of(o).lower() in _WORDS_THAT_SAY_NOTHING]
     return gaps
 
 

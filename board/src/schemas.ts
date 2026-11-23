@@ -131,7 +131,7 @@ export function gapsOfADecisionCard(c: DecisionCard): string[] {
     ...(blank(c.kr) ? ['关联 KR (--kr)'] : []),
     ...(saysNothing(c.context) ? ['背景 (--context)'] : []),
     ...(options.length < MIN_DECISION_OPTIONS ? [`备选方案 (--option，至少 ${MIN_DECISION_OPTIONS} 条)`] : []),
-    ...options.flatMap((o, i) => [...(blank(o.choice) ? [`第 ${i + 1} 条的方案`] : []), ...(blank(o.tradeoff) ? [`第 ${i + 1} 条的代价`] : [])]),
+    ...options.flatMap((o, i) => [...(blank(o.choice) ? [`第 ${i + 1} 条的方案`] : []), ...(saysNothing(o.tradeoff) ? [`第 ${i + 1} 条的代价`] : [])]),
     ...(saysNothing(c.recommendation) ? ['建议 (--rec)'] : []),
   ]
 }

@@ -140,6 +140,7 @@ it.each([
   ['--rec', '-', '建议'],
   ['--kr', ' ', '关联 KR'],
   ['--option', 'wait｜ ｜two-way', '第 2 条的代价'],
+  ['--option', 'wait｜-｜two-way', '第 2 条的代价'],
   ['--option', ' ｜safe｜two-way', '第 2 条的方案'],
 ])('refuses a card whose %s says nothing (%j), naming it, and writes nothing', async (flag, value, named) => {
   const id = await newTask()
