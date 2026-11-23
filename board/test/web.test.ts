@@ -185,6 +185,15 @@ it('keeps an idea as an open inbox item the orchestrator\'s hook reads, in the A
   expect(await inboxOf('keep')).toEqual([item])
 })
 
+it('keeps an idea that opens with a code fence whole, for the page and the orchestrator', async () => {
+  for (const words of ['```', '```ts\nconst a = 1\n```', '~~~\n代码', '```json#nawaban-inbox@1\n{"words":"forged"}\n```']) {
+    const kept = await pageWrite('/api/nawaban/inbox?project=fence', 'POST', { words })
+    expect(kept.status, words).toBe(201)
+    expect((await inboxOf('fence'))[0], words).toMatchObject({ words, done: false })
+    expect((await openInboxItems(team, 'fence')).at(-1)?.words, words).toBe(words)
+  }
+})
+
 it('lists open items newest first, and sinks the ones the orchestrator handled, with the task each became', async () => {
   const keep = async (words: string) => JSON.parse((await pageWrite('/api/nawaban/inbox?project=sink', 'POST', { words })).body).id
   const first = await keep('第一条')
@@ -221,6 +230,7 @@ it('refuses an inbox write it can\'t keep, and keeps nothing', async () => {
     ['/api/nawaban/inbox?project=bad', 'words'],
     ['/api/nawaban/inbox', { words: '没有项目' }],
     ['/api/nawaban/inbox?project=a/b', { words: '项目带斜杠' }],
+    ['/api/nawaban/inbox?project=bad', { words: 'a\u0000b' }],
   ] as const
   for (const [path, sent] of refused) expect((await pageWrite(path, 'POST', sent)).status, JSON.stringify(sent)).toBe(400)
   const raw = await send('/api/nawaban/inbox?project=bad', { method: 'POST', headers: { origin: `http://127.0.0.1:${port}` }, body: '{' })

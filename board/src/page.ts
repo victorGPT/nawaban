@@ -1,4 +1,4 @@
-import { block, type board, type MessageView } from '@vercel/board'
+import { block, BoardError, type board, type MessageView } from '@vercel/board'
 import { Refused } from './tasks.ts'
 import { tasksOf } from './views.ts'
 
@@ -25,7 +25,9 @@ export const INBOX_WORDS_MAX = 2000
 const INBOX_CHANNEL_PREFIX = inboxChannel('')
 
 export const webAnswerText = (answer: { option?: string; words: string }) => block('nawaban-web-answer@1', answer)
-export const inboxItemText = (words: string) => `${words.split('\n')[0]}\n\n${block('nawaban-inbox@1', { words })}`
+const FENCE_THAT_WOULD_SWALLOW_THE_BLOCK = /^\s*(?:`{3,}|~{3,})/
+const summaryLineThatOpensNoFence = (words: string) => words.split('\n')[0]!.replace(FENCE_THAT_WOULD_SWALLOW_THE_BLOCK, '').trim() || '…'
+export const inboxItemText = (words: string) => `${summaryLineThatOpensNoFence(words)}\n\n${block('nawaban-inbox@1', { words })}`
 
 const startsOrEndsAHold = (m: MessageView) =>
   !!firstBlock(m, 'nawaban-ask') || !!firstBlock(m, 'nawaban-resolve') || (m.blocks.length === 0 && NOTE_THAT_RAISES_OR_ENDS_A_HOLD_FOR_A_PERSON.test(m.text))
@@ -83,7 +85,13 @@ export async function keepInboxItem(team: Team, project: string, words: string):
   const kept = words.trim()
   if (!kept) throw new Refused('nothing to keep')
   if (kept.length > INBOX_WORDS_MAX) throw new Refused(`at most ${INBOX_WORDS_MAX} characters`)
-  return entryOf(await team.post(inboxChannel(project), { text: inboxItemText(kept), labels: INBOX_OPEN }))
+  try {
+    return entryOf(await team.post(inboxChannel(project), { text: inboxItemText(kept), labels: INBOX_OPEN }))
+  } catch (error) {
+    const boardRefusedWhatWasSent = error instanceof BoardError && error.status >= 400 && error.status < 500
+    if (boardRefusedWhatWasSent) throw new Refused(error.message)
+    throw error
+  }
 }
 
 export async function dropInboxItem(team: Team, id: string) {

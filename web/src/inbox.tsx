@@ -50,7 +50,7 @@ export function Inbox(props: Props) {
     setSaving(true)
     try {
       await ask(props, query(), { method: 'POST', body: JSON.stringify({ words }) })
-      setDraft('')
+      setDraft((now) => (now.trim() === words ? '' : now))
       setSaveError('')
       await load()
     } catch (err) {
