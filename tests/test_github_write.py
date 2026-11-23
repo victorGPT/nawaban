@@ -1,7 +1,10 @@
 """Writes to a GitHub-tracked repository go through nawaban (spec NAWABAN-PROTO, ticket 01)."""
 
 import json
+import re
 import subprocess
+from argparse import Namespace
+from pathlib import Path
 
 import pytest
 
@@ -259,7 +262,11 @@ def test_a_decision_card_needs_two_options(gh):
 
 @pytest.mark.parametrize("flag, value, named", [("--option", "B 重判", "第 2 项 的代价"), ("--option", "B 重判｜none｜one-way", "第 2 项 的代价"),
                                                ("--option", "｜one-way", "的方案"), ("--context", "无", "背景"),
-                                               ("--rec", " - ", "建议"), ("--kr", " ", "关联 KR(--kr)")])
+                                               ("--rec", " - ", "建议"), ("--kr", " ", "关联 KR(--kr)"),
+                                               ("--option", "B 重判｜ N / A ｜one-way", "第 2 项 的代价"),
+                                               ("--option", "B 重判｜—｜one-way", "第 2 项 的代价"),
+                                               ("--option", "待定｜贵｜one-way", "第 2 项 的方案"),
+                                               ("--context", "暂无", "背景"), ("--option", "B 重判｜n\u0085one｜one-way", "第 2 项 的代价"), ("--context", "n\u2003o\u0085n\ufeffe", "背景"), ("--rec", " TBD ", "建议")])
 def test_a_decision_card_with_an_empty_part_is_refused_naming_it(gh, flag, value, named):
     card = list(CARD)
     card[len(card) - 1 - card[::-1].index(flag) + 1] = value
@@ -286,6 +293,23 @@ def test_a_context_line_quoting_a_field_heading_stays_in_the_context(gh):
     card[card.index("--context") + 1] = "第 5 轮 84.3%\n结论：【Recommendation】x"
     assert gh.nawaban("event", "#950", "--kind", "ask", "--body", "定 A 还是 B", *card)[0] == 0
     assert "结论：【Recommendation】x\n备选方案：" in posted(gh)[0]
+
+
+def test_a_card_with_placeholder_trade_offs_is_refused_and_never_read_as_ready():
+    a = Namespace(kind="ask", o=None, body="现在发布吗", kr=["无"], context="测试已通过",
+                  option=["发布｜-｜双向门", "等待｜none｜双向门"], rec="建议发布")
+    with pytest.raises(cli.Refused, match="第 1 项 的代价.*第 2 项 的代价"):
+        cli.card(a)
+    brief = "决策事项：现在发布吗\n关联 KR：无\n背景：测试已通过\n备选方案：\n- 发布｜-｜双向门\n- 等待｜none｜双向门\n建议：建议发布"
+    assert cli._decision_card(brief) is None
+    assert cli._decision_card(brief.replace("｜-｜", "｜慢｜").replace("｜none｜", "｜稳｜"))["kr"] == "无"
+
+
+def test_python_and_the_board_call_the_same_words_placeholders():
+    schemas = (Path(__file__).parents[1] / "board/src/schemas.ts").read_text()
+    listed = re.search(r"WORDS_THAT_SAY_NOTHING = new Set\(\[(.*?)\]\)", schemas).group(1)
+    assert set(re.findall(r"'([^']*)'", listed)) == cli._WORDS_THAT_SAY_NOTHING
+    assert f".replace(/{cli._SPACES_A_PLACEHOLDER_MAY_CARRY}/g, '')" in schemas
 
 
 def test_a_decision_card_whose_decision_says_nothing_is_refused(gh):

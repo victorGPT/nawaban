@@ -175,7 +175,7 @@ async function ask(e: Event): Promise<number> {
   const { a } = e
   const value = { decision: a.body, kr: e.kr, context: a.context, options: (a.option ?? []).map(cardOption), recommendation: a.rec }
   const gaps = gapsOfADecisionCard(value)
-  if (gaps.length) return refuse(`待决策项未就绪（不满足就绪标准），缺 ${gaps.join('、')}（--option 写成 方案｜代价｜单向门 或 双向门）`)
+  if (gaps.length) return refuse(`待决策项未就绪（不满足就绪标准），缺 ${gaps.join('、')}；- / none / 无 / 待定 这类占位算缺（--option 写成 方案｜代价｜单向门 或 双向门）`)
   const card = checkedBeforeAnythingLands('nawaban-ask@1', value)
   if ('why' in card) return refuse(card.why)
   return e.holdFirstThenReply(a.body!, HOLD_FOR_DECISION, card.text)
