@@ -1,10 +1,12 @@
 import { createSignal, For, Show } from 'solid-js'
 import { render } from '@solidjs/web'
 import { Listbox, ListboxItem } from '@ui-sdk/solid/listbox'
+import { Inbox } from './inbox'
 import './style.css'
 
 type Row = { id: string; title: string; status: string }
 type Board = { columns: { key: string; tasks: Row[] }[] }
+type Project = { name: string; open: number }
 
 const TOKEN_KEY = 'nawaban-web-token'
 const RECONNECT_MS = 3000
@@ -74,4 +76,25 @@ function App() {
   )
 }
 
-render(() => <App />, document.getElementById('root')!)
+function InboxEntry() {
+  const [project, setProject] = createSignal<string | null>(new URLSearchParams(location.search).get('project'))
+  const [changes, setChanges] = createSignal(0)
+  const [error, setError] = createSignal('')
+  if (!project())
+    read<{ projects: Project[] }>('projects')
+      .then((r) => setProject([...r.projects].sort((a, b) => b.open - a.open)[0]?.name ?? null))
+      .catch((e: Error) => setError(e.message))
+  void onEachChange(() => setChanges((n) => n + 1))
+  return (
+    <main>
+      <h1>收件箱 <span class="muted">{project()}</span></h1>
+      <Show when={!error()} fallback={<p class="error">{error()}</p>}>
+        <Show when={project()} fallback={<p class="muted">读取中…</p>}>
+          {(p) => <Inbox project={p()} headers={headers} changes={changes()} taskHref={(key) => '#task-' + encodeURIComponent(key)} />}
+        </Show>
+      </Show>
+    </main>
+  )
+}
+
+render(() => (location.hash === '#inbox' ? <InboxEntry /> : <App />), document.getElementById('root')!)

@@ -6,6 +6,7 @@
     "jsx": "preserve",
     "jsxImportSource": "@solidjs/web",
     "strict": true,
+    "allowJs": true,
     "noEmit": true,
     "skipLibCheck": true,
     "types": [

@@ -8,6 +8,7 @@ import { board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { createApp } from '@vercel/board/cli'
 import { listen, pageUrl, site, token, verifier, web } from '../src/server.ts'
+import { inboxChannel, inboxItemText, openInboxItems } from '../src/page.ts'
 import { registerSchemas } from '../src/schemas.ts'
 import { run } from '../src/tasks.ts'
 import { boardData, taskDetail } from '../src/views.ts'
@@ -39,14 +40,14 @@ afterAll(() => server.close())
 
 type Sent = { status: number; type: string; body: string }
 
-function send(path: string, { method = 'GET', headers = {} as Record<string, string>, raw = false } = {}): Promise<Sent> {
+function send(path: string, { method = 'GET', headers = {} as Record<string, string>, raw = false, body = '' } = {}): Promise<Sent> {
   const withPageDefaults = raw ? headers : { host: `127.0.0.1:${port}`, authorization: `Bearer ${WEB_SECRET}`, ...headers }
   return new Promise((done, fail) => {
     const req = http({ host: '127.0.0.1', port, path, method, headers: withPageDefaults, setHost: false }, (res) => {
       let body = ''
       res.setEncoding('utf8').on('data', (c) => (body += c)).on('end', () => done({ status: res.statusCode!, type: String(res.headers['content-type']), body }))
     })
-    req.on('error', fail).end()
+    req.on('error', fail).end(body)
   })
 }
 
@@ -163,4 +164,70 @@ it('keeps the web token beside the board token, 0600, and opens the page with it
   expect(opened).toEqual([pageUrl(4321, secret)])
   expect(opened[0]).toBe(`http://127.0.0.1:4321/#k=${secret}`)
   expect(out.mock.calls.flat().join('')).not.toContain(secret)
+})
+
+
+const pageWrite = (path: string, method: string, sent?: unknown) =>
+  send(path, { method, headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: sent === undefined ? '' : JSON.stringify(sent) })
+const inboxOf = async (project: string) => JSON.parse((await send(`/api/nawaban/inbox?project=${project}`)).body).items
+
+it('keeps an idea as an open inbox item the orchestrator\'s hook reads, in the ADR\'s words', async () => {
+  const kept = await pageWrite('/api/nawaban/inbox?project=keep', 'POST', { words: '  面板加夜间模式\n第二行  ' })
+  expect(kept.status).toBe(201)
+  const item = JSON.parse(kept.body)
+  expect(item).toMatchObject({ words: '面板加夜间模式\n第二行', done: false, task: null })
+  const [open] = await openInboxItems(team, 'keep')
+  expect(open).toMatchObject({ id: item.id, words: '面板加夜间模式\n第二行' })
+  const { message } = await team.thread(item.id)
+  expect(message.channel).toBe(inboxChannel('keep'))
+  expect(message.text).toBe(inboxItemText('面板加夜间模式\n第二行'))
+  expect(message.labels).toEqual({ inbox: 'open' })
+  expect(await inboxOf('keep')).toEqual([item])
+})
+
+it('lists open items newest first, and sinks the ones the orchestrator handled, with the task each became', async () => {
+  const keep = async (words: string) => JSON.parse((await pageWrite('/api/nawaban/inbox?project=sink', 'POST', { words })).body).id
+  const first = await keep('第一条')
+  const second = await keep('第二条')
+  const third = await keep('第三条')
+  await team.label(first, { set: { inbox: 'done', task: 'SINK-1' }, if: { inbox: 'open' } })
+  await team.label(third, { set: { inbox: 'done' }, if: { inbox: 'open' } })
+  const items = await inboxOf('sink')
+  expect(items.map((i: { words: string }) => i.words)).toEqual(['第二条', '第三条', '第一条'])
+  expect(items.map((i: { done: boolean; task: string | null }) => [i.done, i.task])).toEqual([[false, null], [true, null], [true, 'SINK-1']])
+  expect((await openInboxItems(team, 'sink')).map((i) => i.id)).toEqual([second])
+})
+
+it('deletes an inbox item, and nothing that isn\'t one', async () => {
+  const id = JSON.parse((await pageWrite('/api/nawaban/inbox?project=drop', 'POST', { words: '不要了' })).body).id
+  const elsewhere = await team.post('notes/drop', { text: inboxItemText('像收件箱，但不在收件箱频道') })
+  const plain = await team.post(inboxChannel('drop'), { text: '收件箱频道里的普通消息' })
+  const reply = await team.reply(id, { text: inboxItemText('回复不是条目') })
+  for (const other of [elsewhere.id, plain.id, reply.id, 'no-such-id']) {
+    expect((await pageWrite(`/api/nawaban/inbox/${other}`, 'DELETE')).status, other).toBe(404)
+  }
+  expect((await team.thread(elsewhere.id)).message.deleted).toBeFalsy()
+  expect((await pageWrite(`/api/nawaban/inbox/${id}`, 'DELETE')).status).toBe(204)
+  expect(await inboxOf('drop')).toEqual([])
+  expect(await openInboxItems(team, 'drop')).toEqual([])
+  expect((await pageWrite(`/api/nawaban/inbox/${id}`, 'DELETE')).status).toBe(404)
+})
+
+it('refuses an inbox write it can\'t keep, and keeps nothing', async () => {
+  const refused = [
+    ['/api/nawaban/inbox?project=bad', { words: '   ' }],
+    ['/api/nawaban/inbox?project=bad', { words: 'x'.repeat(2001) }],
+    ['/api/nawaban/inbox?project=bad', { text: '不是 words' }],
+    ['/api/nawaban/inbox?project=bad', 'words'],
+    ['/api/nawaban/inbox', { words: '没有项目' }],
+    ['/api/nawaban/inbox?project=a/b', { words: '项目带斜杠' }],
+  ] as const
+  for (const [path, sent] of refused) expect((await pageWrite(path, 'POST', sent)).status, JSON.stringify(sent)).toBe(400)
+  const raw = await send('/api/nawaban/inbox?project=bad', { method: 'POST', headers: { origin: `http://127.0.0.1:${port}` }, body: '{' })
+  expect(raw.status).toBe(400)
+  expect((await send('/api/nawaban/inbox?project=bad', { method: 'POST', headers: { origin: 'http://evil.test' }, body: '{"words":"x"}' })).status).toBe(403)
+  expect((await send('/api/nawaban/inbox?project=bad', { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, authorization: '' }, body: '{"words":"x"}' })).status).toBe(401)
+  expect((await pageWrite('/api/nawaban/inbox?project=bad', 'PUT', { words: 'x' })).status).toBe(405)
+  expect((await send('/api/nawaban/inbox')).status).toBe(400)
+  expect(await inboxOf('bad')).toEqual([])
 })
