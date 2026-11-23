@@ -222,7 +222,7 @@ function App() {
           <span class="ml-auto min-w-0 truncate text-muted-foreground max-md:ml-0 max-md:basis-full max-md:whitespace-normal">{summary()}</span>
         </header>
         <div class="min-h-0 flex-1 overflow-y-auto">
-          <div class="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6 max-md:p-4">
+          <div class="flex w-full flex-col gap-4 p-4">
             <Show when={!error()} fallback={<p class={cn(card, 'px-4 text-warning')}>{error()}</p>}>
               <TabsPanel value="decide" class="outline-none"><DecidePage board={board()} project={picked()} headers={headers} /></TabsPanel>
               <TabsPanel value="okr" class="outline-none"><OkrPage okr={okr()?.of === picked() ? okr()!.reading : null} error={okr()?.of === picked() ? okr()!.error : ''} /></TabsPanel>
@@ -235,6 +235,7 @@ function App() {
                           {(s) => (
                             <Collapsible class="flex flex-col gap-2" open={s.open} onOpenChange={(open) => toggle(setFolds, foldKey(picked(), s.group), FOLDS_KEY, open)}>
                               <CollapsibleTrigger class={cn(sectionHead, 'group w-full rounded-lg text-left outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50')}>
+                                <Icon name={STATE_ICONS[s.group as Item['state']].icon} class={STATE_ICONS[s.group as Item['state']].tone} />
                                 <span class="font-medium">{W.groups[s.group as keyof typeof W.groups]}</span>
                                 <span class="text-subtle-foreground tabular-nums">{s.count}</span>
                                 <Icon name="ChevronDown" class="ml-auto -rotate-90 text-muted-foreground transition-transform group-data-open:rotate-0" />
