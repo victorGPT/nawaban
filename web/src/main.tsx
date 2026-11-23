@@ -198,13 +198,13 @@ function App() {
         </label>
         <TabsList
           aria-label="视图"
-          class="flex flex-col gap-1 max-md:h-8 max-md:flex-row max-md:gap-0 max-md:rounded-lg max-md:bg-muted max-md:p-[3px] max-md:text-muted-foreground"
+          class="flex flex-col gap-0 max-md:h-8 max-md:flex-row max-md:gap-0 max-md:rounded-lg max-md:bg-muted max-md:p-[3px] max-md:text-muted-foreground"
         >
           <For each={Object.keys(TAB_NAMES) as Tab[]}>
             {(t) => (
               <TabsTab
                 value={t}
-                class="flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 data-selected:bg-sidebar-accent data-selected:font-medium data-selected:text-sidebar-accent-foreground max-md:h-full max-md:flex-1 max-md:justify-center max-md:rounded-lg max-md:border max-md:border-transparent max-md:px-2 max-md:py-0.5 max-md:font-medium max-md:text-foreground/60 max-md:hover:bg-transparent max-md:hover:text-foreground max-md:data-selected:bg-card max-md:data-selected:text-foreground max-md:data-selected:shadow-control"
+                class="flex h-8 w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 data-selected:bg-sidebar-accent data-selected:font-medium data-selected:text-sidebar-accent-foreground max-md:h-full max-md:flex-1 max-md:justify-center max-md:rounded-lg max-md:border max-md:border-transparent max-md:px-2 max-md:py-0.5 max-md:font-medium max-md:text-foreground/60 max-md:hover:bg-transparent max-md:hover:text-foreground max-md:data-selected:bg-card max-md:data-selected:text-foreground max-md:data-selected:shadow-control"
               >
                 <Icon name={TAB_ICONS[t]} class="max-md:hidden" />
                 <span class="truncate">{TAB_NAMES[t]}</span>
@@ -282,7 +282,7 @@ function TaskRow(props: { item: Item }) {
         <Icon name={look().icon} class={look().tone} />
         <span class={cn('min-w-0 flex-1 truncate font-medium', quiet() && 'text-muted-foreground')}>{props.item.title}</span>
         <Show when={props.item.spec}>{(spec) => <span class={badge('secondary')}>{spec().done}/{spec().total}</span>}</Show>
-        <span class={cn('shrink-0 text-xs tabular-nums', props.item.state === 'working' ? 'text-status-progress' : 'text-subtle-foreground')}>{sinceLabel(props.item, nowInSeconds(), 'zh')}</span>
+        <span class="shrink-0 text-xs text-subtle-foreground tabular-nums">{sinceLabel(props.item, nowInSeconds(), 'zh')}</span>
       </span>
       <span class="flex min-w-0 items-center gap-2 pl-6 text-xs text-muted-foreground">
         <span class="shrink-0 text-subtle-foreground tabular-nums">{props.item.id}</span>
