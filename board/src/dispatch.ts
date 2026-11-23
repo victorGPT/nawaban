@@ -12,6 +12,7 @@ const exec = promisify(execFile)
 const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
 const PROBE_TIMEOUT_MS = 10_000
 const WORKER_NAME = /^[a-z0-9_-]{1,32}$/
+const PARSE_ARGS_MISTAKES = ['ERR_PARSE_ARGS_UNKNOWN_OPTION', 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE']
 const CLOSED_STATES = ['completed', 'canceled', 'failed']
 const ENV_NAMING_THIS_BOARD_AND_CODEX_CONFIG_NOT_THE_BOARD_TOKEN = ['NAWABAN_BOARD_DIR', 'NAWABAN_BOARD_PORT', 'BOARD_URL', 'CODEX_HOME']
 const WORKER_ARGV = {
@@ -158,7 +159,7 @@ async function recordDispatchAsThisWindow(c: Checked, a: Args, wt: Worktree, add
 }
 
 const exitCodeOf = (error: unknown) =>
-  error instanceof Refused ? error.code : (error as { code?: unknown }).code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION' ? 2 : 1
+  error instanceof Refused ? error.code : PARSE_ARGS_MISTAKES.includes((error as { code?: string }).code ?? '') ? 2 : 1
 
 export async function dispatch(argv: string[]): Promise<number> {
   try {

@@ -139,6 +139,12 @@ it('hands the worker the Codex config the dispatcher runs under', async () => {
   expect(r.hc).toContain(`env BOARD_URL=${url} CODEX_HOME=/tmp/cx codex 任务：cx-home`)
 })
 
+it('refuses --agent with no value as a usage mistake', async () => {
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'row-none', '--brief', 'b', '--accept', 'a', '--agent'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(2)
+  expect(r.hc).toBe('')
+})
+
 it('refuses an agent it has no row for, and starts nothing', async () => {
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'row-gemini', '--agent', 'gemini', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
   expect(r.code).toBe(2)
