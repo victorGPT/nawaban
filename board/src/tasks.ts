@@ -24,10 +24,14 @@ export class Refused extends Error {
 
 const boardKeepsProfileNamesLowercase = (name: string) => name.toLowerCase()
 
-export function profile(session = process.env.CLAUDE_CODE_SESSION_ID): string {
-  if (session) return boardKeepsProfileNamesLowercase(`cc-${session.slice(0, SESSION_PREFIX_LENGTH)}`)
-  const owner = process.env.NAWABAN_OWNER
-  if (!owner) throw new Refused('no identity: set CLAUDE_CODE_SESSION_ID, or NAWABAN_OWNER outside Claude Code', 2)
+const sessionProfile = (agent: 'cx' | 'cc', session: string) =>
+  boardKeepsProfileNamesLowercase(`${agent}-${session.slice(0, SESSION_PREFIX_LENGTH)}`)
+
+export function profile(): string {
+  const { CODEX_THREAD_ID: codexThread, CLAUDE_CODE_SESSION_ID: claudeCode, NAWABAN_OWNER: owner } = process.env
+  if (codexThread) return sessionProfile('cx', codexThread)
+  if (claudeCode) return sessionProfile('cc', claudeCode)
+  if (!owner) throw new Refused('no identity: set CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID, or NAWABAN_OWNER outside Codex and Claude Code', 2)
   if (!PROFILE_NAME.test(owner)) {
     throw new Refused(`NAWABAN_OWNER ${owner} isn't a profile name: a letter, then up to 31 letters, numbers, and hyphens`, 2)
   }
@@ -245,11 +249,13 @@ const close: Verb = async (argv) => {
 
 const renew: Verb = async (argv) => {
   const { values } = parseArgs({ args: argv, options: { session: { type: 'string' }, json: { type: 'boolean' } } })
-  const as = profile(values.session)
+  const hookSession = values.session
+  const profilesTheHookSessionMayHold = hookSession ? (['cx', 'cc'] as const).map((agent) => sessionProfile(agent, hookSession)) : [profile()]
   let lastFailureWhileEveryClaimStillGetsItsRenewal = 0
   for (const task of await all({ state: 'claimed' })) {
     const claim = live(task)
-    if (claim?.actor.endsWith(`+${as}`)) {
+    const as = profilesTheHookSessionMayHold.find((p) => claim?.actor.endsWith(`+${p}`))
+    if (as) {
       lastFailureWhileEveryClaimStillGetsItsRenewal =
         (await cliWhoseClaimsTheRenewHookFinds(['tasks', 'renew', task.id, '--as', as, '--lease', LEASE, ...(values.json ? ['--json'] : [])])) || lastFailureWhileEveryClaimStillGetsItsRenewal
     }

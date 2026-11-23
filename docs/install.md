@@ -50,7 +50,7 @@ Run these steps in order. Each one is safe to run again. Stop and tell the user 
 2. Put nawaban at `~/nawaban`. If that directory exists and is a nawaban checkout, run `git -C ~/nawaban pull --ff-only`; otherwise run `git clone https://github.com/victorGPT/nawaban ~/nawaban`.
 3. Install the plugin.
    - Claude Code: `claude plugin marketplace add ~/nawaban`, then `claude plugin install nawaban@nawaban`.
-   - Codex: add the marketplace and plugin entries shown under [Plugin install](#plugin-install) to `~/.codex/config.toml` with `source = "<absolute path of ~/nawaban>"`, then run `codex plugin add nawaban@nawaban`. Also set `NAWABAN_OWNER` to a stable name in the environment Codex runs commands in ([Session identity](#session-identity)).
+   - Codex: add the marketplace and plugin entries shown under [Plugin install](#plugin-install) to `~/.codex/config.toml` with `source = "<absolute path of ~/nawaban>"`, then run `codex plugin add nawaban@nawaban`. Codex sessions are identified by `CODEX_THREAD_ID` ([Session identity](#session-identity)).
 4. In the user's project, create the board: `python3 ~/nawaban/nawaban/cli.py init`. It prints the board path, or says the board already exists.
 5. Tell the user three things: the board path from step 4, that the `nawaban` skill loads in a new session, so they should start one, and that they see the board in the Herdr panel, which they install by following [Herdr panel](#herdr-panel).
 
@@ -92,7 +92,7 @@ Run `nawaban init` in the project to create `.nawaban/nawaban.db`, then `nawaban
 
 ## Session identity
 
-Commands that write as someone (`claim`, `close`, `event`) take the identity from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in every session, then from `NAWABAN_OWNER`. Codex sets no session variable, so set `NAWABAN_OWNER` to a stable name in the environment Codex runs commands in; without either variable those commands refuse and say so.
+Commands that write as someone (`claim`, `close`, `event`) take the identity from `CODEX_THREAD_ID`, which Codex sets in every command it runs, then from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in every session, then from `NAWABAN_OWNER`. Codex comes first because a Codex session started from Claude Code inherits `CLAUDE_CODE_SESSION_ID`. Elsewhere, set `NAWABAN_OWNER` to a stable name; without any of the three those commands refuse and say so.
 
 A leader reads `nawaban index` when it starts or after its context is compacted: what waits on you, what stopped, what moves, from the board or, in a repository whose `docs/agents/issue-tracker.md` names GitHub, from its issues. In such a repository, set `NAWABAN_OWNER_NAMES` (comma-separated) to the names the owner signs decisions with, so the index can tell the owner's decisions from the agents' in older comments; a decision written with `event '#N' --kind decision --by user` is counted by its marker.
 

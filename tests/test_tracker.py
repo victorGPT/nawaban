@@ -175,6 +175,13 @@ def test_identity_falls_back_to_nawaban_owner(run, monkeypatch):
     assert "note · ac:selftest" in run("show", "T")[1]
 
 
+def test_identity_takes_codex_thread_before_claude_code_session(run, monkeypatch):
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-thread")
+    run("create", "T", "--title", "t", "--body", "b")
+    run("event", "T", "--kind", "note", "--body", "x")
+    assert "note · codex-thread" in run("show", "T")[1]
+
+
 def test_event_without_identity_fails(run, monkeypatch):
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
     monkeypatch.delenv("NAWABAN_OWNER")

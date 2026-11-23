@@ -143,11 +143,35 @@ it('renews every claim the window holds, though one of them fails', async () => 
   expect(Date.parse((await nawabanAsTheWindowOfSession(['show', 'R-2'])).json.task.task.claim.until)).toBeGreaterThan(Date.parse(before))
 })
 
+it('renews a Codex claim from the session id the hook passes', async () => {
+  const codexThread = 'dddd4444-0000-0000-0000-000000000000'
+  await nawabanAsTheWindowOfSession(['create', 'X-1', '--title', 'codex lease', '--project', 'nawaban'])
+  expect((await nawabanAsTheWindowOfSession(['claim', 'X-1'], A_SESSION, { CODEX_THREAD_ID: codexThread })).code).toBe(0)
+  const before = (await nawabanAsTheWindowOfSession(['show', 'X-1'])).json.task.task.claim.until
+  later(10 * 60_000)
+  expect((await nawabanAsTheWindowOfSession(['renew', '--session', codexThread])).code).toBe(0)
+  expect(Date.parse((await nawabanAsTheWindowOfSession(['show', 'X-1'])).json.task.task.claim.until)).toBeGreaterThan(Date.parse(before))
+})
+
 it('closes and renews for a NAWABAN_OWNER written in capitals', async () => {
   const owner = { NAWABAN_OWNER: 'Agent-A' }
   await nawabanAsTheWindowOfSession(['create', 'O-1', '--title', 'owner', '--project', 'nawaban'])
   expect((await nawabanAsTheWindowOfSession(['claim', 'O-1'], '', owner)).code).toBe(0)
   expect((await nawabanAsTheWindowOfSession(['close', 'O-1', '--done'], '', owner)).code).toBe(0)
+})
+
+it('takes the Codex thread before the Claude Code session it inherited, and that before NAWABAN_OWNER', async () => {
+  const codexThread = 'cccc3333-0000-0000-0000-000000000000'
+  const holder = async (env: Record<string, string>, session = A_SESSION) => {
+    await nawabanAsTheWindowOfSession(['create', 'I-1', '--title', 'identity', '--project', 'nawaban'])
+    expect((await nawabanAsTheWindowOfSession(['claim', 'I-1'], session, env)).code).toBe(0)
+    const actor = (await nawabanAsTheWindowOfSession(['show', 'I-1'])).json.task.task.claim.actor
+    await nawabanAsTheWindowOfSession(['claim', 'I-1', '--release'], session, env)
+    return actor.slice(actor.indexOf('+') + 1)
+  }
+  expect(await holder({ CODEX_THREAD_ID: codexThread, NAWABAN_OWNER: 'agent-a' })).toBe('cx-cccc3333')
+  expect(await holder({ NAWABAN_OWNER: 'agent-a' })).toBe('cc-aaaa1111')
+  expect(await holder({ NAWABAN_OWNER: 'agent-a' }, '')).toBe('agent-a')
 })
 
 it('refuses a NAWABAN_OWNER that is no profile name', async () => {

@@ -228,9 +228,10 @@ def _task(con: sqlite3.Connection, task_id: str) -> sqlite3.Row:
 
 
 def identity() -> str:
-    who = os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("NAWABAN_OWNER")
+    who = (os.environ.get("CODEX_THREAD_ID") or os.environ.get("CLAUDE_CODE_SESSION_ID")
+           or os.environ.get("NAWABAN_OWNER"))
     if not who:
-        raise Refused("身份缺失:需 CLAUDE_CODE_SESSION_ID 环境变量;没有它的环境(如 Codex)请设 NAWABAN_OWNER")
+        raise Refused("身份缺失:需 CODEX_THREAD_ID 或 CLAUDE_CODE_SESSION_ID 环境变量;两者都没有的环境请设 NAWABAN_OWNER")
     return who
 
 
