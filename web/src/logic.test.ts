@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import fixture from '../../herdr/mods/nawaban-board/okr.fixture.json'
-import { krFill, okrReadingOfFailure, okrView, OKR_WORDS, linkOf, projectShown, routeOf, STOPPED_AFTER_SILENT_FOR, summaryOf, taskGroups, taskHref, taskSections, type Board, type BoardTask } from './logic'
+import { boardColumns, DONE_SHOWN_ON_BOARD, krFill, okrReadingOfFailure, okrView, OKR_WORDS, linkOf, projectShown, routeOf, STOPPED_AFTER_SILENT_FOR, summaryOf, taskGroups, taskHref, taskSections, type Board, type BoardTask } from './logic'
 
 const NOW = 1_800_000_000
 const task = (id: string, over: Partial<BoardTask> = {}): BoardTask => ({
@@ -71,6 +71,29 @@ describe('taskSections, shared with the Herdr panel', () => {
   it('shows all once asked', () => {
     const [w] = taskSections(groups, { folds: {}, project: 'p', shownAll: { 'p:working': true } })
     expect([w.items.length, w.more]).toEqual([5, { hidden: 0 }])
+  })
+})
+
+describe('boardColumns', () => {
+  it('always shows 待办 进行中 停滞 已完成, in that order, even when empty', () => {
+    const cols = boardColumns(taskGroups(boardOf(task('t')), NOW), false)
+    expect(cols.map((c) => [c.group, c.count])).toEqual([['todo', 1], ['working', 0], ['stopped', 0], ['done', 0]])
+  })
+  it('puts the task stopped longest first', () => {
+    const silent = (id: string, age: number) => working(id, { active_at: NOW - STOPPED_AFTER_SILENT_FOR - age })
+    const cols = boardColumns(taskGroups(boardOf(silent('recent', 1), silent('oldest', 9000), silent('mid', 500)), NOW), false)
+    expect(cols[2]!.items.map((x) => x.id)).toEqual(['oldest', 'mid', 'recent'])
+  })
+  it('shows the latest 10 done and says how many more, until asked for all', () => {
+    const done = Array.from({ length: 13 }, (_, n) => task('d' + n, { status: 'done', done_at: n }))
+    const groups = taskGroups(boardOf(...done), NOW)
+    const capped = boardColumns(groups, false)[3]!
+    expect([capped.count, capped.items.length, capped.items[0]!.id, capped.more]).toEqual([13, DONE_SHOWN_ON_BOARD, 'd12', { hidden: 3 }])
+    expect(boardColumns(groups, true)[3]!.items.length).toBe(13)
+  })
+  it('keeps the spec count on the card', () => {
+    const cols = boardColumns(taskGroups(boardOf(task('S'), task('S-1', { parent: 'S', status: 'done', done_at: 1 }), task('S-2', { parent: 'S' })), NOW), false)
+    expect(cols[0]!.items[0]!.spec).toEqual({ done: 1, total: 2 })
   })
 })
 

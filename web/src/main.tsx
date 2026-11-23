@@ -4,12 +4,13 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/solid/tabs'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@ui-sdk/solid/collapsible'
 import { Progress, ProgressIndicator, ProgressTrack } from '@ui-sdk/solid/progress'
 import {
-  foldKey, krFill, linkOf, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, pendingCount, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
+  boardColumns, foldKey, krFill, linkOf, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, pendingCount, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
   WINDOW_WORDS, type Board, type Item, type Project, type Route, type Tab,
 } from './logic'
 import { Inbox } from './inbox'
 import { DecidePage } from './Decide'
-import { badge, button, card, cardList, cn, empty, Icon, selectTrigger, sectionHead, type BadgeVariant } from './ui'
+import { markdownHtml } from './markdown'
+import { badge, button, card, cardList, chip, cn, empty, Icon, selectTrigger, sectionHead, type BadgeVariant } from './ui'
 import type { IconName } from './icons'
 import '@fontsource/geist/400.css'
 import '@fontsource/geist/500.css'
@@ -21,6 +22,7 @@ const TOKEN_KEY = 'nawaban-web-token'
 const PROJECT_KEY = 'nawaban-web-project'
 const FOLDS_KEY = 'nawaban-web-folds'
 const SHOWN_ALL_KEY = 'nawaban-web-shown-all'
+const TASK_VIEW_KEY = 'nawaban-web-task-view'
 const RECONNECT_MS = 3000
 const W = WINDOW_WORDS.zh
 const O = OKR_WORDS.zh
@@ -28,6 +30,11 @@ const TAB_NAMES: Record<Tab, string> = { decide: W.tabs.decide, okr: W.tabs.okr,
 const TAB_ICONS: Record<Tab, IconName> = { decide: 'CircleCheck', okr: 'Target', tasks: 'ListTodo', inbox: 'Inbox' }
 const STATUS_NAMES: Record<string, string> = { open: '待办', in_progress: '进行中', done: '已完成', cancelled: '已取消' }
 const STATUS_BADGES: Record<string, BadgeVariant> = { open: 'outline', in_progress: 'progress', done: 'success', cancelled: 'muted' }
+type TaskView = 'board' | 'list'
+const TASK_VIEWS: { view: TaskView; name: string; icon: IconName }[] = [
+  { view: 'board', name: '看板', icon: 'SquareKanban' },
+  { view: 'list', name: '列表', icon: 'List' },
+]
 const STATE_ICONS: Record<Item['state'], { icon: IconName; tone: string }> = {
   todo: { icon: 'Circle', tone: 'text-status-todo' },
   working: { icon: 'CircleDashed', tone: 'text-status-progress' },
@@ -114,6 +121,8 @@ function App() {
   const [changes, setChanges] = createSignal(0)
   const [folds, setFolds] = createSignal<Record<string, boolean>>(stored(FOLDS_KEY, {}))
   const [shownAll, setShownAll] = createSignal<Record<string, boolean>>(stored(SHOWN_ALL_KEY, {}))
+  const [taskView, setTaskView] = createSignal<TaskView>(stored(TASK_VIEW_KEY, 'board'))
+  const [doneShownAll, setDoneShownAll] = createSignal(false)
 
   window.addEventListener('hashchange', () => setRoute(routeOf(location.hash).route))
   void onEachChange(() => setChanges((n) => n + 1))
@@ -164,6 +173,13 @@ function App() {
 
   const groups = createMemo(() => taskGroups(board(), nowInSeconds()))
   const sections = createMemo(() => taskSections(groups(), { folds: folds(), project: picked(), shownAll: shownAll() }))
+  const columns = createMemo(() => boardColumns(groups(), doneShownAll()))
+  const onTaskList = () => route().tab === 'tasks' && !route().task
+  const boardShown = () => onTaskList() && taskView() === 'board'
+  const pickView = (view: TaskView) => {
+    keep(TASK_VIEW_KEY, view)
+    setTaskView(view)
+  }
   const summary = createMemo(() => (board() ? summaryOf(groups(), pendingCount(board())) : ''))
 
   const pick = (name: string) => {
@@ -220,16 +236,29 @@ function App() {
             {TAB_NAMES[route().tab]}
           </h1>
           <span class="ml-auto min-w-0 truncate text-muted-foreground max-md:ml-0 max-md:basis-full max-md:whitespace-normal">{summary()}</span>
+          <Show when={onTaskList()}>
+            <div role="group" aria-label="任务视图" class="flex shrink-0 items-center gap-0.5">
+              <For each={TASK_VIEWS}>
+                {(v) => (
+                  <button type="button" aria-pressed={taskView() === v.view ? 'true' : 'false'} class={viewToggle} onClick={() => pickView(v.view)}>
+                    <Icon name={v.icon} class="size-3.5" />
+                    {v.name}
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
         </header>
-        <div class="min-h-0 flex-1 overflow-y-auto">
-          <div class="flex w-full flex-col gap-4 p-4">
+        <div class={cn('min-h-0 flex-1', boardShown() ? 'flex flex-col overflow-hidden max-md:overflow-visible' : 'overflow-y-auto')}>
+          <div class={cn('flex w-full flex-col gap-4', boardShown() ? 'min-h-0 flex-1' : 'p-4')}>
             <Show when={!error()} fallback={<p class={cn(card, 'px-4 text-warning')}>{error()}</p>}>
               <TabsPanel value="decide" class="outline-none"><DecidePage board={board()} project={picked()} headers={headers} /></TabsPanel>
               <TabsPanel value="okr" class="outline-none"><OkrPage okr={okr()?.of === picked() ? okr()!.reading : null} error={okr()?.of === picked() ? okr()!.error : ''} /></TabsPanel>
-              <TabsPanel value="tasks" class="outline-none">
+              <TabsPanel value="tasks" class={cn('outline-none', boardShown() && 'flex min-h-0 flex-1 flex-col')}>
                 <Show when={route().task} fallback={
                   <Show when={board()} fallback={<p class={empty}>{W.loading}</p>}>
-                    <Show when={sections().length} fallback={<p class={empty}>这个项目还没有任务</p>}>
+                    <Show when={sections().length} fallback={<p class={cn(empty, boardShown() && 'p-4')}>这个项目还没有任务</p>}>
+                      <Show when={taskView() === 'list'} fallback={<TaskBoard columns={columns()} onMore={() => setDoneShownAll((all) => !all)} />}>
                       <div class="flex flex-col gap-6">
                         <For each={sections()}>
                           {(s) => (
@@ -254,6 +283,7 @@ function App() {
                           )}
                         </For>
                       </div>
+                      </Show>
                     </Show>
                   </Show>
                 }>
@@ -288,6 +318,70 @@ function TaskRow(props: { item: Item }) {
         <span class="shrink-0 text-subtle-foreground tabular-nums">{props.item.id}</span>
         <Show when={props.item.note}>{(note) => <span class="min-w-0 truncate">{note()}</span>}</Show>
       </span>
+    </a>
+  )
+}
+
+const viewToggle =
+  'inline-flex h-7 items-center justify-center gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] font-medium whitespace-nowrap text-muted-foreground transition-all outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 aria-pressed:bg-muted aria-pressed:text-foreground'
+
+type Column = ReturnType<typeof boardColumns>[number]
+
+function TaskBoard(props: { columns: Column[]; onMore: () => void }) {
+  return (
+    <div class="flex min-h-0 flex-1 overflow-x-auto">
+      <div class="flex min-w-272 flex-1">
+        <For each={props.columns}>
+          {(c) => (
+            <section aria-label={`${W.groups[c.group]} ${c.count} 条`} class="flex min-w-0 flex-1 flex-col overflow-y-auto border-r border-border last:border-r-0 max-md:overflow-visible">
+              <header class="sticky top-0 z-10 flex min-h-15 shrink-0 items-center gap-2 bg-background px-4 pt-4 pb-5 text-sm font-medium">
+                <Icon name={STATE_ICONS[c.group].icon} class={STATE_ICONS[c.group].tone} />
+                <span>{W.groups[c.group]}</span>
+                <span class="font-normal text-subtle-foreground tabular-nums">{c.count}</span>
+              </header>
+              <div class="flex flex-col gap-3 px-2 pb-4">
+                <For each={c.items}>{(x) => <TaskCard item={x} />}</For>
+                <Show when={c.more}>
+                  {(more) => (
+                    <button type="button" class={cn(button('ghost'), 'w-full text-muted-foreground')} onClick={() => props.onMore()}>
+                      {more().hidden ? W.more(more().hidden) : W.less}
+                    </button>
+                  )}
+                </Show>
+              </div>
+            </section>
+          )}
+        </For>
+      </div>
+    </div>
+  )
+}
+
+function TaskCard(props: { item: Item }) {
+  const look = () => STATE_ICONS[props.item.state]
+  return (
+    <a
+      href={taskHref(props.item.id)}
+      class="flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card text-sm text-card-foreground shadow-card outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      <span class="flex flex-col gap-1.5 p-4">
+        <span class="flex items-start gap-2">
+          <Icon name={look().icon} class={cn('mt-0.5', look().tone)} />
+          <span class="min-w-0 font-medium [overflow-wrap:anywhere]">{props.item.title}</span>
+        </span>
+        <span class="flex min-w-0 text-subtle-foreground tabular-nums">
+          <span class="min-w-0 truncate">{props.item.id}</span>
+          <Show when={sinceLabel(props.item, nowInSeconds(), 'zh')}>{(since) => <span class="shrink-0 whitespace-pre"> · {since()}</span>}</Show>
+        </span>
+        <Show when={props.item.note}>{(note) => <span class="line-clamp-2 text-muted-foreground [overflow-wrap:anywhere]">{note()}</span>}</Show>
+      </span>
+      <Show when={props.item.spec}>
+        {(spec) => (
+          <span class="flex gap-1 border-t border-border px-4 py-3">
+            <span class={chip}>子票 {spec().done}/{spec().total}</span>
+          </span>
+        )}
+      </Show>
     </a>
   )
 }
@@ -333,7 +427,7 @@ function TaskDetail(props: { key: string; detail: Detail | null; error: string }
                 </div>
               </div>
               <Show when={t().body} fallback={<p class="text-subtle-foreground">没有正文</p>}>
-                <div class="border-t border-border pt-4 whitespace-pre-wrap [overflow-wrap:anywhere]">{t().body}</div>
+                <div class="flex flex-col gap-3 border-t border-border pt-4 leading-6 [overflow-wrap:anywhere]" innerHTML={markdownHtml(t().body)} />
               </Show>
               <RefList label="上级" refs={t().parent ? [t().parent!] : []} />
               <RefList label="子票" refs={t().children} />

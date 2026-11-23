@@ -124,6 +124,20 @@ export function taskGroups(board: Board | null, now: number): { group: Group; it
   })).filter((g) => g.items.length)
 }
 
+export const BOARD_COLUMNS: Group[] = ['todo', 'working', 'stopped', 'done']
+export const DONE_SHOWN_ON_BOARD = 10
+const longestStoppedFirst = (x: Item, y: Item) => (x.at ?? 0) - (y.at ?? 0)
+
+export function boardColumns(groups: { group: Group; items: Item[] }[], doneShownAll: boolean) {
+  return BOARD_COLUMNS.map((group) => {
+    const items = groups.find((g) => g.group === group)?.items ?? []
+    const ordered = group === 'stopped' ? [...items].sort(longestStoppedFirst) : items
+    const capped = group === 'done' && ordered.length > DONE_SHOWN_ON_BOARD
+    const shown = capped && !doneShownAll ? ordered.slice(0, DONE_SHOWN_ON_BOARD) : ordered
+    return { group, count: items.length, items: shown, more: capped ? { hidden: ordered.length - shown.length } : null }
+  })
+}
+
 export function summaryOf(groups: { group: Group; items: Item[] }[], pending: number) {
   const count = (g: Group) => groups.find((x) => x.group === g)?.items.length ?? 0
   const w = WINDOW_WORDS.zh.groups
