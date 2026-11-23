@@ -1,0 +1,24 @@
+{
+  "name": "nawaban-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "tsc --noEmit && vite build"
+  },
+  "dependencies": {
+    "@solidjs/web": "2.0.3",
+    "@ui-sdk/core": "0.1.0-beta.13",
+    "@ui-sdk/solid": "0.1.0-beta.13",
+    "solid-js": "2.0.3"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.1",
+    "vite": "8.3.8",
+    "typescript": "7.0.2",
+    "@types/node": "26.6.6"
+  },
+  "packageManager": "pnpm@10.22.0"
+}
