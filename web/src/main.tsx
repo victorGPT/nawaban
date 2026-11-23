@@ -7,6 +7,7 @@ import {
   foldKey, krFill, linkOf, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, pendingCount, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
   WINDOW_WORDS, type Board, type Item, type Project, type Route, type Tab,
 } from './logic'
+import { Inbox } from './inbox'
 import './style.css'
 
 const TOKEN_KEY = 'nawaban-web-token'
@@ -207,7 +208,11 @@ function App() {
               {(key) => <TaskDetail key={key()} detail={detail()} error={detailError()} />}
             </Show>
           </TabsPanel>
-          <TabsPanel value="inbox" class="panel"><p class="quiet">收件箱下一版接上。</p></TabsPanel>
+          <TabsPanel value="inbox" class="panel">
+            <Show when={picked()} fallback={<p class="quiet">{W.loading}</p>}>
+              {(p) => <Inbox project={p()} headers={headers} changes={changes()} taskHref={taskHref} />}
+            </Show>
+          </TabsPanel>
         </Tabs>
       </Show>
     </main>

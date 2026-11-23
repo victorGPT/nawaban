@@ -14,6 +14,7 @@ import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.t
 import { okrData } from './okr.ts'
 import { Refused } from './tasks.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
+import { dropInboxItem, inboxEntries, keepInboxItem } from './page.ts'
 
 const DEFAULT_PORT = 4100
 const TOKEN_BYTES = 32
@@ -22,6 +23,7 @@ const WEB = fileURLToPath(new URL('../../web/', import.meta.url))
 const BUILT_PAGE = join(WEB, 'dist')
 const API = '/api/nawaban/'
 const READS = new Set(['GET', 'HEAD'])
+const WRITE_BODY_MAX_BYTES = 16 * 1024
 const PROXY_HEADERS = /^(?:x-forwarded-.*|forwarded|x-real-ip)$/
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -162,6 +164,10 @@ async function view(team: Team, dir: string, path: string, query: URLSearchParam
     return project ? refuse(404, `项目 ${project} 没在 repos.json 登记仓库`) : refuse(400, 'usage: /api/nawaban/okr?project=<name>|repo=<path>')
   }
   if (what === 'changes' && !rest.length) return changes(team, signal)
+  if (what === 'inbox' && !rest.length) {
+    const project = query.get('project')
+    return project ? Response.json({ items: await inboxEntries(team, project) }) : refuse(400, 'usage: /api/nawaban/inbox?project=<name>')
+  }
   if (what === 'task' && rest.length === 1 && rest[0]) {
     try {
       return Response.json(await taskDetail(team, decodeURIComponent(rest[0])))
@@ -172,6 +178,31 @@ async function view(team: Team, dir: string, path: string, query: URLSearchParam
     }
   }
   return refuse(404, 'no such view')
+}
+
+async function wordsSent(request: Request) {
+  const body = await request.text()
+  if (Buffer.byteLength(body) > WRITE_BODY_MAX_BYTES) throw new Refused('too long')
+  let sent: unknown
+  try {
+    sent = JSON.parse(body)
+  } catch {
+    throw new Refused('send JSON { words }')
+  }
+  const words = (sent as { words?: unknown } | null)?.words
+  if (typeof words !== 'string') throw new Refused('send JSON { words }')
+  return words
+}
+
+async function write(team: Team, path: string, query: URLSearchParams, request: Request) {
+  const [what, ...rest] = path.split('/')
+  if (what === 'inbox' && request.method === 'POST' && !rest.length) {
+    return Response.json(await keepInboxItem(team, query.get('project') ?? '', await wordsSent(request)), { status: 201 })
+  }
+  if (what === 'inbox' && request.method === 'DELETE' && rest.length === 1 && rest[0]) {
+    return (await dropInboxItem(team, rest[0])) ? new Response(null, { status: 204 }) : refuse(404, 'no such inbox item')
+  }
+  return refuse(405, 'read-only')
 }
 
 const howToBuild = () =>
@@ -202,10 +233,10 @@ export function site(team: Team, { dir, webToken, port, dist = BUILT_PAGE }: { d
       fromThisMachineDirectlyElseRefusal(request, port) ??
       (isApi ? (holdsTheWebTokenElseRefusal(request, want) ?? writesOnlyFromThePagesOwnOriginElseRefusal(request)) : null)
     if (refusal) return refusal
-    if (!READS.has(request.method)) return refuse(405, 'read-only')
-    if (!isApi) return builtFile(pathname, dist)
+    if (!isApi) return READS.has(request.method) ? builtFile(pathname, dist) : refuse(405, 'read-only')
+    const path = pathname.slice(API.length)
     try {
-      return await view(team, dir, pathname.slice(API.length), searchParams, request.signal)
+      return await (READS.has(request.method) ? view(team, dir, path, searchParams, request.signal) : write(team, path, searchParams, request))
     } catch (error) {
       if (error instanceof Refused) return refuse(400, error.message)
       throw error

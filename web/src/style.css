@@ -4,6 +4,8 @@
   --card: #ffffff08;
   --card-edge: #ffffff12;
   --card-hover: #ffffff0d;
+  --card-selected-edge: #ffffff29;
+  --control: #ffffff1f;
   --hover: #ffffff0a;
   --segment: #ffffff17;
   --track: #ffffff12;
@@ -41,6 +43,8 @@
     --card: #ffffff;
     --card-edge: #e4e4e7;
     --card-hover: #fafafa;
+    --card-selected-edge: #a1a1aa;
+    --control: #d4d4d8;
     --hover: #0000000a;
     --segment: #e4e4e7;
     --track: #e4e4e7;

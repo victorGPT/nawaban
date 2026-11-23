@@ -1,4 +1,5 @@
-import { block, type board, type MessageView } from '@vercel/board'
+import { block, BoardError, type board, type MessageView } from '@vercel/board'
+import { Refused } from './tasks.ts'
 import { tasksOf } from './views.ts'
 
 type Team = ReturnType<typeof board>
@@ -18,9 +19,15 @@ const firstBlock = (m: MessageView, schema: string) =>
 
 export type WebAnswer = { task: string; title: string; hold: string; option: string | null; words: string; by: string; at: string; message: string }
 export type InboxItem = { id: string; words: string; by: string; at: string }
+export type InboxEntry = { id: string; words: string; at: string; done: boolean; task: string | null }
+
+export const INBOX_WORDS_MAX = 2000
+const INBOX_CHANNEL_PREFIX = inboxChannel('')
 
 export const webAnswerText = (answer: { option?: string; words: string }) => block('nawaban-web-answer@1', answer)
-export const inboxItemText = (words: string) => `${words.split('\n')[0]}\n\n${block('nawaban-inbox@1', { words })}`
+const FENCE_THAT_WOULD_SWALLOW_THE_BLOCK = /^[\s`~]+/
+const summaryLineThatOpensNoFence = (words: string) => words.split('\n')[0]!.replace(FENCE_THAT_WOULD_SWALLOW_THE_BLOCK, '').trim() || '…'
+export const inboxItemText = (words: string) => `${summaryLineThatOpensNoFence(words)}\n\n${block('nawaban-inbox@1', { words })}`
 
 const startsOrEndsAHold = (m: MessageView) =>
   !!firstBlock(m, 'nawaban-ask') || !!firstBlock(m, 'nawaban-resolve') || (m.blocks.length === 0 && NOTE_THAT_RAISES_OR_ENDS_A_HOLD_FOR_A_PERSON.test(m.text))
@@ -50,15 +57,49 @@ export async function webAnswers(team: Team, project?: string): Promise<WebAnswe
   return threads.flatMap(({ message, replies }) => answerToTheCurrentHold(message, replies) ?? [])
 }
 
-export async function openInboxItems(team: Team, project: string): Promise<InboxItem[]> {
-  const out: InboxItem[] = []
-  for (let page = await team.threads({ channel: inboxChannel(project), label: INBOX_OPEN, limit: THREADS_PAGE }); ; page = await team.threads({ channel: inboxChannel(project), label: INBOX_OPEN, limit: THREADS_PAGE, before: page.older! })) {
-    for (const { message: m } of page.threads) {
-      if (m.deleted) continue
-      out.push({ id: m.id, words: String(firstBlock(m, 'nawaban-inbox')?.words ?? m.text.split('\n')[0]), by: author(m), at: m.createdAt })
-    }
-    if (!page.older) return out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+async function inboxRoots(team: Team, project: string, label?: Record<string, string>) {
+  const query = { channel: inboxChannel(project), label, limit: THREADS_PAGE }
+  const roots: MessageView[] = []
+  for (let page = await team.threads(query); ; page = await team.threads({ ...query, before: page.older! })) {
+    roots.push(...page.threads.map((t) => t.message).filter((m) => !m.deleted))
+    if (!page.older) return roots
   }
+}
+
+const wordsOf = (m: MessageView) => String(firstBlock(m, 'nawaban-inbox')?.words ?? m.text.split('\n')[0])
+const oldestFirst = (a: { at: string }, b: { at: string }) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)
+
+export async function openInboxItems(team: Team, project: string): Promise<InboxItem[]> {
+  return (await inboxRoots(team, project, INBOX_OPEN)).map((m) => ({ id: m.id, words: wordsOf(m), by: author(m), at: m.createdAt })).sort(oldestFirst)
+}
+
+const entryOf = (m: MessageView): InboxEntry => ({ id: m.id, words: wordsOf(m), at: m.createdAt, done: m.labels.inbox === 'done', task: m.labels.task ?? null })
+
+export async function inboxEntries(team: Team, project: string): Promise<InboxEntry[]> {
+  const entries = (await inboxRoots(team, project)).filter((m) => firstBlock(m, 'nawaban-inbox')).map(entryOf).sort(oldestFirst).reverse()
+  return [...entries.filter((e) => !e.done), ...entries.filter((e) => e.done)]
+}
+
+export async function keepInboxItem(team: Team, project: string, words: string): Promise<InboxEntry> {
+  if (!project || project.includes('/')) throw new Refused('project must be a project name')
+  const kept = words.trim()
+  if (!kept) throw new Refused('nothing to keep')
+  if (kept.length > INBOX_WORDS_MAX) throw new Refused(`at most ${INBOX_WORDS_MAX} characters`)
+  try {
+    return entryOf(await team.post(inboxChannel(project), { text: inboxItemText(kept), labels: INBOX_OPEN }))
+  } catch (error) {
+    const boardRefusedWhatWasSent = error instanceof BoardError && error.status >= 400 && error.status < 500
+    if (boardRefusedWhatWasSent) throw new Refused(error.message)
+    throw error
+  }
+}
+
+export async function dropInboxItem(team: Team, id: string) {
+  const root = await team.thread(id).then(({ message }) => message, () => null)
+  const anInboxItem = root?.id === id && !root.deleted && root.channel.startsWith(INBOX_CHANNEL_PREFIX) && firstBlock(root, 'nawaban-inbox')
+  if (!anInboxItem) return false
+  await team.delete(id)
+  return true
 }
 
 export function pageText(answers: WebAnswer[], items: InboxItem[], project: string): string {
