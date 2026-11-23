@@ -1,5 +1,39 @@
 # Installation
 
+## Without Herdr: one command (macOS)
+
+For someone who wants the board and its web page, with Claude Code and without Herdr.
+
+Before you start, have:
+
+- macOS (the board runs as a launchd agent).
+- Node 22.18 or later (`node -v`) and pnpm (`npm install -g pnpm`).
+- Claude Code, logged in (`claude` works in a terminal).
+- git.
+
+Then run:
+
+```sh
+git clone https://github.com/victorGPT/nawaban ~/.nawaban/plugin && ~/.nawaban/plugin/install.sh
+```
+
+`install.sh` installs the board's packages and builds the web page, installs the Claude Code plugin `nawaban@nawaban` from that checkout, writes the `nawaban` command to `~/.local/bin`, and starts the board as the launchd agent `com.nawaban.board` on `127.0.0.1:4100`, which writes the board's token and the page's token into `~/.nawaban/board/` on first start. It stops and says why when a prerequisite is missing. If `~/.local/bin` is not on your `PATH`, it tells you the line to add. To update later, run `git -C ~/.nawaban/plugin pull --ff-only && ~/.nawaban/plugin/install.sh`; running it again is safe.
+
+`NAWABAN_BOARD_DIR`, `NAWABAN_BOARD_PORT`, `NAWABAN_LAUNCHD_LABEL` and `NAWABAN_BIN_DIR` change where it puts the board, the port, the agent's label and the command, for a second install beside the first.
+
+Every repository you work in uses this board, unless the old CLI already tracks it (a `.nawaban/nawaban.db` it finds, or a `docs/agents/issue-tracker.md` that names GitHub). `node ~/.nawaban/plugin/hooks/route.mjs` in a repository prints `board <project>` or `old`.
+
+### First use
+
+1. **Declare the orchestrator.** In your project, start a new Claude Code session and type `/nawaban:orchestrator`. It answers `已把会话 … 记为 <project> 的编排者（没有 Herdr，按会话认）` and prints the project's index. A new session or `/clear` needs the declaration again.
+2. **Open the page.** Run `nawaban web`. The browser opens `http://127.0.0.1:4100/` with the page's token in the link; the page shows your projects' 待决, OKR, 任务 and 收件箱.
+3. **Answer a 待决.** When the orchestrator asks you to decide, the card shows under 待决. Pick an option, add your words and send it. The task stays held until the orchestrator records your answer: on its next prompt it sees `## 网页已答`, and the line after each reply reads `待决 1 件，网页已答 1 件`.
+4. **Note something in the 收件箱.** Type an idea under 收件箱 and keep it. The orchestrator sees it as `## 收件箱` and makes it a task, runs it, or drops it; a task made from it shows its key there.
+
+If the page answers `401` or says to build, run `nawaban web` again, or rerun `install.sh`. The board's log is `~/.nawaban/board/serve.log`; restart it with `launchctl kickstart -k gui/$(id -u)/com.nawaban.board`.
+
+## With Herdr, or the older Python board
+
 The short path: paste this into Claude Code or Codex, in the project that should get a board.
 
 ```text
@@ -134,4 +168,4 @@ The panel rereads the board when the board file changes, and when a window of th
 
 ## Web page
 
-Without Herdr, the board's page shows the same views in a browser, on this machine only. Build it once, and again after each pull that changes `web/`: `pnpm --dir ~/nawaban/web install --frozen-lockfile && pnpm --dir ~/nawaban/web build`. `nawaban serve` (`node ~/nawaban/board/src/cli.ts serve`, or its launchd agent, restarted with `launchctl kickstart -k gui/$(id -u)/com.nawaban.board`) then serves it at `http://127.0.0.1:4100/`, and `nawaban web` (`node ~/nawaban/board/src/cli.ts web`) opens it with the page's token, `~/.nawaban/board/web-token`, in the link. The page reads `/api/nawaban/board`, `/projects`, `/task/<key>` and `/okr?repo=<path>`, the JSON `nawaban json` prints, and `/changes` tells it when to read again.
+Without Herdr, the board's page shows the same views in a browser, on this machine only. [The one-command install](#without-herdr-one-command-macos) builds it and starts the board; by hand, build it once, and again after each pull that changes `web/`: `pnpm --dir ~/nawaban/web install --frozen-lockfile && pnpm --dir ~/nawaban/web build`. `nawaban serve` (`node ~/nawaban/board/src/cli.ts serve`, or its launchd agent, restarted with `launchctl kickstart -k gui/$(id -u)/com.nawaban.board`) then serves it at `http://127.0.0.1:4100/`, and `nawaban web` (`node ~/nawaban/board/src/cli.ts web`) opens it with the page's token, `~/.nawaban/board/web-token`, in the link. The page reads `/api/nawaban/board`, `/projects`, `/task/<key>` and `/okr?repo=<path>`, the JSON `nawaban json` prints, and `/changes` tells it when to read again.
