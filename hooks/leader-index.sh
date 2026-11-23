@@ -1,8 +1,8 @@
 #!/bin/sh
 input=$(cat)
-hooks="$(dirname "$0")"
+hooks="$(cd "$(dirname "$0")" && pwd)"
 . "$hooks/orchestrator.sh"
-dir="${CLAUDE_PROJECT_DIR:-.}"
+dir=$(repository_the_session_is_in "$input")
 rules_dir="$dir/docs/agents"
 current_rules="$rules_dir/orchestrator.md"
 legacy_rules="$rules_dir/leader.md"
@@ -13,7 +13,7 @@ print_index_from_the_tracker_this_repository_uses() {
   if [ "${route%% *}" = board ]; then
     node "$hooks/../board/src/cli.ts" index --project "${route#* }"
   else
-    python3 "$hooks/../nawaban/cli.py" index
+    (cd "$dir" && python3 "$hooks/../nawaban/cli.py" index)
   fi
 }
 

@@ -35,11 +35,11 @@ for t in json.load(sys.stdin).get("terminals", []):
         continue
     if role == "orchestrator" and subprocess.run(["hc", "label", a, "role="], capture_output=True).returncode == 0:
         print(f"已摘掉同仓库旧编排者 {a} 的标签。")
-' "$HC_TERMINAL_ID" "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null
+' "$HC_TERMINAL_ID" "$(repository_the_session_is_in "$input")" 2>/dev/null
 }
 
 declare_this_session_outside_herdr() {
-  route=$(node "$hooks/route.mjs" "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null)
+  route=$(node "$hooks/route.mjs" "$(repository_the_session_is_in "$input")" 2>/dev/null)
   sid=$(session_of "$input")
   project=${route#* }
   [ "${route%% *}" = board ] && [ -n "$sid" ] || return 1
