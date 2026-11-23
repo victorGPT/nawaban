@@ -70,8 +70,11 @@ def test_a_command_is_allowed_unless_a_hook_exits_2_and_then_denied_with_its_rea
     assert run(plugin, "PreToolUse", call) == {"decision": "deny", "reason": "不许"}
 
 
-def test_unreadable_input_still_allows_the_command(tmp_path):
-    assert run(stub_plugin(tmp_path), "PreToolUse", "not json") == {"decision": "allow"}
+def test_unreadable_input_or_hooks_file_still_allows_the_command(tmp_path):
+    plugin = stub_plugin(tmp_path)
+    assert run(plugin, "PreToolUse", "not json") == {"decision": "allow"}
+    (plugin / "hooks" / "hooks.json").unlink()
+    assert run(plugin, "PreToolUse", recorded("PreToolUse.json")) == {"decision": "allow"}
 
 
 def test_a_blocked_stop_continues_with_the_reason_built_from_the_last_reply_in_the_transcript(tmp_path):

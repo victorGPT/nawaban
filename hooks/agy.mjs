@@ -4,12 +4,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const CLAUDE_HOOKS = JSON.parse(readFileSync(join(PLUGIN_ROOT, "hooks/hooks.json"), "utf8")).hooks;
 const HOOK_REFUSES_TOOL_CALL = 2;
 const PENDING_LINE = "inbox.sh";
 
-const claudeHooks = (event, keep = () => true) =>
-  CLAUDE_HOOKS[event].flatMap((group) => group.hooks).filter((h) => keep(h.command));
+const claudeHooks = (event, keep = () => true) => () =>
+  JSON.parse(readFileSync(join(PLUGIN_ROOT, "hooks/hooks.json"), "utf8")).hooks[event]
+    .flatMap((group) => group.hooks)
+    .filter((h) => keep(h.command));
 const isPendingLine = (command) => command.includes(PENDING_LINE);
 
 function lastReply(transcriptPath) {
@@ -75,7 +76,7 @@ const ROUTES = {
   PreInvocation: {
     claudeEvent: "UserPromptSubmit",
     onlyWhen: (d) => d.invocationNum === 0,
-    hooks: [...claudeHooks("UserPromptSubmit"), ...claudeHooks("Stop", isPendingLine)],
+    hooks: () => [...claudeHooks("UserPromptSubmit")(), ...claudeHooks("Stop", isPendingLine)()],
     answer: injectSteps,
   },
   PreToolUse: { claudeEvent: "PreToolUse", hooks: claudeHooks("PreToolUse"), answer: gate },
@@ -90,7 +91,7 @@ function run(route, d) {
   const claudeInput = asClaudeInput(route.claudeEvent, d);
   const input = JSON.stringify(claudeInput);
   const env = { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, CLAUDE_PROJECT_DIR: claudeInput.cwd };
-  const runs = route.hooks.map((h) =>
+  const runs = route.hooks().map((h) =>
     spawnSync("sh", ["-c", h.command], { input, env, encoding: "utf8", timeout: (h.timeout ?? 30) * 1000 }),
   );
   return route.answer(runs.map((r) => ({ status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" })));
