@@ -28,9 +28,15 @@ const read = <T,>(view: string): Promise<T> =>
 async function onEachChange(then: () => void) {
   for (;;) {
     try {
-      const r = await fetch('/api/nawaban/changes', { headers })
+      const r = await fetch('/api/nawaban/changes', { headers }).finally(then)
+      if (!r.ok) throw new Error(`看板答 ${r.status}`)
       const reader = r.body!.pipeThrough(new TextDecoderStream()).getReader()
-      for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) if (chunk.value.includes('data:')) then()
+      let unfinished = ''
+      for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+        const frames = (unfinished + chunk.value).split('\n\n')
+        unfinished = frames.pop()!
+        if (frames.some((f) => f.startsWith('data:'))) then()
+      }
     } catch {}
     await new Promise((done) => setTimeout(done, RECONNECT_MS))
   }
@@ -43,7 +49,6 @@ function App() {
     read<Board>('board')
       .then((b) => (setTasks(b.columns.flatMap((c) => c.tasks)), setError('')))
       .catch((e: Error) => setError(e.message))
-  load()
   void onEachChange(load)
   return (
     <main>
