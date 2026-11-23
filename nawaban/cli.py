@@ -1593,7 +1593,7 @@ _CARD_PARTS_THAT_MUST_SAY_SOMETHING = (("decision", "决策事项(--body)"), ("c
 
 def _decision_card_parts(brief: str) -> tuple[dict, list[dict]]:
     fields, options, current = {}, [], None
-    lines = _PENDING_HEADING.sub("", brief, count=1).splitlines()
+    lines = re.split(r"\r?\n", _PENDING_HEADING.sub("", brief, count=1))
     one_syntax_per_card = next((s for ln in lines for s in _CARD_FIELD_SYNTAXES if s.match(ln)), _DR_FIELD)
     for ln in lines:
         o = _CARD_OPTION_LINE.match(ln) if current == "Options" else None
