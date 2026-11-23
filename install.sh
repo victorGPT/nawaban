@@ -50,6 +50,7 @@ EOF
 
 write_the_launch_agent() {
   mkdir -p "$board_dir" "$(dirname "$agent")"
+  chmod 700 "$board_dir"
   cat > "$agent" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
