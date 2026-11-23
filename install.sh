@@ -11,6 +11,7 @@ SERVICE_START_SECONDS=20
 
 fail() { echo "nawaban 安装停在这里：$*" >&2; exit 1; }
 say() { echo "• $*"; }
+xml() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
 
 require_prerequisites() {
   [ "$(uname)" = Darwin ] || fail "只支持 macOS（board 服务由 launchd 常驻）"
@@ -55,28 +56,28 @@ write_the_launch_agent() {
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>$label</string>
+  <string>$(xml "$label")</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$(command -v node)</string>
-    <string>$plugin/board/src/cli.ts</string>
+    <string>$(xml "$(command -v node)")</string>
+    <string>$(xml "$plugin/board/src/cli.ts")</string>
     <string>serve</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>NAWABAN_BOARD_DIR</key>
-    <string>$board_dir</string>
+    <string>$(xml "$board_dir")</string>
     <key>NAWABAN_BOARD_PORT</key>
-    <string>$port</string>
+    <string>$(xml "$port")</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>$board_dir/serve.log</string>
+  <string>$(xml "$board_dir/serve.log")</string>
   <key>StandardErrorPath</key>
-  <string>$board_dir/serve.log</string>
+  <string>$(xml "$board_dir/serve.log")</string>
 </dict>
 </plist>
 EOF

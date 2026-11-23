@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { cliFor, repoName } from "../herdr/mods/nawaban-board/logic.js";
 
@@ -34,7 +34,7 @@ function mainCheckoutThenDirAndAncestors(dir, repoRoot) {
 
 function oldCliFindsABoard(dir, repoRoot) {
   if (process.env.NAWABAN_DB) return true;
-  const holder = mainCheckoutThenDirAndAncestors(dir, repoRoot).find((d) => existsSync(join(d, ".nawaban")));
+  const holder = mainCheckoutThenDirAndAncestors(dir, repoRoot).find((d) => statSync(join(d, ".nawaban"), { throwIfNoEntry: false })?.isDirectory());
   return holder !== undefined && existsSync(join(holder, ".nawaban", "nawaban.db"));
 }
 
