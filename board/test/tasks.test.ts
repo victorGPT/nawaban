@@ -160,7 +160,7 @@ it('closes and renews for a NAWABAN_OWNER written in capitals', async () => {
   expect((await nawabanAsTheWindowOfSession(['close', 'O-1', '--done'], '', owner)).code).toBe(0)
 })
 
-it('takes the Codex thread before the Claude Code session it inherited, and that before NAWABAN_OWNER', async () => {
+it('takes the Codex thread, then the Antigravity conversation, before the Claude Code session they inherited, and that before NAWABAN_OWNER', async () => {
   const codexThread = 'cccc3333-0000-0000-0000-000000000000'
   const holder = async (env: Record<string, string>, session = A_SESSION) => {
     await nawabanAsTheWindowOfSession(['create', 'I-1', '--title', 'identity', '--project', 'nawaban'])
@@ -169,7 +169,9 @@ it('takes the Codex thread before the Claude Code session it inherited, and that
     await nawabanAsTheWindowOfSession(['claim', 'I-1', '--release'], session, env)
     return actor.slice(actor.indexOf('+') + 1)
   }
-  expect(await holder({ CODEX_THREAD_ID: codexThread, NAWABAN_OWNER: 'agent-a' })).toBe('cx-cccc3333')
+  const antigravityConversation = 'EEEE5555-0000-0000-0000-000000000000'
+  expect(await holder({ CODEX_THREAD_ID: codexThread, ANTIGRAVITY_CONVERSATION_ID: antigravityConversation, NAWABAN_OWNER: 'agent-a' })).toBe('cx-cccc3333')
+  expect(await holder({ ANTIGRAVITY_CONVERSATION_ID: antigravityConversation, NAWABAN_OWNER: 'agent-a' })).toBe('agy-eeee5555')
   expect(await holder({ NAWABAN_OWNER: 'agent-a' })).toBe('cc-aaaa1111')
   expect(await holder({ NAWABAN_OWNER: 'agent-a' }, '')).toBe('agent-a')
 })

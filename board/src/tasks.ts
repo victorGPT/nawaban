@@ -24,14 +24,15 @@ export class Refused extends Error {
 
 const boardKeepsProfileNamesLowercase = (name: string) => name.toLowerCase()
 
-const sessionProfile = (agent: 'cx' | 'cc', session: string) =>
+const sessionProfile = (agent: 'cx' | 'agy' | 'cc', session: string) =>
   boardKeepsProfileNamesLowercase(`${agent}-${session.slice(0, SESSION_PREFIX_LENGTH)}`)
 
 export function profile(): string {
-  const { CODEX_THREAD_ID: codexThread, CLAUDE_CODE_SESSION_ID: claudeCode, NAWABAN_OWNER: owner } = process.env
+  const { CODEX_THREAD_ID: codexThread, ANTIGRAVITY_CONVERSATION_ID: antigravity, CLAUDE_CODE_SESSION_ID: claudeCode, NAWABAN_OWNER: owner } = process.env
   if (codexThread) return sessionProfile('cx', codexThread)
+  if (antigravity) return sessionProfile('agy', antigravity)
   if (claudeCode) return sessionProfile('cc', claudeCode)
-  if (!owner) throw new Refused('no identity: set CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID, or NAWABAN_OWNER outside Codex and Claude Code', 2)
+  if (!owner) throw new Refused('no identity: set CODEX_THREAD_ID, ANTIGRAVITY_CONVERSATION_ID, CLAUDE_CODE_SESSION_ID, or NAWABAN_OWNER outside Codex, Antigravity and Claude Code', 2)
   if (!PROFILE_NAME.test(owner)) {
     throw new Refused(`NAWABAN_OWNER ${owner} isn't a profile name: a letter, then up to 31 letters, numbers, and hyphens`, 2)
   }
@@ -250,7 +251,7 @@ const close: Verb = async (argv) => {
 const renew: Verb = async (argv) => {
   const { values } = parseArgs({ args: argv, options: { session: { type: 'string' }, json: { type: 'boolean' } } })
   const hookSession = values.session
-  const profilesTheHookSessionMayHold = hookSession ? (['cx', 'cc'] as const).map((agent) => sessionProfile(agent, hookSession)) : [profile()]
+  const profilesTheHookSessionMayHold = hookSession ? (['cx', 'agy', 'cc'] as const).map((agent) => sessionProfile(agent, hookSession)) : [profile()]
   let lastFailureWhileEveryClaimStillGetsItsRenewal = 0
   for (const task of await all({ state: 'claimed' })) {
     const claim = live(task)
