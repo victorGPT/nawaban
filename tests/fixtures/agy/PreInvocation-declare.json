@@ -1,0 +1,14 @@
+{
+  "artifactDirectoryPath": "/tmp/agy-probe/home/.gemini/antigravity-cli/brain/4234b2f6-f445-44ec-99b9-874a44a00d51",
+  "conversationId": "4234b2f6-f445-44ec-99b9-874a44a00d51",
+  "cwd": "/tmp/agy-probe/agyws",
+  "hookEventName": "PreInvocation",
+  "initialNumSteps": 1,
+  "invocationNum": 0,
+  "lastUserInput": "/nawaban:orchestrator",
+  "modelName": "gemini-4-neon-high",
+  "transcriptPath": "/tmp/agy-probe/home/.gemini/antigravity-cli/brain/4234b2f6-f445-44ec-99b9-874a44a00d51/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/tmp/agy-probe/agyws"
+  ]
+}

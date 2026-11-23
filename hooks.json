@@ -1,0 +1,50 @@
+{
+  "nawaban": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "node hooks/agy.mjs SessionStart",
+        "timeout": 40
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "node hooks/agy.mjs PreInvocation",
+        "timeout": 90
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "node hooks/agy.mjs Stop",
+        "timeout": 30
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node hooks/agy.mjs PreToolUse",
+            "timeout": 180
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node hooks/agy.mjs PostToolUse",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
