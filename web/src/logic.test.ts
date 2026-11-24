@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import fixture from '../../herdr/mods/nawaban-board/okr.fixture.json'
-import { boardColumns, DONE_SHOWN_ON_BOARD, krFill, okrReadingOfFailure, okrView, OKR_WORDS, linkOf, projectShown, routeOf, STOPPED_AFTER_SILENT_FOR, summaryOf, waitingOnYouCount, taskGroups, taskHref, taskSections, type Board, type BoardTask } from './logic'
+import { boardColumns, cardSignal, DONE_SHOWN_ON_BOARD, krFill, okrReadingOfFailure, okrView, OKR_WORDS, linkOf, projectShown, routeOf, STOPPED_AFTER_SILENT_FOR, summaryOf, waitingOnYouCount, taskGroups, taskHref, taskSections, type Board, type BoardTask } from './logic'
 
 const NOW = 1_800_000_000
 const task = (id: string, over: Partial<BoardTask> = {}): BoardTask => ({
@@ -46,7 +46,7 @@ describe('taskGroups', () => {
       working('S-2', { parent: 'S', active_at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, progress: { body: '卡在 CI', at: NOW } }),
       working('S-3', { parent: 'S' }),
     ), NOW)
-    expect(g).toEqual({ group: 'stopped', items: [{ key: 'task:S', id: 'S', title: 'S', state: 'stopped', at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, note: '卡在 CI', doing: { head: '【在做】S —— 编排者代定', chain: '[开工] → 首次改文件 → 首次提交 · 2 天没动', stale: true }, spec: { done: 1, total: 3 } }] })
+    expect(g).toEqual({ group: 'stopped', items: [{ key: 'task:S', id: 'S', title: 'S', state: 'stopped', at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, note: '卡在 CI', doing: { head: '【在做】S —— 编排者代定', chain: '[开工] → 首次改文件 → 首次提交 · 2 天没动', stale: true }, spec: { done: 1, total: 3 }, waiting: false, parent: null }] })
   })
   it('lists a spec done once every ticket is done', () => {
     const groups = taskGroups(boardOf(task('S'), task('S-1', { parent: 'S', status: 'done', done_at: NOW - 9 })), NOW)
@@ -101,6 +101,30 @@ describe('boardColumns', () => {
   it('keeps the spec count on the card', () => {
     const cols = boardColumns(taskGroups(boardOf(task('S'), task('S-1', { parent: 'S', status: 'done', done_at: 1 }), task('S-2', { parent: 'S' })), NOW), false)
     expect(cols[0]!.items[0]!.spec).toEqual({ done: 1, total: 2 })
+  })
+})
+
+describe('the board card', () => {
+  const signalOf = (...tasks: BoardTask[]) => cardSignal(taskGroups(boardOf(...tasks), NOW)[0]!.items[0]!, NOW)
+  it('says nothing beside the key while the task is todo, working or done', () => {
+    expect(signalOf(task('t'))).toBeNull()
+    expect(signalOf(working('w', { live: { milestone: 'pr', at: NOW - 60 }, ruling: { at: NOW, verdict: '好' } }))).toBeNull()
+    expect(signalOf(task('d', { status: 'done', done_at: NOW - 60 }))).toBeNull()
+  })
+  it('says how long a stopped task has stopped', () => {
+    expect(signalOf(working('s', { active_at: NOW - 5 * 24 * 3600 }))).toBe('停了 5 天')
+  })
+  it('says 等你, and only that, when the task waits on you, stopped or not', () => {
+    expect(signalOf(working('q', { waiting: '要不要接上\n背景……' }))).toBe('等你')
+    expect(signalOf(working('q', { waiting: '定吗', active_at: NOW - 5 * 24 * 3600 }))).toBe('等你')
+  })
+})
+
+describe('the parent beside the key', () => {
+  it('names the parent issue of a GitHub issue, and nothing for a task that has none', () => {
+    const github: Board = { ...boardOf(task('#1', { title: '分享与邀请' }), task('#2', { parent: '#1' }), task('#3', { parent: '#404' })), tracker: 'github' }
+    const parents = Object.fromEntries(taskGroups(github, NOW).flatMap((g) => g.items).map((x) => [x.id, x.parent]))
+    expect(parents).toEqual({ '#1': null, '#2': '分享与邀请', '#3': null })
   })
 })
 
