@@ -50,6 +50,9 @@ def closing_quote(s, i):
             j += 2
         elif s.startswith("$(", j):
             j = closing_paren(s, j + 2)
+        elif s[j] == "`":
+            k = s.find("`", j + 1)
+            j = len(s) if k < 0 else k + 1
         else:
             j += 1
     return min(j, len(s))
