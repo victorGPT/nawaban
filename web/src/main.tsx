@@ -7,7 +7,7 @@ import {
   boardColumns, boardTaskOf, foldKey, krFill, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
   WINDOW_WORDS, type Board, type BoardTask, type Item, type Project, type Route, type Tab,
 } from './logic'
-import { clockOf, daysUpTo, detailView, stampOf, type By, type Day, type Detail, type DetailView, type Entry, type Ref, type Row, type Section, type Step } from './detail-logic'
+import { clockOf, detailView, stampOf, type By, type Timeline as TimelineRows, type Detail, type DetailView, type Entry, type Ref, type Row, type Section, type Step } from './detail-logic'
 import { Inbox } from './inbox'
 import { DecidePage } from './Decide'
 import { badge, button, card, cardList, cardTitle, chip, cn, empty, Icon, selectTrigger, sectionHead } from './ui'
@@ -387,7 +387,6 @@ function TaskCard(props: { item: Item }) {
 type Folds = { isOpen: (key: string) => boolean; setOpen: (key: string, open: boolean) => void }
 type RowContext = { waiting: string | null; folds: Folds }
 
-const TIMELINE_ROWS_SHOWN = 20
 const BODY_FOLD = 'body'
 const ALL_ROWS_FOLD = 'all-rows'
 const CLOSED_STATUSES = new Set(['done', 'cancelled'])
@@ -445,7 +444,7 @@ function DetailCard(props: { detail: Detail; view: DetailView; task: BoardTask |
               <BodyPart sections={props.view.sections} folds={props.folds} />
             </div>
           </Show>
-          <Timeline days={props.view.days} waiting={props.view.waiting} folds={props.folds} />
+          <Timeline timeline={props.view.timeline} waiting={props.view.waiting} folds={props.folds} />
         </div>
         <aside class="flex w-72 shrink-0 flex-col gap-4 border-l border-border p-6 max-md:order-2 max-md:w-full max-md:border-t max-md:border-l-0 max-md:p-4">
           <SideFields detail={props.detail} view={props.view} task={props.task} />
@@ -532,14 +531,14 @@ function BodyPart(props: { sections: Section[]; folds: Folds }) {
   )
 }
 
-function Timeline(props: { days: Day[]; waiting: string | null; folds: Folds }) {
-  const all = () => props.folds.isOpen(ALL_ROWS_FOLD)
-  const capped = createMemo(() => daysUpTo(props.days, TIMELINE_ROWS_SHOWN))
+function Timeline(props: { timeline: TimelineRows; waiting: string | null; folds: Folds }) {
+  const everything = () => props.folds.isOpen(ALL_ROWS_FOLD)
+  const shownForTheOwner = () => props.timeline.forTheOwner.reduce((n, day) => n + day.rows.length, 0)
   const ctx: RowContext = { get waiting() { return props.waiting }, folds: props.folds }
   return (
-    <Show when={props.days.length}>
+    <Show when={props.timeline.total}>
       <section aria-label="时间线" class="flex flex-col gap-6 border-t border-border p-6 max-md:order-3 max-md:p-4">
-        <For each={all() ? props.days : capped().days}>
+        <For each={everything() ? props.timeline.everything : props.timeline.forTheOwner}>
           {(day) => (
             <div class="-mx-2 flex flex-col gap-1">
               <h3 class="px-2 text-sm font-medium text-foreground">{day.label}</h3>
@@ -549,9 +548,9 @@ function Timeline(props: { days: Day[]; waiting: string | null; folds: Folds }) 
             </div>
           )}
         </For>
-        <Show when={capped().hidden}>
-          <button type="button" class={cn(button('ghost'), 'w-full text-muted-foreground')} onClick={() => props.folds.setOpen(ALL_ROWS_FOLD, !all())}>
-            {all() ? W.less : W.more(capped().hidden)}
+        <Show when={props.timeline.total > shownForTheOwner()}>
+          <button type="button" aria-expanded={everything() ? 'true' : 'false'} class={cn(button('ghost'), 'w-full text-muted-foreground')} onClick={() => props.folds.setOpen(ALL_ROWS_FOLD, !everything())}>
+            {everything() ? W.less : '显示全部 ' + props.timeline.total + ' 条'}
           </button>
         </Show>
       </section>
@@ -578,12 +577,6 @@ function SayingRow(props: { fold: string; said: Entry; folds: Folds; tone: strin
   )
 }
 
-const MILESTONE_MARKS: Record<Extract<Row, { kind: 'milestone' }>['mark'], () => JSX.Element> = {
-  dispatch: () => <Dot class="size-2 border border-muted-foreground" />,
-  pr: () => <Dot class="size-2 border border-muted-foreground" />,
-  done: () => <Icon name="CircleCheck" class="size-3.5 text-status-done" />,
-}
-
 type RowViews = { [K in Row['kind']]: (row: Extract<Row, { kind: K }>, ctx: RowContext) => JSX.Element }
 const ROW_VIEWS: RowViews = {
   decision: (row, ctx) => (
@@ -602,43 +595,11 @@ const ROW_VIEWS: RowViews = {
     />
   ),
   note: (row, ctx) => <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} tone="text-muted-foreground" />,
-  notes: (row, ctx) => {
-    const fold = foldOf(row.kind, row)
-    const open = () => ctx.folds.isOpen(fold)
-    return (
-      <>
-        <button type="button" aria-expanded={open() ? 'true' : 'false'} class={foldRow} onClick={() => ctx.folds.setOpen(fold, !open())}>
-          <Clock at={row.at} />
-          <span class={markCell} />
-          <span class={cn('min-w-0 flex-1 text-muted-foreground', oneLine)}>
-            {row.notes.length} 条进展
-            <Show when={!open()}> · {row.line}</Show>
-          </span>
-          <Icon name="ChevronDown" class={cn('mt-0.5 text-subtle-foreground transition-transform', !open() && '-rotate-90')} />
-        </button>
-        <Show when={open()}>
-          <ol class="flex flex-col">
-            <For each={row.notes}>
-              {(note) => (
-                <li class={rowLine}>
-                  <Clock at={note.at} />
-                  <span class={markCell} />
-                  <span class={cn('min-w-0 flex-1 text-muted-foreground', wholeText)}>{note.full}</span>
-                </li>
-              )}
-            </For>
-          </ol>
-        </Show>
-      </>
-    )
-  },
-  milestone: (row) => (
+  dispatch: (row) => (
     <div class={rowLine}>
       <Clock at={row.at} />
-      <span class={markCell}>{MILESTONE_MARKS[row.mark]()}</span>
-      <Show when={row.href} fallback={<span class="min-w-0 truncate text-foreground">{row.line}</span>}>
-        {(href) => <a class={cn('min-w-0 truncate text-foreground', quietLink)} href={href()} target="_blank" rel="noreferrer">{row.line}</a>}
-      </Show>
+      <span class={markCell}><Dot class="size-2 border border-muted-foreground" /></span>
+      <span class="min-w-0 truncate text-muted-foreground">{row.line}</span>
     </div>
   ),
 }
@@ -685,12 +646,12 @@ function SideFields(props: { detail: Detail; view: DetailView; task: BoardTask |
           {stateWord()}
         </span>
       </Field>
-      <Show when={props.task?.session}>
-        {(session) => (
+      <Show when={props.view.holder}>
+        {(holder) => (
           <Field label="负责">
             <span class="flex min-w-0 items-baseline gap-2 text-sm text-foreground">
-              <span class="truncate">{session()}</span>
-              <Show when={props.task?.terminal}>{(terminal) => <span class={metaText}>{terminal()}</span>}</Show>
+              <span class="truncate">{holder().name}</span>
+              <Show when={holder().terminal}>{(terminal) => <span class={metaText}>{terminal()}</span>}</Show>
             </span>
           </Field>
         )}

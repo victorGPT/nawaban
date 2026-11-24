@@ -16,10 +16,11 @@ export type Row =
   | ({ kind: 'decision'; by: By; question: string | null } & Entry)
   | ({ kind: 'ask' } & Entry)
   | ({ kind: 'note' } & Entry)
-  | { kind: 'notes'; at: number; line: string; notes: Entry[] }
-  | { kind: 'milestone'; at: number; line: string; href: string | null; mark: 'dispatch' | 'pr' | 'done' }
+  | { kind: 'dispatch'; at: number; line: string }
 export type Day = { key: string; label: string; rows: Row[] }
 export type Step = { word: string; status: 'completed' | 'in_progress' | 'pending' }
+export type Timeline = { forTheOwner: Day[]; everything: Day[]; total: number }
+export type Holder = { name: string; terminal: string | null }
 export type Section = { label: string | null; html: string }
 export type Part = string | { label: string; href: string }
 export type Link = { kind: string; label: string; href: string | null }
@@ -30,7 +31,8 @@ export type DetailView = {
   waiting: string | null
   ruling: Ruling | null
   sections: Section[]
-  days: Day[]
+  timeline: Timeline
+  holder: Holder | null
   links: Link[]
 }
 
@@ -111,8 +113,7 @@ const ROW_OF_EVENT: Record<string, (e: Event) => Row | null> = {
       : { kind: 'note', ...entryOf(e.at, e.body) },
   ask: (e) => ({ kind: 'ask', ...entryOf(e.at, cardOf(e.body) || e.body) }),
   resolve: (e) => ({ kind: 'decision', by: 'owner', question: null, ...entryOf(e.at, String(dataOf(e.body).words ?? e.body)) }),
-  dispatch: (e) => ({ kind: 'milestone', at: e.at, line: ['派工', workerOf(e.body)].filter(Boolean).join(' '), href: null, mark: 'dispatch' }),
-  link: (e) => (linkOf(e.body).kind === 'pr' ? { kind: 'milestone', at: e.at, line: '开 ' + linkLabel(e.body).label, href: linkLabel(e.body).href, mark: 'pr' } : null),
+  dispatch: (e) => ({ kind: 'dispatch', at: e.at, line: ['派工', workerOf(e.body)].filter(Boolean).join(' ') }),
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -137,25 +138,7 @@ function dayLabel(at: number, now: number) {
 
 const oldestFirst = (events: Event[]) => [...events].reverse().sort((a, b) => a.at - b.at)
 
-function foldedProgress(rows: Row[]): Row[] {
-  const folded: Row[] = []
-  let run: Entry[] = []
-  const closeRun = () => {
-    if (run.length === 1) folded.push({ kind: 'note', ...run[0]! })
-    if (run.length > 1) folded.push({ kind: 'notes', at: run.at(-1)!.at, line: run.at(-1)!.line, notes: [...run].reverse() })
-    run = []
-  }
-  for (const row of rows) {
-    if (run.length && dayKey(run[0]!.at) !== dayKey(row.at)) closeRun()
-    if (row.kind === 'note') run.push({ at: row.at, line: row.line, full: row.full })
-    else {
-      closeRun()
-      folded.push(row)
-    }
-  }
-  closeRun()
-  return folded
-}
+const isForTheOwner = (row: Row) => row.kind === 'ask' || (row.kind === 'decision' && row.by === 'owner')
 
 function daysOf(rows: Row[], now: number): Day[] {
   const days: Day[] = []
@@ -201,8 +184,7 @@ const HEADLINE_OF: Record<ItemState, (task: BoardTask, seen: { steps: Step[] | n
 export function detailView(detail: Detail, boardTask: BoardTask | null, now: number): DetailView {
   const state: ItemState = boardTask ? stateOf(boardTask, now) : detail.status === 'done' ? 'done' : 'todo'
   const said = oldestFirst(detail.events).map((e) => ROW_OF_EVENT[e.kind]?.(e) ?? null).filter((r): r is Row => r !== null)
-  const finished: Row[] = boardTask?.done_at ? [{ kind: 'milestone', at: boardTask.done_at, line: '完成', href: null, mark: 'done' }] : []
-  const rows = foldedProgress([...said, ...finished].sort((a, b) => a.at - b.at))
+  const lastWorker = oldestFirst(detail.events).filter((e) => e.kind === 'dispatch').map((e) => workerOf(e.body)).filter(Boolean).at(-1)
   const latestDecision = said.filter((r) => r.kind === 'decision').at(-1)
   const steps = boardTask && HELD.includes(state) ? stepsAt(boardTask.live?.milestone ?? 'started') : null
   const links = detail.links.map((e) => linkLabel(e.body))
@@ -213,19 +195,8 @@ export function detailView(detail: Detail, boardTask: BoardTask | null, now: num
     waiting: boardTask?.waiting ? firstLine(boardTask.waiting) : null,
     ruling: latestDecision ? { at: latestDecision.at, line: latestDecision.line, full: latestDecision.full, by: latestDecision.by, question: latestDecision.question } : null,
     sections: sectionsOf(detail.body ?? ''),
-    days: daysOf(rows, now),
+    timeline: { forTheOwner: daysOf(said.filter(isForTheOwner), now), everything: daysOf(said, now), total: said.length },
+    holder: boardTask?.session ? { name: lastWorker ?? boardTask.terminal ?? boardTask.session, terminal: lastWorker ? (boardTask.terminal ?? null) : null } : null,
     links,
   }
-}
-
-export function daysUpTo(days: Day[], limit: number) {
-  const shown: Day[] = []
-  let room = limit
-  for (const day of days) {
-    if (room <= 0) break
-    shown.push({ ...day, rows: day.rows.slice(0, room) })
-    room -= day.rows.length
-  }
-  const total = days.reduce((n, d) => n + d.rows.length, 0)
-  return { days: shown, hidden: Math.max(0, total - limit) }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { daysUpTo, detailView, type Detail, type Event } from './detail-logic'
+import { detailView, type Detail, type Event } from './detail-logic'
 import type { BoardTask } from './logic'
 
 const at = (day: number, hour: number, minute = 0) => new Date(2026, 10, day, hour, minute).getTime() / 1000
@@ -10,7 +10,7 @@ const detail = (events: Event[], over: Partial<Detail> = {}): Detail => ({
   parent: null, children: [], blocked_by: [], dependents: [], latest_note: null, decisions: [], links: events.filter((e) => e.kind === 'link'), events: [...events].reverse(), ...over,
 })
 const task = (over: Partial<BoardTask> = {}): BoardTask => ({ id: 'T', title: 'T', status: 'in_progress', parent: null, session: 'cc-1', active_at: NOW - 60, claimed_at: NOW - 600, ...over })
-const lines = (view: ReturnType<typeof detailView>) => view.days.map((d) => [d.label, d.rows.map((r) => r.kind + ' ' + r.line)])
+const lines = (view: ReturnType<typeof detailView>) => view.timeline.everything.map((d) => [d.label, d.rows.map((r) => r.kind + ' ' + r.line)])
 
 describe('detailView timeline', () => {
   it('groups rows by local day, newest day and newest row on top', () => {
@@ -23,19 +23,22 @@ describe('detailView timeline', () => {
     expect(lines(view)).toEqual([
       ['今天', ['decision 用里程碑', 'note 开工']],
       ['昨天', ['decision 上']],
-      ['11/22 周日', ['milestone 派工 w-1']],
+      ['11/22 周日', ['dispatch 派工 w-1']],
     ])
   })
 
-  it('folds two or more progress notes between two nodes into one row, and leaves a lone one as is', () => {
+  it('keeps only the decision-maker\'s rulings and what was asked of them up front, with everything one step away', () => {
     const view = detailView(detail([
+      ev('dispatch', '{"worker":"w-1","terminal":"t1"}', at(24, 8)),
       ev('note', '进展：一', at(24, 9)),
-      ev('note', '进展：二\n细节', at(24, 10)),
-      ev('decision', '决定：定了', at(24, 11)),
-      ev('note', '进展：三', at(24, 12)),
+      ev('note', 'triage: needs-info — 等你：行不行', at(24, 10)),
+      ev('decision', '决定：行', at(24, 11), 'user'),
+      ev('decision', '决定：代定的', at(24, 12)),
+      ev('link', 'pr:https://github.com/o/r/pull/136', at(24, 13)),
     ]), task(), NOW)
-    expect(lines(view)).toEqual([['今天', ['note 三', 'decision 定了', 'notes 二']]])
-    expect(view.days[0]!.rows[2]).toEqual({ kind: 'notes', at: at(24, 10), line: '二', notes: [{ at: at(24, 10), line: '二', full: '二\n细节' }, { at: at(24, 9), line: '一', full: '一' }] })
+    expect(view.timeline.forTheOwner.map((d) => [d.label, d.rows.map((r) => r.kind + ' ' + r.line)])).toEqual([['今天', ['decision 行', 'ask 行不行']]])
+    expect(lines(view)).toEqual([['今天', ['decision 代定的', 'decision 行', 'ask 行不行', 'note 一', 'dispatch 派工 w-1']]])
+    expect(view.timeline.total).toBe(5)
   })
 
   it('reads a decision as its verdict line, its question, and who made it', () => {
@@ -43,7 +46,7 @@ describe('detailView timeline', () => {
       ev('decision', '决定：只做里程碑\n背景：怎么报进度\n否决方案：每轮摘要', at(24, 9), 'user'),
       ev('decision', '决定：代定的\n影响：无', at(24, 10)),
     ]), task(), NOW)
-    const [agent, owner] = view.days[0]!.rows
+    const [agent, owner] = view.timeline.everything[0]!.rows
     expect(owner).toMatchObject({ kind: 'decision', line: '只做里程碑', question: '怎么报进度', by: 'owner', full: '只做里程碑\n背景：怎么报进度\n否决方案：每轮摘要' })
     expect(agent).toMatchObject({ kind: 'decision', line: '代定的', question: null, by: 'agent' })
     expect(view.ruling).toMatchObject({ line: '代定的', by: 'agent', at: at(24, 10) })
@@ -51,18 +54,18 @@ describe('detailView timeline', () => {
 
   it('reads a needs-info triage note as the question being asked', () => {
     const view = detailView(detail([ev('note', 'triage: needs-info — 等你：这个方向对不对', at(24, 9))]), task({ waiting: '这个方向对不对' }), NOW)
-    expect(view.days[0]!.rows[0]).toMatchObject({ kind: 'ask', line: '这个方向对不对' })
+    expect(view.timeline.everything[0]!.rows[0]).toMatchObject({ kind: 'ask', line: '这个方向对不对' })
     expect(view.waiting).toBe('这个方向对不对')
     expect(view.state).toBe('stopped')
   })
 
-  it('turns a pr link into a milestone and keeps every link in the side list', () => {
+  it('keeps links out of the timeline and lists every one at the side', () => {
     const view = detailView(detail([
       ev('link', 'pr:https://github.com/o/r/pull/136', at(24, 9)),
       ev('link', 'commit:d33f79cd735b522d9556da5c45cb3003f0d9651e', at(24, 10)),
       ev('link', 'artifact:https://claude.ai/artifact/X', at(24, 11)),
     ]), task(), NOW)
-    expect(view.days[0]!.rows).toEqual([{ kind: 'milestone', at: at(24, 9), line: '开 PR #136', href: 'https://github.com/o/r/pull/136', mark: 'pr' }])
+    expect(view.timeline.total).toBe(0)
     expect(view.links.map(({ label, href }) => ({ label, href }))).toEqual([
       { label: 'PR #136', href: 'https://github.com/o/r/pull/136' },
       { label: 'd33f79c', href: null },
@@ -70,23 +73,11 @@ describe('detailView timeline', () => {
     ])
   })
 
-  it('ends a finished task with a 完成 milestone at its done time', () => {
-    const view = detailView(detail([ev('note', '进展：收尾', at(24, 9))], { status: 'done' }), task({ status: 'done', done_at: at(24, 10) }), NOW)
-    expect(lines(view)).toEqual([['今天', ['milestone 完成', 'note 收尾']]])
-    expect(view.state).toBe('done')
-    expect(view.steps).toBeNull()
-  })
-
-  it('keeps 完成 in time order when something is recorded after the task was done', () => {
-    const view = detailView(detail([ev('link', 'commit:abc1234def', at(24, 9)), ev('note', '进展：补一句', at(24, 11))], { status: 'done' }), task({ status: 'done', done_at: at(23, 20) }), NOW)
-    expect(lines(view)).toEqual([['今天', ['note 补一句']], ['昨天', ['milestone 完成']]])
-  })
-
-  it('shows twenty rows and counts the rest', () => {
-    const many = Array.from({ length: 25 }, (_, i) => ev('decision', '决定：' + i, at(10 + (i % 5), 9, i)))
-    const { days, hidden } = daysUpTo(detailView(detail(many), task(), NOW).days, 20)
-    expect(days.reduce((n, d) => n + d.rows.length, 0)).toBe(20)
-    expect(hidden).toBe(5)
+  it('names whoever holds the task by the worker it was dispatched to, with its terminal, never by the session id', () => {
+    const dispatched = detailView(detail([ev('dispatch', '{"worker":"w-old"}', at(24, 8)), ev('dispatch', '{"worker":"w-new"}', at(24, 9))]), task({ terminal: 't1j6' }), NOW)
+    expect(dispatched.holder).toEqual({ name: 'w-new', terminal: 't1j6' })
+    expect(detailView(detail([]), task({ terminal: 't1j6' }), NOW).holder).toEqual({ name: 't1j6', terminal: null })
+    expect(detailView(detail([]), task({ status: 'open', session: null }), NOW).holder).toBeNull()
   })
 })
 
@@ -164,7 +155,7 @@ describe('detailView first lines', () => {
   })
 
   it('opens the decision-maker\'s row onto the same words it showed closed', () => {
-    const [row] = detailView(detail([ev('decision', '决定：决策者 11-24：只收完成回报\n背景：发给谁', at(24, 9), 'user')]), task(), NOW).days[0]!.rows
+    const [row] = detailView(detail([ev('decision', '决定：决策者 11-24：只收完成回报\n背景：发给谁', at(24, 9), 'user')]), task(), NOW).timeline.everything[0]!.rows
     expect(row).toMatchObject({ line: '只收完成回报', full: '只收完成回报\n背景：发给谁' })
   })
 })
@@ -174,7 +165,7 @@ describe('detailView decision cards', () => {
     const card = JSON.stringify({ decision: '用 A 还是 B', kr: '无', context: '两种都能做', options: [{ choice: 'A', tradeoff: '快', door: 'two-way' }, { choice: 'B', tradeoff: '稳', door: 'one-way' }], recommendation: 'A' })
     const view = detailView(detail([ev('ask', card, at(24, 9)), ev('resolve', JSON.stringify({ words: '就 A' }), at(24, 10))]), task(), NOW)
     expect(lines(view)).toEqual([['今天', ['decision 就 A', 'ask 用 A 还是 B']]])
-    expect(view.days[0]!.rows[1]).toMatchObject({ full: '用 A 还是 B\n两种都能做\nA｜快\nB｜稳\n建议：A' })
+    expect(view.timeline.everything[0]!.rows[1]).toMatchObject({ full: '用 A 还是 B\n两种都能做\nA｜快\nB｜稳\n建议：A' })
     expect(view.ruling).toMatchObject({ line: '就 A', by: 'owner' })
   })
 })

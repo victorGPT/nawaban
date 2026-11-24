@@ -147,10 +147,10 @@ export function boardColumns(groups: { group: Group; items: Item[] }[], doneShow
 
 export const boardTaskOf = (board: Board | null, id: string | null) => allOf(board).find((t) => t.id === id) ?? null
 
-export const pendingCount = (board: Board | null) => allOf(board).filter((t) => t.status !== 'done' && t.pending).length
+export const waitingOnYouCount = (board: Board | null) => allOf(board).filter((t) => t.status !== 'done' && (t.pending || t.waiting)).length
 
 export const summaryOf = (board: Board | null, now: number): string =>
-  board ? flowLine({ closed: closedToday(board, now), running: taskGroups(board, now).find((g) => g.group === 'working')?.items.length ?? 0, waiting: pendingCount(board) }) : ''
+  board ? flowLine({ closed: closedToday(board, now), running: taskGroups(board, now).find((g) => g.group === 'working')?.items.length ?? 0, waiting: waitingOnYouCount(board) }) : ''
 
 export function projectShown(projects: Project[], picked: string | null) {
   if (picked && projects.some((p) => p.name === picked)) return picked
