@@ -2,6 +2,7 @@ import { realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { board, BoardEventView, MessageView } from '@vercel/board'
+import { readLive } from './progress.ts'
 import { gapsOfADecisionCard, type DecisionCard } from './schemas.ts'
 import { Refused } from './tasks.ts'
 
@@ -83,7 +84,7 @@ const orchestratorAsTheGlossaryDefinesIt = (latestDispatch: Reply | undefined, h
 const isNote = (r: Reply) => r.message.blocks.length === 0
 const progress = (r: Reply | undefined) => (r ? { body: r.message.text, at: r.at } : null)
 
-function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
+function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: string | null) {
   const t = m.task!
   const claim = live(t)
   const ask = t.blocked && HOLDS_THE_DECISION_MAKER_ANSWERS.has(t.blocked.kind ?? '') ? t.blocked : null
@@ -95,6 +96,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
   const latest = (name: string) => h.replies.findLast((r) => data(r.message, name))
   const dispatch = latest('nawaban-dispatch')
   const decision = latest('nawaban-decision')
+  const ruling = h.replies.findLast((r) => data(r.message, 'nawaban-decision')?.by === 'user')
   const card = latest('nawaban-ask')
   const open = (t.needs ?? []).filter((id) => byId.get(id)?.task?.state !== 'completed')
   const out = {
@@ -114,6 +116,8 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
   if (done) return { ...out, done_at: h.done }
   return {
     ...out,
+    live: session && dir ? readLive(dir, m.id) : null,
+    ruling: ruling ? { at: ruling.at, verdict: String(data(ruling.message, 'nawaban-decision')!.verdict) } : null,
     progress: progress(notes.findLast((r) => !/^\s*(?:coord|impact):/.test(r.message.text))),
     blocked_by: open.map((id) => (byId.get(id) ? key(byId.get(id)!) : `#${id}`)).sort(),
     waiting: ask?.reason ?? null,
@@ -140,7 +144,7 @@ async function withNeedsOfOtherProjectsSoABlockerReadsItsRealState(team: Team, t
 
 const underAnOpenSpecThePanelTicks = (parent: MessageView | undefined) => !!parent && !closed(parent.task)
 
-export async function boardData(team: Team, project?: string, now = Date.now() / 1000) {
+export async function boardData(team: Team, project?: string, dir: string | null = null, now = Date.now() / 1000) {
   const tasks = (await tasksOf(team, project)).filter((m) => m.task && m.task.state !== 'canceled' && m.task.state !== 'failed')
   const [byId, hist] = await Promise.all([withNeedsOfOtherProjectsSoABlockerReadsItsRealState(team, tasks), historiesFromTheFeedSinceTheOldestTask(team, tasks, project)])
   const byKey = new Map(tasks.map((t) => [key(t), t]))
@@ -149,7 +153,7 @@ export async function boardData(team: Team, project?: string, now = Date.now() /
     .sort((a, b) => b.h.active - a.h.active || (key(a.m) < key(b.m) ? -1 : 1))
   const columns: Record<string, unknown[]> = { open: [], in_progress: [], done: [] }
   for (const { m, h } of rows) {
-    const r = row(m, h, byId)
+    const r = row(m, h, byId, dir)
     const parent = m.labels.parent ? byKey.get(m.labels.parent) : undefined
     const doneStillShown = columns.done!.length < DONE_ALWAYS_SHOWN_LATEST || underAnOpenSpecThePanelTicks(parent) || (h.done ?? 0) >= now - DONE_ALSO_SHOWN_WITHIN
     if (r.status === 'done' && !doneStillShown) continue
@@ -232,7 +236,7 @@ export async function json(argv: string[], team: Team, dir: string): Promise<num
     const [what, id] = positionals
     if (what === 'db' && positionals.length === 1) out = { db: await realpath(join(dir, 'local.db')) }
     else if (what === 'projects' && positionals.length === 1) out = await projectsData(team)
-    else if (what === 'board' && positionals.length === 1) out = await boardData(team, values.project)
+    else if (what === 'board' && positionals.length === 1) out = await boardData(team, values.project, dir)
     else if (what === 'task' && id && positionals.length === 2) out = await taskDetail(team, id)
     else throw new Refused('usage: nawaban json projects|db|board [--project <p>]|task <id>|okr [--repo <path>]', 2)
   } catch (error) {

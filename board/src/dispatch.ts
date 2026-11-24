@@ -124,6 +124,7 @@ function briefReportingTo(c: Checked, a: Args, wt: Worktree): string {
     `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改，PR 合并或作废后 git worktree remove）`,
     a.brief,
     `验收：${a.accept}`,
+    '开工先用 TaskCreate 列 3–6 步，做完一步 TaskUpdate：面板据此画步骤链（没有这两个工具就跳过，面板改显示你最后一句话）。',
     '完成或受阻：照抄其一，三段位置固定、段里的话自己写，详情记在票上：',
     `  hc send ${c.orch} "回报：${c.who} 完成 | 结论一句 | 证据在哪（PR / 票上的记录）"`,
     `  hc send ${c.orch} "回报：${c.who} 受阻 | 卡在什么 | 要谁做什么"`,

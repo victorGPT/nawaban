@@ -4,7 +4,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/solid/tabs'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@ui-sdk/solid/collapsible'
 import { Progress, ProgressIndicator, ProgressTrack } from '@ui-sdk/solid/progress'
 import {
-  boardColumns, foldKey, krFill, linkOf, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, pendingCount, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
+  boardColumns, foldKey, krFill, linkOf, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
   WINDOW_WORDS, type Board, type Item, type Project, type Route, type Tab,
 } from './logic'
 import { Inbox } from './inbox'
@@ -180,7 +180,7 @@ function App() {
     keep(TASK_VIEW_KEY, view)
     setTaskView(view)
   }
-  const summary = createMemo(() => (board() ? summaryOf(groups(), pendingCount(board())) : ''))
+  const summary = createMemo(() => summaryOf(board(), nowInSeconds()))
 
   const pick = (name: string) => {
     keep(PROJECT_KEY, name)
@@ -310,13 +310,13 @@ function TaskRow(props: { item: Item }) {
     <a class="flex flex-col gap-1 px-4 py-2.5 outline-none hover:bg-muted/50 focus-visible:bg-muted/50" href={taskHref(props.item.id)}>
       <span class="flex min-w-0 items-center gap-2">
         <Icon name={look().icon} class={look().tone} />
-        <span class={cn('min-w-0 flex-1 truncate font-medium', quiet() && 'text-muted-foreground')}>{props.item.title}</span>
-        <Show when={props.item.spec}>{(spec) => <span class={badge('secondary')}>{spec().done}/{spec().total}</span>}</Show>
+        <span class={cn('min-w-0 flex-1 truncate font-medium', (quiet() || props.item.doing?.stale) && 'text-muted-foreground')}>{props.item.doing?.head ?? props.item.title}</span>
+        <Show when={props.item.spec}>{(spec) => <span class={badge('secondary')}>已合 {spec().done}/{spec().total}</span>}</Show>
         <span class="shrink-0 text-xs text-subtle-foreground tabular-nums">{sinceLabel(props.item, nowInSeconds(), 'zh')}</span>
       </span>
       <span class="flex min-w-0 items-center gap-2 pl-6 text-xs text-muted-foreground">
         <span class="shrink-0 text-subtle-foreground tabular-nums">{props.item.id}</span>
-        <Show when={props.item.note}>{(note) => <span class="min-w-0 truncate">{note()}</span>}</Show>
+        <Show when={props.item.doing?.chain ?? props.item.note}>{(line) => <span class="min-w-0 truncate">{line()}</span>}</Show>
       </span>
     </a>
   )
@@ -367,18 +367,18 @@ function TaskCard(props: { item: Item }) {
       <span class="flex flex-col gap-1.5 p-4">
         <span class="flex items-start gap-2">
           <Icon name={look().icon} class={cn('mt-0.5', look().tone)} />
-          <span class="min-w-0 font-medium [overflow-wrap:anywhere]">{props.item.title}</span>
+          <span class={cn('min-w-0 font-medium [overflow-wrap:anywhere]', props.item.doing?.stale && 'text-muted-foreground')}>{props.item.doing?.head ?? props.item.title}</span>
         </span>
         <span class="flex min-w-0 text-subtle-foreground tabular-nums">
           <span class="min-w-0 truncate">{props.item.id}</span>
           <Show when={sinceLabel(props.item, nowInSeconds(), 'zh')}>{(since) => <span class="shrink-0 whitespace-pre"> · {since()}</span>}</Show>
         </span>
-        <Show when={props.item.note}>{(note) => <span class="line-clamp-2 text-muted-foreground [overflow-wrap:anywhere]">{note()}</span>}</Show>
+        <Show when={props.item.doing?.chain ?? props.item.note}>{(line) => <span class="line-clamp-2 text-muted-foreground [overflow-wrap:anywhere]">{line()}</span>}</Show>
       </span>
       <Show when={props.item.spec}>
         {(spec) => (
           <span class="flex gap-1 border-t border-border px-4 py-3">
-            <span class={chip}>子票 {spec().done}/{spec().total}</span>
+            <span class={chip}>已合 {spec().done}/{spec().total}</span>
           </span>
         )}
       </Show>

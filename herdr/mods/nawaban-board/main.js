@@ -508,6 +508,7 @@ export default class NawabanBoard extends View {
             ...(decisions.length || incomplete || !this.board ? [] : [this.quietLine(w.nothingToDecide)])])))
         .when(tab === "okr" && Boolean(okr), (el) => el.child(this.okrSection(okr, objectives, keyboard, o)))
         .when(tab === "okr" && hasNoObjective(this.okr), (el) => el.child(this.quietLine(o.noObjective)))
+        .when(tab === "tasks" && Boolean(v.flow), (el) => el.child(div().flex_none().px(SPACE.s).text_size(TYPE.meta).text_color(INK.muted).child(v.flow)))
         .when(tab === "tasks", (el) => el.children(sections.map((s) => this.taskSection(s, keyboard, w))))
         .when(tab === "capture", (el) => el.child(this.captureSection(captures, handedRow, orchestratorOf(terminals(), this.repo)?.address ?? null, w))));
   }
@@ -556,7 +557,8 @@ export default class NawabanBoard extends View {
 
   taskRow(x, group, now, w) {
     const look = GROUP_LOOK[group], since = sinceLabel(x, now, this.lang);
-    return { key: x.key, accent: look.accent, breathes: look.breathes, faded: look.faded, title: x.title, why: x.why ?? null,
+    return { key: x.key, accent: look.accent, breathes: look.breathes, faded: look.faded || Boolean(x.doing?.stale), title: x.doing?.head ?? x.title,
+      why: x.doing?.chain ?? x.why ?? null,
       side: since, sideColor: look.side, focus: x.focus, url: x.url, goLabel: x.focus != null ? w.go : w.issue,
       facts: [[w.facts.id, x.id], [w.facts.note, x.note && oneLine(x.note)], [w.facts.spec, x.spec && x.spec.done + "/" + x.spec.total],
         [w.facts.window, x.where], [w.facts.since, since]] };

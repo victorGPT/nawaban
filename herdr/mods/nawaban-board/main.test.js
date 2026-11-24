@@ -218,12 +218,14 @@ test("已完成 shows its newest 3, then 再显示 N 条; Enter on it shows all 
   stored.clear();
 });
 
-test("a waiting window's question is its card's main line; every task row stays one line, 停滞 included", () => {
+test("a waiting window's question is its card's main line; a held task row reads 在做 with its step line, todo and done stay one line", () => {
   stored.clear();
   const view = drawn({}, cxOf());
-  const why = (key) => view.selectableByKey.get(key).why;
-  assert.equal(view.selectableByKey.get("card:0").title, "放行吗？");
-  assert.deepEqual(["task:GONE", "task:CUR", "task:GH", "task:TODO", "task:DONE"].map(why), [null, null, null, null, null]);
+  const row = (key) => view.selectableByKey.get(key);
+  assert.equal(row("card:0").title, "放行吗？");
+  assert.ok(["task:GONE", "task:CUR", "task:GH"].every((k) => row(k).title.startsWith("【在做】") && row(k).title.endsWith("编排者代定")));
+  assert.equal(row("task:CUR").why, "verify：测试通过 · 10 分钟前更新");
+  assert.deepEqual(["task:TODO", "task:DONE"].map((k) => row(k).why), [null, null]);
   stored.clear();
 });
 

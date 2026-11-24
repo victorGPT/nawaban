@@ -46,7 +46,7 @@ describe('taskGroups', () => {
       working('S-2', { parent: 'S', active_at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, progress: { body: '卡在 CI', at: NOW } }),
       working('S-3', { parent: 'S' }),
     ), NOW)
-    expect(g).toEqual({ group: 'stopped', items: [{ key: 'task:S', id: 'S', title: 'S', state: 'stopped', at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, note: '卡在 CI', spec: { done: 1, total: 3 } }] })
+    expect(g).toEqual({ group: 'stopped', items: [{ key: 'task:S', id: 'S', title: 'S', state: 'stopped', at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, note: '卡在 CI', doing: { head: '【在做】S —— 编排者代定', chain: '卡在 CI · 刚刚更新', stale: false }, spec: { done: 1, total: 3 } }] })
   })
   it('lists a spec done once every ticket is done', () => {
     const groups = taskGroups(boardOf(task('S'), task('S-1', { parent: 'S', status: 'done', done_at: NOW - 9 })), NOW)
@@ -98,8 +98,13 @@ describe('boardColumns', () => {
 })
 
 describe('header', () => {
-  it('summarises the groups', () => {
-    expect(summaryOf(taskGroups(boardOf(working('a'), task('b')), NOW), 2)).toBe('待决 2 · 进行中 1 · 停滞 0 · 待办 1')
+  it('counts what closed today, what runs and what waits for you, with no denominator', () => {
+    const board = boardOf(working('a'), working('q', { waiting: '定吗' }), task('b'), task('d', { status: 'done', done_at: NOW - 60 }))
+    expect(summaryOf(board, NOW)).toBe('今天关了 1 · 在跑 1 · 等你 1')
+  })
+  it('a held task reads 在做, with what it is on and how fresh that is', () => {
+    const board = boardOf(working('a', { title: '接上进展', live: { steps: null, summary: '在跑测试', at: NOW - 120 } }))
+    expect(taskGroups(board, NOW)[0]!.items[0]!.doing).toEqual({ head: '【在做】接上进展 —— 编排者代定', chain: '在跑测试 · 2 分钟前更新', stale: false })
   })
   it('shows the picked project, else the busiest', () => {
     const ps = [{ name: 'a', open: 1, total: 1, waiting: 0 }, { name: 'b', open: 4, total: 9, waiting: 0 }]

@@ -30,7 +30,9 @@ export const folderOf = (path) => path.slice(0, path.lastIndexOf("/"));
 const WRITE_AHEAD_LOG_SUFFIX = "-wal";
 const isBoardFileOrItsLog = (path, db) => path === db || path === db + WRITE_AHEAD_LOG_SUFFIX;
 const isWatchedFolderItself = (path, db) => path === folderOf(db);
-export const boardChanged = (paths, db) => paths.some((p) => isBoardFileOrItsLog(p, db) || isWatchedFolderItself(p, db));
+const PROGRESS_FOLDER = "/progress";
+const isProgressWrite = (path, db) => path === folderOf(db) + PROGRESS_FOLDER || path.startsWith(folderOf(db) + PROGRESS_FOLDER + "/");
+export const boardChanged = (paths, db) => paths.some((p) => isBoardFileOrItsLog(p, db) || isWatchedFolderItself(p, db) || isProgressWrite(p, db));
 
 export const OKR_FOLDER_IN_REPO = "docs/agents";
 const OKR_FILE = "okr.toml";
@@ -191,11 +193,64 @@ function itemOf(c, root) {
   const held = isHeldState(state);
   const window = held && lead.terminal ? c.windowAt(lead.terminal) : null;
   return { id: root.id, title: root.title, state, at: sinceOf(state, root, tickets, lead),
+    doing: held ? doingOf(lead, c.byId, root.title, window?.status, c.now) : null,
     gone: state === "stopped" && !window,
     note: held ? lead.progress?.body ?? null : null, focus: window ? lead.terminal : null,
     spec: tickets.length ? { done: states.filter((s) => s === "done").length, total: tickets.length } : null,
     url: root.url ?? null, active: Math.max(...[root, ...tickets].map((t) => t.active_at ?? 0)) };
 }
+
+const STALE_AFTER = 30 * MINUTE;
+const STEPS_SHOWN_AHEAD = 2;
+const RULING_CHARS = 12;
+const STUCK_REASON_CHARS = 40;
+const isFinishedStep = (s) => s.status === "completed";
+const clip = (text, n) => {
+  const chars = [...oneLine(text)];
+  return chars.length <= n ? chars.join("") : chars.slice(0, n).join("") + "…";
+};
+
+export function stepChain(steps) {
+  const done = steps.filter(isFinishedStep).length;
+  const at = steps.findIndex((s) => s.status === "in_progress");
+  const now = at >= 0 ? at : steps.findIndex((s) => !isFinishedStep(s));
+  if (now < 0) return "✓" + done + " 步，全部做完";
+  const ahead = steps.slice(now + 1).filter((s) => !isFinishedStep(s)).slice(0, STEPS_SHOWN_AHEAD).map((s) => s.subject);
+  return [...(done ? ["✓" + done + " 步"] : []), "[" + steps[now].subject + "]", ...ahead].join(" → ");
+}
+
+const QUOTED = /「([^」]+)」/;
+const rulingWords = (verdict) => clip((QUOTED.exec(verdict) ?? [null, verdict])[1], RULING_CHARS);
+const rulingOf = (t, byId) => t.ruling ?? byId.get(t.parent)?.ruling ?? null;
+const rulingLine = (r) => (r ? "决策者 " + decisionDate(r.at) + " " + clockTime(r.at) + " 说「" + rulingWords(r.verdict) + "」" : "编排者代定");
+
+function stuckOn(t, status) {
+  if (isAsking(t)) return "在等你：" + clip(t.waiting, STUCK_REASON_CHARS);
+  if (herdrSaysBlocked(status)) return "在等你批权限";
+  return null;
+}
+
+export function doingOf(t, byId, title, status, now) {
+  const stuck = stuckOn(t, status);
+  const head = stuck ? "【卡住】" + title + " —— " + stuck : "【在做】" + title + " —— " + rulingLine(rulingOf(t, byId));
+  const live = t.live?.steps || t.live?.summary ? t.live : null;
+  const step = live ? (live.steps ? stepChain(live.steps) : live.summary) : t.progress?.body ? oneLine(t.progress.body) : null;
+  const updated = live?.at ?? t.progress?.at ?? t.claimed_at ?? null;
+  const quiet = updated == null ? 0 : now - updated;
+  const stale = !stuck && status !== "working" && quiet > STALE_AFTER;
+  const when = updated == null ? null : stale ? Math.floor(quiet / MINUTE) + " 分钟没动" : span(quiet, "zh", true) + (quiet < MINUTE ? "更新" : "前更新");
+  return { head, chain: [step, when].filter(Boolean).join(" · ") || null, stale };
+}
+
+const localMidnightSeconds = (now) => localMidnight(now) / MS_PER_SECOND;
+export function flowCounts(board, now) {
+  const tasks = allTasks(board);
+  const open = tasks.filter((t) => !isDone(t));
+  return { closed: tasks.filter((t) => isDone(t) && (t.done_at ?? 0) >= localMidnightSeconds(now)).length,
+    running: open.filter((t) => t.status === "in_progress" && !isAsking(t)).length,
+    waiting: open.filter(isAsking).length };
+}
+export const flowLine = ({ closed, running, waiting }) => "今天关了 " + closed + " · 在跑 " + running + " · 等你 " + waiting;
 
 const ISSUE_NAME = /^gh-(\d+)/;
 const issueNamedBy = (name) => ISSUE_NAME.exec(name ?? "");
@@ -245,7 +300,7 @@ export function panelView(args) {
   const items = taskItems(c);
   const cards = [...asking, ...panelessBlockedCards(c, items)];
   return { waiting: cards.map((card, i) => ({ key: "card:" + i, ...withoutTask(card) })), tasks: taskGroups(c, items, cards),
-    otherWaiting: waitingInOtherProjects(c.projects, c.project) };
+    flow: c.board ? flowLine(flowCounts(c.board, c.now)) : null, otherWaiting: waitingInOtherProjects(c.projects, c.project) };
 }
 
 const openBlockersIn = (open) => (t) => (t.blocked_by ?? []).some((b) => open.some((o) => o.id === b));
@@ -416,7 +471,7 @@ export const WINDOW_WORDS = {
     nothingToDecide: "没有等你决定的待决", tabs: { decide: "待决", okr: "OKR", tasks: "任务", capture: "收件箱" },
     capture: { placeholder: "记一条想法，回车存", hand: "交给编排者", remove: "删除", noOrchestrator: "没有编排者", handed: (at) => `已交 ${at}`, handedGroup: (n) => `已交 ${n}`, empty: "还没有记下的想法" }, groups: { stopped: "停滞", working: "进行中", todo: "待办", done: "已完成" },
     more: (n) => `再显示 ${n} 条`, less: "收起", go: "去窗口", issue: "去 GitHub",
-    facts: { id: "编号", question: "问题", note: "进展", window: "窗口", since: "多久", spec: "票" },
+    facts: { id: "编号", question: "问题", note: "进展", window: "窗口", since: "多久", spec: "已合" },
     cards: { chip: { pick: "选一项", maybe: "可能已定", talk: "去窗口聊" }, decision: "决策事项", kr: "关联 KR", context: "背景", progress: "最新进展",
       noProgress: "还没有进展", rec: "建议",
       settle: "就这么定", unclear: "不够，再说清楚", decided: "对，已经定了", notYet: "还没定", fullText: "GitHub 全文",
@@ -431,7 +486,7 @@ export const WINDOW_WORDS = {
     capture: { placeholder: "Jot an idea, Enter to keep it", hand: "Hand to orchestrator", remove: "Delete", noOrchestrator: "No orchestrator", handed: (at) => `Handed ${at}`,
       handedGroup: (n) => `Handed ${n}`, empty: "Nothing jotted down yet" }, groups: { stopped: "Stale", working: "WIP", todo: "Backlog", done: "Done" },
     more: (n) => `Show ${n} more`, less: "Show less", go: "Go to window", issue: "Open on GitHub",
-    facts: { id: "ID", question: "Question", note: "Progress", window: "Window", since: "For", spec: "Tickets" },
+    facts: { id: "ID", question: "Question", note: "Progress", window: "Window", since: "For", spec: "Merged" },
     cards: { chip: { pick: "Pick one", maybe: "Maybe decided", talk: "Talk in a window" }, decision: "BLUF", kr: "KR", context: "Context",
       progress: "Status", noProgress: "No progress yet",
       rec: "Recommendation", settle: "Decide", unclear: "Not enough, explain more", decided: "Yes, already decided", notYet: "Not yet",
