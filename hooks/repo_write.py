@@ -1,14 +1,14 @@
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import tempfile
 
-SHELL_OPERATORS = "();<>|&\n"
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n", ";;", "|&"}
-REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
+REDIRECTS = {">", ">>", ">|", "&>", "&>>", ">&"}
+QUOTES = ("'", '"')
+OPERATORS = sorted({"&>>", ">>", "&>", ">&", ">|", "&&", "||", ";;", "|&", "<<", "<", ">", "&", "|", ";", "(", ")", "\n"}, key=len, reverse=True)
 GIT_WRITES = {"commit", "push", "apply", "am", "cherry-pick", "rebase", "revert"}
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
@@ -52,22 +52,48 @@ def without_heredoc_bodies(command):
     return "\n".join(kept)
 
 
+def closing_quote(s, i):
+    j = i + 1
+    while j < len(s) and s[j] != s[i]:
+        j += 2 if s[i] == '"' and s[j] == "\\" else 1
+    return min(j, len(s))
+
+
+def shell_tokens(command):
+    s, i, word = without_heredoc_bodies(command).replace("\\\n", " "), 0, None
+    while i < len(s):
+        operator = next((op for op in OPERATORS if s.startswith(op, i)), None)
+        if s[i] in QUOTES:
+            j = closing_quote(s, i)
+            word, i = (word or "") + s[i + 1:j], j + 1
+        elif s[i] == "\\":
+            word, i = (word or "") + s[i + 1:i + 2], i + 2
+        elif s[i] in " \t\r" or operator:
+            if word is not None:
+                yield False, word
+            word = None
+            if operator:
+                yield True, operator
+            i += len(operator or " ")
+        else:
+            word, i = (word or "") + s[i], i + 1
+    if word is not None:
+        yield False, word
+
+
 def simple_commands(command):
-    lexer = shlex.shlex(without_heredoc_bodies(command).replace("\\\n", " "), posix=True, punctuation_chars=SHELL_OPERATORS)
-    lexer.whitespace = " \t\r"
-    lexer.commenters = ""
     words, targets = [], []
-    tokens = iter(lexer)
-    for token in tokens:
-        if token in SEPARATORS:
+    tokens = shell_tokens(command)
+    for is_operator, token in tokens:
+        if not is_operator:
+            words.append(token)
+        elif token in REDIRECTS:
+            target = next(tokens, (True, ""))[1]
+            if target and not target.isdigit() and target != "-":
+                targets.append(target)
+        elif token in SEPARATORS:
             yield words, targets
             words, targets = [], []
-        elif token in REDIRECTS:
-            target = next(tokens, "")
-            if not target.startswith("&"):
-                targets.append(target)
-        elif not token.startswith("<") and not token.startswith(">"):
-            words.append(token)
     yield words, targets
 
 
@@ -94,10 +120,15 @@ def shell_write(command, cwd):
         if not words:
             continue
         name, args = os.path.basename(words[0]), words[1:]
+        if name == "cd":
+            cwd = os.path.join(cwd, os.path.expanduser(args[0] if args else "~"))
+            continue
         if name == "git" and git_write(args, cwd):
             return git_write(args, cwd)
-        if name == "apply_patch" and is_repository_file(".", cwd):
-            return "apply_patch"
+        if name == "apply_patch":
+            patched = [p.strip() for p in PATCHED_FILE.findall(command)] or ["."]
+            if any(is_repository_file(p, cwd) for p in patched):
+                return "apply_patch"
         in_place = name == "sed" and any(a == "--in-place" or re.match(r"^-[a-zA-Z]*i", a) for a in args)
         if in_place or name == "tee":
             for a in args:
