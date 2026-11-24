@@ -186,8 +186,8 @@ _Avoid_: 周期, 迭代.
 _Current identifiers_: block `nawaban-okr-round@1`; `okr` line `第 N 轮`, `(空转)`.
 
 **Sprint**(冲刺)
-An Objective's rounds since its latest `okr --accept` or `okr --resume <O>`, and, once one of its KRs has kept a reading or a failure, never before that round.
-冲刺是一个 Objective 从最近一次 `okr --accept` 或 `okr --resume <O>` 起的各轮，它的 KR 记下过读数或失败的，最早只算到第一次记下的那一轮。
+An Objective's rounds since its latest `okr --accept` or `okr --resume <O>`, or since the first round when it has neither.
+冲刺是一个 Objective 从最近一次 `okr --accept` 或 `okr --resume <O>` 起的各轮；两样都没有的，从第一轮起。
 _Avoid_: 迭代.
 _Current identifiers_: blocks `nawaban-okr-accept@1`, `nawaban-okr-resume@1`.
 

@@ -860,9 +860,7 @@ export function hardStop(o: Objective, rounds: OkrRound[], sprintStart: string, 
   const asOfTheRound = (r: OkrRound) => rows.filter((x) => x.measured_at <= r.at)
   const judgeable = (r: OkrRound) => aspirational.filter((k) => currentSeriesOf(asOfTheRound(r), k).length >= FIRST_READINGS_JUDGE_NO_MOVE)
   const still = (r: OkrRound) => !r.done.includes(o.name) && judgeable(r).length > 0 && !r.moved.some((k) => aspirational.includes(k))
-  const ownKrs = new Set((o.kr ?? []).map((k) => k.name))
-  const firstOwnRow = rows.filter((r) => ownKrs.has(r.kr)).map((r) => r.measured_at).sort()[0]
-  const sprint = rounds.filter((r) => r.at > sprintStart && (firstOwnRow === undefined || r.at > firstOwnRow))
+  const sprint = rounds.filter((r) => r.at > sprintStart)
   const counted = sprint.filter((r) => !unmeasurableIdle(r))
   for (let i = 0; i < sprint.length; i++) {
     const r = sprint[i]!
