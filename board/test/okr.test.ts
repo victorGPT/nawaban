@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
@@ -639,10 +639,11 @@ const INPUTS_HASH = 'd7e5e0e755fbe52a'
 describe('inputs a KR declares', () => {
   it('hash as the old CLI does, dotfiles and missing patterns alike', async () => {
     const root = realpathSync(await mkdtemp(join(tmpdir(), 'nawaban-inputs-')))
-    for (const [path, text] of [['gold/a.jsonl', 'a'], ['gold/sub/b.jsonl', 'b'], ['gold/.h.jsonl', 'h'], ['gold/.hidden/x.jsonl', 'x'], ['cases.json', 'c']] as const) {
+    for (const [path, text] of [['gold/a.jsonl', 'a'], ['gold/sub/b.jsonl', 'b'], ['gold/.h.jsonl', 'h'], ['gold/.hidden/x.jsonl', 'x'], ['cases.json', 'c'], ['gold/C.JSONL', 'C'], ['outside/o.jsonl', 'o']] as const) {
       await mkdir(join(root, path, '..'), { recursive: true })
       await writeFile(join(root, path), text)
     }
+    await symlink(join(root, 'outside'), join(root, 'gold', 'out'))
     expect(await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl', 'cases.json', 'missing/*.txt', 'gold/**/**/*.jsonl'] })).toBe(INPUTS_HASH)
     const before = await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl'] })
     await writeFile(join(root, 'gold/sub/b.jsonl'), 'b2')

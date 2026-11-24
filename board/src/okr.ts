@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { glob, readFile, realpath, stat } from 'node:fs/promises'
+import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { extname, isAbsolute, join, resolve, sep } from 'node:path'
+import { extname, isAbsolute, join, sep } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
 import { block, BoardError, type board, type MessageView } from '@vercel/board'
 import { parse } from 'smol-toml'
@@ -199,12 +199,34 @@ export async function defHash(root: string, kr: Kr) {
 
 async function inputFiles(root: string, pattern: string) {
   const expanded = pattern === '~' || pattern.startsWith('~/') ? homedir() + pattern.slice(1) : pattern
-  const files = new Set<string>()
-  for await (const p of glob(expanded, { cwd: root })) {
-    const full = await realpath(resolve(root, p))
-    if (await stat(full).then((s) => s.isFile(), () => false)) files.add(full)
+  const found = await filesMatching(isAbsolute(expanded) ? '/' : root, expanded.split('/').filter(Boolean))
+  return [...new Set(await Promise.all(found.map((f) => realpath(f))))]
+}
+
+const isFile = (p: string) => stat(p).then((s) => s.isFile(), () => false)
+const isDir = (p: string) => stat(p).then((s) => s.isDirectory(), () => false)
+const isLink = (p: string) => lstat(p).then((s) => s.isSymbolicLink(), () => false)
+const entries = (p: string) => readdir(p).catch(() => [] as string[])
+const REGEX_SPECIALS = /[.+^$|\\/]/g
+
+async function filesMatching(at: string, segments: string[]): Promise<string[]> {
+  const [segment, ...rest] = segments
+  if (segment === undefined) return (await isFile(at)) ? [at] : []
+  if (segment === '**') {
+    const found = await filesMatching(at, rest)
+    for (const name of await entries(at)) {
+      const child = join(at, name)
+      if (!name.startsWith('.') && (await isDir(child)) && !(await isLink(child))) found.push(...(await filesMatching(child, segments)))
+    }
+    return found
   }
-  return [...files]
+  if (!/[*?]/.test(segment)) return filesMatching(join(at, segment), rest)
+  const whole = new RegExp('^' + segment.replace(REGEX_SPECIALS, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$')
+  const found: string[] = []
+  for (const name of await entries(at)) {
+    if ((segment.startsWith('.') || !name.startsWith('.')) && whole.test(name)) found.push(...(await filesMatching(join(at, name), rest)))
+  }
+  return found
 }
 
 async function keptReadingOrFailure(root: string, o: Objective, kr: Kr, got: [string, string] | string | null): Promise<Reading | null> {

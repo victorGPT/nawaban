@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import glob
 import hashlib
 import json
 import os
@@ -1061,6 +1060,7 @@ def _kept_reading_or_failure(root: Path, kr: dict, got) -> tuple | None:
 FAILED = ""
 DEF_HASH_LENGTH = 16
 KR_FIELDS_IN_DEF_HASH = ("inputs", "max_age_days", "measure", "name", "target", "unit", "wait")
+_WILDCARD = re.compile(r"[*?]")
 GLOB_SYNTAX_THE_TWO_CLIS_READ_APART = re.compile(r"[{}\[\]()!\\]")
 MEASURE_CODE_SUFFIXES = (".ts", ".mts", ".js", ".mjs", ".cjs", ".py", ".sh")
 _SHELL_SEPARATORS = re.compile(r"[\s'\"`;|&<>()=]+")
@@ -1079,8 +1079,34 @@ def def_hash(root: Path, kr: dict) -> str:
 
 def _input_files(root: Path, pattern: str) -> list[Path]:
     expanded = os.path.expanduser(pattern)
-    full = expanded if os.path.isabs(expanded) else os.path.join(glob.escape(str(root)), expanded)
-    return [Path(p) for p in dict.fromkeys(os.path.realpath(p) for p in glob.glob(full, recursive=True)) if Path(p).is_file()]
+    start = "/" if os.path.isabs(expanded) else str(root)
+    found = _files_matching(start, [s for s in expanded.split("/") if s])
+    return [Path(p) for p in dict.fromkeys(os.path.realpath(p) for p in found)]
+
+
+def _files_matching(at: str, segments: list[str]) -> list[str]:
+    if not segments:
+        return [at] if os.path.isfile(at) else []
+    segment, rest = segments[0], segments[1:]
+    if segment == "**":
+        found = _files_matching(at, rest)
+        for name in _entries(at):
+            child = os.path.join(at, name)
+            if not name.startswith(".") and os.path.isdir(child) and not os.path.islink(child):
+                found += _files_matching(child, segments)
+        return found
+    if not _WILDCARD.search(segment):
+        return _files_matching(os.path.join(at, segment), rest)
+    whole = re.compile("".join("[^/]*" if c == "*" else "[^/]" if c == "?" else re.escape(c) for c in segment))
+    return [f for name in _entries(at) if (segment.startswith(".") or not name.startswith(".")) and whole.fullmatch(name)
+            for f in _files_matching(os.path.join(at, name), rest)]
+
+
+def _entries(at: str) -> list[str]:
+    try:
+        return os.listdir(at)
+    except OSError:
+        return []
 
 
 def _repo_files_named_in(root: Path, cmd: str) -> list[str]:

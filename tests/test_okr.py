@@ -635,9 +635,11 @@ def test_a_measure_that_fails_under_another_hash_and_comes_back_starts_over():
 
 
 def inputs_fixture(root):
-    for path, text in (("gold/a.jsonl", "a"), ("gold/sub/b.jsonl", "b"), ("gold/.h.jsonl", "h"), ("gold/.hidden/x.jsonl", "x"), ("cases.json", "c")):
+    for path, text in (("gold/a.jsonl", "a"), ("gold/sub/b.jsonl", "b"), ("gold/.h.jsonl", "h"), ("gold/.hidden/x.jsonl", "x"), ("cases.json", "c"),
+                       ("gold/C.JSONL", "C"), ("outside/o.jsonl", "o")):
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         (root / path).write_text(text)
+    (root / "gold" / "out").symlink_to(root / "outside")
     return {"name": "K", "target": "<= 3", "inputs": ["gold/**/*.jsonl", "cases.json", "missing/*.txt", "gold/**/**/*.jsonl"]}
 
 
