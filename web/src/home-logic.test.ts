@@ -112,4 +112,8 @@ describe('justHappened', () => {
       { at: NOW - 1000, task: 'OLD0', text: '旧', agent: null },
     ])
   })
+  it('says a question as it was asked, without the triage label before it', () => {
+    const board = boardOf([task('Q', { progress: { body: 'triage: needs-info — 等你：要不要接上', at: NOW - 5 } })])
+    expect(justHappened(board)[0]!.text).toBe('等你：要不要接上')
+  })
 })

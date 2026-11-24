@@ -13,6 +13,8 @@ export const agentLine = (agent: Agent | null, ...details: AgentDetail[]) =>
   agent ? [HARNESS_NAMES[agent.harness], ...details.map((d) => agent[d])].filter(Boolean).join(' · ') : UNKNOWN_AGENT.name
 
 const firstLine = (text: string) => text.trim().split('\n')[0]!.trim()
+const TRIAGE_LABEL_BEFORE_THE_QUESTION = /^triage:\s*needs-info\s*[—–-]\s*/
+const noteAsSaid = (body: string) => firstLine(body).replace(TRIAGE_LABEL_BEFORE_THE_QUESTION, '')
 
 export type Ask = 'approve' | 'question'
 export const ASK_WORDS: Record<Ask, string> = { approve: '要批', question: '问你' }
@@ -76,7 +78,7 @@ export function todaysMoves(board: Board | null, now: number): Move[] {
 export const justHappened = (board: Board | null): Happening[] =>
   latestFirst(
     allOf(board).flatMap((t) => [
-      ...(t.progress ? [{ at: t.progress.at, task: t.id, text: firstLine(t.progress.body), agent: t.agent ?? null }] : []),
+      ...(t.progress ? [{ at: t.progress.at, task: t.id, text: noteAsSaid(t.progress.body), agent: t.agent ?? null }] : []),
       ...(t.status === 'done' && t.done_at ? [{ at: t.done_at, task: t.id, text: doneWords(t), agent: t.agent ?? null }] : []),
     ]),
   )
