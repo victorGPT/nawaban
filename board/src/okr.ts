@@ -782,7 +782,7 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
     if (values.accept !== undefined) {
       const atThisRound = await load(team, project)
       const o = objectives.find((x) => x.name === values.accept)
-      if (o && hardStop(o, atThisRound.rounds, later(atThisRound.accepts.get(o.name), atThisRound.resumes.get(o.name)))) {
+      if (o && hardStop(o, atThisRound.rounds, later(atThisRound.accepts.get(o.name), atThisRound.resumes.get(o.name)), atThisRound.rows)) {
         throw new Refused(`${o.name} 硬停中,不收 accept:待决策项 resolve 之后先跑 okr --resume ${o.name}(读数新记 ${kept.length} 条)`)
       }
       const judged = judge(objectives, atThisRound.rows, atThisRound.accepts, atThisRound.declared, repo, null).objectives
@@ -797,7 +797,7 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
     let stopped = false
     for (const o of objectives) {
       const start = later(accepts.get(o.name), resumes.get(o.name))
-      const stop = hardStop(o, rounds, start)
+      const stop = hardStop(o, rounds, start, rows)
       if (!stop) continue
       const draft = join(dir, 'okr-stop', `${project}-${o.name}.md`)
       await mkdir(join(dir, 'okr-stop'), { recursive: true })
@@ -814,8 +814,8 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
 async function resumeOnceADecisionOnItWasResolved(team: Team, project: string, objectives: Objective[], name: string) {
   const o = objectives.find((x) => x.name === name)
   if (!o) throw new Refused(`没有这个 O:${name}`)
-  const { accepts, resumes, rounds } = await load(team, project)
-  const stop = hardStop(o, rounds, later(accepts.get(name), resumes.get(name)))
+  const { accepts, resumes, rounds, rows } = await load(team, project)
+  const stop = hardStop(o, rounds, later(accepts.get(name), resumes.get(name)), rows)
   if (!stop) throw new Refused(`${name} 没在硬停,不用 --resume`)
   if (!(await resolvedDecisionOn(team, project, o, stop.at))) {
     throw new Refused(`${name} 硬停之后还没有 resolve 过的待决策项(挂在这个 O 或它的 KR 上),--resume 不收`)
@@ -850,16 +850,26 @@ export async function jsonOkr(argv: string[], team: Team, dir: string, cwd = pro
 const isAspirational = (kr: Kr) => kr.kind !== 'committed'
 const later = (a: string | undefined, b: string | undefined) => ((a ?? '') > (b ?? '') ? a ?? '' : b ?? '')
 
-export function hardStop(o: Objective, rounds: OkrRound[], sprintStart: string) {
-  const aspirational = new Set((o.kr ?? []).filter(isAspirational).map((k) => k.name))
+const FIRST_READINGS_JUDGE_NO_MOVE = 2
+
+export function hardStop(o: Objective, rounds: OkrRound[], sprintStart: string, rows: KeptReading[]) {
+  const aspirational = (o.kr ?? []).filter(isAspirational).map((k) => k.name)
+  const measured = (o.kr ?? []).filter((k) => k.measure).map((k) => k.name)
+  const keptBy = (kr: string, at: string) => rows.filter((r) => r.kr === kr && r.measured_at <= at).sort((a, b) => order(a.measured_at, b.measured_at)).at(-1)
+  const unmeasurableIdle = (r: OkrRound) => measured.length > 0 && measured.every((k) => keptBy(k, r.at)?.value === FAILED)
+  const asOfTheRound = (r: OkrRound) => rows.filter((x) => x.measured_at <= r.at)
+  const judgeable = (r: OkrRound) => aspirational.filter((k) => currentSeriesOf(asOfTheRound(r), k).length >= FIRST_READINGS_JUDGE_NO_MOVE)
+  const still = (r: OkrRound) => !r.done.includes(o.name) && judgeable(r).length > 0 && !r.moved.some((k) => aspirational.includes(k))
   const sprint = rounds.filter((r) => r.at > sprintStart)
-  const still = (r: OkrRound) => !r.done.includes(o.name) && !r.moved.some((k) => aspirational.has(k))
+  const counted = sprint.filter((r) => !unmeasurableIdle(r))
   for (let i = 0; i < sprint.length; i++) {
-    if (sprint[i]!.done.includes(o.name)) continue
-    if (i + 1 >= STILL_ROUNDS_TO_STOP && sprint.slice(i + 1 - STILL_ROUNDS_TO_STOP, i + 1).every(still)) {
-      return { why: `连续 ${STILL_ROUNDS_TO_STOP} 轮没有进取型 KR 往目标动`, sprint, at: sprint[i]!.at }
+    const r = sprint[i]!
+    if (r.done.includes(o.name)) continue
+    const upTo = counted.filter((x) => x.at <= r.at)
+    if (!unmeasurableIdle(r) && upTo.length >= STILL_ROUNDS_TO_STOP && upTo.slice(-STILL_ROUNDS_TO_STOP).every(still)) {
+      return { why: `连续 ${STILL_ROUNDS_TO_STOP} 轮没有进取型 KR 往目标动`, sprint, at: r.at }
     }
-    if (i + 1 >= SPRINT_ROUNDS_TO_STOP) return { why: `冲刺满 ${SPRINT_ROUNDS_TO_STOP} 轮还没收工`, sprint, at: sprint[i]!.at }
+    if (i + 1 >= SPRINT_ROUNDS_TO_STOP) return { why: `冲刺满 ${SPRINT_ROUNDS_TO_STOP} 轮还没收工`, sprint, at: r.at }
   }
   return null
 }

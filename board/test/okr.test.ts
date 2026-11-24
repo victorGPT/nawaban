@@ -547,8 +547,8 @@ describe('declarations against readings', () => {
     await declareTicketMovesKrOfO(p, '#8', 'J', 'away')
     await writeFile(join(p.root, 'k.txt'), '79 2026-11-11')
     const { code, out } = await nawabanOkr(p)
-    const neitherKMovingAwayNorJUnmeasuredMovedTwoRoundsRunning = HARD_STOP_EXIT
-    expect(code).toBe(neitherKMovingAwayNorJUnmeasuredMovedTwoRoundsRunning)
+    const kOnItsSecondReadingIsTheOnlyStillRoundSoFar = 0
+    expect(code).toBe(kOnItsSecondReadingIsTheOnlyStillRoundSoFar)
     expect(out).toContain('O O · 声明 向目标 0 背离 1 不变 0')
     expect(out).toContain('预期不符 K：#7 声明 向目标')
   })
@@ -852,19 +852,20 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
   it('stops hard after two rounds with no aspirational KR moving, idle ones included, and drafts a decision request ready once recommended', async () => {
     const p = await kOnly()
     expect((await measuring(p, 80, 10)).code).toBe(0)
-    const idle = await measuring(p, 80, 10)
+    expect((await measuring(p, 79, 11)).code).toBe(0)
+    const idle = await measuring(p, 79, 11)
     expect([idle.code, idle.out]).toEqual([HARD_STOP_EXIT, expect.stringContaining('硬停：O(连续 2 轮没有进取型 KR 往目标动)')])
     const card = cardOf(await draftOf(p))
     expect([card.decision, card.kr, card.options.length]).toEqual(['O 下一步怎么走', 'K', 3])
     expect(gapsOfADecisionCard(card)).toEqual(['建议 (--rec)'])
     expect(gapsOfADecisionCard({ ...card, recommendation: '换打法继续，先查 K 为什么不动' })).toEqual([])
-    const movingNowStillStopped = await measuring(p, 90, 11)
+    const movingNowStillStopped = await measuring(p, 90, 12)
     expect(movingNowStillStopped.code).toBe(HARD_STOP_EXIT)
-    const doneNowStillStopped = await measuring(p, 99, 12)
+    const doneNowStillStopped = await measuring(p, 99, 13)
     expect(doneNowStillStopped.code).toBe(HARD_STOP_EXIT)
     const acceptRefused = await nawabanOkr(p, '--accept', 'O')
     expect([acceptRefused.code, acceptRefused.err]).toEqual([1, expect.stringContaining('硬停中,不收 accept')])
-    expect((await measuring(p, 99, 12)).code).toBe(HARD_STOP_EXIT)
+    expect((await measuring(p, 99, 13)).code).toBe(HARD_STOP_EXIT)
   })
 
   it('takes --resume only once a decision request on the Objective or its KRs is resolved after the stop, and starts a new sprint', async () => {
@@ -876,7 +877,8 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     await measuring(p, 80, 10)
     const notStopped = await nawabanOkr(p, '--resume', 'O')
     expect([notStopped.code, notStopped.err]).toEqual([1, expect.stringContaining('没在硬停')])
-    await measuring(p, 80, 10)
+    await measuring(p, 79, 11)
+    await measuring(p, 79, 11)
     const refused = await nawabanOkr(p, '--resume', 'O')
     expect([refused.code, refused.err]).toEqual([1, expect.stringContaining('没有 resolve 过的待决策项')])
     const { task } = await team.tasks.create(p.name, { text: 'stop', labels: { key: 'STOP-1' } })
@@ -903,14 +905,51 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect(await draftOf(p)).toContain('冲刺满 5 轮还没收工')
   })
 
+  it('judges no KR still on its first reading of the series, and counts no round where every measure failed', () => {
+    const o: Objective = { name: 'O', kr: [{ name: 'A', target: '>= 1', measure: 'cat a.txt' }] }
+    const round = (at: string, n: number, kept = 1) => ({ at, n, kept, moved: [], done: [] })
+    const failed = (at: string): KeptReading => ({ kr: 'A', value: '', as_of: '', source: 'x', measured_at: at, def_hash: '' })
+    const firstReading = [reading('A', 0, '2026-11-02')]
+    expect(hardStop(o, [round('2026-11-01', 1, 0), round('2026-11-03', 2)], '', [failed('2026-11-01T00:00:00'), ...firstReading])).toBeNull()
+    const second = [...firstReading, reading('A', 0.5, '2026-11-04')]
+    expect(hardStop(o, [round('2026-11-03', 1), round('2026-11-05', 2), round('2026-11-07', 3, 0)], '', second)?.why).toMatch(/连续 2 轮/)
+    const failingAgain = [...second, failed('2026-11-06T00:00:00')]
+    expect(hardStop(o, [round('2026-11-05', 2), round('2026-11-07', 3, 0)], '', failingAgain)).toBeNull()
+  })
+
+  it('skips a round where every measure of this Objective failed, whatever another Objective kept', () => {
+    const o: Objective = { name: 'O', kr: [{ name: 'K', target: '>= 100', measure: 'cat k.txt' }] }
+    const row = (kr: string, d: string, value: string): KeptReading => ({ kr, value, as_of: d, source: 'x', measured_at: d, def_hash: 'a' })
+    const rows = [row('K', '2026-11-01', '10'), row('K', '2026-11-02', '9'), row('K', '2026-11-03', ''), row('OTHER', '2026-11-03', '1')]
+    const rounds = [1, 2, 3].map((n) => ({ at: `2026-11-0${n}`, n, kept: 1, moved: [], done: [] }))
+    expect(hardStop(o, rounds, '', rows)).toBeNull()
+  })
+
+  it('still stops an Objective with no reading at all after five rounds', () => {
+    const o: Objective = { name: 'O', kr: [{ name: 'K', target: '>= 100' }] }
+    const rounds = [1, 2, 3, 4, 5].map((n) => ({ at: `2026-11-0${n}T12`, n, kept: 0, moved: [], done: [] }))
+    expect(hardStop(o, rounds, '', [])?.why).toMatch(/冲刺满 5 轮/)
+  })
+
+  it('keeps a stop once it fired, though a later series starts', () => {
+    const o: Objective = { name: 'O', kr: [{ name: 'K', target: '>= 100', measure: 'cat k.txt' }] }
+    const row = (d: string, h: string): KeptReading => ({ kr: 'K', value: '1', as_of: d, source: d, measured_at: d, def_hash: h })
+    const round = (d: string) => ({ at: d, n: 1, kept: 1, moved: [], done: [] })
+    const rows = [row('2026-11-01', 'a'), row('2026-11-02', 'a')]
+    const rounds = ['2026-11-01', '2026-11-02', '2026-11-03'].map(round)
+    expect(hardStop(o, rounds, '', rows)?.at).toBe('2026-11-03')
+    expect(hardStop(o, [...rounds, round('2026-11-04')], '', [...rows, row('2026-11-04', 'b')])?.at).toBe('2026-11-03')
+  })
+
   it('counts no committed KR as moving, and stops no Objective done as the round ran, but stays stopped once it was', () => {
     const o: Objective = { name: 'O', kr: [{ name: 'C', target: '>= 1', kind: 'committed' }, { name: 'A', target: '>= 1' }] }
     const round = (n: number, moved: string[], done: string[] = []) => ({ at: `2026-11-1${n}`, n, kept: 1, moved, done })
-    expect(hardStop(o, [round(1, ['C']), round(2, ['C'])], '')?.why).toMatch(/连续 2 轮/)
-    expect(hardStop(o, [round(1, ['C']), round(2, ['A'])], '')).toBeNull()
-    expect(hardStop(o, [round(1, [], ['O']), round(2, [], ['O'])], '')).toBeNull()
-    expect(hardStop(o, [round(1, []), round(2, []), round(3, [], ['O'])], '')?.why).toMatch(/连续 2 轮/)
-    expect(hardStop(o, [round(1, [], ['O']), round(2, [])], '')).toBeNull()
+    const rows = ['A', 'C'].flatMap((k) => [reading(k, 0, '2026-11-01'), reading(k, 0.5, '2026-11-02')])
+    expect(hardStop(o, [round(1, ['C']), round(2, ['C'])], '', rows)?.why).toMatch(/连续 2 轮/)
+    expect(hardStop(o, [round(1, ['C']), round(2, ['A'])], '', rows)).toBeNull()
+    expect(hardStop(o, [round(1, [], ['O']), round(2, [], ['O'])], '', rows)).toBeNull()
+    expect(hardStop(o, [round(1, []), round(2, []), round(3, [], ['O'])], '', rows)?.why).toMatch(/连续 2 轮/)
+    expect(hardStop(o, [round(1, [], ['O']), round(2, [])], '', rows)).toBeNull()
   })
 
   it('refuses okr in a repository the old CLI keeps, keeping nothing', async () => {
