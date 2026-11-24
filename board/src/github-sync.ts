@@ -116,6 +116,8 @@ async function saveState(path: string, state: RepoState) {
 
 const backedOff = (iso: string) => new Date(Date.parse(iso) - OVERLAP_FOR_GITHUB_WRITE_LAG_MS).toISOString()
 const latest = (stamps: string[], had?: string) => [...stamps, ...(had ? [had] : [])].sort().at(-1)
+const noLaterThanTheEarliestListingSaw = (listings: Issue[][], had?: string) =>
+  listings.map((l) => latest(l.map((i) => i.updated_at))).filter((s) => s !== undefined).sort().at(0) ?? had
 const byUpdated = <T extends { updated_at: string }>(a: T, b: T) => (a.updated_at < b.updated_at ? -1 : a.updated_at > b.updated_at ? 1 : 0)
 const numberOf = (comment: Comment) => Number(comment.issue_url.slice(comment.issue_url.lastIndexOf('/') + 1))
 
@@ -136,9 +138,10 @@ export async function pollRepo(repo: string, dir: string, reader: Reader, delive
   const path = stateFile(dir, repo)
   const state = await loadState(path)
   const firstRun = state.issuesSince === undefined
-  const listed = (firstRun
-    ? [...(await reader.list(`repos/${repo}/issues?state=open&per_page=100`)), ...(await reader.list(`repos/${repo}/issues?state=closed&since=${new Date(now - RECENTLY_CLOSED_MS).toISOString()}&per_page=100`))]
-    : await reader.list(`repos/${repo}/issues?state=all&since=${backedOff(state.issuesSince!)}&sort=updated&direction=asc&per_page=100`)) as Issue[]
+  const listings = (firstRun
+    ? [await reader.list(`repos/${repo}/issues?state=open&per_page=100`), await reader.list(`repos/${repo}/issues?state=closed&since=${new Date(now - RECENTLY_CLOSED_MS).toISOString()}&per_page=100`)]
+    : [await reader.list(`repos/${repo}/issues?state=all&since=${backedOff(state.issuesSince!)}&sort=updated&direction=asc&per_page=100`)]) as Issue[][]
+  const listed = listings.flat()
   const issues = new Map(listed.filter((i) => !i.pull_request).sort(byUpdated).map((i) => [i.number, i]))
   const repository = await reader.one(`repos/${repo}`)
   const comments = (firstRun ? await everyCommentOf(repo, [...issues.keys()], reader) : await reader.list(`repos/${repo}/issues/comments?since=${backedOff(state.commentsSince!)}&sort=updated&direction=asc&per_page=100`)) as Comment[]
@@ -161,7 +164,7 @@ export async function pollRepo(repo: string, dir: string, reader: Reader, delive
       await deliver('issue_comment', { action: 'created', issue, comment, repository, sender: comment.user })
       if (comment.updated_at !== comment.created_at) await deliver('issue_comment', { action: 'edited', issue, comment, repository, sender: comment.user, changes: {} })
     }
-    const issuesSince = latest(listed.map((i) => i.updated_at), state.issuesSince)
+    const issuesSince = noLaterThanTheEarliestListingSaw(listings, state.issuesSince)
     state.issuesSince = issuesSince
     state.commentsSince = firstRun ? issuesSince : latest(comments.map((c) => c.updated_at), state.commentsSince)
   } finally {

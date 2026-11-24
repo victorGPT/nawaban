@@ -107,7 +107,7 @@ describe('只读入站', () => {
     const again = readerOf(w)
     await pollRepo(REPO, dir, again, deliver())
     await settled()
-    expect(again.asked.some((p) => p.includes('since=2026-11-24T10:58:00.000Z'))).toBe(true)
+    expect(again.asked.some((p) => p.includes('since=2026-11-24T08:58:00.000Z'))).toBe(true)
     expect((await team.channel('roubao').messages()).messages.length).toBe(before)
   })
 
@@ -128,6 +128,26 @@ describe('只读入站', () => {
     await pollRepo(REPO, dir, readerOf(w), deliver())
     await settled()
     expect(githubCalls.filter((c) => c.method !== 'GET')).toEqual([])
+  })
+
+  it('首次全量时两次查询之间新建的 issue，下一轮能补上', async () => {
+    const old = issue(1, 'open', '2026-11-24T10:00:00Z')
+    const createdBetweenTheTwoListings = issue(2, 'open', '2026-11-24T10:01:00Z')
+    const closedLater = issue(3, 'closed', '2026-11-24T10:05:00Z')
+    const reader: Reader = {
+      list: async (path) => {
+        if (path.includes('comments')) return []
+        if (path.includes('state=open')) return [old]
+        if (path.includes('state=closed')) return [closedLater]
+        const since = Date.parse(/since=([^&]+)/.exec(path)![1]!)
+        return [old, createdBetweenTheTwoListings, closedLater].filter((i) => Date.parse(i.updated_at) > since)
+      },
+      one: async (path) => (path.endsWith('/3') ? { ...closedLater, closed_by: owner } : repository),
+    }
+    await pollRepo(REPO, dir, reader, deliver(), Date.parse('2026-11-24T10:06:00Z'))
+    await pollRepo(REPO, dir, reader, deliver())
+    await settled()
+    expect((await roots()).map((m) => m.labels.issue).sort()).toEqual([`${REPO}#1`, `${REPO}#2`, `${REPO}#3`])
   })
 
   it('一条载荷没交成，游标不动，下一轮从原处重拉', async () => {
