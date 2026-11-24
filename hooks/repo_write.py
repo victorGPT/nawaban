@@ -41,10 +41,34 @@ def is_repository_file(path, cwd):
 
 
 def closing_quote(s, i):
+    if s[i] == "'":
+        j = s.find("'", i + 1)
+        return len(s) if j < 0 else j
     j = i + 1
-    while j < len(s) and s[j] != s[i]:
-        j += 2 if s[i] == '"' and s[j] == "\\" else 1
+    while j < len(s) and s[j] != '"':
+        if s[j] == "\\":
+            j += 2
+        elif s.startswith("$(", j):
+            j = closing_paren(s, j + 2)
+        else:
+            j += 1
     return min(j, len(s))
+
+
+def closing_paren(s, j):
+    depth = 1
+    while j < len(s):
+        if s[j] in QUOTES:
+            j = closing_quote(s, j) + 1
+            continue
+        if s[j] == "\\":
+            j += 2
+            continue
+        depth += {"(": 1, ")": -1}.get(s[j], 0)
+        j += 1
+        if depth == 0:
+            return j
+    return len(s)
 
 
 def without_heredoc_bodies(command):
