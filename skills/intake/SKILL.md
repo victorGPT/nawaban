@@ -1,6 +1,6 @@
 ---
 name: intake
-description: "Handle what the owner wrote on the web page: an answer on a held ticket, or an inbox note. Use when a prompt carries ## 网页已答 or ## 收件箱."
+description: "For the orchestrator. Handle what the owner wrote on the web page: an answer on a held ticket, or an inbox note. Use when a prompt carries ## 网页已答 or ## 收件箱."
 ---
 
 Settle each item this turn, before anything else.

@@ -1,6 +1,6 @@
 ---
 name: land
-description: "Finish a ticket whose worker reports 完成. Use when a worker's report arrives, or a ticket shows a line that starts merge: 已合未收完 or merge: 拒合."
+description: "For the orchestrator. Finish a ticket whose worker reports 完成. Use when a worker's report arrives, or a ticket shows a line that starts merge: 已合未收完 or merge: 拒合."
 ---
 
 Land the work, then free the worker.
