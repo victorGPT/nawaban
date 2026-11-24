@@ -63,7 +63,7 @@ export type Board = { tracker?: 'github'; columns: { key: string; tasks: BoardTa
 export type Project = { name: string; open: number; total: number; waiting: number }
 
 export type ItemState = 'done' | 'stopped' | 'working' | 'todo'
-export type Item = { key: string; id: string; title: string; state: ItemState; at: number | null; note: string | null; doing: Doing | null; spec: { done: number; total: number } | null }
+export type Item = { key: string; id: string; title: string; state: ItemState; at: number | null; note: string | null; doing: Doing | null; spec: { done: number; total: number } | null; waiting: boolean; parent: string | null }
 export type Group = 'stopped' | 'working' | 'todo' | 'done'
 
 const HOUR = 3600
@@ -113,6 +113,8 @@ function itemOf(root: BoardTask, tickets: BoardTask[], byId: Map<string, BoardTa
     note: held ? (lead.waiting ?? lead.progress?.body ?? null) : null,
     doing: held ? (doingOf(lead, byId, root.title, undefined, now) as Doing) : null,
     spec: tickets.length ? { done: states.filter((s) => s === 'done').length, total: tickets.length } : null,
+    waiting: state === 'stopped' && !!lead.waiting,
+    parent: (root.parent && byId.get(root.parent)?.title) || null,
     active: Math.max(...[root, ...tickets].map((t) => t.active_at ?? 0)),
   }
 }
@@ -147,6 +149,12 @@ export function boardColumns(groups: { group: Group; items: Item[] }[], doneShow
     const shown = capped && !doneShownAll ? ordered.slice(0, DONE_SHOWN_ON_BOARD) : ordered
     return { group, count: items.length, items: shown, more: capped ? { hidden: ordered.length - shown.length } : null }
   })
+}
+
+export function cardSignal(item: Item, now: number): string | null {
+  if (item.waiting) return WINDOW_WORDS.zh.waiting
+  if (item.state !== 'stopped') return null
+  return item.at == null ? WINDOW_WORDS.zh.stopped : '停了 ' + sinceLabel(item, now, 'zh')
 }
 
 export const boardTaskOf = (board: Board | null, id: string | null) => allOf(board).find((t) => t.id === id) ?? null

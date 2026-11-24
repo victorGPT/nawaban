@@ -4,13 +4,13 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/solid/tabs'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@ui-sdk/solid/collapsible'
 import { Progress, ProgressIndicator, ProgressTrack } from '@ui-sdk/solid/progress'
 import {
-  boardColumns, boardTaskOf, foldKey, krFill, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
+  boardColumns, boardTaskOf, cardSignal, foldKey, krFill, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
   WINDOW_WORDS, type Board, type BoardTask, type Item, type Project, type Route, type Tab,
 } from './logic'
 import { clockOf, detailView, stampOf, type By, type Timeline as TimelineRows, type Detail, type DetailView, type Entry, type Ref, type Row, type Section, type Step } from './detail-logic'
 import { Inbox } from './inbox'
 import { DecidePage } from './Decide'
-import { badge, button, card, cardList, cardTitle, chip, cn, empty, Icon, selectTrigger, sectionHead } from './ui'
+import { badge, button, card, cardList, cardTitle, cn, empty, Icon, selectTrigger, sectionHead } from './ui'
 import type { IconName } from './icons'
 import '@fontsource/geist/400.css'
 import '@fontsource/geist/500.css'
@@ -327,21 +327,20 @@ type Column = ReturnType<typeof boardColumns>[number]
 
 function TaskBoard(props: { columns: Column[]; onMore: () => void }) {
   return (
-    <div class="flex min-h-0 flex-1 overflow-x-auto">
-      <div class="flex min-w-272 flex-1">
+    <div class="flex min-h-0 flex-1 overflow-x-auto p-3">
+      <div class="flex min-w-272 flex-1 gap-2">
         <For each={props.columns}>
           {(c) => (
-            <section aria-label={`${W.groups[c.group]} ${c.count} 条`} class="flex min-w-0 flex-1 flex-col overflow-y-auto border-r border-border last:border-r-0 max-md:overflow-visible">
-              <header class="sticky top-0 z-10 flex min-h-15 shrink-0 items-center gap-2 bg-background px-4 pt-4 pb-5 text-sm font-medium">
-                <Icon name={STATE_ICONS[c.group].icon} class={STATE_ICONS[c.group].tone} />
+            <section aria-label={`${W.groups[c.group]} ${c.count} 条`} class="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-2xl bg-muted max-md:overflow-visible">
+              <header class="sticky top-0 z-10 flex shrink-0 items-baseline gap-2 rounded-t-2xl bg-muted px-3.5 pt-3 pb-2 text-sm font-medium">
                 <span>{W.groups[c.group]}</span>
-                <span class="font-normal text-subtle-foreground tabular-nums">{c.count}</span>
+                <span class="font-normal text-muted-foreground tabular-nums">{c.count}</span>
               </header>
-              <div class="flex flex-col gap-3 px-2 pb-4">
+              <div class="flex flex-col gap-1.5 px-1.5 pb-1.5">
                 <For each={c.items}>{(x) => <TaskCard item={x} />}</For>
                 <Show when={c.more}>
                   {(more) => (
-                    <button type="button" class={cn(button('ghost'), 'w-full text-muted-foreground')} onClick={() => props.onMore()}>
+                    <button type="button" class={cn(button('ghost'), 'w-full text-muted-foreground hover:bg-card')} onClick={() => props.onMore()}>
                       {more().hidden ? W.more(more().hidden) : W.less}
                     </button>
                   )}
@@ -356,30 +355,25 @@ function TaskBoard(props: { columns: Column[]; onMore: () => void }) {
 }
 
 function TaskCard(props: { item: Item }) {
-  const look = () => STATE_ICONS[props.item.state]
+  const signal = () => cardSignal(props.item, nowInSeconds())
   return (
     <a
       href={taskHref(props.item.id)}
-      class="flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card text-sm text-card-foreground shadow-card outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50"
+      class="flex shrink-0 flex-col gap-1.5 rounded-xl bg-card p-3 text-sm text-card-foreground shadow-card outline-none hover:ring-1 hover:ring-border focus-visible:ring-3 focus-visible:ring-ring/50"
     >
-      <span class="flex flex-col gap-1.5 p-4">
-        <span class="flex items-start gap-2">
-          <Icon name={look().icon} class={cn('mt-0.5', look().tone)} />
-          <span class={cn('min-w-0 font-medium [overflow-wrap:anywhere]', props.item.doing?.stale && 'text-muted-foreground')}>{props.item.doing?.head ?? props.item.title}</span>
-        </span>
-        <span class="flex min-w-0 text-subtle-foreground tabular-nums">
-          <span class="min-w-0 truncate">{props.item.id}</span>
-          <Show when={sinceLabel(props.item, nowInSeconds(), 'zh')}>{(since) => <span class="shrink-0 whitespace-pre"> · {since()}</span>}</Show>
-        </span>
-        <Show when={props.item.doing?.chain ?? props.item.note}>{(line) => <span class="line-clamp-2 text-muted-foreground [overflow-wrap:anywhere]">{line()}</span>}</Show>
+      <span class="flex h-5 min-w-0 items-center gap-1 text-xs text-muted-foreground tabular-nums">
+        <span class={props.item.parent ? 'shrink-0' : 'min-w-0 truncate'}>{props.item.id}</span>
+        <Show when={props.item.parent}>
+          {(parent) => (
+            <>
+              <Icon name="ChevronDown" class="size-3 -rotate-90 text-subtle-foreground" />
+              <span title={parent()} class="min-w-0 truncate">{parent()}</span>
+            </>
+          )}
+        </Show>
+        <Show when={signal()}>{(s) => <span class="ml-auto inline-flex h-5 shrink-0 items-center rounded-md bg-warning/15 px-1.5 font-medium text-foreground">{s()}</span>}</Show>
       </span>
-      <Show when={props.item.spec}>
-        {(spec) => (
-          <span class="flex gap-1 border-t border-border px-4 py-3">
-            <span class={chip}>已合 {spec().done}/{spec().total}</span>
-          </span>
-        )}
-      </Show>
+      <span title={props.item.title} class="line-clamp-2 min-h-[2lh] font-medium [overflow-wrap:anywhere]">{props.item.title}</span>
     </a>
   )
 }
