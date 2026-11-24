@@ -1289,6 +1289,17 @@ def _live_orchestrator_in(t: dict, root: Path) -> bool:
 
 
 WORKER_NAME = re.compile(r"[a-z0-9_-]{1,32}")
+WORKER_TITLE_TASK_CHARS = 24
+_CONVENTIONAL_PREFIX = re.compile(r"\s*[a-z]+(?:\(([^)]*)\))?!?:\s*", re.I)
+
+
+def worker_title(ticket_title: str, tag: str) -> str:
+    prefix = _CONVENTIONAL_PREFIX.match(ticket_title)
+    scope = (prefix.group(1) or "").strip() if prefix else ""
+    task = ticket_title[prefix.end() if prefix else 0:].strip()
+    if len(task) > WORKER_TITLE_TASK_CHARS:
+        task = task[:WORKER_TITLE_TASK_CHARS] + "…"
+    return f"{f'【{scope}】' if scope else ''}{task} {tag}"
 
 
 def _refuse_unidentified() -> None:
@@ -1296,10 +1307,11 @@ def _refuse_unidentified() -> None:
 
 
 def dispatch(root: Path, a, con: sqlite3.Connection | None = None) -> str:
-    n = None
+    n, title = None, None
     if a.id:
         _refuse_unidentified()
-        n = _refuse_unless_ticket_open(root, a, con)
+        n, ticket_title = _refuse_unless_ticket_open(root, a, con)
+        title = worker_title(ticket_title, f"#{n}" if n else a.id)
     orch = repo_orchestrator(root)
     if not orch:
         raise Refused("没有活着的编排者(role=orchestrator)可收回报")
@@ -1309,25 +1321,27 @@ def dispatch(root: Path, a, con: sqlite3.Connection | None = None) -> str:
     wt, branch = root.parent / f"{root.name}-{name}", f"wt/{name}"
     _add_worktree_off_origin_main(root, wt, branch)
     who = a.id or name
-    addr = _start_worker_or_remove_its_worktree(root, a, con, name, wt, branch,
+    addr = _start_worker_or_remove_its_worktree(root, a, con, name, title or name, wt, branch,
                                                 _worker_brief(a, n, name, wt, branch, orch, who))
     if a.id:
         _record_dispatch_on_the_ticket(root, a, con, n, name, addr, wt, orch)
     return f"✓ dispatch {who} → hc {addr} · {wt}"
 
 
-def _refuse_unless_ticket_open(root: Path, a, con: sqlite3.Connection | None) -> str | None:
+def _refuse_unless_ticket_open(root: Path, a, con: sqlite3.Connection | None) -> tuple[str | None, str]:
     if con is not None:
-        if _task(con, a.id)["status"] != "open":
+        task = _task(con, a.id)
+        if task["status"] != "open":
             raise Refused(f"{a.id} 不是开着的任务")
-        return None
+        return None, task["title"]
     m = _GH_ISSUE.fullmatch(a.id)
     if not m:
         raise Refused(f"GitHub 记账的仓库只接 #N:{a.id}")
     n = m.group(1)
-    if _gh_json(root, "issue", "view", n, "--json", "state").get("state") != "OPEN":
+    issue = _gh_json(root, "issue", "view", n, "--json", "state,title")
+    if issue.get("state") != "OPEN":
         raise Refused(f"{a.id} 不是开着的 issue")
-    return n
+    return n, issue.get("title") or ""
 
 
 def _add_worktree_off_origin_main(root: Path, wt: Path, branch: str) -> None:
@@ -1352,10 +1366,11 @@ def _worker_brief(a, n: str | None, name: str, wt: Path, branch: str, orch: str,
     ])
 
 
-def _start_worker_or_remove_its_worktree(root: Path, a, con, name: str, wt: Path, branch: str, brief: str) -> str:
+def _start_worker_or_remove_its_worktree(root: Path, a, con, name: str, title: str, wt: Path, branch: str,
+                                         brief: str) -> str:
     import json
     r = subprocess.run(["hc", "run", "--bg", "--json", "--name", name, "--cwd", str(wt),
-                        *_board_the_worker_must_reach(con), "claude", "--model", a.model, brief],
+                        *_board_the_worker_must_reach(con), "claude", "-n", title, "--model", a.model, brief],
                        capture_output=True, text=True)
     try:
         return json.loads(r.stdout)["address"]

@@ -18,10 +18,25 @@ const PARSE_ARGS_MISTAKES = ['ERR_PARSE_ARGS_UNKNOWN_OPTION', 'ERR_PARSE_ARGS_IN
 const CLOSED_STATES = ['completed', 'canceled', 'failed']
 const ENV_NAMING_THIS_BOARD_AND_CODEX_CONFIG_NOT_THE_BOARD_TOKEN = ['NAWABAN_BOARD_DIR', 'NAWABAN_BOARD_PORT', 'BOARD_URL', 'CODEX_HOME']
 const CLAUDE_MODEL_WHEN_NONE_IS_NAMED = 'opus'
+const WORKER_TITLE_TASK_CHARS = 24
+const CONVENTIONAL_PREFIX = /^\s*[a-z]+(?:\(([^)]*)\))?!?:\s*/i
 const WORKER_ARGV = {
-  claude: (model: string | undefined, brief: string) => ['claude', '--model', model ?? CLAUDE_MODEL_WHEN_NONE_IS_NAMED, `/pstack:poteto-mode ${brief}`],
+  claude: (model: string | undefined, brief: string, title?: string) => ['claude', ...(title ? ['-n', title] : []), '--model', model ?? CLAUDE_MODEL_WHEN_NONE_IS_NAMED, `/pstack:poteto-mode ${brief}`],
   codex: (model: string | undefined, brief: string) => ['codex', ...(model ? ['-m', model] : []), brief],
   agy: (model: string | undefined, brief: string) => ['agy', ...(model ? ['--model', model] : []), '-i', brief],
+}
+
+export function workerTitle(ticketTitle: string, tag: string): string {
+  const prefix = ticketTitle.match(CONVENTIONAL_PREFIX)
+  const scope = prefix?.[1]?.trim()
+  const chars = Array.from(ticketTitle.slice(prefix?.[0].length ?? 0).trim())
+  const task = chars.length > WORKER_TITLE_TASK_CHARS ? `${chars.slice(0, WORKER_TITLE_TASK_CHARS).join('')}…` : chars.join('')
+  return `${scope ? `【${scope}】` : ''}${task} ${tag}`
+}
+
+const withoutSessionName = (argv: string[]) => {
+  const at = argv.indexOf('-n')
+  return at < 0 ? argv : [...argv.slice(0, at), ...argv.slice(at + 2)]
 }
 const PROFILE_PREFIX_OF_AGENT = { claude: 'cc', codex: 'cx', agy: 'agy' } as const
 const CLAUDE_CONTEXT_WINDOW_TOKENS = 1_000_000
@@ -133,7 +148,7 @@ async function laneOf(task: MessageView): Promise<string | null> {
 
 const startsTheWayThisDispatchWould = (t: Terminal, a: Args) => {
   const want = WORKER_ARGV[a.agent](a.model, '').slice(0, -1)
-  const startedWith = (t.argv ?? []).slice(-want.length - 1, -1)
+  const startedWith = withoutSessionName(t.argv ?? []).slice(-want.length - 1, -1)
   return startedWith.length === want.length && want.every((w, i) => startedWith[i] === w)
 }
 
@@ -227,7 +242,7 @@ const envReachingThisBoardWithoutToken = () => ENV_NAMING_THIS_BOARD_AND_CODEX_C
 async function startWorkerElseRemoveWorktree(c: Checked, a: Args, wt: Worktree, brief: string): Promise<string> {
   const env = envReachingThisBoardWithoutToken()
   try {
-    const run = await exec('hc', ['run', '--bg', '--json', '--name', c.name, '--cwd', wt.path, ...(env.length ? ['env', ...env] : []), ...WORKER_ARGV[a.agent](a.model, brief)])
+    const run = await exec('hc', ['run', '--bg', '--json', '--name', c.name, '--cwd', wt.path, ...(env.length ? ['env', ...env] : []), ...WORKER_ARGV[a.agent](a.model, brief, c.task ? workerTitle(c.task.text.split('\n')[0]!, a.ref!) : c.name)])
     const address = JSON.parse(run.stdout).address
     if (!address) throw new Error(run.stdout)
     return address
