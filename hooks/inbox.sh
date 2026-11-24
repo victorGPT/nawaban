@@ -3,7 +3,7 @@ input=$(cat)
 hooks="$(cd "$(dirname "$0")" && pwd)"
 . "$hooks/orchestrator.sh"
 
-route=$(node "$hooks/route.mjs" "$(repository_the_session_is_in "$input")" 2>/dev/null)
+route=$(node "$hooks/route.mjs" "$(repository_the_session_is_in "$input")" --reads 2>/dev/null)
 tracker=${route%% *}
 project=${route#* }
 

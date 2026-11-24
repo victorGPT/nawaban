@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { cliFor, repoName } from "../herdr/mods/nawaban-board/logic.js";
 
@@ -38,15 +39,26 @@ function oldCliFindsABoard(dir, repoRoot) {
   return holder !== undefined && existsSync(join(holder, ".nawaban", "nawaban.db"));
 }
 
-function trackerOf(dir, gitCommonDir) {
+function syncedFromGithubOnThisMachine(project) {
+  const boardDir = process.env.NAWABAN_BOARD_DIR || join(homedir(), ".nawaban", "board");
+  try {
+    return Object.values(JSON.parse(readFileSync(join(boardDir, "github-sync.json"), "utf8")).repos ?? {}).includes(project);
+  } catch {
+    return false;
+  }
+}
+
+function trackerOf(dir, gitCommonDir, reads) {
   const project = repoName(gitCommonDir);
   if (process.env.NAWABAN_CLI) return process.env.NAWABAN_CLI;
+  if (reads && syncedFromGithubOnThisMachine(project)) return "board";
   if (cliFor(project) === "board") return "board";
   const repoRoot = dirname(gitCommonDir);
   return tracksOnGithub(repoRoot) || oldCliFindsABoard(dir, repoRoot) ? OLD_CLI : "board";
 }
 
-const dir = process.argv[2] || ".";
+const reads = process.argv.includes("--reads");
+const dir = process.argv.slice(2).find((a) => a !== "--reads") || ".";
 const gitCommonDir = gitCommonDirAt(dir);
 const project = gitCommonDir && repoName(gitCommonDir);
-console.log(project && trackerOf(dir, gitCommonDir) === "board" ? `board ${project}` : OLD_CLI);
+console.log(project && trackerOf(dir, gitCommonDir, reads) === "board" ? `board ${project}` : OLD_CLI);

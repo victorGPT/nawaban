@@ -7,6 +7,7 @@ import { local } from '@vercel/board/backend-local'
 import { deliverAsSignedWebhook, importOnlySync, pollRepo, type Reader } from '../src/github-sync.ts'
 import { HELD_FOR_A_GITHUB_ASK, settleIssueTasks } from '../src/github-tasks.ts'
 import { verifier } from '../src/server.ts'
+import { boardData } from '../src/views.ts'
 
 const REPO = 'acme/roubao'
 const SECRET = 'webhook-secret'
@@ -141,6 +142,22 @@ describe('从只记了开关的旧轮询状态升级', () => {
     expect((await theTask('ROUBAO-1760')).task?.state).toBe('ready')
     await poll(world)
     expect((await theTask('ROUBAO-1760')).task?.state).toBe('canceled')
+  })
+})
+
+describe('读的一侧', () => {
+  it('从 GitHub 导入的评论只有「进展：」算进展，去掉前缀和 marker', async () => {
+    await poll({
+      issues: [issue(1770, 'open', '2026-11-24T10:00:00Z')],
+      comments: [
+        comment(1770, '进展：做完了，下一步：合并\n\n<!-- nawaban {"v":1,"kind":"note","body":"做完了，下一步：合并"} -->', '2026-11-24T10:01:00Z', owner),
+        comment(1770, '没前缀的评论', '2026-11-24T10:02:00Z'),
+        comment(1770, '决定：选 B', '2026-11-24T10:03:00Z', owner),
+      ],
+    })
+    const { columns } = await boardData(team, 'roubao')
+    const row = columns.flatMap((c) => c.tasks as { id: string; progress?: { body: string } }[]).find((t) => t.id === 'ROUBAO-1770')!
+    expect(row.progress?.body).toBe('做完了，下一步：合并')
   })
 })
 

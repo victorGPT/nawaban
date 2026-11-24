@@ -7,7 +7,7 @@ rules_dir="$dir/docs/agents"
 current_rules="$rules_dir/orchestrator.md"
 legacy_rules="$rules_dir/leader.md"
 
-route=$(node "$hooks/route.mjs" "$dir" 2>/dev/null)
+route=$(node "$hooks/route.mjs" "$dir" --reads 2>/dev/null)
 
 print_index_from_the_tracker_this_repository_uses() {
   if [ "${route%% *}" = board ]; then

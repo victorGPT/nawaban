@@ -1,4 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { syncStalledNote } from './github-sync-status.ts'
 import { join } from 'node:path'
 import { text } from 'node:stream/consumers'
 import { parseArgs } from 'node:util'
@@ -242,7 +243,9 @@ export async function inbox(argv: string[], team: Team, dir: string): Promise<nu
     await mkdir(join(dir, 'inbox'), { recursive: true })
     await writeWholeSoAReaderNeverSeesHalf(file, JSON.stringify([...items.map((i) => i.id), ...answered.map(answeredSeen), ...open.map(inboxSeen)]))
     const line = inboxLine(items, Array.isArray(shownLast) ? shownLast : null, { answered, inbox: open })
-    if (line) process.stdout.write(JSON.stringify({ systemMessage: line }) + '\n')
+    const stalled = values.project ? await syncStalledNote(dir, values.project) : null
+    const shown = [line, stalled].filter(Boolean).join('｜')
+    if (shown) process.stdout.write(JSON.stringify({ systemMessage: shown }) + '\n')
     return 0
   } catch (error) {
     return fail(error)

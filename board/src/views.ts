@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises'
+import { syncStalledNote } from './github-sync-status.ts'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { board, BoardEventView, MessageView } from '@vercel/board'
@@ -87,8 +88,12 @@ function completeCardElseNull(ask: DecisionCard | undefined) {
 const orchestratorAsTheGlossaryDefinesIt = (latestDispatch: Reply | undefined, holder: string | null, lastClaimer: string | null) =>
   latestDispatch?.by ?? holder ?? lastClaimer
 
-const isNote = (r: Reply) => r.message.blocks.length === 0
-const progress = (r: Reply | undefined) => (r ? { body: r.message.text, at: r.at } : null)
+const GITHUB_PROGRESS_PREFIX = /^\s*(?:#{1,6}\s*)?\**进展\**\s*(?:[（(][^）)\n]*[）)])?\**\s*[：:]\**\s*/
+const TRAILING_NAWABAN_MARKER = /\n*<!-- nawaban \{[^\n]*\} -->\s*$/
+const fromGithub = (r: Reply) => r.message.from === 'github'
+const visibleOnGithub = (r: Reply) => r.message.text.replace(TRAILING_NAWABAN_MARKER, '')
+const isNote = (r: Reply) => r.message.blocks.length === 0 && (!fromGithub(r) || GITHUB_PROGRESS_PREFIX.test(visibleOnGithub(r)))
+const progress = (r: Reply | undefined) => (r ? { body: fromGithub(r) ? visibleOnGithub(r).replace(GITHUB_PROGRESS_PREFIX, '') : r.message.text, at: r.at } : null)
 
 function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: string | null) {
   const t = m.task!
@@ -173,7 +178,8 @@ export async function boardData(team: Team, project?: string, dir: string | null
       }),
     )
     .sort((a, b) => b.at - a.at)
-  return { columns: Object.entries(columns).map(([k, v]) => ({ key: k, tasks: v })), decisions }
+  const syncNote = dir && project ? await syncStalledNote(dir, project) : null
+  return { columns: Object.entries(columns).map(([k, v]) => ({ key: k, tasks: v })), decisions, ...(syncNote ? { syncNote } : {}) }
 }
 
 export async function projectsData(team: Team) {
