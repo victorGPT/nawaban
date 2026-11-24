@@ -18,4 +18,4 @@ No comments in code. Names and structure carry the intent: a constant named for 
 
 ## Updating the local plugin
 
-When a change that touches no schema has merged into `main`, run `git -C ~/.nawaban/plugin pull --ff-only` yourself. A change that touches the schema or migrates data: ask the user first.
+When a change that touches no schema has merged into `main`, run `git -C ~/.nawaban/plugin pull --ff-only && sh ~/.nawaban/plugin/herdr/install-mod.sh` yourself (the second step copies the Herdr panel into `~/.config/herdr-app/mods`). A change that touches the schema or migrates data: ask the user first.

@@ -118,6 +118,7 @@ async function mergeAsTheWorker(key: string, terminal: string, worktree: string,
     XDG_CONFIG_HOME: tmp,
     NAWABAN_BOARD_DIR: join(tmp, 'board'),
     NAWABAN_PLUGIN_DIR: join(tmp, 'no-plugin'),
+    HERDR_MODS_DIR: join(tmp, 'no-herdr'),
     CLAUDE_CODE_SESSION_ID: 'aaaa1111-0000',
     HC_TERMINAL_ID: terminal,
     HC_LOG: hcLog,
@@ -363,6 +364,28 @@ it('pulls the plugin when it tracks this repository and the PR touches no schema
   const r = await mergeAsTheWorker('M-PLUG', 't79', worktree, { NAWABAN_PLUGIN_DIR: plugin })
   expect(r.code).toBe(0)
   expect((await git(plugin, 'log', '-1', '--format=%s')).stdout.trim()).toBe('landed M-PLUG')
+})
+
+it('copies the pulled Herdr panel over the installed one, keeping the files Herdr put there', async () => {
+  const plugin = join(tmp, 'plugin-mod')
+  await exec('git', ['clone', '-q', join(tmp, 'origin.git'), plugin])
+  const { worktree } = await workerOnItsOwnTicket('M-MOD', 't76')
+  const other = join(tmp, 'other-mod')
+  await exec('git', ['clone', '-q', join(tmp, 'origin.git'), other])
+  await mkdir(join(other, 'herdr', 'mods', 'nawaban-board'), { recursive: true })
+  await writeFile(join(other, 'herdr', 'install-mod.sh'), await readFile(join(import.meta.dirname, '../../herdr/install-mod.sh')))
+  await writeFile(join(other, 'herdr', 'mods', 'nawaban-board', 'logic.js'), 'landed M-MOD')
+  await git(other, 'add', '-A')
+  await git(other, 'commit', '-q', '-m', 'landed M-MOD')
+  await git(other, 'push', '-q', 'origin', 'HEAD:main')
+  const mods = join(tmp, 'herdr-mods')
+  await mkdir(join(mods, 'nawaban-board'), { recursive: true })
+  await writeFile(join(mods, 'nawaban-board', 'logic.js'), 'old copy')
+  await writeFile(join(mods, 'nawaban-board', 'jsconfig.json'), '{}')
+  const r = await mergeAsTheWorker('M-MOD', 't76', worktree, { NAWABAN_PLUGIN_DIR: plugin, HERDR_MODS_DIR: mods })
+  expect(r.code).toBe(0)
+  expect(await readFile(join(mods, 'nawaban-board', 'logic.js'), 'utf8')).toBe('landed M-MOD')
+  expect(await readFile(join(mods, 'nawaban-board', 'jsconfig.json'), 'utf8')).toBe('{}')
 })
 
 it('picks up after a merged PR on a rerun without merging again', async () => {

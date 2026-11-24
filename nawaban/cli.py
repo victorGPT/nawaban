@@ -1513,9 +1513,11 @@ def _gh_claim(root: Path, a, n: str, who: str) -> str:
     _gh(root, "issue", "edit", n, "--remove-assignee" if a.release else "--add-assignee", "@me")
     if a.release:
         gh_post(root, n, "release", who)
+        _forget_the_claim_here(root, n)
         return f"✓ release {a.id}"
     here = herdr_terminal()
     gh_post(root, n, "claim", who + (f"（hc {here}）" if here else ""))
+    _record_the_claim_here(root, n, who)
     return f"✓ claim {a.id}" + (f" · terminal {here}" if here else "")
 
 
@@ -1524,7 +1526,42 @@ def _gh_close(root: Path, a, n: str) -> str:
         _gh(root, "issue", "reopen", n)
     else:
         _gh(root, "issue", "close", n, "--reason", "completed" if a.done else "not planned")
+        _forget_the_claim_here(root, n)
     return f"✓ close {a.id} → {'open' if a.reopen else 'done' if a.done else 'cancelled'}"
+
+
+MILESTONES = ("started", "edited", "committed", "pr", "review", "reported")
+
+
+def _board_dir() -> Path:
+    return Path(os.environ.get("NAWABAN_BOARD_DIR") or Path.home() / ".nawaban" / "board").expanduser()
+
+
+def _issue_file(folder: str, root: Path, n: str) -> Path:
+    return _board_dir() / folder / f"{root.name}#{n}.json"
+
+
+def _record_the_claim_here(root: Path, n: str, who: str) -> None:
+    import json
+    claim = _issue_file("github-claims", root, n)
+    claim.parent.mkdir(parents=True, exist_ok=True)
+    _issue_file("progress", root, n).unlink(missing_ok=True)
+    claim.write_text(json.dumps({"session": who, "claimedAt": time.time()}))
+
+
+def _forget_the_claim_here(root: Path, n: str) -> None:
+    for folder in ("github-claims", "progress"):
+        _issue_file(folder, root, n).unlink(missing_ok=True)
+
+
+def _live_of(root: Path, n: int) -> dict | None:
+    import json
+    try:
+        live = json.loads(_issue_file("progress", root, str(n)).read_text())
+    except (OSError, ValueError):
+        return None
+    ok = isinstance(live, dict) and live.get("milestone") in MILESTONES and isinstance(live.get("at"), (int, float))
+    return {"milestone": live["milestone"], "at": live["at"]} if ok else None
 
 
 def _refuse_a_second_pending_ask(root: Path, a, n: str) -> None:
@@ -1699,8 +1736,10 @@ def github_board_data(root: Path) -> dict:
         if i.get("stateReason") == "NOT_PLANNED":
             continue
         cs = [_canonical(c) for c in i["comments"]]
-        recent += _recent_decisions_of_issue(i, cs, since, names, asking)
-        tasks.append(_issue_task(root, i, cs))
+        decided = _recent_decisions_of_issue(i, cs, 0, names, asking)
+        recent += [d for d in decided if d["at"] >= since]
+        ruling = max((d for d in decided if d["owner"]), key=lambda d: d["at"], default=None)
+        tasks.append(_issue_task(root, i, cs, ruling))
     columns: dict[str, list] = {key: [] for key in COLUMNS}
     for t in sorted(tasks, key=lambda t: -t["active_at"]):
         columns[t["status"]].append(t)
@@ -1731,7 +1770,7 @@ def _claims_not_handed_back(cs: list[dict]) -> list[tuple[str, int]]:
     return [] if latest_in_comment_order == ["交还"] else claims
 
 
-def _issue_task(root: Path, i: dict, cs: list[dict]) -> dict:
+def _issue_task(root: Path, i: dict, cs: list[dict], ruling: dict | None = None) -> dict:
     claims = _claims_not_handed_back(cs)
     notes, decisions = _prefixed(cs, "进展"), _prefixed(cs, "决定")
     assignees = [a["login"] for a in i.get("assignees") or []]
@@ -1755,6 +1794,8 @@ def _issue_task(root: Path, i: dict, cs: list[dict]) -> dict:
         task["waiting"] = None
         task["decision"] = {"at": decisions[-1][1], "verdict": _verdict(decisions[-1][0])} if decisions else None
         task["pending"] = _issue_pending(i)
+        task["ruling"] = {"at": ruling["at"], "verdict": ruling["verdict"]} if ruling else None
+        task["live"] = _live_of(root, i["number"]) if status == "in_progress" else None
     return task
 
 

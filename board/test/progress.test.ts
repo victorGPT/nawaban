@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
-import { milestoneOfCheckout, milestoneOfTranscript } from '../src/progress.ts'
+import { githubIssuesHeldBy, milestoneOfCheckout, milestoneOfTranscript, recordProgress } from '../src/progress.ts'
 
 const transcriptOf = async (...steps: unknown[]) => {
   const path = join(await mkdtemp(join(tmpdir(), 'nawaban-progress-')), 't.jsonl')
@@ -74,4 +74,17 @@ it('reads the checkout: commits past origin/main made since the claim', async ()
   expect(await milestoneOfCheckout(dir)).toBe('committed')
   expect(await milestoneOfCheckout(dir, Date.now() / 1000 + 3600)).toBe('started')
   expect(await milestoneOfCheckout(join(dir, 'missing'))).toBe('started')
+})
+
+it('a GitHub issue claimed on this machine gets its live file from the session that claimed it, and no one else', async () => {
+  const boardDir = await mkdtemp(join(tmpdir(), 'nawaban-board-'))
+  await mkdir(join(boardDir, 'github-claims'))
+  await writeFile(join(boardDir, 'github-claims', 'roubao#950.json'), JSON.stringify({ session: 's1', claimedAt: 100 }))
+  await writeFile(join(boardDir, 'github-claims', 'roubao#951.json'), JSON.stringify({ session: 's2', claimedAt: 100 }))
+  const held = githubIssuesHeldBy(boardDir, 's1')
+  expect(held).toEqual([{ id: 'roubao#950', claimedAt: 100 }])
+  const transcript = await transcriptOf({ ...claudeCall('Bash', { command: 'gh pr create --fill' }), timestamp: new Date(200_000).toISOString() })
+  await recordProgress({ session_id: 's1', transcript_path: transcript }, held, boardDir, 300)
+  expect(JSON.parse(await readFile(join(boardDir, 'progress', 'roubao#950.json'), 'utf8'))).toEqual({ milestone: 'pr', at: 300 })
+  expect(githubIssuesHeldBy(join(boardDir, 'nowhere'), 's1')).toEqual([])
 })
