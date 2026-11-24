@@ -204,3 +204,18 @@ The panel rereads the board when the board file changes, and when a window of th
 ## Web page
 
 Without Herdr, the board's page shows the same views in a browser, on this machine only. [The one-command install](#without-herdr-one-command-macos) builds it and starts the board; by hand, build it once, and again after each pull that changes `web/`: `pnpm --dir ~/nawaban/web install --frozen-lockfile && pnpm --dir ~/nawaban/web build`. `nawaban serve` (`node ~/nawaban/board/src/cli.ts serve`, or its launchd agent, restarted with `launchctl kickstart -k gui/$(id -u)/com.nawaban.board`) then serves it at `http://127.0.0.1:4100/`, and `nawaban web` (`node ~/nawaban/board/src/cli.ts web`) opens it with the page's token, `~/.nawaban/board/web-token`, in the link. The page reads `/api/nawaban/board`, `/projects`, `/task/<key>` and `/okr?repo=<path>`, the JSON `nawaban json` prints, and `/changes` tells it when to read again.
+
+### From your phone over Tailscale
+
+The page can also open from another device on your tailnet, through `tailscale serve` on this Mac. The board still listens on `127.0.0.1` only; Tailscale's HTTPS proxy is the one way in, and the page's token is still needed. Funnel stays off, so nothing outside your tailnet reaches it.
+
+To turn it on:
+
+1. `tailscale serve --bg 4100`. It prints the address, like `https://mymac.tail0000.ts.net/`, reachable only inside your tailnet.
+2. Write that host name, without `https://` or a slash, into the switch file, and restart the board:
+   `printf '%s\n' mymac.tail0000.ts.net > ~/.nawaban/board/tailnet && launchctl kickstart -k gui/$(id -u)/com.nawaban.board`
+3. `nawaban web --tailnet` prints the link with the token, `https://mymac.tail0000.ts.net/#k=…`. Open it on the other device. Anyone holding that link can read and answer, so send it only to yourself.
+
+With the switch on, the board answers a request for that host only when it carries what `tailscale serve` sends: `X-Forwarded-Host` equal to the host, `X-Forwarded-Proto: https`, and `X-Forwarded-For` a single tailnet address (`100.64.0.0/10` or `fd7a:115c:a1e0::/48`). Writes from the page must come from `https://<host>`. Every other proxied request still gets `421`, and `http://127.0.0.1:4100/` works as before.
+
+To turn it off: `tailscale serve --https=443 off`, then `rm ~/.nawaban/board/tailnet && launchctl kickstart -k gui/$(id -u)/com.nawaban.board`. Without the file, the tailnet address answers `421`.

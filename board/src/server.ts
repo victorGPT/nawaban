@@ -20,6 +20,9 @@ import { answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, web
 const DEFAULT_PORT = 4100
 const TOKEN_BYTES = 32
 const WEB_TOKEN = 'web-token'
+const TAILNET_HOST_FILE = 'tailnet'
+const HOSTNAME = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/
+const TAILNET_ADDRESS = /^(?:100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}|fd7a:115c:a1e0:[0-9a-f:]+)$/i
 const WEB = fileURLToPath(new URL('../../web/', import.meta.url))
 const BUILT_PAGE = join(WEB, 'dist')
 const API = '/api/nawaban/'
@@ -104,9 +107,35 @@ export function listen(fetch: (request: Request) => Promise<Response>, port: num
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)))
 }
 
+export async function tailnetHost(dir: string): Promise<string | undefined> {
+  let named
+  try {
+    named = (await readFile(join(dir, TAILNET_HOST_FILE), 'utf8')).trim()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+  if (!HOSTNAME.test(named)) throw new Error(`${join(dir, TAILNET_HOST_FILE)} must hold one lowercase host name like mymac.tailnet.ts.net, not "${named}"`)
+  return named
+}
+
 const refuse = (status: number, message: string) => Response.json({ error: message }, { status })
 
-function fromThisMachineDirectlyElseRefusal(request: Request, port: number) {
+function sentByTailscaleServeForThisHost(request: Request, tailnet: string | undefined) {
+  const said = (name: string) => request.headers.get(name)
+  return (
+    tailnet !== undefined &&
+    said('host') === tailnet &&
+    said('x-forwarded-host') === tailnet &&
+    said('x-forwarded-proto') === 'https' &&
+    TAILNET_ADDRESS.test(said('x-forwarded-for') ?? '') &&
+    !request.headers.has('forwarded') &&
+    !request.headers.has('x-real-ip')
+  )
+}
+
+function fromThisMachineOrTheTailnetElseRefusal(request: Request, port: number, tailnet: string | undefined) {
+  if (sentByTailscaleServeForThisHost(request, tailnet)) return null
   const host = request.headers.get('host')
   if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) return refuse(421, 'host must be 127.0.0.1 or localhost on this port')
   if ([...request.headers.keys()].some((name) => PROXY_HEADERS.test(name))) return refuse(421, 'no proxies')
@@ -119,9 +148,11 @@ function holdsTheWebTokenElseRefusal(request: Request, want: Buffer) {
   return null
 }
 
-function writesOnlyFromThePagesOwnOriginElseRefusal(request: Request) {
+function writesOnlyFromThePagesOwnOriginElseRefusal(request: Request, tailnet: string | undefined) {
   if (READS.has(request.method)) return null
-  if (request.headers.get('origin') !== `http://${request.headers.get('host')}`) return refuse(403, 'origin')
+  const host = request.headers.get('host')
+  const pageOrigin = host === tailnet ? `https://${host}` : `http://${host}`
+  if (request.headers.get('origin') !== pageOrigin) return refuse(403, 'origin')
   return null
 }
 
@@ -276,7 +307,10 @@ async function builtFile(pathname: string, dist: string) {
   }
 }
 
-export function site(team: Team, { dir, webToken, boardToken, port, dist = BUILT_PAGE }: { dir: string; webToken: string; boardToken: string; port: number; dist?: string }) {
+export function site(
+  team: Team,
+  { dir, webToken, boardToken, port, dist = BUILT_PAGE, tailnet }: { dir: string; webToken: string; boardToken: string; port: number; dist?: string; tailnet?: string },
+) {
   const want = Buffer.from(webToken)
   const asThisPerson = (body: unknown) =>
     team.fetch(new Request(`${urlFor(port)}/messages`, { method: 'POST', headers: { authorization: `Bearer ${boardToken}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }))
@@ -285,8 +319,8 @@ export function site(team: Team, { dir, webToken, boardToken, port, dist = BUILT
     if (pathname === '/api/board' || pathname.startsWith('/api/board/')) return team.fetch(request)
     const isApi = pathname.startsWith(API)
     const refusal =
-      fromThisMachineDirectlyElseRefusal(request, port) ??
-      (isApi ? (holdsTheWebTokenElseRefusal(request, want) ?? writesOnlyFromThePagesOwnOriginElseRefusal(request)) : null)
+      fromThisMachineOrTheTailnetElseRefusal(request, port, tailnet) ??
+      (isApi ? (holdsTheWebTokenElseRefusal(request, want) ?? writesOnlyFromThePagesOwnOriginElseRefusal(request, tailnet)) : null)
     if (refusal) return refusal
     if (!isApi) return READS.has(request.method) ? builtFile(pathname, dist) : refuse(405, 'read-only')
     const path = pathname.slice(API.length)
@@ -316,11 +350,23 @@ export async function web(dir = DIR, port = PORT, open = openInBrowser): Promise
   return 0
 }
 
+export async function webOverTailnet(dir = DIR): Promise<number> {
+  const host = await tailnetHost(dir)
+  if (host === undefined) {
+    process.stderr.write(`没开 tailnet:把 tailscale 给这台机器的主机名写进 ${join(dir, TAILNET_HOST_FILE).replace(homedir(), '~')}，重启 nawaban serve，见 docs/install.md\n`)
+    return 1
+  }
+  process.stdout.write(`https://${host}/#k=${await token(dir, WEB_TOKEN)}\n`)
+  return 0
+}
+
 export async function serve(dir = DIR, port = PORT) {
   const url = urlFor(port)
+  const tailnet = await tailnetHost(dir)
   const team = board({ backend: local({ dir }), authenticate: verifier(await token(dir)), url, middleware: [impactNames(dir)] })
   await registerSchemas(team)
-  const server = await listen(site(team, { dir, webToken: await token(dir, WEB_TOKEN), boardToken: await token(dir), port }), port)
-  console.log(`serving the board at ${url} and its page at http://127.0.0.1:${port}/, its log in ${dir.replace(homedir(), '~')}`)
+  const server = await listen(site(team, { dir, webToken: await token(dir, WEB_TOKEN), boardToken: await token(dir), port, tailnet }), port)
+  const tailnetPage = tailnet ? ` and https://${tailnet}/ through tailscale serve` : ''
+  console.log(`serving the board at ${url} and its page at http://127.0.0.1:${port}/${tailnetPage}, its log in ${dir.replace(homedir(), '~')}`)
   return server
 }

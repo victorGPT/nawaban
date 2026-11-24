@@ -9,7 +9,7 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest'
 import { board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { createApp } from '@vercel/board/cli'
-import { listen, pageUrl, site, token, verifier, web } from '../src/server.ts'
+import { listen, pageUrl, site, tailnetHost, token, verifier, web, webOverTailnet } from '../src/server.ts'
 import { inboxChannel, inboxItemText, openInboxItems } from '../src/page.ts'
 import { registerSchemas } from '../src/schemas.ts'
 import { run } from '../src/tasks.ts'
@@ -125,6 +125,62 @@ it('answers only this machine by its own name, never through a proxy', async () 
     expect((await send('/api/nawaban/board', { headers: { [proxied]: '10.0.0.1' } })).status, proxied).toBe(421)
   }
   expect((await send('/api/nawaban/board', { raw: true })).status).toBeGreaterThanOrEqual(400)
+})
+
+it('answers tailscale serve for the tailnet host only when the switch names it, and takes writes from its https origin', async () => {
+  const TAILNET = 'mac.tail0000.ts.net'
+  const viaServe = { host: TAILNET, 'x-forwarded-host': TAILNET, 'x-forwarded-proto': 'https', 'x-forwarded-for': '100.110.54.23', 'tailscale-user-login': 'me@example.test' }
+  expect((await send('/api/nawaban/board', { headers: viaServe })).status, 'switch off').toBe(421)
+  const local = handler
+  handler = site(team, { dir, webToken: WEB_SECRET, boardToken: SECRET, port, dist, tailnet: TAILNET })
+  try {
+    expect((await send('/api/nawaban/board', { headers: viaServe })).status).toBe(200)
+    expect((await send('/', { headers: viaServe })).status).toBe(200)
+    expect((await send('/api/nawaban/board', { headers: { ...viaServe, 'x-forwarded-for': 'fd7a:115c:a1e0::6d38:3618' } })).status).toBe(200)
+    expect((await send('/api/nawaban/board', { headers: { host: `127.0.0.1:${port}` } })).status, 'this machine still').toBe(200)
+    expect((await send('/api/nawaban/board', { headers: { ...viaServe, authorization: '' } })).status, 'token still').toBe(401)
+    const forged: Record<string, Record<string, string>> = {
+      'other host': { ...viaServe, host: 'evil.test', 'x-forwarded-host': 'evil.test' },
+      'host with port': { ...viaServe, host: `${TAILNET}:${port}` },
+      'host suffix': { ...viaServe, host: `${TAILNET}.evil.test`, 'x-forwarded-host': `${TAILNET}.evil.test` },
+      'forwarded host differs': { ...viaServe, 'x-forwarded-host': 'evil.test' },
+      'plain http': { ...viaServe, 'x-forwarded-proto': 'http' },
+      'not from the tailnet': { ...viaServe, 'x-forwarded-for': '203.0.113.9' },
+      'a chain of proxies': { ...viaServe, 'x-forwarded-for': '203.0.113.9, 100.110.54.23' },
+      'just past the tailnet range': { ...viaServe, 'x-forwarded-for': '100.128.0.1' },
+      'forwarded too': { ...viaServe, forwarded: 'for=100.110.54.23' },
+      'real ip too': { ...viaServe, 'x-real-ip': '100.110.54.23' },
+      'no forwarding headers': { host: TAILNET },
+    }
+    for (const [why, headers] of Object.entries(forged)) expect((await send('/api/nawaban/board', { headers })).status, why).toBe(421)
+    const write = (origin: string) => send('/api/nawaban/board', { method: 'POST', headers: { ...viaServe, origin } })
+    expect((await write(`https://${TAILNET}`)).status).toBe(405)
+    expect((await write(`http://${TAILNET}`)).status).toBe(403)
+    expect((await write('https://evil.test')).status).toBe(403)
+  } finally {
+    handler = local
+  }
+})
+
+it('reads the tailnet switch from the board dir, and prints the tailnet link with the token only when it is on', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nawaban-web-tailnet-'))
+  expect(await tailnetHost(home)).toBeUndefined()
+  const err = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  const out = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+  let printed = ''
+  try {
+    expect(await webOverTailnet(home)).toBe(1)
+    await writeFile(join(home, 'tailnet'), 'mac.tail0000.ts.net\n')
+    expect(await tailnetHost(home)).toBe('mac.tail0000.ts.net')
+    expect(await webOverTailnet(home)).toBe(0)
+    printed = out.mock.calls.flat().join('')
+  } finally {
+    err.mockRestore()
+    out.mockRestore()
+  }
+  expect(printed).toBe(`https://mac.tail0000.ts.net/#k=${await token(home, 'web-token')}\n`)
+  await writeFile(join(home, 'tailnet'), 'evil.test:443 x')
+  await expect(tailnetHost(home)).rejects.toThrow(/host name/)
 })
 
 it('takes a write only from the page\'s own origin', async () => {
