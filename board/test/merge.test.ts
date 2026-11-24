@@ -144,6 +144,14 @@ it('waits while CI has no checks yet', async () => {
   expect((await mergeAsTheWorker('M-EMPTY', 't69', worktree)).code).toBe(3)
 })
 
+it('waits while the only checks were skipped, so a workflow not yet registered never reads as green', async () => {
+  const pr = { ...greenCodePr('M-SKIP'), statusCheckRollup: [{ __typename: 'CheckRun', name: 'external', status: 'COMPLETED', conclusion: 'SKIPPED' }] }
+  const { worktree } = await workerOnItsOwnTicket('M-SKIP', 't68', pr)
+  const r = await mergeAsTheWorker('M-SKIP', 't68', worktree)
+  expect(r.code).toBe(3)
+  expect(r.gh).not.toMatch(/^pr merge/m)
+})
+
 it('refuses a failed check: exit 1, no merge, one line to the orchestrator, a note on the ticket', async () => {
   const pr = { ...greenCodePr('M-RED'), statusCheckRollup: [{ __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }] }
   const { id, worktree } = await workerOnItsOwnTicket('M-RED', 't71', pr)

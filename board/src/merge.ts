@@ -59,6 +59,7 @@ async function seenOf(task: MessageView): Promise<Seen> {
 
 const checkName = (c: Check) => (c.__typename === 'StatusContext' ? c.context : c.name)
 const checkPassed = (c: Check) => (c.__typename === 'StatusContext' ? c.state === 'SUCCESS' : c.status === 'COMPLETED' && PASSING_CHECK_RUN.includes(c.conclusion))
+const checkSucceeded = (c: Check) => (c.__typename === 'StatusContext' ? c.state === 'SUCCESS' : c.conclusion === 'SUCCESS')
 const checkPending = (c: Check) => (c.__typename === 'StatusContext' ? PENDING_STATUS.includes(c.state) : c.status !== 'COMPLETED')
 
 function ciVerdict(checks: Check[]): Outcome | null {
@@ -67,6 +68,7 @@ function ciVerdict(checks: Check[]): Outcome | null {
   const failed = checks.filter((c) => !checkPending(c) && !checkPassed(c))
   if (failed.length) return { kind: 'refused', why: `CI 没过：${failed.map(checkName).join('、')}` }
   if (pending.length) return { kind: 'waiting', on: `CI 还在跑：${pending.map(checkName).join('、')}` }
+  if (!checks.some(checkSucceeded)) return { kind: 'waiting', on: 'CI 只有跳过的 check，还没有跑过的' }
   return null
 }
 
