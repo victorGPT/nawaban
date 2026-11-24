@@ -628,3 +628,15 @@ test("an Objective with tickets changing the measure or the gold shows how many,
   const [withRulers, without] = okrView({ objectives: [{ name: "O", rulers: 2, krs }, { name: "P", rulers: 0, krs }] }, "zh").objectives;
   assert.deepEqual([withRulers.rulers, without.rulers], ["改尺子 2 张", null]);
 });
+
+test("a KR shows its kind and score, and an Objective its committed tally and aspirational average", () => {
+  const krs = [
+    { name: "C", target: "<= 0", target_op: "<=", target_value: 0, status: "met", kind: "committed", score: null, value: 0, as_of: "2026-11-18" },
+    { name: "A", target: ">= 95", target_op: ">=", target_value: 95, unit: "%", status: "missed", kind: "aspirational", score: 0.5, value: 80, as_of: "2026-11-18" },
+  ];
+  const [o] = okrView({ objectives: [{ name: "O", committed: { met: 1, total: 1 }, aspirational_score: 0.5, krs }] }, "zh").objectives;
+  assert.equal(o.scoring, "承诺 1/1 · 进取均分 0.50");
+  assert.deepEqual([...o.krs, ...o.metKrs].map((k) => [k.name, k.kind, k.score]), [["A", "进取", "分 0.50"], ["C", "承诺", null]]);
+  const [old] = okrView({ objectives: [{ name: "P", krs }] }, "zh").objectives;
+  assert.equal(old.scoring, null);
+});

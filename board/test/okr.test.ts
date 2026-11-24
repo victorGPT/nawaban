@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { block, board, type MessageView } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { gapsOfADecisionCard, registerSchemas } from '../src/schemas.ts'
-import { defHash, hardStop, HARD_STOP_EXIT, judge, jsonOkr, load, keepEachNewReadingOnce, okr, run, type Declared, type Heading, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
+import { defHash, standingText, hardStop, HARD_STOP_EXIT, judge, jsonOkr, load, keepEachNewReadingOnce, okr, run, type Declared, type Heading, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
 
 const OKR_PORTED_FROM_THE_OLD_TEST_OKR_PY = `
 [[objective]]
@@ -364,7 +364,7 @@ function judged(objs: Objective[], rows: KeptReading[], accepts: Record<string, 
 
 const kinds = (data: ReturnType<typeof judge>) => data.attention.map((a) => [a.kind, a.kr])
 
-type KrOut = { name: string; trend: string; status: string; missed_rounds: number; wait: string; mismatch: unknown[]; verdicts: unknown[]; impacts: { ticket: string }[]; interval: [number, number] | null }
+type KrOut = { score: number | null; kind: string; name: string; trend: string; status: string; missed_rounds: number; wait: string; mismatch: unknown[]; verdicts: unknown[]; impacts: { ticket: string }[]; interval: [number, number] | null }
 
 const krOf = (data: ReturnType<typeof judge>, name: string) => (data.objectives[0]!.krs as unknown as KrOut[]).find((k) => k.name === name)!
 
@@ -428,7 +428,7 @@ describe("json okr's judgement on rows with their rounds given", () => {
     const objs = objectives([['K', '>= 1']])
     const rows = eachReadingItsOwnRoundASecondApartOldestFirst({ K: [[2, '2026-11-10']] }, '2026-11-10T00:00:00')
     expect(kinds(judged(objs, rows))).toEqual([['accept', null]])
-    expect(judged(objs, rows)).toMatchObject({ attention: [{ kind: 'accept', text: 'O 全 ✓，待你验收（nawaban okr --accept）' }] })
+    expect(judged(objs, rows)).toMatchObject({ attention: [{ kind: 'accept', text: 'O 承诺型全过、进取型均分 1.00，待你验收（nawaban okr --accept）' }] })
     const accepts = { O: '2026-11-11T00:00:00' }
     const quiet = judged(objs, rows, accepts)
     expect([quiet.attention, quiet.objectives[0]!.accept_pending]).toEqual([[], false])
@@ -444,7 +444,7 @@ describe("json okr's judgement on rows with their rounds given", () => {
     const p = await projectOnItsOwnBoardWithItsOwnReposJson()
     const refused = await nawabanOkr(p, '--accept', '听得懂需求')
     expect(refused.code).toBe(1)
-    expect(refused.err).toContain('还没全 ✓')
+    expect(refused.err).toContain('还没收工')
     expect(await readingsTheBoardKeepsKrValueAsOfSource(p)).toHaveLength(2)
     expect((await nawabanOkr(p, '--accept', '没这个')).code).toBe(1)
     const met = await projectOnItsOwnBoardWithItsOwnReposJson()
@@ -918,5 +918,46 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     const refused = await measuring(p, 80, 10)
     expect([refused.code, refused.err]).toEqual([1, expect.stringContaining('改用旧 CLI')])
     expect((await jokr(p)).data.objectives[0].krs[0].value).toBeNull()
+  })
+})
+
+describe('committed KRs hold a line, aspirational ones score, and an Objective is done on both', () => {
+  const at = '2026-11-10T00:00:00'
+  const o = (krs: Kr[]): Objective[] => [{ name: 'O', kr: krs }]
+
+  it('keeps an Objective with an aspirational KR at 1.0 and one it cannot measure from done', () => {
+    const rows = [reading('A', 99, at), { ...reading('B', 0, at), value: '__FAILED__' } as KeptReading].filter((r) => r.value !== '__FAILED__')
+    const data = judge(o([{ name: 'A', target: '>= 95' }, { name: 'B', target: '>= 95', measure: 'false' }]), rows, new Map(), new Map(), '/r', null)
+    expect([(krOf(data, "A") as unknown as { score: number }).score, (krOf(data, 'B') as unknown as { score: number }).score, data.objectives[0]!.aspirational_score, data.objectives[0]!.done]).toEqual([1, 0, 0.5, false])
+    expect(kinds(data)).toEqual([])
+  })
+
+  it('scores an aspirational KR by how far it came from its series start or its baseline', () => {
+    const rows = [reading('A', 60, '2026-11-10T00:00:00'), reading('A', 80, '2026-11-11T00:00:00')]
+    expect(krOf(judge(o([{ name: 'A', target: '>= 100' }]), rows, new Map(), new Map(), '/r', null), 'A').score).toBe(0.5)
+    expect(krOf(judge(o([{ name: 'A', target: '>= 100', baseline: '90' }]), rows, new Map(), new Map(), '/r', null), 'A').score).toBe(0)
+    expect(krOf(judge(o([{ name: 'A', target: '>= 100', baseline: '20' }]), rows, new Map(), new Map(), '/r', null), 'A').score).toBe(0.75)
+  })
+
+  it('flags a committed KR off its line as a breach, judged by its point, never its interval', () => {
+    const rows = [{ ...reading('C', 97.5, at), source: 'n=40' }, reading('D', 2, at)]
+    const data = judge(o([{ name: 'C', target: '>= 95', unit: '%', kind: 'committed' }, { name: 'D', target: '<= 1', kind: 'committed' }]), rows, new Map(), new Map(), '/r', null)
+    expect([krOf(data, 'C').status, (krOf(data, 'C') as unknown as { kind: string }).kind, krOf(data, 'D').status]).toEqual(['met', 'committed', 'missed'])
+    expect(standingText(data)).toBe('O O · 承诺 1/2 · 未收工(承诺型没全过)\n  破线 O · D 承诺型破线：2 对目标 <= 1')
+    expect(data.attention.filter((a) => a.kind === 'breach')).toEqual([{ kind: 'breach', objective: 'O', kr: 'D', text: 'O · D 承诺型破线：2 对目标 <= 1' }])
+    expect([data.objectives[0]!.committed, data.objectives[0]!.done]).toEqual([{ met: 1, total: 2 }, false])
+  })
+
+  it('is done once every committed KR holds and the aspirational average reaches the bar, leaving waiting KRs out of it', () => {
+    const rows = [reading('C', 0, at), reading('A', 99, at), reading('B', 60, '2026-11-09T00:00:00'), reading('B', 84, at)]
+    const krs: Kr[] = [{ name: 'C', target: '<= 0', kind: 'committed' }, { name: 'A', target: '>= 95' }, { name: 'B', target: '>= 100' }, { name: 'W', target: '>= 1', wait: '等你批' }]
+    const data = judge(o(krs), rows, new Map(), new Map(), '/r', null)
+    expect([data.objectives[0]!.aspirational_score, data.objectives[0]!.done]).toEqual([0.8, true])
+    expect(data.attention.find((a) => a.kind === 'accept')?.text).toBe('O 承诺型全过、进取型均分 0.80，待你验收（nawaban okr --accept）')
+  })
+
+  it('refuses a kind other than committed or aspirational, and a baseline that is no number', async () => {
+    await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nkind = "output"\n'))).rejects.toThrow(/kind 只能写 committed 或 aspirational/)
+    await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nbaseline = 3\n'))).rejects.toThrow(/baseline 要写成数字字符串/)
   })
 })

@@ -788,6 +788,7 @@ export default class NawabanBoard extends View {
     return h_flex().flex_none().px(SPACE.m).pt(SPACE.m).pb(SPACE.s).gap(SPACE.l).items_baseline()
       .child(div().flex_1().min_w(0).truncate().text_size(TYPE.heading).font_semibold().text_color(INK.foreground).child(ob.name))
       .when(Boolean(ob.rulers), (el) => el.child(div().flex_none().text_size(TYPE.meta).text_color(INK.dim).child(ob.rulers)))
+      .when(Boolean(ob.scoring), (el) => el.child(div().flex_none().text_size(TYPE.meta).text_color(INK.dim).child(ob.scoring)))
       .child(div().flex_none().text_size(TYPE.meta).font_medium().text_color(OBJECTIVE_TALLY_COLOR[ob.standing]).child(ob.met + "/" + ob.total));
   }
 
@@ -816,7 +817,9 @@ export default class NawabanBoard extends View {
       .when(selected, (el) => el.bg(INK.selected))
       .when(!selected, (el) => el.hover((s) => s.bg(INK.hover)))
       .on_hover((on, cx) => this.noteHover(r.key, on, cx))
-      .child(div().truncate().text_size(TYPE.label).text_color(quiet || !k.measured ? INK.muted : INK.value).child(k.name))
+      .child(h_flex().gap(SPACE.s).items_baseline()
+        .child(div().min_w(0).truncate().text_size(TYPE.label).text_color(quiet || !k.measured ? INK.muted : INK.value).child(k.name))
+        .when(Boolean(k.kind), (el) => el.child(div().flex_none().text_size(TYPE.meta).text_color(INK.dim).child(k.kind))))
       .when(fill != null, (el) => el.child(this.bar(fill, GAP_COLOR[k.status])))
       .child(this.krReading(k, o, quiet));
     return [this.withFactsOnHover(line, r), ...(keyboard && selected ? [this.factsBelow(r)] : [])];
@@ -830,7 +833,8 @@ export default class NawabanBoard extends View {
   krReading(k, o, quiet) {
     const dim = (text) => div().flex_none().text_color(INK.dim).child(text);
     if (!k.measured) {
-      return h_flex().text_size(TYPE.meta).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(o.status[k.status] + " / " + o.target + " " + k.target));
+      return h_flex().gap(SPACE.s).text_size(TYPE.meta).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(o.status[k.status] + " / " + o.target + " " + k.target))
+        .when(Boolean(k.score), (el) => el.child(dim("· " + k.score)));
     }
     return h_flex().flex_wrap().items_baseline().gap(SPACE.s).text_size(TYPE.meta)
       .child(div().flex_none().text_size(quiet ? TYPE.label : TYPE.body).when(!quiet, (el) => el.font_semibold())
@@ -840,6 +844,7 @@ export default class NawabanBoard extends View {
       .child(dim("·")).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(o.status[k.status]))
       .when(Boolean(k.day), (el) => el.child(dim("· " + o.asOfShort + " " + k.day)))
       .when(Boolean(k.interval), (el) => el.child(dim("· " + k.interval)))
+      .when(Boolean(k.score), (el) => el.child(dim("· " + k.score)))
       .when(Boolean(k.series), (el) => el.child(dim("· " + k.series)));
   }
 

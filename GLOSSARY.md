@@ -173,6 +173,12 @@ A declaration the readings contradict. A KR's round is one `okr` run that kept a
 _Avoid_: 声明失实, 对账失败.
 _Current identifiers_: `json okr` fields `impacts`, `verdicts`, `mismatch`; `okr` lines `声明 ↑ ↓ =`, `预期不符`.
 
+**KR kind**(KR 类型)
+A KR's `kind` in `okr.toml`: `committed` (承诺型), a line that must hold, such as a hard block or compliance, judged by its point reading exactly, never its interval; one off its line is a breach in what the decision-maker must watch (`breach`). `aspirational` (进取型, the default when `kind` is absent) is pushed toward its target and scored `clamp((d0 − d) / d0, 0, 1)`: `d` is the latest reading's distance to the target, `d0` the distance of `baseline` when the KR has one, else of the current series' first reading; a met KR scores 1, and one untested, unmeasurable or stale scores 0. An Objective is done when every committed KR is met and the average score of its aspirational KRs, those with `wait` left out, reaches `ASPIRATIONAL_DONE_SCORE` (0.7); only a done Objective is offered for and takes `okr --accept`.
+KR 类型是 `okr.toml` 里 KR 的 `kind`：`committed`（承诺型）是必须成立的线，例如硬拦、合规，按点值精确判，不看区间；破线进「要你盯」（`breach`）。`aspirational`（进取型，不写 `kind` 时的默认）往目标推，打分 `clamp((d0 − d) / d0, 0, 1)`：`d` 是最新读数到目标的距离，`d0` 写了 `baseline` 就用它的距离，否则用当前序列第一条读数的距离；已达标记 1，未测、量不了、过期的记 0。O 收工要承诺型全部达标，并且进取型（写了 `wait` 的不算）均分 ≥ `ASPIRATIONAL_DONE_SCORE`（0.7）；只有收工的 O 才提示验收、才收 `okr --accept`。
+_Avoid_: 产出型, 全 ✓.
+_Current identifiers_: `okr.toml` fields `kind`, `baseline`; `json okr` fields `kind`, `score`, `committed`, `aspirational_score`, `done`, attention `breach`.
+
 **Round**(轮)
 One run of the board CLI's `okr`, the orchestrator's self-check; `json okr`, the panel and the web page only read and are no round. Each is kept in `okr/<project>` as `nawaban-okr-round@1`: its number, how many readings it kept, and the KRs that moved toward their target past the noise gate (未定 is no move). A round that kept no reading is idle (空转). A KR's own round, which judges a declaration, is still an `okr` run that kept a new reading for it.
 轮是板 CLI 的一次 `okr`，也就是编排者的一次自查；`json okr`、面板、网页只读，不算轮。每轮在 `okr/<project>` 记一条 `nawaban-okr-round@1`：第几轮、新记了几条读数、哪些 KR 往目标动过噪声门（未定不算动）。一条新读数都没记的算空转。评判声明用的是某条 KR 自己的轮，仍指给它记下新读数的那次 `okr`。
