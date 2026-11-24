@@ -413,27 +413,33 @@ it('keeps the worker and tells the orchestrator when claiming its next ticket fa
 const labelTheWorkerWithItsSession = (terminal: string, worktree: string) =>
   writeFile(join(tmp, 'workers', `${terminal}.json`), JSON.stringify({ state: 'live', name: terminal, cwd: worktree, labels: { 'revive.agent': 'claude', 'revive.session': 'aaaa1111-0000' } }))
 
-it('claims nothing for the worker when merge runs from another terminal, and keeps it while a ticket is assigned to it', async () => {
+it('claims nothing for the worker when merge runs from another terminal, and leaves it with its worktree', async () => {
   const { id, worktree } = await workerOnItsOwnTicket('M-ELSE', 't7g', greenCodePr('M-ELSE'), 'dispatched', 'else-chan')
   await labelTheWorkerWithItsSession('t7g', worktree)
-  const next = await ticketTheCliOwns('M-ELSE-NEXT', 'else-chan', 'cc-aaaa1111')
+  const assigned = await ticketTheCliOwns('M-ELSE-NEXT', 'else-chan', 'cc-aaaa1111')
+  const pooled = await ticketTheCliOwns('M-ELSE-POOL', 'else-chan')
   const r = await mergeAsTheWorker('M-ELSE', 't7g', worktree, { HC_TERMINAL_ID: 'tother' })
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
-  expect(await holderOf(next)).toBeNull()
+  expect(await holderOf(assigned)).toBeNull()
+  expect(await holderOf(pooled)).toBeNull()
   expect(r.hc).not.toMatch(/^kill/m)
   expect(existsSync(worktree)).toBe(true)
-  expect(await lastNote(id)).toMatch(/t7g 有指派给它的 M-ELSE-NEXT，留着/)
+  expect(await lastNote(id)).toMatch(/worker t7g 留着：merge 不在它的终端里跑/)
 })
 
-it('retires the worker when merge runs from another terminal and nothing is assigned to it', async () => {
-  const { worktree } = await workerOnItsOwnTicket('M-ELSE2', 't7h', greenCodePr('M-ELSE2'), 'dispatched', 'else2-chan')
-  await labelTheWorkerWithItsSession('t7h', worktree)
-  await ticketTheCliOwns('M-ELSE2-OTHER', 'else2-chan', 'cc-someone0')
-  const r = await mergeAsTheWorker('M-ELSE2', 't7h', worktree, { HC_TERMINAL_ID: 'tother' })
+it('keeps a worker that claimed a ticket while its merge waited, rather than retiring it once the wait runs out', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-RACE', 't7j')
+  const side = await newTask('M-RACE-SIDE', 'm-race')
+  const merging = mergeAsTheWorker('M-RACE', 't7j', worktree, {}, '4s')
+  await new Promise((r) => setTimeout(r, 2500))
+  await boardCliAsSessionIn('t7j', 'aaaa1111-0000', worktree, 'board', 'tasks', 'claim', side, '--as', 'cc-aaaa1111')
+  const r = await merging
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
-  expect(r.hc.trim().split('\n').at(-1)).toBe('kill t7h')
+  expect(r.hc).not.toMatch(/^kill/m)
+  expect(existsSync(worktree)).toBe(true)
+  expect(await lastNote(id)).toContain('t7j 还有 M-RACE-SIDE，留着')
 })
 
 it('keeps a worker that holds a claim its terminal label never reached, so a rerun claims no second ticket', async () => {

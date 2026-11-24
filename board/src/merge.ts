@@ -196,14 +196,15 @@ async function claimNextElseRetire(closed: MessageView, root: string, did: strin
   const theWorkerItselfMerges = process.env.HC_TERMINAL_ID === terminal
   const as = theWorkerItselfMerges ? profile() : worker ? workerProfileOf(worker) : null
   const ofTheWorker = (actor: string | null | undefined) => !!as && !!actor?.endsWith(`+${as}`)
-  const open = (await all({ channel: closed.channel, state: 'open' })).filter((t) => t.id !== closed.id)
-  const stillHolding = open.find((t) => terminalWhileClaimed(t) === terminal || ofTheWorker(live(t)?.actor))
-  if (stillHolding) return { kind: 'done', did: [...did, `${terminal} 还有 ${stillHolding.labels.key ?? stillHolding.id}，留着`], thenRetire: null }
+  const heldStill = async () =>
+    (await all({ channel: closed.channel, state: 'open' })).find((t) => t.id !== closed.id && (terminalWhileClaimed(t) === terminal || ofTheWorker(live(t)?.actor)))
+  const staysFor = (held: MessageView): Outcome => ({ kind: 'done', did: [...did, `${terminal} 还有 ${held.labels.key ?? held.id}，留着`], thenRetire: null })
+  const held = await heldStill()
+  if (held) return staysFor(held)
   if (worker?.state !== 'live') return { kind: 'done', did: [...did, `worker ${terminal} 已不在`], thenRetire: null }
   const worktree = worker.cwd && existsSync(worker.cwd) ? worker.cwd : null
-  const assignedToIt = worktree && !theWorkerItselfMerges ? open.find((t) => t.task?.state === 'ready' && ofTheWorker(t.task.for)) : undefined
-  if (assignedToIt) return { kind: 'done', did: [...did, `${terminal} 有指派给它的 ${assignedToIt.labels.key ?? assignedToIt.id}，留着，它在自己的终端里 claim --ready 领`], thenRetire: null }
-  if (worktree && theWorkerItselfMerges) {
+  if (worktree && !theWorkerItselfMerges) return { kind: 'done', did: [...did, `worker ${terminal} 留着：merge 不在它的终端里跑，没替它领下一张，它自己 claim --ready 或由编排者收`], thenRetire: null }
+  if (worktree) {
     let next: MessageView | null
     try {
       next = await claimNextReady(closed.channel, wait)
@@ -211,6 +212,8 @@ async function claimNextElseRetire(closed: MessageView, root: string, did: strin
       return { kind: 'mergedButUnfinished', left: `领下一张出错，worker ${terminal} 留着：${failureOf(error)}` }
     }
     if (next) return { kind: 'done', did: [...did, `领到下一张 ${next.labels.key ?? next.id}`], thenRetire: null, pickedUp: await pickupBrief(next, worktree) }
+    const claimedMeanwhile = await heldStill()
+    if (claimedMeanwhile) return staysFor(claimedMeanwhile)
   }
   const retirable = await retirableElseWhyNot(terminal, root)
   if (typeof retirable === 'string') return { kind: 'mergedButUnfinished', left: retirable }
