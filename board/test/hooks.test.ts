@@ -234,6 +234,48 @@ it('lets a session outside Herdr that the owner declared read what the web page 
   await nawaban('event', p1, '--kind', 'resolve', '--body', '不发')
 })
 
+it('gives the orchestrator what the web page wrote in full once per session, then one line until something new arrives', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const noHerdr = { HC_TERMINAL_ID: '' }
+  const prompt = async (session: string) => (await hook('page-writes.sh', { session_id: session, cwd: repo, prompt: '继续' }, noHerdr)).out
+  const S = SESSION
+  await hook('orchestrator-declare.sh', { session_id: S, cwd: repo, prompt: '/nawaban:orchestrator' }, noHerdr)
+  await nawaban('create', 'Q1', '--title', '上不上', '--project', 'proj')
+  const q1 = await idOf('Q1')
+  await nawaban('event', q1, '--kind', 'ask', '--body', '上不上', '--kr', 'K', '--context', '事实', '--option', '上｜快｜two-way', '--option', '不上｜稳｜two-way', '--rec', '上', '--as', AS)
+  const longWords = '先上灰度，'.repeat(80)
+  await team.reply(q1, { text: webAnswerText({ option: '上', words: longWords }) })
+  const item = await team.post(inboxChannel('proj'), { text: inboxItemText('导出 CSV'), labels: INBOX_OPEN })
+
+  const full = await nawaban('page', '--project', 'proj')
+  const turns = [await prompt(S), await prompt(S), await prompt(S), await prompt(S), await prompt(S)]
+  expect(turns[0]).toBe(full)
+  for (const later of turns.slice(1)) {
+    expect(later).not.toContain(longWords)
+    expect(later).toContain('上次已给过全文，还开着')
+    expect(later).toContain(`Q1`)
+    expect(later).toContain(item.id)
+  }
+  console.log(`page-writes 5 轮注入字数：改前 ${[...full].length * 5}（每轮 ${[...full].length}），改后 ${turns.map((t) => [...t].length).join('+')} = ${turns.reduce((n, t) => n + [...t].length, 0)}`)
+
+  expect(await nawaban('page', '--project', 'proj')).toBe(full)
+
+  const second = await team.post(inboxChannel('proj'), { text: inboxItemText('加暗色主题'), labels: INBOX_OPEN })
+  const afterNew = await prompt(S)
+  expect(afterNew).toContain(`- ${second.id} 加暗色主题`)
+  expect(afterNew).not.toContain(longWords)
+
+  await writeFile(join(tmp, 'board', 'page', `shown-${S}.json`), '{')
+  expect(await prompt(S)).toContain(longWords)
+
+  const S2 = 'bbbb2222-0000-0000-0000-000000000000'
+  await hook('orchestrator-declare.sh', { session_id: S2, cwd: repo, prompt: '/nawaban:orchestrator' }, noHerdr)
+  expect(await prompt(S2)).toContain(longWords)
+
+  await nawaban('event', q1, '--kind', 'resolve', '--body', '上')
+  for (const m of [item, second]) await nawaban('label', m.id, 'inbox=done', '--if', 'inbox=open')
+  expect(await prompt(S2)).toBe('')
+})
+
 it('runs one impact guard per repository: the board\'s where the project moved, the old one elsewhere', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   const call = (command: string) => ({ cwd: repo, tool_input: { command } })
   const close = call('vb tasks complete 5')

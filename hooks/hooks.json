@@ -45,6 +45,17 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-nocode.sh\"",
+            "timeout": 20,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {

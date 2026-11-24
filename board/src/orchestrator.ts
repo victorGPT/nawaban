@@ -181,12 +181,43 @@ async function whatThePageWrote(team: Team, project?: string) {
   return pageText(answers, items, project)
 }
 
-export async function page(argv: string[], team: Team): Promise<number> {
+export function stillOpenLine(answers: Pick<WebAnswer, 'task'>[], items: Pick<InboxItem, 'id'>[], project: string): string {
+  if (!answers.length && !items.length) return ''
+  const parts = [
+    answers.length ? `网页已答 ${answers.length} 件（${answers.map((a) => a.task).join('、')}）` : '',
+    items.length ? `收件箱 ${items.length} 条（${items.map((i) => i.id).join('、')}）` : '',
+  ].filter(Boolean)
+  return `${parts.join('，')}上次已给过全文，还开着；要全文跑 node <插件>/board/src/cli.ts page --project ${project}`
+}
+
+async function whatThisSessionHasNotSeen(team: Team, project: string, dir: string, session: string) {
+  const [answers, items] = await Promise.all([webAnswers(team, project), openInboxItems(team, project)])
+  const file = join(dir, 'page', `shown-${session.replace(/[^\w-]/g, '_')}.json`)
+  const shownLast = await readFile(file, 'utf8').then((s) => JSON.parse(s) as unknown).catch(() => null)
+  const shown = new Set(Array.isArray(shownLast) ? shownLast : [])
+  const fresh = (seen: string) => !shown.has(seen)
+  const text = [
+    pageText(answers.filter((a) => fresh(answeredSeen(a))), items.filter((i) => fresh(inboxSeen(i))), project),
+    stillOpenLine(answers.filter((a) => !fresh(answeredSeen(a))), items.filter((i) => !fresh(inboxSeen(i))), project),
+  ].filter(Boolean).join('\n\n')
+  const remember = () => mkdir(join(dir, 'page'), { recursive: true })
+    .then(() => writeWholeSoAReaderNeverSeesHalf(file, JSON.stringify([...answers.map(answeredSeen), ...items.map(inboxSeen)])))
+    .catch(() => undefined)
+  return { text, remember }
+}
+
+export async function page(argv: string[], team: Team, dir: string): Promise<number> {
   try {
-    const { values } = parseArgs({ args: argv, options: { project: { type: 'string' } } })
-    if (!values.project) throw new Refused('usage: nawaban page --project <p>', 2)
-    const text = await whatThePageWrote(team, values.project)
+    const { values } = parseArgs({ args: argv, options: { project: { type: 'string' }, session: { type: 'string' } } })
+    if (!values.project) throw new Refused('usage: nawaban page --project <p> [--session <id>]', 2)
+    if (!values.session) {
+      const text = await whatThePageWrote(team, values.project)
+      if (text) process.stdout.write(text + '\n')
+      return 0
+    }
+    const { text, remember } = await whatThisSessionHasNotSeen(team, values.project, dir, values.session)
     if (text) process.stdout.write(text + '\n')
+    await remember()
     return 0
   } catch (error) {
     return fail(error)

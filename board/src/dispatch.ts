@@ -25,8 +25,8 @@ const WORKER_ARGV = {
 const PROFILE_PREFIX_OF_AGENT = { claude: 'cc', codex: 'cx', agy: 'agy' } as const
 const CLAUDE_CONTEXT_WINDOW_TOKENS = 1_000_000
 const REUSE_WHILE_CONTEXT_SHARE_BELOW = 0.5
-const CLAIM_LEASE_SECONDS = 3600
-const LANE_NOTE = /^\s*lane:\s*(\S.*?)\s*$/
+const CLAIM_LEASE = '1h'
+export const LANE_NOTE = /^\s*lane:\s*(\S.*?)\s*$/
 type Agent = keyof typeof WORKER_ARGV
 const isAgent = (name: string): name is Agent => Object.hasOwn(WORKER_ARGV, name)
 const USAGE =
@@ -38,7 +38,7 @@ type Worktree = { path: string; branch: string }
 type Terminal = { address: string; name?: string; state?: string; cwd?: string; argv?: string[]; labels?: Record<string, string> }
 type Seat = { reuse: Terminal } | { reuse: null; passedOver: string[] }
 
-async function stdoutOrNullOnFailure(cmd: string, args: string[]): Promise<string | null> {
+export async function stdoutOrNullOnFailure(cmd: string, args: string[]): Promise<string | null> {
   try {
     return (await exec(cmd, args, { timeout: PROBE_TIMEOUT_MS })).stdout
   } catch {
@@ -46,12 +46,12 @@ async function stdoutOrNullOnFailure(cmd: string, args: string[]): Promise<strin
   }
 }
 
-async function mainCheckoutRealPathOf(dir: string): Promise<string | null> {
+export async function mainCheckoutRealPathOf(dir: string): Promise<string | null> {
   const common = await stdoutOrNullOnFailure('git', ['-C', dir, 'rev-parse', '--git-common-dir'])
   return common === null ? null : dirname(await realpath(absolute(dir, common.trim())))
 }
 
-async function terminalOf(address: string): Promise<Terminal | null> {
+export async function terminalOf(address: string): Promise<Terminal | null> {
   const got = await stdoutOrNullOnFailure('hc', ['get', address, '--json'])
   try {
     return got === null ? null : { address, ...JSON.parse(got) }
@@ -88,7 +88,7 @@ async function liveOrchestratorInRepository(root: string): Promise<string | null
   return null
 }
 
-async function orchestratorFor(root: string): Promise<string | null> {
+export async function orchestratorFor(root: string): Promise<string | null> {
   return (await thisTerminalIfOrchestrator()) ?? (await liveOrchestratorInRepository(root))
 }
 
@@ -199,11 +199,13 @@ async function worktreeOffOriginMain(root: string, name: string): Promise<Worktr
   return { path, branch }
 }
 
+const MERGE_LINE = `收尾：验收没说不合并时，PR 的 CI 绿、评论里贴了带 head sha 的「Codex review：无挡…」之后，跑 node ${CLI} merge <PR 号>，它合并、关票、交下一张或收掉你`
+
 const freshWorktreeLine = (wt: Worktree) =>
-  `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改。PR 合并后回报完成，同一泳道的下一张可能接着派到这个终端，worktree 留着，编排者收你时会删）`
+  `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改。同一泳道的下一张可能接着派到这个终端，worktree 留着）。${MERGE_LINE}`
 
 const reusedWorktreeLine = (wt: Worktree) =>
-  `worktree：接着用 ${wt.path}。手上那张做完、回报后再开工：git fetch origin main && git switch -c ${wt.branch} origin/main，只在这个分支上改`
+  `worktree：接着用 ${wt.path}。手上那张做完、回报后再开工：git fetch origin main && git switch -c ${wt.branch} origin/main，只在这个分支上改。${MERGE_LINE}`
 
 function briefReportingTo(c: Checked, a: Args, worktreeLine: string): string {
   const nawaban = `node ${CLI}`
@@ -252,11 +254,11 @@ const workerProfileOf = (t: Terminal) => {
   return agent && session && isAgent(agent) ? sessionProfile(PROFILE_PREFIX_OF_AGENT[agent], session) : null
 }
 
-async function claimForWorkerIfReady(task: MessageView, worker: Terminal): Promise<boolean> {
+async function claimForWorkerKeepingTheTokenWhereItsCliLooks(task: MessageView, worker: Terminal): Promise<boolean> {
   const as = workerProfileOf(worker)
   if (!as) return false
   try {
-    await board().as(as).tasks.claim(task.id, { lease: CLAIM_LEASE_SECONDS })
+    await exec('node', [CLI, 'tasks', 'claim', task.id, '--as', as, '--lease', CLAIM_LEASE, '--json'])
     await board().as(null).label(task.id, { set: { terminal: worker.address } })
     return true
   } catch {
@@ -288,7 +290,7 @@ export async function dispatch(argv: string[]): Promise<number> {
       const worker = seat.reuse
       const wt = await handToRunningWorker(checked, a, worker)
       await recordDispatchAsThisWindow(checked, a, wt, worker.address, worker.name ?? worker.address)
-      const claimed = checked.task ? await claimForWorkerIfReady(checked.task, worker) : false
+      const claimed = checked.task ? await claimForWorkerKeepingTheTokenWhereItsCliLooks(checked.task, worker) : false
       const claim = checked.task ? (claimed ? ' · claimed for it' : ' · it claims when it starts') : ''
       process.stdout.write(`handed ${checked.who} to running hc ${worker.address}${lane} · ${wt.path} · branch ${wt.branch} on its next turn${claim} · reports to ${checked.orch}\n`)
       return 0
