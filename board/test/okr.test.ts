@@ -788,6 +788,12 @@ describe('what a declaration registered, and when, decides whether it is judged'
     expect(krOf(judged(objs, nextRound, {}, [closedAfterTheRound]), 'K').verdicts).toEqual([{ ticket: '#1', declared: 'toward', verdict: '符合' }])
   })
 
+  it('keeps a registration waiting on its result in the counts, however many rounds pass', () => {
+    const waiting = decl('#1', 'K', 'toward', '2026-11-11T00:00:00', { result_at: null })
+    const data = judged(objs, rows, {}, [waiting])
+    expect([data.objectives[0]!.impacts.toward, krOf(data, 'K').impacts.map((i) => i.ticket)]).toEqual([1, ['#1']])
+  })
+
   it('judges no declaration registered against a measure no longer current', () => {
     const otherMeasure = decl('#1', 'K', 'toward', '2026-11-11T00:00:00', { def_hash: 'old' })
     expect(krOf(one(otherMeasure), 'K').verdicts).toEqual([])

@@ -384,7 +384,7 @@ function declarationsSinceLastRoundAndTheirVerdicts(op: string, goal: ExactDecim
   const last = times.at(-1) ?? ''
   const headingOf = (i: Declared) => i.heading ?? headingOfAnOldDeclaration(op, goal, i)
   const pending = declared
-    .filter((i) => resultOrDeclaredAt(i) >= last)
+    .filter((i) => (i.heading !== null && i.result_at === null) || resultOrDeclaredAt(i) >= last)
     .map((i) => ({ ticket: i.ticket, declared: headingOf(i), change: i.change, late: i.late, before: i.before, after: i.after, basis: i.basis, at: withoutTieBreak(i.declared_at) }))
   const series = readings[0]?.def_hash
   const verdicts = new Map<string, { ticket: string; dir: string; declared: Heading; verdict: Verdict }>()
