@@ -10,6 +10,7 @@ import {
 import { clockOf, detailView, stampOf, type By, type Timeline as TimelineRows, type Detail, type DetailView, type Entry, type Narrated, type Ref, type Row, type Section, type Step } from './detail-logic'
 import { Inbox } from './inbox'
 import { DecidePage } from './Decide'
+import { HomePage } from './Home'
 import { badge, button, card, cardList, cardTitle, cn, empty, Icon, selectTrigger, sectionHead } from './ui'
 import type { IconName } from './icons'
 import '@fontsource/geist/400.css'
@@ -24,10 +25,11 @@ const FOLDS_KEY = 'nawaban-web-folds'
 const SHOWN_ALL_KEY = 'nawaban-web-shown-all'
 const TASK_VIEW_KEY = 'nawaban-web-task-view'
 const RECONNECT_MS = 3000
+const TABS_THAT_SHOW_THE_OKR = new Set<Tab>(['home', 'okr'])
 const W = WINDOW_WORDS.zh
 const O = OKR_WORDS.zh
-const TAB_NAMES: Record<Tab, string> = { decide: W.tabs.decide, okr: W.tabs.okr, tasks: W.tabs.tasks, inbox: '收件箱' }
-const TAB_ICONS: Record<Tab, IconName> = { decide: 'CircleCheck', okr: 'Target', tasks: 'ListTodo', inbox: 'Inbox' }
+const TAB_NAMES: Record<Tab, string> = { home: '首页', decide: W.tabs.decide, okr: W.tabs.okr, tasks: W.tabs.tasks, inbox: '收件箱' }
+const TAB_ICONS: Record<Tab, IconName> = { home: 'House', decide: 'CircleCheck', okr: 'Target', tasks: 'ListTodo', inbox: 'Inbox' }
 type TaskView = 'board' | 'list'
 const TASK_VIEWS: { view: TaskView; name: string; icon: IconName }[] = [
   { view: 'board', name: '看板', icon: 'SquareKanban' },
@@ -137,7 +139,7 @@ function App() {
     try {
       const list = (await read<{ projects: Project[] }>('projects')).projects
       const project = projectShown(list, want)
-      if (project && r.tab === 'okr' && mine === reads) {
+      if (project && TABS_THAT_SHOW_THE_OKR.has(r.tab) && mine === reads) {
         const flight = (okrShown = okrReadSharedWhileInFlight(project))
         void flight.read.then((o) => okrShown === flight && setOkr({ of: project, reading: o[0], error: o[1] }))
       }
@@ -171,6 +173,7 @@ function App() {
     setTaskView(view)
   }
   const summary = createMemo(() => summaryOf(board(), nowInSeconds()))
+  const okrOfPicked = () => (okr()?.of === picked() ? okr() : null)
 
   const pick = (name: string) => {
     keep(PROJECT_KEY, name)
@@ -251,7 +254,8 @@ function App() {
           <div class={cn('flex w-full flex-col gap-4', boardShown() ? 'min-h-0 flex-1' : 'p-4')}>
             <Show when={!error()} fallback={<p class={cn(card, 'px-4 text-warning')}>{error()}</p>}>
               <TabsPanel value="decide" class="outline-none"><DecidePage board={board()} project={picked()} headers={headers} /></TabsPanel>
-              <TabsPanel value="okr" class="outline-none"><OkrPage okr={okr()?.of === picked() ? okr()!.reading : null} error={okr()?.of === picked() ? okr()!.error : ''} /></TabsPanel>
+              <TabsPanel value="home" class="outline-none"><HomePage board={board()} okr={okrOfPicked()?.reading ?? null} okrError={okrOfPicked()?.error ?? ''} /></TabsPanel>
+              <TabsPanel value="okr" class="outline-none"><OkrPage okr={okrOfPicked()?.reading ?? null} error={okrOfPicked()?.error ?? ''} /></TabsPanel>
               <TabsPanel value="tasks" class={cn('outline-none', boardShown() && 'flex min-h-0 flex-1 flex-col')}>
                 <Show when={route().task} fallback={
                   <Show when={board()} fallback={<p class={empty}>{W.loading}</p>}>
