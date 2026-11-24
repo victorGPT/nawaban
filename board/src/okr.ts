@@ -257,8 +257,8 @@ function measuredRow(kr: Kr, got: [string, string] | string | null): { row: stri
     `  ${kr.name}  ${shownRoundedHalfUpForDisplayOnly(got[0], unit)} / 目标 ${want} · 偏差 ${varianceText(op, got[0], goal, unit)} · ${rag} · 截至 ${monthDayElseAsWritten(got[1])}`
   const why = kr.max_age_days !== undefined ? whyTooOldByLocalDate(got[1], kr.max_age_days) : ''
   if (why) return { row: `${line('黄')}  ${why}`, met: false }
-  const met = meets(op, dec(got[0]), dec(goal))
-  return { row: line(met ? '绿' : '红'), met }
+  const { green, pointMet, interval } = greenOf(op, goal, unit, { value: got[0], source: got[1] })
+  return { row: line(green ? '绿' : pointMet && interval ? `未定（区间 [${interval[0]}, ${interval[1]}]）` : '红'), met: green }
 }
 
 export async function run(root: string, timeout = MEASURE_READS_RESULTS_NEVER_RUNS_AN_EVAL_TIMEOUT) {
@@ -291,24 +291,94 @@ function latestAsOfPerRound(readingsByAsOf: KeptReading[]) {
   return rounds
 }
 
-const judgedOnlyByItsFirstRound = (i: Declared, prev: Round, last: Round) => prev <= i.declared_at && i.declared_at < last
-const offItsWord = (dir: string, moved: Movement) => (dir === '↑' ? moved !== 'closer' : dir === '=' && moved === 'away')
+const WILSON_Z = 1.96
+const SAMPLE_SIZE = /(?:^|\s)n=(\d+)(?=\s|$)/
+const SAME_COMMIT_RERUN_SPREAD = /(?:^|\s)aa=(\d+(?:\.\d+)?)(?=\s|$)/
+const AA_SPREADS_A_CHANGE_MUST_CLEAR = 2
 
-function declarationsSinceLastRoundAndOffTheirWord(op: string, goal: ExactDecimalAsTheOldClisDecimal, readings: KeptReading[], declared: Declared[]) {
+export function sampleOf(unit: string, r: Pick<KeptReading, 'source'>) {
+  const n = Number(SAMPLE_SIZE.exec(r.source)?.[1] ?? 0)
+  const aa = Number(SAME_COMMIT_RERUN_SPREAD.exec(r.source)?.[1] ?? 0)
+  return unit === '%' && n > 0 ? { n, aa } : { n: null, aa: 0 }
+}
+
+export function wilson(percent: number, n: number, z = WILSON_Z): [number, number] {
+  const p = percent / 100
+  const centre = (p + (z * z) / (2 * n)) / (1 + (z * z) / n)
+  const half = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / (1 + (z * z) / n)
+  return [Math.max(0, 100 * (centre - half)), Math.min(100, 100 * (centre + half))]
+}
+
+function greenOf(op: string, goalText: string, unit: string, r: Pick<KeptReading, 'value' | 'source'>) {
+  const pointMet = meets(op, dec(r.value), dec(goalText))
+  const { n } = sampleOf(unit, r)
+  if (n === null) return { green: pointMet, pointMet, interval: null }
+  const [lo, hi] = wilson(Number(r.value), n)
+  const goal = Number(goalText)
+  const bound = WANTS_MORE.has(op) ? lo : hi
+  const green = op === '==' ? pointMet && lo <= goal && goal <= hi : meets(op, dec(bound.toFixed(9)), dec(goalText))
+  return { green, pointMet, interval: [Number(lo.toFixed(1)), Number(hi.toFixed(1))] as [number, number] }
+}
+
+function noiseGate(unit: string, prev: KeptReading, cur: KeptReading) {
+  const [a, b] = [sampleOf(unit, prev), sampleOf(unit, cur)]
+  if (a.n === null || b.n === null) return 0
+  const oneItem = 100 / Math.min(a.n, b.n)
+  return Math.max(AA_SPREADS_A_CHANGE_MUST_CLEAR * Math.max(a.aa, b.aa), oneItem)
+}
+
+const judgedOnlyByItsFirstRound = (i: Declared, prev: Round, last: Round) => prev <= i.declared_at && i.declared_at < last
+
+type Heading = 'toward' | 'away' | 'hold'
+type Verdict = '符合' | '未定' | '不符'
+const WANTS_MORE = new Set(['>=', '>'])
+
+function headingOfAnOldDeclaration(op: string, goal: ExactDecimalAsTheOldClisDecimal, i: Declared): Heading {
+  if (i.dir === '=') return 'hold'
+  const numbers = [i.before, i.after].map((v) => v?.replace(/%$/, '').trim())
+  if (numbers.every((v) => v && /^-?\d+(?:\.\d+)?$/.test(v))) {
+    const moved = movementTowardTarget(op, goal, dec(numbers[0]!), dec(numbers[1]!))
+    return moved === 'closer' ? 'toward' : moved === 'away' ? 'away' : 'hold'
+  }
+  const up = i.dir === '↑'
+  return op === '==' || up === WANTS_MORE.has(op) ? 'toward' : 'away'
+}
+
+function verdictOf(heading: Heading, towardBy: number, gate: number): Verdict {
+  const cleared = (d: number) => d > 0 && d >= gate
+  if (heading === 'hold') return cleared(-towardBy) ? '不符' : '符合'
+  const signed = heading === 'toward' ? towardBy : -towardBy
+  return cleared(signed) ? '符合' : cleared(-signed) ? '不符' : '未定'
+}
+
+function towardTargetBy(op: string, goal: ExactDecimalAsTheOldClisDecimal, prev: KeptReading, cur: KeptReading) {
+  const distance = (r: KeptReading) => Number(distanceToTarget(op, goal, dec(r.value)).n) * 10 ** distanceToTarget(op, goal, dec(r.value)).e
+  return distance(prev) - distance(cur)
+}
+
+function declarationsSinceLastRoundAndTheirVerdicts(op: string, goal: ExactDecimalAsTheOldClisDecimal, unit: string, readings: KeptReading[], declared: Declared[]) {
   const rounds = latestAsOfPerRound(readings)
   const times = [...rounds.keys()].sort()
   const last = times.at(-1) ?? ''
   const pending = declared
     .filter((i) => i.declared_at >= last)
     .map((i) => ({ ticket: i.ticket, dir: i.dir, before: i.before, after: i.after, basis: i.basis, at: withoutTieBreak(i.declared_at) }))
-  if (times.length < 2) return { pending, mismatch: [] }
-  const prev = times.at(-2)!
-  const moved = movementTowardTarget(op, goal, dec(rounds.get(prev)!.value), dec(rounds.get(last)!.value))
-  const off = new Map<string, string>()
+  if (times.length < 2) return { pending, verdicts: [], mismatch: [] }
+  const [prev, cur] = [rounds.get(times.at(-2)!)!, rounds.get(last)!]
+  const gate = noiseGate(unit, prev, cur)
+  const towardBy = towardTargetBy(op, goal, prev, cur)
+  const verdicts = new Map<string, { ticket: string; dir: string; declared: Heading; verdict: Verdict }>()
   for (const i of declared) {
-    if (judgedOnlyByItsFirstRound(i, prev, last) && offItsWord(i.dir, moved)) off.set(i.ticket, i.dir)
+    if (!judgedOnlyByItsFirstRound(i, times.at(-2)!, last)) continue
+    const heading = headingOfAnOldDeclaration(op, goal, i)
+    verdicts.set(i.ticket, { ticket: i.ticket, dir: i.dir, declared: heading, verdict: verdictOf(heading, towardBy, gate) })
   }
-  return { pending, mismatch: [...off].map(([ticket, dir]) => ({ ticket, dir })) }
+  const all = [...verdicts.values()]
+  return {
+    pending,
+    verdicts: all.map(({ ticket, declared, verdict }) => ({ ticket, declared, verdict })),
+    mismatch: all.filter((v) => v.verdict === '不符').map(({ ticket, dir }) => ({ ticket, dir })),
+  }
 }
 
 type Attention = { kind: 'five' | 'stuck' | 'wait' | 'accept'; objective: string; kr: string | null; text: string }
@@ -336,10 +406,10 @@ function missedRoundsSinceLastMet(rs: KeptReading[], ok: (r: KeptReading) => boo
   return missed
 }
 
-function statusOnlyTheLatestReadingGoesStale(kr: Kr, last: KeptReading | undefined, missed: number) {
+function statusOnlyTheLatestReadingGoesStale(kr: Kr, last: KeptReading | undefined, missed: number, pointMetButNotTheInterval: boolean) {
   if (!last) return 'untested'
   if (kr.max_age_days !== undefined && whyTooOldByLocalDate(last.as_of, kr.max_age_days)) return 'stale'
-  return missed ? 'missed' : 'met'
+  return pointMetButNotTheInterval ? 'undecided' : missed ? 'missed' : 'met'
 }
 
 function attentionEvenWhenStale(name: string, kr: Kr, op: string, goalText: string, status: string, missed: number, trends: Movement[], rs: KeptReading[]): Attention[] {
@@ -378,22 +448,27 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
       const kept = byKr.get(kr.name) ?? []
       const { rounds, series: rs, version } = roundsAndCurrentSeries(kept)
       const failure = kept.at(-1)?.value === FAILED ? kept.at(-1)!.source : null
-      const ok = (r: KeptReading) => meets(op, dec(r.value), goal)
+      const unit = kr.unit ?? ''
+      const ok = (r: KeptReading) => greenOf(op, goalText, unit, r).green
       const missed = missedRoundsSinceLastMet(rs, ok)
       const last = rs.at(-1)
-      const status = failure !== null ? 'unmeasurable' : statusOnlyTheLatestReadingGoesStale(kr, last, missed)
+      const lastGreen = last ? greenOf(op, goalText, unit, last) : null
+      const pointMetButNotTheInterval = lastGreen !== null && !lastGreen.green && lastGreen.pointMet
+      const status = failure !== null ? 'unmeasurable' : statusOnlyTheLatestReadingGoesStale(kr, last, missed, pointMetButNotTheInterval)
       const trends = rs.slice(1).map((r, i) => movementTowardTarget(op, goal, dec(rs[i]!.value), dec(r.value)))
       const accepted = accepts.get(name)
       missedSinceAccept ||= accepted !== undefined && rounds.some((r) => r.measured_at > accepted && !ok(r))
-      const { pending, mismatch } = declarationsSinceLastRoundAndOffTheirWord(op, goal, rs, declared.get(`${name}\0${kr.name}`) ?? [])
+      const { pending, verdicts, mismatch } = declarationsSinceLastRoundAndTheirVerdicts(op, goal, unit, rs, declared.get(`${name}\0${kr.name}`) ?? [])
       for (const i of pending) counts[i.dir as keyof typeof counts]++
       krs.push({
         name: kr.name,
         target: `${op} ${goalText}`,
         target_op: op,
         target_value: Number(goalText),
-        unit: kr.unit ?? '',
+        unit,
         status,
+        n: last ? sampleOf(unit, last).n : null,
+        interval: lastGreen?.interval ?? null,
         value: last ? Number(last.value) : null,
         as_of: last?.as_of ?? null,
         source: last?.source ?? null,
@@ -402,6 +477,7 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
         missed_rounds: missed,
         wait: kr.wait ?? null,
         impacts: pending,
+        verdicts,
         mismatch,
         failure,
         series: rs.length ? { version, since: withoutTieBreak(rs[0]!.measured_at).slice(0, 10), def_hash: rs[0]!.def_hash } : null,
