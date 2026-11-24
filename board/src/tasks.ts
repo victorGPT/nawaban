@@ -254,15 +254,31 @@ const close: Verb = async (argv) => {
 
 const profilesTheHookSessionMayHold = (session: string) => (['cx', 'agy', 'cc'] as const).map((agent) => sessionProfile(agent, session))
 
-async function heldByAnyOf(profiles: string[]): Promise<{ id: string; key: string; as: string }[]> {
+async function heldByAnyOf(profiles: string[]): Promise<{ id: string; channel: string; as: string }[]> {
   return (await all({ state: 'claimed' })).flatMap((task) => {
     const claim = live(task)
     const as = profiles.find((p) => claim?.actor.endsWith(`+${p}`))
-    return as ? [{ id: task.id, key: key(task), as }] : []
+    return as ? [{ id: task.id, channel: task.channel, as }] : []
   })
 }
 
-export const heldBy = (session: string) => heldByAnyOf(profilesTheHookSessionMayHold(session))
+async function lastClaimedAt(task: { id: string; channel: string }, as: string): Promise<number> {
+  const team = personOwningEveryTaskTheirProfilesMade()
+  let at = 0
+  for (let after = task.id; ; ) {
+    const { events, cursor } = await team.poll({ channel: task.channel, after })
+    for (const e of events) {
+      const p = e.payload as { id?: string; by?: { actor: string } }
+      if (e.type === 'task.claimed' && p.id === task.id && p.by?.actor.endsWith(`+${as}`)) at = Date.parse(e.createdAt) / 1000
+    }
+    const feedEndsWhereTheCursorStays = cursor === after
+    if (feedEndsWhereTheCursorStays) return at
+    after = cursor
+  }
+}
+
+export const heldBy = async (session: string) =>
+  Promise.all((await heldByAnyOf(profilesTheHookSessionMayHold(session))).map(async (t) => ({ id: t.id, claimedAt: await lastClaimedAt(t, t.as) })))
 
 const renew: Verb = async (argv) => {
   const { values } = parseArgs({ args: argv, options: { session: { type: 'string' }, json: { type: 'boolean' } } })

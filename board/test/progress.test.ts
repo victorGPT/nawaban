@@ -41,18 +41,16 @@ it('does not take text a command writes through a heredoc for a command', async 
   expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: "cat <<'EOF' > x\nhi\nEOF\ngit commit -qm x" })))).toBe('committed')
 })
 
-it('reads a task only from the session\'s last claim of it, so a reused worker\'s next task starts over', async () => {
-  const a = { id: '10', key: 'K-A' }
-  const b = { id: '11', key: 'K-B' }
+it('reads a task only from when the session claimed it, so a reused worker\'s next task starts over', async () => {
+  const at = (iso: string, step: Record<string, unknown>) => ({ ...step, timestamp: iso })
   const reusedWorker = await transcriptOf(
-    claudeCall('Bash', { command: 'node cli.ts claim K-A' }),
-    claudeCall('Bash', { command: 'gh pr create --fill' }),
-    claudeCall('Bash', { command: 'hc send t19p "回报：K-A 完成"' }),
-    claudeCall('Bash', { command: 'node cli.ts claim K-B' }),
-    claudeCall('Edit', { file_path: 'b.ts' }),
+    at('2026-11-24T05:00:00Z', claudeCall('Bash', { command: 'gh pr create --fill' })),
+    at('2026-11-24T05:10:00Z', claudeCall('Bash', { command: 'hc send t19p "回报：K-A 完成"' })),
+    at('2026-11-24T05:21:00Z', claudeCall('Edit', { file_path: 'b.ts' })),
   )
-  expect(milestoneOfTranscript(reusedWorker, b)).toBe('edited')
-  expect(milestoneOfTranscript(reusedWorker, a)).toBe('reported')
+  const claimedB = Date.parse('2026-11-24T05:20:00Z') / 1000
+  expect(milestoneOfTranscript(reusedWorker, claimedB)).toBe('edited')
+  expect(milestoneOfTranscript(reusedWorker, 0)).toBe('reported')
 })
 
 it('reads Codex and Antigravity tool calls the same way', async () => {
@@ -63,7 +61,7 @@ it('reads Codex and Antigravity tool calls the same way', async () => {
   expect(milestoneOfTranscript('/nowhere/at/all.jsonl')).toBe('started')
 })
 
-it('reads the checkout: changed files, then commits past origin/main', async () => {
+it('reads the checkout: commits past origin/main made since the claim', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'nawaban-checkout-'))
   const git = (...args: string[]) => execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args])
   git('init', '-q', '-b', 'main')
@@ -71,9 +69,9 @@ it('reads the checkout: changed files, then commits past origin/main', async () 
   git('update-ref', 'refs/remotes/origin/main', 'HEAD')
   expect(await milestoneOfCheckout(dir)).toBe('started')
   await writeFile(join(dir, 'a.txt'), 'x')
-  expect(await milestoneOfCheckout(dir)).toBe('edited')
   git('add', '.')
   git('commit', '-q', '-m', 'x')
   expect(await milestoneOfCheckout(dir)).toBe('committed')
+  expect(await milestoneOfCheckout(dir, Date.now() / 1000 + 3600)).toBe('started')
   expect(await milestoneOfCheckout(join(dir, 'missing'))).toBe('started')
 })

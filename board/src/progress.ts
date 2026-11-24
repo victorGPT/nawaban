@@ -9,7 +9,7 @@ export const MILESTONES = ['started', 'edited', 'committed', 'pr', 'review', 're
 export type Milestone = (typeof MILESTONES)[number]
 export type Live = { milestone: Milestone; at: number }
 type HookInput = { session_id?: string; transcript_path?: string; cwd?: string }
-type Held = { id: string; key: string }
+type Held = { id: string; claimedAt: number }
 
 const exec = promisify(execFile)
 const PROGRESS_FOLDER = 'progress'
@@ -112,10 +112,12 @@ export function milestoneOfCall(call: Call): Milestone {
   return furthest([edits ? 'edited' : 'started', reviewer ? 'review' : 'started', ...signs])
 }
 
-const escaped = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const claimOf = (task: Held) => new RegExp(String.raw`\bclaim\s+(?:${escaped(task.key)}|#?${escaped(task.id)})(?![\w-])`)
+const stepTime = (d: Record<string, any>) => {
+  const at = Date.parse(d.timestamp ?? d.created_at ?? '')
+  return Number.isNaN(at) ? null : at / 1000
+}
 
-function callsSinceTheSessionClaimed(transcript: string | undefined, task: Held): Call[] {
+function callsSince(transcript: string | undefined, since: number): Call[] {
   if (!transcript) return []
   let lines: string[]
   try {
@@ -123,20 +125,18 @@ function callsSinceTheSessionClaimed(transcript: string | undefined, task: Held)
   } catch {
     return []
   }
-  const calls = lines.flatMap((line) => {
+  return lines.flatMap((line) => {
     try {
-      return callsOfStep(JSON.parse(line))
+      const step = JSON.parse(line)
+      const at = stepTime(step)
+      return at === null || at >= since ? callsOfStep(step) : []
     } catch {
       return []
     }
   })
-  const claimed = claimOf(task)
-  const lastClaim = calls.findLastIndex((c) => commandsRunBy(c).some((command) => claimed.test(command)))
-  return calls.slice(lastClaim + 1)
 }
 
-export const milestoneOfTranscript = (transcript: string | undefined, task: Held = { id: '', key: '' }): Milestone =>
-  furthest(callsSinceTheSessionClaimed(transcript, task).map(milestoneOfCall))
+export const milestoneOfTranscript = (transcript: string | undefined, since = 0): Milestone => furthest(callsSince(transcript, since).map(milestoneOfCall))
 
 const succeeds = (cmd: string, args: string[], cwd: string) =>
   exec(cmd, args, { cwd, timeout: PROBE_TIMEOUT_MS }).then(
@@ -144,12 +144,12 @@ const succeeds = (cmd: string, args: string[], cwd: string) =>
     () => null,
   )
 
-export async function milestoneOfCheckout(cwd: string | undefined): Promise<Milestone> {
+export async function milestoneOfCheckout(cwd: string | undefined, since = 0): Promise<Milestone> {
   if (!cwd) return 'started'
-  const [ahead, dirty] = await Promise.all([succeeds('git', ['rev-list', '--count', 'origin/main..HEAD'], cwd), succeeds('git', ['status', '--porcelain'], cwd)])
-  if (ahead === null) return 'started'
-  if (Number(ahead) === 0) return dirty ? 'edited' : 'started'
-  return (await succeeds('gh', ['pr', 'view', '--json', 'number'], cwd)) ? 'pr' : 'committed'
+  const committedSince = await succeeds('git', ['rev-list', '--count', `--since=@${Math.floor(since)}`, 'origin/main..HEAD'], cwd)
+  if (!Number(committedSince)) return 'started'
+  const pr = await succeeds('gh', ['pr', 'view', '--json', 'createdAt', '--jq', '.createdAt'], cwd)
+  return pr && Date.parse(pr) / 1000 >= since ? 'pr' : 'committed'
 }
 
 async function overwrite(path: string, live: Live) {
@@ -167,9 +167,9 @@ export async function recordProgress(input: HookInput, held: Held[], boardDir: s
   const stampedSoTheHookWaitsItsGap = held.length ? now : now - WRITE_EVERY_SECONDS + LOOKS_AGAIN_AFTER_SECONDS
   await utimes(stamp, stampedSoTheHookWaitsItsGap, stampedSoTheHookWaitsItsGap)
   if (!held.length) return []
-  const checkout = await milestoneOfCheckout(input.cwd)
   for (const task of held) {
-    const onlyForward = furthest([readLive(boardDir, task.id)?.milestone ?? 'started', milestoneOfTranscript(input.transcript_path, task), checkout])
+    const sinceClaimed = [milestoneOfTranscript(input.transcript_path, task.claimedAt), await milestoneOfCheckout(input.cwd, task.claimedAt)]
+    const onlyForward = furthest([readLive(boardDir, task.id)?.milestone ?? 'started', ...sinceClaimed])
     await overwrite(liveFile(boardDir, task.id), { milestone: onlyForward, at: Math.floor(now) })
   }
   return held.map((h) => h.id)
