@@ -59,13 +59,12 @@ it('folds a run of edits into one row per run, each file once, and starts over a
     edited(10, '/repo/a.ts'),
     edited(11, '/repo/a.ts'),
     edited(12, '/repo/web/b.ts'),
-    edited(13, '/elsewhere/notes.md'),
     ran(14, 'pnpm test'),
     edited(15, '/repo/a.ts'),
     said(16, '改第二轮'),
     edited(17, 'a.ts'),
   )
-  expect(rows(await narrationOf([held(0, null)], T0 + 100))).toEqual(['10 edited a.ts, web/b.ts, notes.md', '14 tested 在跑测试 / 检查', '16 said 改第二轮', '17 edited a.ts'])
+  expect(rows(await narrationOf([held(0, null)], T0 + 100))).toEqual(['10 edited a.ts, web/b.ts', '14 tested 在跑测试 / 检查', '16 said 改第二轮', '17 edited a.ts'])
 })
 
 it('says a test is running at most once in 15 seconds', async () => {
@@ -103,4 +102,10 @@ it('reads a Codex session found by the start of its thread id, and nothing when 
 it('has nothing to say for a session whose transcript is not on this machine', async () => {
   vi.stubEnv('CLAUDE_CONFIG_DIR', await mkdtemp(join(tmpdir(), 'nawaban-empty-')))
   expect(await narrationOf([held(0, null), held(0, null, 'agy-12345678'), held(0, null, 'victor')], T0 + 100)).toEqual([])
+})
+
+it('names an edited file from the checkout the session started in, wherever the shell stood, and leaves out files outside it', async () => {
+  const fromASubfolder = { ...edited(20, 'src/main.tsx'), cwd: '/repo/web' }
+  await claudeTranscript(edited(10, '/repo/web/src/logic.ts'), fromASubfolder, edited(30, '/tmp/scratch/shot.mjs'), said(40, '截图'), edited(50, '/tmp/scratch/page.html'))
+  expect(rows(await narrationOf([held(0, null)], T0 + 100))).toEqual(['10 edited web/src/logic.ts, web/src/main.tsx', '40 said 截图'])
 })

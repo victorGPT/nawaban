@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { callsOfStep, commandsRunBy, quotesBlanked, stepTime, TOOLS_THAT_EDIT, type Call } from './progress.ts'
 
@@ -49,24 +49,30 @@ function codexItemsAsCalls(step: Step): Call[] {
 
 const pathsEditedBy = ({ input }: Call) => [input.file_path, input.path, input.notebook_path, ...(Array.isArray(input.paths) ? input.paths : [])].filter((p): p is string => typeof p === 'string' && p !== '')
 
-function shownFrom(cwd: string | undefined, path: string) {
-  if (!cwd || !isAbsolute(path)) return path
-  const inside = relative(cwd, path)
-  return inside && !inside.startsWith('..') && !isAbsolute(inside) ? inside : basename(path)
+function insideTheCheckout(checkout: string | undefined, path: string): string | null {
+  if (!checkout) return path
+  const inside = relative(checkout, path)
+  return inside && !inside.startsWith('..') && !isAbsolute(inside) ? inside : null
 }
 
-function happeningsOfCall(call: Call, at: number, cwd: string | undefined): Happening[] {
+function happeningsOfCall(call: Call, at: number, cwd: string | undefined, checkout: string | undefined): Happening[] {
   if (call.name === CODE_MODE_WRAPPER) return []
-  const edited: Happening[] = TOOLS_THAT_EDIT.has(call.name) ? pathsEditedBy(call).map((path) => ({ at, kind: 'edited', path: resolve(cwd ?? '/', path), text: shownFrom(cwd, path) })) : []
+  const edited: Happening[] = TOOLS_THAT_EDIT.has(call.name)
+    ? pathsEditedBy(call).flatMap((said) => {
+        const path = resolve(cwd ?? '/', said)
+        const text = insideTheCheckout(checkout, path)
+        return text === null ? [] : [{ at, kind: 'edited' as const, path, text }]
+      })
+    : []
   const tested = commandsRunBy(call).some((command) => TESTING_OR_BUILDING.test(quotesBlanked(command)))
   return tested ? [...edited, { at, kind: 'tested' }] : edited
 }
 
-function happeningsOf(step: Step, cwd: string | undefined): Happening[] {
+function happeningsOf(step: Step, cwd: string | undefined, checkout: string | undefined): Happening[] {
   const at = stepTime(step)
   if (at === null || step.isSidechain) return []
   const said: Happening[] = saidBeforeAToolCall(step).map(saidPlainly).filter(Boolean).map((text) => ({ at, kind: 'said', text }))
-  return [...said, ...[...callsOfStep(step), ...codexItemsAsCalls(step)].flatMap((call) => happeningsOfCall(call, at, cwd))]
+  return [...said, ...[...callsOfStep(step), ...codexItemsAsCalls(step)].flatMap((call) => happeningsOfCall(call, at, cwd, checkout))]
 }
 
 const cwdOf = (step: Step): string | undefined => step.cwd ?? (CODEX_STEPS_NAMING_THE_CWD.has(step.type) ? step.payload?.cwd : undefined)
@@ -79,6 +85,7 @@ async function happeningsIn(transcript: string): Promise<Happening[]> {
   if (read?.size === size && read.mtimeMs === mtimeMs) return read.happenings
   const happenings: Happening[] = []
   let cwd: string | undefined
+  let checkoutTheSessionStartedIn: string | undefined
   for await (const line of createInterface({ input: createReadStream(transcript), crlfDelay: Infinity })) {
     let step: Step
     try {
@@ -87,7 +94,8 @@ async function happeningsIn(transcript: string): Promise<Happening[]> {
       continue
     }
     cwd = cwdOf(step) ?? cwd
-    happenings.push(...happeningsOf(step, cwd))
+    checkoutTheSessionStartedIn ??= cwd
+    happenings.push(...happeningsOf(step, cwd, checkoutTheSessionStartedIn))
   }
   readTranscripts.set(transcript, { size, mtimeMs, happenings })
   return happenings
