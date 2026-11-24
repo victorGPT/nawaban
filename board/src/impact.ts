@@ -8,11 +8,13 @@ import { findBlocks } from '@vercel/board/schemas'
 import { parse } from 'smol-toml'
 
 type Team = ReturnType<typeof board>
-type Impact = { objective: string; krs: { name: string; dir: string; before?: string; after?: string }[] }
+type Impact = { objective: string; krs: { name: string; dir?: string; before?: string; after?: string }[] }
+type Registered = { schema: string; version: number; data: unknown }
 type PullRequest = { number: number; title: string; body: string; headRefName: string }
 
 export const OKR_FILE = 'docs/agents/okr.toml'
-export const IMPACT_FORMAT = '<KR 名>=↑|↓|=[ 前→后 实测|预计]'
+export const IMPACT_FORMAT = '<KR 名>=toward|away|hold'
+export const RESULT_FORMAT = '<KR 名>=<后值> 实测|预计'
 const NUMBER = /^-?\d+(?:\.\d+)?%?$/
 const NO_OBJECTIVE_PURE_INFRASTRUCTURE = '无'
 const TASKS_PAGE = 50
@@ -70,9 +72,13 @@ function whyNotDeclarableIn(channel: string, impact: Impact, okr: Map<string, st
   if (!names) return `${OKR_FILE} 里没有这个 O:${o}(有:${[...okr.keys()].join('、')})`
   for (const kr of impact.krs) {
     if (!names.includes(kr.name)) return `${o} 下没有这个 KR:${kr.name}(有:${names.join('、')})`
-    if (kr.dir !== '=' && !(NUMBER.test(kr.before!) && NUMBER.test(kr.after!))) return `↑↓ 的前后值要是数字:${kr.name}=${kr.dir} ${kr.before}→${kr.after}`
+    if (kr.dir !== undefined && kr.dir !== '=' && !(NUMBER.test(kr.before!) && NUMBER.test(kr.after!))) return `↑↓ 的前后值要是数字:${kr.name}=${kr.dir} ${kr.before}→${kr.after}`
   }
   return null
+}
+
+export async function whyNotDeclarable(dir: string, channel: string, impact: Impact) {
+  return whyNotDeclarableIn(channel, impact, await okrOf(dir, channel), dir)
 }
 
 export function impactNames(dir: string): Middleware {
@@ -91,17 +97,27 @@ export function impactNames(dir: string): Middleware {
   }
 }
 
-export const howToDeclare = (ref: string) => `  nawaban event ${ref} --kind impact --o "<O 名>" --kr "${IMPACT_FORMAT}"(--kr 可重复;纯基础设施写 --o 无)`
+export const howToDeclare = (ref: string) =>
+  `  nawaban event ${ref} --kind impact --o "<O 名>" --kr "${IMPACT_FORMAT}" [--change measure|gold](--kr 可重复;纯基础设施写 --o 无;认领时就登记:nawaban claim ${ref} --o … --kr …)`
 
 async function hasImpactReply(team: Team, id: string) {
   const { replies } = await team.thread(id)
   return replies.some((r) => r.blocks.some((b) => b.schema === 'nawaban-impact'))
 }
 
+const krNamesIn = (blocks: Registered[]) => blocks.flatMap((b) => (b.data as { krs: { name: string }[] }).krs.map((k) => k.name))
+
 export async function undeclared(team: Team, id: string, dir: string): Promise<string | null> {
-  const { message } = await team.thread(id, { limit: 1 })
-  if (!(await okrOf(dir, message.channel)) || (await hasImpactReply(team, id))) return null
-  return `${message.labels.key ?? '#' + id} 没有 KR 影响声明,不能 close --done。先补:\n${howToDeclare(message.labels.key ?? id)}`
+  const { message, replies } = await team.thread(id)
+  if (!(await okrOf(dir, message.channel))) return null
+  const ref = message.labels.key ?? '#' + id
+  const blocks = replies.filter((r) => !r.deleted).flatMap((r) => r.blocks)
+  const declared = blocks.filter((b) => b.schema === 'nawaban-impact' && b.data)
+  if (!declared.length) return `${ref} 没有 KR 影响声明,不能 close --done。先补:\n${howToDeclare(ref)}`
+  const reported = new Set(krNamesIn(blocks.filter((b) => b.schema === 'nawaban-impact-result' && b.data)))
+  const unreported = [...new Set(krNamesIn(declared.filter((b) => b.version === 2)))].filter((name) => !reported.has(name))
+  if (!unreported.length) return null
+  return `${ref} 登记了 KR 却没补结果(${unreported.join('、')}),不能 close --done。关票时补:\n  nawaban close ${ref} --done ${unreported.map((n) => `--kr "${n}=<后值> 实测|预计"`).join(' ')}`
 }
 
 const quotedStringsBlankedSoAMentionIsNeverACommand = (cmd: string) => cmd.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, (q) => "'" + 'x'.repeat(q.length - 2) + "'")

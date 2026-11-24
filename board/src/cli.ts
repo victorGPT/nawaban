@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { board } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
 import { dispatch } from './dispatch.ts'
-import { event } from './events.ts'
+import { claimRegistering, event } from './events.ts'
 import { guard } from './guard.ts'
 import { importOld } from './import.ts'
 import { merge } from './merge.ts'
@@ -104,12 +104,15 @@ const COMMANDS: Record<string, Command> = {
   claim: {
     group: '写',
     usage: 'claim <票>',
-    about: '认领；--release 交还',
+    about: '认领；--release 交还；--o --kr 同时登记 KR 影响',
     flags: [
       ['--release', '交还'],
+      ['--o <O>', '登记影响的 O，纯基础设施写 无'],
+      ['--kr "<KR>=toward|away|hold"', '登记的 KR 和方向，可重复'],
+      ['--change product|measure|gold', '改产品、改量法或改金标，默认 product'],
       ['--json', '输出 JSON'],
     ],
-    run: taskVerb('claim'),
+    run: (rest) => claimRegistering(rest, taskVerb('claim'), (args) => app.run(args), board()),
   },
   event: {
     group: '写',
@@ -120,8 +123,9 @@ const COMMANDS: Record<string, Command> = {
       ['--body <正文>', 'impact 以外都要'],
       ['--by user', '决策者定的，只用于 decision'],
       ['--kr <KR>', 'decision、ask 挂的 KR'],
-      ['--kr "<KR>=↑ 90→95 预计"', 'impact 的 KR 和方向，可重复'],
+      ['--kr "<KR>=toward|away|hold"', 'impact 的 KR 和方向，可重复'],
       ['--o <O>', 'impact 的 O，纯基础设施写 无'],
+      ['--change product|measure|gold', 'impact 改的是产品、量法还是金标，默认 product'],
       ['--context <背景>', 'ask 的背景'],
       ['--option <方案｜代价｜门>', 'ask 的选项，至少两次'],
       ['--rec <建议>', 'ask 的建议'],
@@ -136,6 +140,7 @@ const COMMANDS: Record<string, Command> = {
     flags: [
       ['--done', '做完了'],
       ['--cancelled', '作废，等它的票不再等'],
+      ['--kr "<KR>=<后值> 实测|预计"', '--done 时补登记过的 KR 的结果，可重复'],
       ['--json', '输出 JSON'],
     ],
     run: taskVerb('close'),

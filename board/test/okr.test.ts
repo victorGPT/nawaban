@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { block, board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from '../src/schemas.ts'
-import { defHash, judge, jsonOkr, keepEachNewReadingOnce, okr, run, type Declared, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
+import { defHash, judge, jsonOkr, keepEachNewReadingOnce, okr, run, type Declared, type Heading, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
 
 const OKR_PORTED_FROM_THE_OLD_TEST_OKR_PY = `
 [[objective]]
@@ -104,10 +104,11 @@ async function jokr(p: Project, ...argv: string[]) {
   return { code, data: JSON.parse(out) }
 }
 
-async function declareTicketMovesKrOfO(p: Project, ticket: string, kr: string, dir: string) {
+async function declareTicketMovesKrOfO(p: Project, ticket: string, kr: string, heading: Heading) {
   const { task } = await team.tasks.create(p.name, { text: ticket, labels: { key: ticket } })
-  const numbers = dir === '=' ? {} : { before: '1', after: '2', basis: '预计' }
-  await team.reply(task.id, block('nawaban-impact@1', { objective: 'O', krs: [{ name: kr, dir, ...numbers }] }))
+  await team.reply(task.id, block('nawaban-impact@2', { objective: 'O', change: 'product', krs: [{ name: kr, heading }] }))
+  await team.reply(task.id, block('nawaban-impact-result@1', { krs: [{ name: kr, after: '2', basis: '预计' }] }))
+  return task.id
 }
 
 const day = (n: number) => {
@@ -333,16 +334,30 @@ const eachReadingItsOwnRoundASecondApartOldestFirst = (readings: Record<string, 
 
 const reading = (kr: string, value: number, at: string, as_of = at.slice(0, 10)): KeptReading => ({ kr, value: String(value), as_of, source: '', measured_at: at, def_hash: '' })
 
-type Decl = { ticket: string; kr: string; dir: string; at: string }
+type Decl = { ticket: string; kr: string; d: Declared }
 
-const decl = (ticket: string, kr: string, dir: string, at: string): Decl => ({ ticket, kr, dir, at })
+const registered = (ticket: string, heading: Heading, at: string, rest: Partial<Declared> = {}): Declared => ({
+  ticket,
+  dir: null,
+  heading,
+  change: 'product',
+  late: false,
+  before: null,
+  after: null,
+  basis: null,
+  def_hash: null,
+  declared_at: at,
+  result_at: at,
+  ...rest,
+})
+const decl = (ticket: string, kr: string, heading: Heading, at: string, rest: Partial<Declared> = {}): Decl => ({ ticket, kr, d: registered(ticket, heading, at, rest) })
 
 function judged(objs: Objective[], rows: KeptReading[], accepts: Record<string, string> = {}, declared: Decl[] = []) {
   const byKr = new Map<string, Declared[]>()
-  for (const d of [...declared].sort((a, b) => (a.at < b.at ? -1 : 1))) {
-    if (!d.kr) continue
-    const k = `O\0${d.kr}`
-    byKr.set(k, [...(byKr.get(k) ?? []), { ticket: d.ticket, dir: d.dir, before: null, after: null, basis: null, declared_at: d.at }])
+  for (const { kr, d } of [...declared].sort((a, b) => (a.d.declared_at < b.d.declared_at ? -1 : 1))) {
+    if (!kr) continue
+    const k = `O\0${kr}`
+    byKr.set(k, [...(byKr.get(k) ?? []), d])
   }
   return judge(objs, rows, new Map(Object.entries(accepts)), byKr, '/repo', 'abc1234')
 }
@@ -457,20 +472,20 @@ describe("json okr's judgement on rows with their rounds given", () => {
 
 describe('declarations against readings', () => {
   it('counts the declarations since each KR’s last round', () => {
-    const beforeTheLastRoundNoLongerCounted = decl('#1', 'K', '↑', '2026-11-09T00:00:00')
-    const onJWithNoReadingYetEveryDeclarationCounts = decl('#4', 'J', '↓', '2026-11-11T00:00:02')
-    const objectiveOnlyNoKrNotInTheCounts = decl('#6', '', '=', '2026-11-11T00:00:03')
+    const beforeTheLastRoundNoLongerCounted = decl('#1', 'K', 'toward', '2026-11-09T00:00:00')
+    const onJWithNoReadingYetEveryDeclarationCounts = decl('#4', 'J', 'away', '2026-11-11T00:00:02')
+    const objectiveOnlyNoKrNotInTheCounts = decl('#6', '', 'hold', '2026-11-11T00:00:03')
     const data = judged(objectives([['K', '>= 95'], ['J', '<= 5']]), [reading('K', 80, '2026-11-10T00:00:00')], {}, [
       beforeTheLastRoundNoLongerCounted,
-      decl('#2', 'K', '↑', '2026-11-11T00:00:00'),
-      decl('#3', 'K', '=', '2026-11-11T00:00:01'),
+      decl('#2', 'K', 'toward', '2026-11-11T00:00:00'),
+      decl('#3', 'K', 'hold', '2026-11-11T00:00:01'),
       onJWithNoReadingYetEveryDeclarationCounts,
-      decl('#5', 'J', '↑', '2026-11-01T00:00:00'),
+      decl('#5', 'J', 'toward', '2026-11-01T00:00:00'),
       objectiveOnlyNoKrNotInTheCounts,
     ])
-    expect(data.objectives[0]!.impacts).toEqual({ '↑': 2, '↓': 1, '=': 1 })
+    expect(data.objectives[0]!.impacts).toEqual({ toward: 2, away: 1, hold: 1 })
     expect(krOf(data, 'K').impacts.map((i) => i.ticket)).toEqual(['#2', '#3'])
-    expect(krOf(data, 'K').impacts[0]).toEqual({ ticket: '#2', dir: '↑', before: null, after: null, basis: null, at: '2026-11-11T00:00:00' })
+    expect(krOf(data, 'K').impacts[0]).toEqual({ ticket: '#2', declared: 'toward', change: 'product', late: false, before: null, after: null, basis: null, at: '2026-11-11T00:00:00' })
     expect(krOf(data, 'J').impacts.map((i) => i.ticket)).toEqual(['#5', '#4'])
     expect(krOf(data, 'K').mismatch).toEqual([])
   })
@@ -489,32 +504,32 @@ describe('declarations against readings', () => {
     ['<= 5', 7, 9, '↓', 'toward', '不符'],
     ['<= 5', 7, 6, '↓', 'toward', '符合'],
     ['<= 5', 7, 7, '↓', 'toward', '未定'],
-  ] as const)('judges a declaration by the first round after it, exactly with no n: %s %d→%d declared %s reads %s, %s', (target, before, after, dir, declared, verdict) => {
-    const data = judged(objectives([['K', target]]), [reading('K', before, '2026-11-10T00:00:00'), reading('K', after, '2026-11-12T00:00:00')], {}, [decl('#7', 'K', dir, '2026-11-11T00:00:00')])
+  ] as const)('judges a declaration by the first round after its result, exactly with no n: %s %d→%d once declared %s reads %s, %s', (target, before, after, _oldDir, declared, verdict) => {
+    const data = judged(objectives([['K', target]]), [reading('K', before, '2026-11-10T00:00:00'), reading('K', after, '2026-11-12T00:00:00')], {}, [decl('#7', 'K', declared, '2026-11-11T00:00:00')])
     expect(krOf(data, 'K').verdicts).toEqual([{ ticket: '#7', declared, verdict }])
-    expect(krOf(data, 'K').mismatch).toEqual(verdict === '不符' ? [{ ticket: '#7', dir }] : [])
+    expect(krOf(data, 'K').mismatch).toEqual(verdict === '不符' ? [{ ticket: '#7', dir: declared }] : [])
     const pendingOnceARoundHasComeSince = krOf(data, 'K').impacts
     expect(pendingOnceARoundHasComeSince).toEqual([])
   })
 
   it('judges a declaration only by its first round, and never one with no round before it', () => {
     const objs = objectives([['K', '>= 95']])
-    const declared = [decl('#1', 'K', '↑', '2026-11-09T00:00:00'), decl('#2', 'K', '↑', '2026-11-11T00:00:00')]
+    const declared = [decl('#1', 'K', 'toward', '2026-11-09T00:00:00'), decl('#2', 'K', 'toward', '2026-11-11T00:00:00')]
     const rows = [reading('K', 80, '2026-11-10T00:00:00'), reading('K', 70, '2026-11-12T00:00:00')]
-    expect(krOf(judged(objs, rows, {}, declared), 'K').mismatch).toEqual([{ ticket: '#2', dir: '↑' }])
+    expect(krOf(judged(objs, rows, {}, declared), 'K').mismatch).toEqual([{ ticket: '#2', dir: 'toward' }])
     expect(krOf(judged(objs, [...rows, reading('K', 60, '2026-11-13T00:00:00')], {}, declared), 'K').mismatch).toEqual([])
   })
 
   it('judges one round with several readings on its latest as-of', () => {
     const rows = [reading('K', 80, '2026-11-10T00:00:00', '2026-11-10'), reading('K', 90, '2026-11-12T00:00:00', '2026-11-12'), reading('K', 70, '2026-11-12T00:00:00', '2026-11-11')]
-    expect(krOf(judged(objectives([['K', '>= 95']]), rows, {}, [decl('#7', 'K', '↑', '2026-11-11T00:00:00')]), 'K').mismatch).toEqual([])
+    expect(krOf(judged(objectives([['K', '>= 95']]), rows, {}, [decl('#7', 'K', 'toward', '2026-11-11T00:00:00')]), 'K').mismatch).toEqual([])
   })
 
   it('gives no verdict without a new round', async () => {
     const p = await projectOnItsOwnBoardWithItsOwnReposJson()
     await define(p.root, [['K', '>= 95', 'measure = "echo 80 2026-11-10"']])
     await nawabanOkr(p)
-    await declareTicketMovesKrOfO(p, '#7', 'K', '↑')
+    await declareTicketMovesKrOfO(p, '#7', 'K', 'toward')
     const sameAsOfAgainKeepsNoReadingSoNoNewRound = () => nawabanOkr(p)
     await sameAsOfAgainKeepsNoReadingSoNoNewRound()
     const k = (await jokr(p)).data.objectives[0].krs[0]
@@ -527,13 +542,13 @@ describe('declarations against readings', () => {
     await define(p.root, [['K', '>= 95', 'measure = "cat k.txt"'], ['J', '>= 1']])
     await writeFile(join(p.root, 'k.txt'), '80 2026-11-10')
     await nawabanOkr(p)
-    await declareTicketMovesKrOfO(p, '#7', 'K', '↑')
-    await declareTicketMovesKrOfO(p, '#8', 'J', '↓')
+    await declareTicketMovesKrOfO(p, '#7', 'K', 'toward')
+    await declareTicketMovesKrOfO(p, '#8', 'J', 'away')
     await writeFile(join(p.root, 'k.txt'), '79 2026-11-11')
     const { code, out } = await nawabanOkr(p)
     expect(code).toBe(0)
-    expect(out).toContain('O O · 声明 ↑0 ↓1 =0')
-    expect(out).toContain('预期不符 K：#7 声明 ↑')
+    expect(out).toContain('O O · 声明 向目标 0 背离 1 不变 0')
+    expect(out).toContain('预期不符 K：#7 声明 向目标')
   })
 
   it('orders a reading after an accept in the same millisecond by the board, not by the clock', async () => {
@@ -666,7 +681,7 @@ describe('a proportion reading carries its n and judges against the noise of n i
   const e3 = (rows: KeptReading[], before: string, after: string) => krOf(judgedWith(rows, before, after), 'E3')
 
   const judgedWith = (rows: KeptReading[], before: string, after: string) => {
-    const byKr = new Map<string, Declared[]>([['O\0E3', [{ ticket: '#1509', dir: '↓', before, after, basis: '实测', declared_at: '2026-11-11T00:00:00' }]]])
+    const byKr = new Map<string, Declared[]>([['O\0E3', [registered('#1509', 'toward', '2026-11-11T00:00:00', { before, after, basis: '实测' })]]])
     return judge([{ name: 'O', kr: [{ name: 'E3', target: '<= 3', unit: '%' }] }], rows, new Map(), byKr, '/r', null)
   }
 
@@ -701,7 +716,7 @@ describe('a proportion reading carries its n and judges against the noise of n i
   })
 })
 
-describe("V2-01's replay, as json okr now judges it", () => {
+describe("V2-01's replay, registered before the work as v2 asks", () => {
   const E3_DECLARED = [
     ['#1411', '21.6', '17.2', 268, true, null],
     ['#1413', '17.2%', '12.9%', 233, false, '符合'],
@@ -714,7 +729,7 @@ describe("V2-01's replay, as json okr now judges it", () => {
   it.each(E3_DECLARED)('E3 %s %s→%s reads as its one-item column did', (ticket, before, after, nBefore, newMeasure, verdict) => {
     const row = (value: string, at: string, n: number, def_hash: string): KeptReading => ({ kr: 'E3', value: value.replace('%', ''), as_of: '2026-11-17', source: `n=${n} e3`, measured_at: at, def_hash })
     const rows = [row(before, '2026-11-10T00:00:00', nBefore, 'v1'), row(after, '2026-11-12T00:00:00', 233, newMeasure ? 'v2' : 'v1')]
-    const declared = new Map<string, Declared[]>([['O\0E3', [{ ticket, dir: '↓', before, after, basis: '实测', declared_at: '2026-11-11T00:00:00' }]]])
+    const declared = new Map<string, Declared[]>([['O\0E3', [registered(ticket, 'toward', '2026-11-11T00:00:00', { before, after, basis: '实测', def_hash: 'v1' })]]])
     const k = krOf(judge([{ name: 'O', kr: [{ name: 'E3', target: '<= 3', unit: '%' }] }], rows, new Map(), declared, '/r', null), 'E3')
     expect(k.verdicts).toEqual(verdict ? [{ ticket, declared: 'toward', verdict }] : [])
   })
@@ -728,14 +743,53 @@ describe('float dust at the edges', () => {
 
   it('reads a change of exactly one item as clearing the gate', () => {
     const rows: KeptReading[] = ['4.5', '4.4'].map((value, i) => ({ kr: 'K', value, source: 'n=1000', as_of: '2026-11-25', measured_at: String(i * 2), def_hash: 'v1' }))
-    const declared = new Map<string, Declared[]>([['O\0K', [{ ticket: 'T', dir: '↓', before: '4.5%', after: '4.4%', basis: null, declared_at: '1' }]]])
+    const declared = new Map<string, Declared[]>([['O\0K', [registered('T', 'toward', '1')]]])
     expect(krOf(judge([{ name: 'O', kr: [{ name: 'K', target: '<= 3', unit: '%' }] }], rows, new Map(), declared, '/r', null), 'K').verdicts).toEqual([{ ticket: 'T', declared: 'toward', verdict: '符合' }])
   })
 })
 
 it('keeps the exact comparison for readings with no n, however small the step', () => {
-  const declared = new Map<string, Declared[]>([['O\0K', [{ ticket: 'T', dir: '=', before: null, after: null, basis: null, declared_at: '1' }]]])
+  const declared = new Map<string, Declared[]>([['O\0K', [registered('T', 'hold', '1')]]])
   const rows: KeptReading[] = ['1', '0.9999999999'].map((value, i) => ({ kr: 'K', value, source: '', as_of: '2026-11-25', measured_at: String(i * 2), def_hash: 'v1' }))
   const k = krOf(judge([{ name: 'O', kr: [{ name: 'K', target: '>= 2' }] }], rows, new Map(), declared, '/r', null), 'K')
   expect(k.verdicts).toEqual([{ ticket: 'T', declared: 'hold', verdict: '不符' }])
+})
+
+describe('what a declaration registered, and when, decides whether it is judged', () => {
+  const objs = objectives([['K', '>= 95']])
+  const rows = [reading('K', 80, '2026-11-10T00:00:00'), reading('K', 70, '2026-11-12T00:00:00')]
+  const one = (d: Decl) => judged(objs, rows, {}, [d])
+
+  it('judges no old ↑↓= declaration, written as it closed', () => {
+    const old = decl('#1', 'K', 'toward', '2026-11-11T00:00:00', { dir: '↑', heading: null, late: true, result_at: null })
+    expect(krOf(one(old), 'K').verdicts).toEqual([])
+  })
+
+  it('judges no declaration registered after its first pull request, and counts none', () => {
+    const late = decl('#1', 'K', 'toward', '2026-11-11T00:00:00', { late: true })
+    expect(krOf(one(late), 'K').verdicts).toEqual([])
+    const pending = judged(objs, rows.slice(0, 1), {}, [late])
+    expect([pending.objectives[0]!.impacts, krOf(pending, 'K').impacts.map((i) => (i as unknown as { late: boolean }).late)]).toEqual([{ toward: 0, away: 0, hold: 0 }, [true]])
+  })
+
+  it('judges no change to the measure or the gold, and counts it apart as changing the ruler', () => {
+    const ruler = decl('#1', 'K', 'toward', '2026-11-11T00:00:00', { change: 'gold' })
+    expect(krOf(one(ruler), 'K').verdicts).toEqual([])
+    const pending = judged(objs, rows.slice(0, 1), {}, [ruler, decl('#2', 'K', 'toward', '2026-11-11T00:00:01', { change: 'measure' })])
+    expect([pending.objectives[0]!.impacts, pending.objectives[0]!.rulers]).toEqual([{ toward: 0, away: 0, hold: 0 }, 2])
+  })
+
+  it('waits for the result: a round before it judges nothing, the first round after it does', () => {
+    const waiting = decl('#1', 'K', 'toward', '2026-11-11T00:00:00', { result_at: null })
+    expect(krOf(one(waiting), 'K').verdicts).toEqual([])
+    const closedAfterTheRound = decl('#1', 'K', 'toward', '2026-11-11T00:00:00', { result_at: '2026-11-12T00:00:01' })
+    expect(krOf(one(closedAfterTheRound), 'K').verdicts).toEqual([])
+    const nextRound = [...rows, reading('K', 85, '2026-11-13T00:00:00')]
+    expect(krOf(judged(objs, nextRound, {}, [closedAfterTheRound]), 'K').verdicts).toEqual([{ ticket: '#1', declared: 'toward', verdict: '符合' }])
+  })
+
+  it('judges no declaration registered against a measure no longer current', () => {
+    const otherMeasure = decl('#1', 'K', 'toward', '2026-11-11T00:00:00', { def_hash: 'old' })
+    expect(krOf(one(otherMeasure), 'K').verdicts).toEqual([])
+  })
 })

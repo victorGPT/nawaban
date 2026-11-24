@@ -144,17 +144,22 @@ nawaban event <ID> --kind link --body "pr:<url>"
 
 ### KR impact declaration
 
-Before a ticket closes as done or its pull request merges, declare which KRs it moves:
+Register which KRs a ticket moves as you claim it, before its first pull request, and report the result as you close it:
 
 ```
-nawaban event <ID> --kind impact --o "<Objective name>" --kr "<KR name>=↑ 90→95 预计" --kr "<KR name>=="
+nawaban claim <ID> --o "<Objective name>" --kr "<KR name>=toward" --kr "<KR name>=hold" [--change measure|gold]
+nawaban event <ID> --kind impact --o "<Objective name>" --kr "<KR name>=away"
 nawaban event <ID> --kind impact --o 无
+nawaban close <ID> --done --kr "<KR name>=95 实测" --kr "<KR name>=83.3% 预计"
 ```
 
-- `--kr` is `<KR name>=↑|↓|=[ <before>→<after> 实测|预计]`, repeatable; ↑ and ↓ need both numbers and 实测 (measured) or 预计 (expected). A KR not listed is `=`. Pure infrastructure is `--o 无` with no `--kr`.
+- `--kr` is `<KR name>=toward|away|hold` (toward the target, away from it, or holding), repeatable; the CLI adds the KR's latest reading and measure hash. A KR not listed is unchanged. Pure infrastructure is `--o 无` with no `--kr`.
+- `--change` is `product` (the default), `measure` or `gold`: a change to the measure or the gold is not judged and is counted apart as changing the ruler.
+- One registered after the ticket's first PR link is late (事后): it satisfies the close lock but is never judged or counted.
+- `close --done --kr "<KR name>=<after> 实测|预计"` reports each registered KR's value after; heading, reading and measure stay as registered.
 - The Objective and KR names must exist in the repository's `docs/agents/okr.toml`; run it from that repository. In a GitHub-tracked repository the ID is `'#N'`.
 - The declaration is kept on the local board (`kr_impacts`) and recorded on the ticket: a note `impact: …` on the board, a `影响：` comment with its marker on GitHub. The locks read only the local board.
-- In a repository with `okr.toml`, `close --done` is refused without one, and the plugin's hook denies `gh pr merge` and `scripts/merge.sh <PR>` until every ticket the PR is linked to (its closing issues, `Refs #N` in its body, or an open board task named in its title, body or branch) has one: GitHub closes an issue on merge without `nawaban close`.
+- In a repository with `okr.toml`, `close --done` is refused without one, or with registered KRs and no result, and the plugin's hook denies `gh pr merge` and `scripts/merge.sh <PR>` until every ticket the PR is linked to (its closing issues, `Refs #N` in its body, or an open board task named in its title, body or branch) has one: GitHub closes an issue on merge without `nawaban close`.
 - Triage labels are notes: `--kind note --body "triage: <label>"`.
 
 ## Waiting on the user

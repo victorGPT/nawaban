@@ -1,8 +1,8 @@
 import { parseArgs } from 'node:util'
 import { readFileSync } from 'node:fs'
-import { board, type MessageView } from '@vercel/board'
+import { block as blockOf, board, type MessageView } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
-import { undeclared } from './impact.ts'
+import { RESULT_FORMAT, undeclared } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { forgetLive } from './progress.ts'
 
@@ -192,6 +192,17 @@ const claim: Verb = async (argv) => {
   return code
 }
 
+const KR_RESULT = /^(.+)=(-?\d+(?:\.\d+)?%?)\s+(实测|预计)\s*$/
+
+function resultsOf(specs: string[]) {
+  const krs = specs.map((spec) => {
+    const [, name, after, basis] = KR_RESULT.exec(spec) ?? []
+    if (!name) throw new Refused(`--kr is ${RESULT_FORMAT}: ${spec}`, 2)
+    return { name: name.trim(), after: after!, basis: basis! }
+  })
+  return blockOf('nawaban-impact-result@1', { krs })
+}
+
 async function refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView, json: string[]) {
   const why = await undeclared(team, task.id, boardDirAsConfiguredWhenAsked())
   if (why) throw new Refused(why)
@@ -242,12 +253,14 @@ const close: Verb = async (argv) => {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { done: { type: 'boolean' }, cancelled: { type: 'boolean' }, json: { type: 'boolean' } },
+    options: { done: { type: 'boolean' }, cancelled: { type: 'boolean' }, kr: { type: 'string', multiple: true }, json: { type: 'boolean' } },
   })
   const [ref] = positionals
   if (!ref || positionals.length !== 1 || !!values.done === !!values.cancelled) throw new Refused('usage: nawaban close <key> (--done | --cancelled)', 2)
+  if (values.kr && !values.done) throw new Refused('--kr reports results, and goes only with --done', 2)
   const task = await resolve(ref)
   const team = personOwningEveryTaskTheirProfilesMade()
+  if (values.kr) await team.reply(task.id, resultsOf(values.kr))
   if (values.done) return refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team, task, values.json ? ['--json'] : [])
   return cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team, task, !!values.json)
 }

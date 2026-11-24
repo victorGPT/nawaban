@@ -622,3 +622,9 @@ test("a KR whose point meets the target but whose interval does not reads 未定
   assert.deepEqual(o.krs.map((k) => [k.name, k.status, k.measured, k.interval]), [["意图", "undecided", true, "区间 [87.1, 99.6]"], ["旧", "stale", true, null]]);
   assert.equal(o.standing, "unsure");
 });
+
+test("an Objective with tickets changing the measure or the gold shows how many, apart from its tally", () => {
+  const krs = [{ name: "K", target: ">= 1", target_op: ">=", target_value: 1, status: "missed", value: 0, as_of: "2026-11-18" }];
+  const [withRulers, without] = okrView({ objectives: [{ name: "O", rulers: 2, krs }, { name: "P", rulers: 0, krs }] }, "zh").objectives;
+  assert.deepEqual([withRulers.rulers, without.rulers], ["改尺子 2 张", null]);
+});

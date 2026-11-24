@@ -2,7 +2,9 @@ import { parseArgs } from 'node:util'
 import { BoardError, block, type board } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
 import { gapsOfADecisionCard, SCHEMAS, type SchemaId } from './schemas.ts'
-import { IMPACT_FORMAT } from './impact.ts'
+import { IMPACT_FORMAT, whyNotDeclarable } from './impact.ts'
+import { registeredReadings } from './okr.ts'
+import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { Refused, resolve } from './tasks.ts'
 
 type Run = (argv: string[]) => Promise<number>
@@ -14,7 +16,7 @@ const KINDS = ['note', 'decision', 'link', 'ask', 'resolve', 'impact'] as const
 type Kind = (typeof KINDS)[number]
 const HOLD_FOR_PERSON = 'needs_input'
 const HOLD_FOR_DECISION = 'awaiting_approval'
-const KR_IMPACT_AS_THE_OLD_CLI_TOOK_IT = /^(.+)=([↑↓=])(?:\s+(-?\d+(?:\.\d+)?%?)\s*→\s*(-?\d+(?:\.\d+)?%?)\s+(实测|预计))?\s*$/
+const KR_HEADING = /^(.+)=(toward|away|hold)\s*$/
 const TRIAGE_LABEL = /^\s*triage:\s*([\w-]+)/
 const QUESTION_AFTER_DENGNI = /等你[：:]/
 
@@ -24,6 +26,7 @@ const OPTIONS = {
   by: { type: 'string' },
   kr: { type: 'string', multiple: true },
   o: { type: 'string' },
+  change: { type: 'string' },
   question: { type: 'string' },
   verdict: { type: 'string' },
   rejected: { type: 'string', multiple: true },
@@ -36,6 +39,7 @@ type Args = ReturnType<typeof parseArgs<{ args: string[]; allowPositionals: true
 
 type Event = {
   id: string
+  team: Team
   a: Args
   kr: string | undefined
   reply: (text: string) => Promise<number>
@@ -83,6 +87,7 @@ async function boardIdByKeyOrId(ref: string): Promise<{ id: string } | { error: 
 function misuse(kind: Kind, a: Args): string | null {
   if (a.by !== undefined && (kind !== 'decision' || a.by !== 'user')) return '--by user goes only with --kind decision'
   if ((a.o !== undefined) !== (kind === 'impact')) return 'an impact takes --o "<O 名>" (纯基础设施写 --o 无), and only an impact does'
+  if (a.change !== undefined && kind !== 'impact') return '--change goes only with --kind impact'
   if (kind !== 'impact' && (a.kr?.length ?? 0) > 1) return '--kr goes once, but for an impact'
   return null
 }
@@ -126,7 +131,7 @@ function eventOn(id: string, a: Args, run: Run, team: Team): Event {
     return posted
   }
 
-  return { id, a, kr: a.kr?.[0], reply, holdFirstThenReply, answerThenLiftIfStillOurs, holdAndNewest }
+  return { id, team, a, kr: a.kr?.[0], reply, holdFirstThenReply, answerThenLiftIfStillOurs, holdAndNewest }
 }
 
 async function note(e: Event): Promise<number> {
@@ -181,23 +186,26 @@ async function ask(e: Event): Promise<number> {
   return e.holdFirstThenReply(a.body!, HOLD_FOR_DECISION, card.text)
 }
 
-function krsOfImpactArgs(specs: string[]): Record<string, string>[] | { error: number } {
-  const krs = []
+export async function registration(team: Team, id: string, o: string | undefined, specs: string[], change = 'product'): Promise<{ text: string } | { error: number }> {
+  const headings = []
   for (const spec of specs) {
-    const [, name, dir, before, after, basis] = KR_IMPACT_AS_THE_OLD_CLI_TOOK_IT.exec(spec) ?? []
-    if (!name) return { error: refuse(`--kr is ${IMPACT_FORMAT}, numbers before→after: ${spec}`, 2) }
-    krs.push(Object.fromEntries(Object.entries({ name: name.trim(), dir, before, after, basis }).filter(([, v]) => v !== undefined)) as Record<string, string>)
+    const [, name, heading] = KR_HEADING.exec(spec) ?? []
+    if (!name) return { error: refuse(`--kr is ${IMPACT_FORMAT}: ${spec}`, 2) }
+    headings.push({ name: name.trim(), heading: heading! })
   }
-  return krs
+  const { channel } = (await team.thread(id, { limit: 1 })).message
+  const why = await whyNotDeclarable(boardDirAsConfiguredWhenAsked(), channel, { objective: o ?? '', krs: headings })
+  if (why) return { error: refuse(why) }
+  const readings = await registeredReadings(team, channel, headings.map((k) => k.name))
+  const value = checkedBeforeAnythingLands('nawaban-impact@2', { objective: o, change, krs: headings.map((k) => ({ ...k, ...readings[k.name] })) })
+  return 'why' in value ? { error: refuse(`${value.why} (--change product|measure|gold)`, 2) } : value
 }
 
 async function impactShapeHereNamesAtTheBoard(e: Event): Promise<number> {
   const { a } = e
-  if (a.body || a.context || a.option || a.rec || a.question || a.verdict || a.rejected) return refuse('an impact takes only --o and --kr', 2)
-  const krs = krsOfImpactArgs(a.kr ?? [])
-  if ('error' in krs) return krs.error
-  const value = checkedBeforeAnythingLands('nawaban-impact@1', { objective: a.o, krs })
-  return 'why' in value ? refuse(`${value.why} (↑↓ need numbers before→after and 实测|预计)`) : e.reply(value.text)
+  if (a.body || a.context || a.option || a.rec || a.question || a.verdict || a.rejected) return refuse('an impact takes only --o, --kr and --change', 2)
+  const value = await registration(e.team, e.id, a.o, a.kr ?? [], a.change)
+  return 'error' in value ? value.error : e.reply(value.text)
 }
 
 async function resolveDecision(e: Event): Promise<number> {
@@ -236,4 +244,22 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
   const why = misuse(kind, a)
   if (why) return refuse(why, 2)
   return BY_KIND[kind](eventOn(task.id, a, run, team))
+}
+
+export async function claimRegistering(argv: string[], claim: Run, run: Run, team: Team): Promise<number> {
+  let parsed
+  try {
+    parsed = parseArgs({ args: argv, allowPositionals: true, options: { o: { type: 'string' }, kr: { type: 'string', multiple: true }, change: { type: 'string' }, release: { type: 'boolean' }, json: { type: 'boolean' } } })
+  } catch (error) {
+    return refuse((error as Error).message, 2)
+  }
+  const { o, kr, change, release, json } = parsed.values
+  const plain = [...parsed.positionals, ...(release ? ['--release'] : []), ...(json ? ['--json'] : [])]
+  if (o === undefined) return kr || change ? refuse('--kr and --change register an impact, and go with --o "<O 名>"', 2) : claim(plain)
+  if (release) return refuse('--o registers an impact as the task is claimed, not released', 2)
+  const task = await boardIdByKeyOrId(parsed.positionals[0] ?? '')
+  if ('error' in task) return task.error
+  const value = await registration(team, task.id, o, kr ?? [], change)
+  if ('error' in value) return value.error
+  return (await claim(plain)) || run(['reply', task.id, value.text])
 }
