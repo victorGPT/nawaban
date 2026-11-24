@@ -976,6 +976,11 @@ def _objectives_hold_kr_tables(objectives) -> bool:
 def _refuse_whole_file_for_a_malformed_kr(o: dict, kr: dict) -> None:
     if not isinstance(kr.get("name"), str) or not kr["name"]:
         raise Refused(f"{OKR_FILE}:{o.get('name')} 下有一条 KR 没写 name")
+    inputs = kr.get("inputs", [])
+    if not isinstance(inputs, list) or not all(isinstance(i, str) and i and "\0" not in i for i in inputs):
+        raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 inputs 要写成非空字符串的数组")
+    if any(GLOB_SYNTAX_THE_TWO_CLIS_READ_APART.search(i) or {".", ".."} & set(i.split("/")) for i in inputs):
+        raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 inputs 只认 *、?、** 通配，不收 {{}}[]()!\\，也不收 . 和 .. 段")
     if not all(isinstance(kr.get(k, ""), str) and "\0" not in kr.get(k, "") for k in ("measure", "unit", "wait")):
         raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 measure、unit、wait 要写成字符串")
     age = kr.get("max_age_days", 0)
@@ -1054,7 +1059,9 @@ def _kept_reading_or_failure(root: Path, kr: dict, got) -> tuple | None:
 
 FAILED = ""
 DEF_HASH_LENGTH = 16
-KR_FIELDS_IN_DEF_HASH = ("max_age_days", "measure", "name", "target", "unit", "wait")
+KR_FIELDS_IN_DEF_HASH = ("inputs", "max_age_days", "measure", "name", "target", "unit", "wait")
+_WILDCARD = re.compile(r"[*?]")
+GLOB_SYNTAX_THE_TWO_CLIS_READ_APART = re.compile(r"[{}\[\]()!\\]")
 MEASURE_CODE_SUFFIXES = (".ts", ".mts", ".js", ".mjs", ".cjs", ".py", ".sh")
 _SHELL_SEPARATORS = re.compile(r"[\s'\"`;|&<>()=]+")
 
@@ -1064,7 +1071,42 @@ def def_hash(root: Path, kr: dict) -> str:
     h = hashlib.sha256(entry.encode())
     for name in _repo_files_named_in(root, kr.get("measure", "")):
         h.update(b"\0" + name.encode() + b"\0" + hashlib.sha256((root / name).read_bytes()).hexdigest().encode())
+    for pattern in kr.get("inputs", []):
+        digests = sorted(hashlib.sha256(p.read_bytes()).hexdigest() for p in _input_files(root, pattern))
+        h.update(b"\0" + pattern.encode() + b"\0" + ",".join(digests).encode())
     return h.hexdigest()[:DEF_HASH_LENGTH]
+
+
+def _input_files(root: Path, pattern: str) -> list[Path]:
+    expanded = str(Path.home()) + pattern[1:] if pattern == "~" or pattern.startswith("~/") else pattern
+    start = "/" if os.path.isabs(expanded) else str(root)
+    found = _files_matching(start, [s for s in expanded.split("/") if s])
+    return [Path(p) for p in dict.fromkeys(os.path.realpath(p) for p in found)]
+
+
+def _files_matching(at: str, segments: list[str]) -> list[str]:
+    if not segments:
+        return [at] if os.path.isfile(at) else []
+    segment, rest = segments[0], segments[1:]
+    if segment == "**":
+        found = _files_matching(at, rest)
+        for name in _entries(at):
+            child = os.path.join(at, name)
+            if not name.startswith(".") and os.path.isdir(child) and not os.path.islink(child):
+                found += _files_matching(child, segments)
+        return found
+    if not _WILDCARD.search(segment):
+        return _files_matching(os.path.join(at, segment), rest)
+    whole = re.compile("".join("[^/]*" if c == "*" else "[^/]" if c == "?" else re.escape(c) for c in segment))
+    return [f for name in _entries(at) if (segment.startswith(".") or not name.startswith(".")) and whole.fullmatch(name)
+            for f in _files_matching(os.path.join(at, name), rest)]
+
+
+def _entries(at: str) -> list[str]:
+    try:
+        return os.listdir(at)
+    except OSError:
+        return []
 
 
 def _repo_files_named_in(root: Path, cmd: str) -> list[str]:

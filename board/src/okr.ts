@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { extname, isAbsolute, join, sep } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
 import { block, BoardError, type board, type MessageView } from '@vercel/board'
@@ -9,7 +10,7 @@ import { OKR_FILE, projectOf } from './impact.ts'
 import { Refused } from './tasks.ts'
 
 type Team = ReturnType<typeof board>
-export type Kr = { name: string; target: string; unit?: string; measure?: string; wait?: string; max_age_days?: number }
+export type Kr = { name: string; target: string; unit?: string; measure?: string; wait?: string; max_age_days?: number; inputs?: string[] }
 export type Objective = { name: string; kr?: Kr[] }
 export type KeptReading = { kr: string; value: string; as_of: string; source: string; measured_at: Round; def_hash: string }
 export type Declared = { ticket: string; dir: string; before: string | null; after: string | null; basis: string | null; declared_at: string }
@@ -33,7 +34,8 @@ const BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT = 20
 const NOT_COMMITTED = '未提交'
 export const FAILED = ''
 const DEF_HASH_LENGTH = 16
-const KR_FIELDS_IN_DEF_HASH = ['max_age_days', 'measure', 'name', 'target', 'unit', 'wait'] as const
+const KR_FIELDS_IN_DEF_HASH = ['inputs', 'max_age_days', 'measure', 'name', 'target', 'unit', 'wait'] as const
+const GLOB_SYNTAX_THE_TWO_CLIS_READ_APART = /[{}[\]()!\\]/
 const MEASURE_CODE_SUFFIXES = ['.ts', '.mts', '.js', '.mjs', '.cjs', '.py', '.sh']
 const SHELL_SEPARATORS = /[\s'"`;|&<>()=]+/
 
@@ -91,6 +93,13 @@ function refuseWholeFileNeverSkipAKr(objectives: unknown): asserts objectives is
       if (typeof kr.name !== 'string' || !kr.name) throw new Refused(`${OKR_FILE}:${o.name} 下有一条 KR 没写 name`)
       if (!['measure', 'unit', 'wait'].every((k) => kr[k] === undefined || (typeof kr[k] === 'string' && !kr[k].includes('\0')))) {
         throw new Refused(`${OKR_FILE}:${o.name} / ${kr.name} 的 measure、unit、wait 要写成字符串`)
+      }
+      const inputs = kr.inputs ?? []
+      if (!Array.isArray(inputs) || !inputs.every((i) => typeof i === 'string' && i && !i.includes('\0'))) {
+        throw new Refused(`${OKR_FILE}:${o.name} / ${kr.name} 的 inputs 要写成非空字符串的数组`)
+      }
+      if (inputs.some((i) => GLOB_SYNTAX_THE_TWO_CLIS_READ_APART.test(i) || i.split('/').some((s: string) => s === '.' || s === '..'))) {
+        throw new Refused(`${OKR_FILE}:${o.name} / ${kr.name} 的 inputs 只认 *、?、** 通配，不收 {}[]()!\\，也不收 . 和 .. 段`)
       }
       const age = kr.max_age_days
       if (age !== undefined) {
@@ -181,7 +190,43 @@ export async function defHash(root: string, kr: Kr) {
   for (const name of await repoFilesNamedIn(root, kr.measure ?? '')) {
     h.update(`\0${name}\0${sha256(await readFile(join(root, name))).digest('hex')}`)
   }
+  for (const pattern of kr.inputs ?? []) {
+    const digests = await Promise.all((await inputFiles(root, pattern)).map(async (f) => sha256(await readFile(f)).digest('hex')))
+    h.update(`\0${pattern}\0${digests.sort().join(',')}`)
+  }
   return h.digest('hex').slice(0, DEF_HASH_LENGTH)
+}
+
+async function inputFiles(root: string, pattern: string) {
+  const expanded = pattern === '~' || pattern.startsWith('~/') ? homedir() + pattern.slice(1) : pattern
+  const found = await filesMatching(isAbsolute(expanded) ? '/' : root, expanded.split('/').filter(Boolean))
+  return [...new Set(await Promise.all(found.map((f) => realpath(f))))]
+}
+
+const isFile = (p: string) => stat(p).then((s) => s.isFile(), () => false)
+const isDir = (p: string) => stat(p).then((s) => s.isDirectory(), () => false)
+const isLink = (p: string) => lstat(p).then((s) => s.isSymbolicLink(), () => false)
+const entries = (p: string) => readdir(p).catch(() => [] as string[])
+const REGEX_SPECIALS = /[.+^$|\\/]/g
+
+async function filesMatching(at: string, segments: string[]): Promise<string[]> {
+  const [segment, ...rest] = segments
+  if (segment === undefined) return (await isFile(at)) ? [at] : []
+  if (segment === '**') {
+    const found = await filesMatching(at, rest)
+    for (const name of await entries(at)) {
+      const child = join(at, name)
+      if (!name.startsWith('.') && (await isDir(child)) && !(await isLink(child))) found.push(...(await filesMatching(child, segments)))
+    }
+    return found
+  }
+  if (!/[*?]/.test(segment)) return filesMatching(join(at, segment), rest)
+  const whole = new RegExp('^' + segment.replace(REGEX_SPECIALS, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$', 'u')
+  const found: string[] = []
+  for (const name of await entries(at)) {
+    if ((segment.startsWith('.') || !name.startsWith('.')) && whole.test(name)) found.push(...(await filesMatching(join(at, name), rest)))
+  }
+  return found
 }
 
 async function keptReadingOrFailure(root: string, o: Objective, kr: Kr, got: [string, string] | string | null): Promise<Reading | null> {

@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
@@ -631,5 +631,31 @@ describe('a measure that changes and fails at once', () => {
     ]
     const k = judge(objectives([['K', '>= 5']]), rows, new Map(), new Map(), '/r', null).objectives[0]!.krs[0] as Record<string, unknown>
     expect([k.status, k.series, k.trend, k.missed_rounds, k.history]).toEqual(['unmeasurable', null, null, 0, []])
+  })
+})
+
+const INPUTS_HASH = '053c677dcdb3c251'
+
+describe('inputs a KR declares', () => {
+  it('hash as the old CLI does, dotfiles and missing patterns alike', async () => {
+    const root = realpathSync(await mkdtemp(join(tmpdir(), 'nawaban-inputs-')))
+    for (const [path, text] of [['gold/a.jsonl', 'a'], ['gold/sub/b.jsonl', 'b'], ['gold/.h.jsonl', 'h'], ['gold/.hidden/x.jsonl', 'x'], ['cases.json', 'c'], ['gold/C.JSONL', 'C'], ['outside/o.jsonl', 'o']] as const) {
+      await mkdir(join(root, path, '..'), { recursive: true })
+      await writeFile(join(root, path), text)
+    }
+    await symlink(join(root, 'outside'), join(root, 'gold', 'out'))
+    await writeFile(join(root, 'gold', '😀.jsonl'), 'e')
+    expect(await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl', 'cases.json', 'missing/*.txt', 'gold/**/**/*.jsonl', 'gold/?.jsonl'] })).toBe(INPUTS_HASH)
+    const before = await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl'] })
+    await writeFile(join(root, 'gold/sub/b.jsonl'), 'b2')
+    expect(await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl'] })).not.toBe(before)
+  })
+
+  it('refuses inputs that are not an array of paths', async () => {
+    await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\ninputs = "gold.jsonl"\n'))).rejects.toThrow(/inputs 要写成非空字符串的数组/)
+  })
+
+  it.each(['gold/{a,b}.jsonl', 'gold/[ab].jsonl', 'gold/!(x).jsonl', 'gold/../x.jsonl', './gold/a.jsonl'])('refuses %s, glob syntax the old CLI reads apart', async (pattern) => {
+    await expect(run(await repo(`[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\ninputs = ['${pattern}']\n`))).rejects.toThrow(/只认 \*、\?、\*\* 通配/)
   })
 })
