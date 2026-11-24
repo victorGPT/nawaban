@@ -63,7 +63,7 @@ describe('detailView timeline', () => {
       ev('link', 'artifact:https://claude.ai/artifact/X', at(24, 11)),
     ]), task(), NOW)
     expect(view.days[0]!.rows).toEqual([{ kind: 'milestone', at: at(24, 9), line: '开 PR #136', href: 'https://github.com/o/r/pull/136', mark: 'pr' }])
-    expect(view.links).toEqual([
+    expect(view.links.map(({ label, href }) => ({ label, href }))).toEqual([
       { label: 'PR #136', href: 'https://github.com/o/r/pull/136' },
       { label: 'd33f79c', href: null },
       { label: 'artifact', href: 'https://claude.ai/artifact/X' },
@@ -96,13 +96,30 @@ describe('detailView now', () => {
     expect(view.steps!.map((s) => s.word + ':' + s.status)).toEqual([
       '开工:completed', '首次改文件:completed', '首次提交:completed', '开 PR:in_progress', 'review:pending', '回报:pending',
     ])
-    expect(view.movedAt).toBe(NOW - 30)
+    expect(view.headline).toEqual(['开 PR'])
+    expect(detailView(detail([]), task({ live: { milestone: 'pr', at: NOW - 360 } }), NOW).headline).toEqual(['开 PR · 6 分钟前'])
   })
 
   it('starts at 开工 with no live milestone, and shows no steps for a task off the board', () => {
     expect(detailView(detail([]), task(), NOW).steps![0]).toEqual({ word: '开工', status: 'in_progress' })
     const offBoard = detailView(detail([], { status: 'done' }), null, NOW)
-    expect([offBoard.state, offBoard.steps, offBoard.movedAt]).toEqual(['done', null, null])
+    expect([offBoard.state, offBoard.steps, offBoard.headline]).toEqual(['done', null, ['已完成']])
+  })
+
+  it('says what it waits for first, with the place a link leads to as the link', () => {
+    const view = detailView(detail([]), task({ waiting: '稿可不可以（https://claude.ai/artifact/abc）\n第二行' }), NOW)
+    expect(view.headline).toEqual(['稿可不可以（', { label: 'claude.ai', href: 'https://claude.ai/artifact/abc' }, '）'])
+  })
+
+  it('says a finished task is done, when, and by which pull request', () => {
+    const pr = ev('link', 'pr:https://github.com/o/r/pull/136', at(24, 15))
+    const view = detailView(detail([pr], { status: 'done' }), task({ status: 'done', done_at: at(24, 16, 37) }), NOW)
+    expect(view.headline).toEqual(['已完成 · 11/24 16:37', ' · ', { label: 'PR #136', href: 'https://github.com/o/r/pull/136' }])
+  })
+
+  it('says a held task that went quiet has stopped, and nothing for one nobody holds', () => {
+    expect(detailView(detail([]), task({ active_at: NOW - 30 * 3600 }), NOW).headline).toEqual(['停滞 · 1 天没动'])
+    expect(detailView(detail([]), task({ status: 'open', session: null }), NOW).headline).toEqual([])
   })
 })
 
@@ -111,5 +128,30 @@ describe('detailView body', () => {
     const view = detailView(detail([], { body: '前言一句\n## What to build\n做这个\n## Acceptance criteria\n- 过测试\n## 备注\n\n## Other\n其它' }), task(), NOW)
     expect(view.sections.map((s) => s.label)).toEqual([null, '做什么', '完成标准', 'Other'])
     expect(view.sections[2]!.html).toContain('<li>过测试</li>')
+  })
+})
+
+describe('detailView one-liners', () => {
+  it('drops who and when from the decision-maker\'s line, since the row already shows them', () => {
+    const view = detailView(detail([
+      ev('decision', '决定：决策者 11-24 14:28「挺好的」，照做\n背景：做不做', at(24, 9), 'user'),
+      ev('decision', '决定：决策者 11-24 授权，编排者代定', at(24, 10)),
+    ]), task(), NOW)
+    expect(lines(view)).toEqual([['今天', ['decision 决策者 11-24 授权，编排者代定', 'decision 「挺好的」，照做']]])
+  })
+
+  it('names the place a URL leads to instead of spelling it out, in rows and in what it waits for', () => {
+    const asked = '稿可不可以（https://claude.ai/artifact/abc）'
+    const view = detailView(detail([
+      ev('note', '进展：PR https://github.com/o/r/pull/136（ff93bb1）开了', at(24, 9)),
+      ev('note', 'triage: needs-info — 等你：' + asked, at(24, 10)),
+    ]), task({ waiting: asked }), NOW)
+    expect(lines(view)).toEqual([['今天', ['ask 稿可不可以（claude.ai）', 'note PR PR #136（ff93bb1）开了']]])
+    expect(view.waiting).toBe('稿可不可以（claude.ai）')
+  })
+
+  it('leaves lane and coord bookkeeping out of the timeline', () => {
+    const view = detailView(detail([ev('note', 'lane: design', at(24, 9)), ev('note', 'coord: x', at(24, 10)), ev('note', '进展：一', at(24, 11))]), task(), NOW)
+    expect(lines(view)).toEqual([['今天', ['note 一']]])
   })
 })

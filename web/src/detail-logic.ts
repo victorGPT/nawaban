@@ -1,4 +1,4 @@
-import { linkOf, MILESTONE_WORDS, MILESTONES, stateOf, type BoardTask, type ItemState } from './logic'
+import { linkOf, MILESTONE_WORDS, MILESTONES, sinceLabel, stateOf, WHO_AND_WHEN_ALREADY_SHOWN, WINDOW_WORDS, type BoardTask, type ItemState } from './logic'
 import { markdownHtml } from './markdown'
 
 export type Ref = { id: string; title: string; status: string }
@@ -21,31 +21,39 @@ export type Row =
 export type Day = { key: string; label: string; rows: Row[] }
 export type Step = { word: string; status: 'completed' | 'in_progress' | 'pending' }
 export type Section = { label: string | null; html: string }
+export type Part = string | { label: string; href: string }
+export type Link = { kind: string; label: string; href: string | null }
 export type DetailView = {
   state: ItemState
+  headline: Part[]
   steps: Step[] | null
-  movedAt: number | null
   waiting: string | null
   ruling: Ruling | null
   sections: Section[]
   days: Day[]
-  links: { label: string; href: string | null }[]
+  links: Link[]
 }
 
 const OWNER_AUTHOR = 'user'
 const ASK_OPENING = 'triage: needs-info — 等你：'
 const SAYING_PREFIX = /^(?:决定|进展|已完成)：/
+const BOOKKEEPING_NOTE = /^(?:lane|coord):/
 const QUESTION_LINE = /^背景：(.*)$/m
 const PR_NUMBER = /\/pull\/(\d+)/
+const URL = /https?:\/\/[^\s（）()「」，。；]+/g
 const SHORT_SHA = 7
 const SECTION_HEAD = /^##\s+(.+)$/
 const SECTION_NAMES: Record<string, string> = { 'What to build': '做什么', 'Acceptance criteria': '完成标准' }
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 const MS_PER_SECOND = 1000
 const HELD: ItemState[] = ['working', 'stopped']
+const MINUTE = 60
+const W = WINDOW_WORDS.zh
 
 const byOf = (e: Event): By => (e.author === OWNER_AUTHOR ? 'owner' : 'agent')
-const firstLine = (text: string) => text.trim().split('\n')[0]!.trim()
+const placeOf = (url: string) => (PR_NUMBER.exec(url) ? 'PR #' + PR_NUMBER.exec(url)![1] : url.replace(/^https?:\/\//, '').split('/')[0]!)
+const withPlacesForUrls = (text: string) => text.replace(URL, placeOf)
+const firstLine = (text: string) => withPlacesForUrls(text.trim().split('\n')[0]!.trim())
 const entryOf = (at: number, text: string): Entry => {
   const full = text.trim().replace(SAYING_PREFIX, '')
   return { at, line: firstLine(full), full }
@@ -60,18 +68,33 @@ const workerOf = (body: string): string => {
   }
 }
 
-function linkLabel(body: string) {
-  const link = linkOf(body)
-  if (link.kind === 'pr') return { label: 'PR' + (PR_NUMBER.exec(link.ref) ? ' #' + PR_NUMBER.exec(link.ref)![1] : ''), href: link.href }
-  if (link.kind === 'commit') return { label: link.ref.slice(0, SHORT_SHA), href: link.href }
-  return { label: link.kind || link.ref, href: link.href }
+function linkLabel(body: string): Link {
+  const { kind, ref, href } = linkOf(body)
+  if (kind === 'pr') return { kind, label: 'PR' + (PR_NUMBER.exec(ref) ? ' #' + PR_NUMBER.exec(ref)![1] : ''), href }
+  if (kind === 'commit') return { kind, label: ref.slice(0, SHORT_SHA), href }
+  return { kind, label: kind || ref, href }
+}
+
+function partsOf(text: string): Part[] {
+  const parts: Part[] = []
+  let from = 0
+  for (const url of text.matchAll(URL)) {
+    parts.push(text.slice(from, url.index), { label: placeOf(url[0]), href: url[0] })
+    from = url.index + url[0].length
+  }
+  return [...parts, text.slice(from)].filter((p) => p !== '')
 }
 
 const ROW_OF_EVENT: Record<string, (e: Event) => Row | null> = {
-  decision: (e) => ({ kind: 'decision', by: byOf(e), question: questionOf(e.body), ...entryOf(e.at, e.body) }),
+  decision: (e) => {
+    const said = entryOf(e.at, e.body)
+    return { kind: 'decision', by: byOf(e), question: questionOf(e.body), ...said, line: byOf(e) === 'owner' ? said.line.replace(WHO_AND_WHEN_ALREADY_SHOWN, '') : said.line }
+  },
   note: (e) =>
-    e.body.startsWith(ASK_OPENING)
-      ? { kind: 'ask', at: e.at, line: firstLine(e.body.slice(ASK_OPENING.length)), full: e.body.trim() }
+    BOOKKEEPING_NOTE.test(e.body)
+      ? null
+      : e.body.startsWith(ASK_OPENING)
+      ? { kind: 'ask', at: e.at, line: firstLine(e.body.slice(ASK_OPENING.length)), full: e.body.slice(ASK_OPENING.length).trim() }
       : { kind: 'note', ...entryOf(e.at, e.body) },
   dispatch: (e) => ({ kind: 'milestone', at: e.at, line: ['派工', workerOf(e.body)].filter(Boolean).join(' '), href: null, mark: 'dispatch' }),
   link: (e) => (linkOf(e.body).kind === 'pr' ? { kind: 'milestone', at: e.at, line: '开 ' + linkLabel(e.body).label, href: linkLabel(e.body).href, mark: 'pr' } : null),
@@ -85,6 +108,8 @@ export const clockOf = (at: number) => {
   const d = localDate(at)
   return pad(d.getHours()) + ':' + pad(d.getMinutes())
 }
+
+export const stampOf = (at: number) => pad(localDate(at).getMonth() + 1) + '/' + pad(localDate(at).getDate()) + ' ' + clockOf(at)
 
 function dayLabel(at: number, now: number) {
   const d = localDate(at)
@@ -145,21 +170,36 @@ function stepsAt(reached: string): Step[] {
   }))
 }
 
+const quietFor = (task: BoardTask, now: number) => {
+  const moved = task.live?.at ?? task.active_at
+  return now - moved < MINUTE ? null : sinceLabel({ state: 'working', at: moved }, now, 'zh')
+}
+const joined = (...words: (string | null)[]) => words.filter(Boolean).join(' · ')
+
+const HEADLINE_OF: Record<ItemState, (task: BoardTask, seen: { steps: Step[] | null; pr: Link | undefined; now: number }) => Part[]> = {
+  todo: () => [],
+  working: (task, { steps, now }) => [joined(steps?.find((s) => s.status === 'in_progress')?.word ?? W.working, quietFor(task, now) && quietFor(task, now) + '前')],
+  stopped: (task, { now }) => (task.waiting ? partsOf(task.waiting.trim().split('\n')[0]!) : [joined(W.stopped, quietFor(task, now) && quietFor(task, now) + '没动')]),
+  done: (task, { pr }) => [joined(W.done, task.done_at ? stampOf(task.done_at) : null), ...(pr?.href ? [' · ', { label: pr.label, href: pr.href }] : [])],
+}
+
 export function detailView(detail: Detail, boardTask: BoardTask | null, now: number): DetailView {
   const state: ItemState = boardTask ? stateOf(boardTask, now) : detail.status === 'done' ? 'done' : 'todo'
   const said = oldestFirst(detail.events).map((e) => ROW_OF_EVENT[e.kind]?.(e) ?? null).filter((r): r is Row => r !== null)
   const finished: Row[] = boardTask?.done_at ? [{ kind: 'milestone', at: boardTask.done_at, line: '完成', href: null, mark: 'done' }] : []
   const rows = foldedProgress([...said, ...finished].sort((a, b) => a.at - b.at))
   const latestDecision = said.filter((r) => r.kind === 'decision').at(-1)
+  const steps = boardTask && HELD.includes(state) ? stepsAt(boardTask.live?.milestone ?? 'started') : null
+  const links = detail.links.map((e) => linkLabel(e.body))
   return {
     state,
-    steps: boardTask && HELD.includes(state) ? stepsAt(boardTask.live?.milestone ?? 'started') : null,
-    movedAt: boardTask ? (boardTask.live?.at ?? boardTask.active_at) : null,
-    waiting: boardTask?.waiting || null,
+    headline: boardTask ? HEADLINE_OF[state](boardTask, { steps, pr: links.find((l) => l.kind === 'pr'), now }) : state === 'done' ? [W.done] : [],
+    steps,
+    waiting: boardTask?.waiting ? firstLine(boardTask.waiting) : null,
     ruling: latestDecision ? { at: latestDecision.at, line: latestDecision.line, full: latestDecision.full, by: latestDecision.by, question: latestDecision.question } : null,
     sections: sectionsOf(detail.body ?? ''),
     days: daysOf(rows, now),
-    links: detail.links.map((e) => linkLabel(e.body)),
+    links,
   }
 }
 

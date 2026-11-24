@@ -221,7 +221,7 @@ export function stepChain(steps) {
 }
 
 const QUOTED = /「([^」]+)」/;
-const WHO_AND_WHEN_ALREADY_SHOWN = /^决策者\s*\d{1,2}-\d{1,2}(?:\s+\d{1,2}:\d{2})?\s*[：:，,]?\s*/;
+export const WHO_AND_WHEN_ALREADY_SHOWN = /^决策者\s*\d{1,2}-\d{1,2}(?:\s+\d{1,2}:\d{2})?\s*[：:，,]?\s*/;
 const rulingWords = (verdict) => clip((QUOTED.exec(verdict) ?? [null, verdict.replace(WHO_AND_WHEN_ALREADY_SHOWN, "")])[1], RULING_CHARS);
 const rulingOf = (t, byId) => t.ruling ?? byId.get(t.parent)?.ruling ?? null;
 const rulingLine = (r) => (r ? "决策者 " + decisionDate(r.at) + " " + clockTime(r.at) + " 说「" + rulingWords(r.verdict) + "」" : "编排者代定");

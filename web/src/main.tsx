@@ -7,10 +7,10 @@ import {
   boardColumns, boardTaskOf, foldKey, krFill, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
   WINDOW_WORDS, type Board, type BoardTask, type Item, type Project, type Route, type Tab,
 } from './logic'
-import { clockOf, daysUpTo, detailView, type By, type Day, type Detail, type DetailView, type Ref, type Row, type Section, type Step } from './detail-logic'
+import { clockOf, daysUpTo, detailView, stampOf, type By, type Day, type Detail, type DetailView, type Entry, type Ref, type Row, type Section, type Step } from './detail-logic'
 import { Inbox } from './inbox'
 import { DecidePage } from './Decide'
-import { badge, button, card, cardList, chip, cn, empty, Icon, selectTrigger, sectionHead } from './ui'
+import { badge, button, card, cardList, cardTitle, chip, cn, empty, Icon, selectTrigger, sectionHead } from './ui'
 import type { IconName } from './icons'
 import '@fontsource/geist/400.css'
 import '@fontsource/geist/500.css'
@@ -223,7 +223,15 @@ function App() {
         <header class="flex h-15.5 shrink-0 items-center gap-2 border-b border-border px-4 max-md:h-auto max-md:flex-wrap max-md:py-3">
           <h1 class="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium">
             <Icon name={TAB_ICONS[route().tab]} class="text-muted-foreground" />
-            {TAB_NAMES[route().tab]}
+            <Show when={route().task} fallback={TAB_NAMES[route().tab]}>
+              {(key) => (
+                <>
+                  <a href="#tasks" class="rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">{TAB_NAMES.tasks}</a>
+                  <Icon name="ChevronDown" class="size-3.5 -rotate-90 text-subtle-foreground" />
+                  <span class="truncate tabular-nums">{key()}</span>
+                </>
+              )}
+            </Show>
           </h1>
           <span class="ml-auto min-w-0 truncate text-muted-foreground max-md:ml-0 max-md:basis-full max-md:whitespace-normal">{summary()}</span>
           <Show when={onTaskList()}>
@@ -382,21 +390,25 @@ type RowContext = { waiting: string | null; folds: Folds }
 const TIMELINE_ROWS_SHOWN = 20
 const BODY_FOLD = 'body'
 const ALL_ROWS_FOLD = 'all-rows'
-const SIDE_STEPS_FROM = 3
 const CLOSED_STATUSES = new Set(['done', 'cancelled'])
 const ROLE_WORDS: Record<By, { ruling: string; row: string; tone: string }> = {
   owner: { ruling: '决策者', row: '决策者', tone: 'text-foreground' },
   agent: { ruling: '编排者代定', row: '代定', tone: 'text-subtle-foreground' },
 }
-const STEP_BARS: Record<Step['status'], string> = { completed: 'bg-foreground', in_progress: 'bg-status-progress', pending: 'bg-border' }
+const STEP_LOOKS: Record<Step['status'], { bar: string; word: string }> = {
+  completed: { bar: 'bg-foreground', word: 'text-subtle-foreground' },
+  in_progress: { bar: 'bg-foreground', word: 'text-foreground' },
+  pending: { bar: 'bg-border', word: 'text-subtle-foreground' },
+}
 const fieldLabel = 'text-xs text-muted-foreground'
 const metaText = 'text-xs text-subtle-foreground tabular-nums'
-const nowLine = 'text-base leading-snug font-medium text-foreground [overflow-wrap:anywhere]'
+const quietLink = 'underline decoration-border underline-offset-4 outline-none hover:decoration-foreground focus-visible:decoration-foreground'
 const prose = 'space-y-3 text-sm leading-6 text-foreground [overflow-wrap:anywhere] [&_a]:text-foreground [&_a]:underline [&_h3]:text-sm [&_ol]:block [&_ul]:block'
-const rowLine = 'flex min-h-8 w-full min-w-0 items-center gap-2 px-2 text-left text-sm'
-const foldRow = cn(rowLine, 'group rounded-lg outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50')
-const markCell = 'flex w-4 shrink-0 items-center justify-center'
-const fullText = 'py-2 pr-2 pl-20 text-sm leading-6 whitespace-pre-wrap text-muted-foreground [overflow-wrap:anywhere]'
+const rowLine = 'flex w-full min-w-0 items-start gap-2 px-2 py-1.5 text-left text-sm leading-5 max-md:py-3'
+const foldRow = cn(rowLine, 'rounded-lg outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50')
+const markCell = 'flex h-5 w-4 shrink-0 items-center justify-center'
+const oneLine = 'md:truncate max-md:line-clamp-2'
+const wholeText = 'whitespace-pre-wrap [overflow-wrap:anywhere]'
 
 function TaskDetail(props: { key: string; detail: Detail | null; task: BoardTask | null; error: string }) {
   const [opened, setOpened] = createSignal<Record<string, boolean>>({})
@@ -406,66 +418,62 @@ function TaskDetail(props: { key: string; detail: Detail | null; task: BoardTask
   }
   const shown = createMemo(() => (props.detail?.id === props.key ? { detail: props.detail, view: detailView(props.detail, props.task, nowInSeconds()) } : null))
   return (
-    <article class="flex flex-col gap-6">
-      <a href="#tasks" class={cn(button('ghost', 'sm'), 'self-start text-muted-foreground')}>
-        <Icon name="ChevronLeft" />
-        {W.tabs.tasks}
-      </a>
-      <Show when={shown()} fallback={<p class={empty}>{props.error || W.loading}</p>}>
-        {(s) => <DetailCard detail={s().detail} view={s().view} task={props.task} folds={folds} />}
-      </Show>
-    </article>
+    <Show when={shown()} fallback={<p class={empty}>{props.error || W.loading}</p>}>
+      {(s) => <DetailCard detail={s().detail} view={s().view} task={props.task} folds={folds} />}
+    </Show>
   )
 }
 
 function DetailCard(props: { detail: Detail; view: DetailView; task: BoardTask | null; folds: Folds }) {
   const look = () => STATE_ICONS[props.view.state]
+  const saysSomethingNow = () => props.view.headline.length || props.view.steps || props.view.ruling || props.view.sections.length
   return (
-    <section class="mx-auto flex w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-card">
+    <article class="mx-auto flex w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-card">
       <header class="flex flex-col gap-2 border-b border-border px-6 py-5 max-md:px-4">
         <div class="flex items-start gap-3">
-          <Icon name={look().icon} class={cn('mt-1.25 size-5', look().tone)} />
+          <Icon name={look().icon} class={cn('mt-1 size-5', look().tone)} />
           <h2 class="min-w-0 text-2xl leading-tight font-semibold text-foreground [overflow-wrap:anywhere]">{props.detail.title}</h2>
         </div>
-        <p class={cn(metaText, 'pl-8')}>{props.detail.id} · 建于 {when(props.detail.created_at)}</p>
+        <p class={cn(metaText, 'pl-8')}>建于 {stampOf(props.detail.created_at)}</p>
       </header>
       <div class="flex max-md:flex-col">
-        <div class="flex min-w-0 flex-1 flex-col divide-y divide-border">
-          <NowPart view={props.view} />
-          <BodyPart sections={props.view.sections} folds={props.folds} />
+        <div class="flex min-w-0 flex-1 flex-col max-md:contents">
+          <Show when={saysSomethingNow()}>
+            <div class="flex flex-col gap-6 p-6 max-md:order-1 max-md:p-4">
+              <NowPart view={props.view} />
+              <BodyPart sections={props.view.sections} folds={props.folds} />
+            </div>
+          </Show>
           <Timeline days={props.view.days} waiting={props.view.waiting} folds={props.folds} />
         </div>
-        <aside class="flex w-72 shrink-0 flex-col gap-5 border-l border-border p-6 max-md:w-full max-md:border-t max-md:border-l-0 max-md:p-4">
+        <aside class="flex w-72 shrink-0 flex-col gap-4 border-l border-border p-6 max-md:order-2 max-md:w-full max-md:border-t max-md:border-l-0 max-md:p-4">
           <SideFields detail={props.detail} view={props.view} task={props.task} />
         </aside>
       </div>
-    </section>
+    </article>
   )
 }
 
 function NowPart(props: { view: DetailView }) {
   return (
-    <Show when={props.view.steps || props.view.waiting || props.view.ruling}>
-      <section aria-label="现在" class="flex flex-col gap-5 p-6 max-md:p-4">
-        <Show when={props.view.steps}>{(steps) => <Milestones steps={steps()} movedAt={props.view.movedAt} />}</Show>
-        <Show when={props.view.waiting}>
-          {(question) => (
-            <div class="flex flex-col gap-1.5 rounded-lg border border-warning/30 bg-warning/5 p-4">
-              <span class="flex items-center gap-1.5 text-xs font-medium text-warning">
-                <Icon name="CircleMinus" class="size-3.5 text-warning" />
-                {W.waiting}
-              </span>
-              <p class={nowLine}>{question()}</p>
-            </div>
-          )}
+    <Show when={props.view.headline.length || props.view.steps || props.view.ruling}>
+      <section aria-label="现在" class="flex flex-col gap-4">
+        <Show when={props.view.headline.length}>
+          <p class={cn(cardTitle, 'text-foreground [overflow-wrap:anywhere]')}>
+            <Show when={props.view.waiting}><span class="text-warning">{W.waiting}　</span></Show>
+            <For each={props.view.headline}>
+              {(part) => (typeof part === 'string' ? part : <a class={quietLink} href={part.href} target="_blank" rel="noreferrer">{part.label}</a>)}
+            </For>
+          </p>
         </Show>
+        <Show when={props.view.steps}>{(steps) => <Milestones steps={steps()} />}</Show>
         <Show when={props.view.ruling}>
           {(ruling) => (
-            <div class="flex flex-col gap-1.5">
-              <p class={cn(nowLine, 'line-clamp-2')}>{ruling().line}</p>
+            <div class="flex flex-col gap-1">
+              <p class="line-clamp-2 text-sm leading-6 text-foreground [overflow-wrap:anywhere]">{ruling().line}</p>
               <p class="text-xs text-subtle-foreground [overflow-wrap:anywhere]">
                 <span class={ROLE_WORDS[ruling().by].tone}>{ROLE_WORDS[ruling().by].ruling}</span>
-                <span class="tabular-nums"> · {when(ruling().at)}</span>
+                <span class="tabular-nums"> · {stampOf(ruling().at)}</span>
                 <Show when={ruling().question}>{(question) => <span> · {question()}</span>}</Show>
               </p>
             </div>
@@ -476,19 +484,14 @@ function NowPart(props: { view: DetailView }) {
   )
 }
 
-function Milestones(props: { steps: Step[]; movedAt: number | null }) {
+function Milestones(props: { steps: Step[] }) {
   return (
     <ol class="grid grid-cols-6 gap-2">
       <For each={props.steps}>
-        {(step, i) => (
-          <li class={cn('flex min-w-0 flex-col gap-1.5', i() >= SIDE_STEPS_FROM && 'max-md:items-end')}>
-            <span aria-hidden="true" class={cn('h-1 w-full rounded-full', STEP_BARS[step.status])} />
-            <Show when={step.status === 'in_progress'} fallback={<span class="text-xs whitespace-nowrap text-subtle-foreground max-md:hidden">{step.word}</span>}>
-              <span aria-current="step" class={cn('flex flex-col text-xs whitespace-nowrap', i() >= SIDE_STEPS_FROM && 'max-md:items-end')}>
-                <span class="font-medium text-foreground">{step.word}</span>
-                <Show when={props.movedAt}>{(at) => <span class="text-subtle-foreground tabular-nums">{when(at())}</span>}</Show>
-              </span>
-            </Show>
+        {(step) => (
+          <li aria-current={step.status === 'in_progress' ? 'step' : undefined} class="flex min-w-0 flex-col gap-1.5">
+            <span aria-hidden="true" class={cn('h-1 w-full rounded-full', STEP_LOOKS[step.status].bar)} />
+            <span class={cn('truncate text-xs max-md:sr-only', STEP_LOOKS[step.status].word)}>{step.word}</span>
           </li>
         )}
       </For>
@@ -507,7 +510,7 @@ function BodyPart(props: { sections: Section[]; folds: Folds }) {
   }
   return (
     <Show when={props.sections.length}>
-      <section aria-label="正文" class="flex flex-col gap-5 p-6 max-md:p-4">
+      <section aria-label="正文" class="flex flex-col gap-5">
         <For each={props.sections}>
           {(section, i) => (
             <div class="flex flex-col gap-1.5">
@@ -515,7 +518,7 @@ function BodyPart(props: { sections: Section[]; folds: Folds }) {
               <Show when={i() === 0} fallback={<div class={prose} innerHTML={section.html} />}>
                 <div ref={watchClipping} class={cn(prose, !open() && 'line-clamp-3')} innerHTML={section.html} />
                 <Show when={open() || clipped()}>
-                  <button type="button" aria-expanded={open() ? 'true' : 'false'} class={cn(button('ghost', 'xs'), '-ml-2 self-start text-muted-foreground')} onClick={() => props.folds.setOpen(BODY_FOLD, !open())}>
+                  <button type="button" aria-expanded={open() ? 'true' : 'false'} class={cn(button('ghost', 'sm'), '-ml-2.5 self-start text-muted-foreground')} onClick={() => props.folds.setOpen(BODY_FOLD, !open())}>
                     {open() ? '收起' : '展开'}
                   </button>
                 </Show>
@@ -534,11 +537,11 @@ function Timeline(props: { days: Day[]; waiting: string | null; folds: Folds }) 
   const ctx: RowContext = { get waiting() { return props.waiting }, folds: props.folds }
   return (
     <Show when={props.days.length}>
-      <section aria-label="时间线" class="flex flex-col gap-6 p-6 max-md:p-4">
+      <section aria-label="时间线" class="flex flex-col gap-6 border-t border-border p-6 max-md:order-3 max-md:p-4">
         <For each={all() ? props.days : capped().days}>
           {(day) => (
-            <div class="-mx-2 flex flex-col gap-2">
-              <h3 class="px-2 text-xs font-medium text-muted-foreground">{day.label}</h3>
+            <div class="-mx-2 flex flex-col gap-1">
+              <h3 class="px-2 text-xs text-muted-foreground">{day.label}</h3>
               <ol class="flex flex-col">
                 <For each={day.rows}>{(row) => <li>{rowView(row, ctx)}</li>}</For>
               </ol>
@@ -555,21 +558,22 @@ function Timeline(props: { days: Day[]; waiting: string | null; folds: Folds }) 
   )
 }
 
-const Clock = (props: { at: number }) => <span class="w-10 shrink-0 text-right text-xs text-subtle-foreground tabular-nums">{clockOf(props.at)}</span>
+const Clock = (props: { at: number }) => <span class="w-10 shrink-0 text-right text-xs leading-5 text-subtle-foreground tabular-nums">{clockOf(props.at)}</span>
 const Dot = (props: { class: string }) => <span aria-hidden="true" class={cn('rounded-full', props.class)} />
-const FullText = (props: { text: string }) => <p class={fullText}>{props.text}</p>
 const foldOf = (kind: Row['kind'], row: { at: number; line: string }) => kind + ':' + row.at + ':' + row.line
 
-function FoldRow(props: { fold: string; at: number; mark: JSX.Element; folds: Folds; panel: JSX.Element; children: JSX.Element }) {
+function SayingRow(props: { fold: string; said: Entry; folds: Folds; tone: string; mark?: JSX.Element; lead?: string; children?: JSX.Element }) {
+  const open = () => props.folds.isOpen(props.fold)
   return (
-    <Collapsible open={props.folds.isOpen(props.fold)} onOpenChange={(open) => props.folds.setOpen(props.fold, open)}>
-      <CollapsibleTrigger class={foldRow}>
-        <Clock at={props.at} />
-        <span class={markCell}>{props.mark}</span>
-        {props.children}
-      </CollapsibleTrigger>
-      <CollapsiblePanel>{props.panel}</CollapsiblePanel>
-    </Collapsible>
+    <button type="button" aria-expanded={open() ? 'true' : 'false'} class={foldRow} onClick={() => props.folds.setOpen(props.fold, !open())}>
+      <Clock at={props.said.at} />
+      <span class={markCell}>{props.mark}</span>
+      <span class={cn('min-w-0 flex-1', props.tone, open() ? wholeText : oneLine)}>
+        {props.lead}
+        {open() ? props.said.full : props.said.line}
+      </span>
+      {props.children}
+    </button>
   )
 }
 
@@ -582,47 +586,57 @@ const MILESTONE_MARKS: Record<Extract<Row, { kind: 'milestone' }>['mark'], () =>
 type RowViews = { [K in Row['kind']]: (row: Extract<Row, { kind: K }>, ctx: RowContext) => JSX.Element }
 const ROW_VIEWS: RowViews = {
   decision: (row, ctx) => (
-    <FoldRow fold={foldOf(row.kind, row)} at={row.at} folds={ctx.folds} mark={<Dot class="size-1.5 bg-foreground" />} panel={<FullText text={row.full} />}>
-      <span class={cn('min-w-0 flex-1 truncate text-foreground', row.by === 'owner' && 'font-medium')}>{row.line}</span>
-      <span class={cn('shrink-0 text-xs', ROLE_WORDS[row.by].tone)}>{ROLE_WORDS[row.by].row}</span>
-    </FoldRow>
+    <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} mark={<Dot class="size-1.5 bg-foreground" />} tone={cn('text-foreground', row.by === 'owner' && 'font-medium')}>
+      <span class={cn('shrink-0 text-xs leading-5 max-md:hidden', ROLE_WORDS[row.by].tone)}>{ROLE_WORDS[row.by].row}</span>
+    </SayingRow>
   ),
   ask: (row, ctx) => (
-    <FoldRow
+    <SayingRow
       fold={foldOf(row.kind, row)}
-      at={row.at}
+      said={row}
       folds={ctx.folds}
-      mark={<Dot class={cn('size-1.5', row.line === ctx.waiting ? 'bg-warning' : 'bg-muted-foreground')} />}
-      panel={<FullText text={row.full} />}
-    >
-      <span class="min-w-0 flex-1 truncate text-foreground">{W.waiting}：{row.line}</span>
-    </FoldRow>
+      lead={W.waiting + '：'}
+      mark={<Dot class={cn('size-1.5', row.line === ctx.waiting ? 'bg-warning' : 'bg-subtle-foreground')} />}
+      tone={row.line === ctx.waiting ? 'text-foreground' : 'text-muted-foreground'}
+    />
   ),
-  note: (row, ctx) => (
-    <FoldRow fold={foldOf(row.kind, row)} at={row.at} folds={ctx.folds} mark={<Dot class="size-1 bg-border" />} panel={<FullText text={row.full} />}>
-      <span class="min-w-0 flex-1 truncate text-muted-foreground">{row.line}</span>
-    </FoldRow>
-  ),
-  notes: (row, ctx) => (
-    <FoldRow
-      fold={foldOf(row.kind, row)}
-      at={row.at}
-      folds={ctx.folds}
-      mark={<Dot class="size-1 bg-border" />}
-      panel={<ol class="flex flex-col"><For each={row.notes}>{(note) => <li>{ROW_VIEWS.note({ kind: 'note', ...note }, ctx)}</li>}</For></ol>}
-    >
-      <span class="min-w-0 flex-1 truncate text-muted-foreground">
-        <span class="font-medium">{row.notes.length} 条进展</span> · {row.line}
-      </span>
-      <Icon name="ChevronDown" class="-rotate-90 text-muted-foreground transition-transform group-data-open:rotate-0" />
-    </FoldRow>
-  ),
+  note: (row, ctx) => <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} tone="text-muted-foreground" />,
+  notes: (row, ctx) => {
+    const fold = foldOf(row.kind, row)
+    const open = () => ctx.folds.isOpen(fold)
+    return (
+      <>
+        <button type="button" aria-expanded={open() ? 'true' : 'false'} class={foldRow} onClick={() => ctx.folds.setOpen(fold, !open())}>
+          <Clock at={row.at} />
+          <span class={markCell} />
+          <span class={cn('min-w-0 flex-1 text-muted-foreground', oneLine)}>
+            {row.notes.length} 条进展
+            <Show when={!open()}> · {row.line}</Show>
+          </span>
+          <Icon name="ChevronDown" class={cn('mt-0.5 text-subtle-foreground transition-transform', !open() && '-rotate-90')} />
+        </button>
+        <Show when={open()}>
+          <ol class="flex flex-col">
+            <For each={row.notes}>
+              {(note) => (
+                <li class={rowLine}>
+                  <Clock at={note.at} />
+                  <span class={markCell} />
+                  <span class={cn('min-w-0 flex-1 text-muted-foreground', wholeText)}>{note.full}</span>
+                </li>
+              )}
+            </For>
+          </ol>
+        </Show>
+      </>
+    )
+  },
   milestone: (row) => (
     <div class={rowLine}>
       <Clock at={row.at} />
       <span class={markCell}>{MILESTONE_MARKS[row.mark]()}</span>
-      <Show when={row.href} fallback={<span class="min-w-0 truncate font-medium text-foreground">{row.line}</span>}>
-        {(href) => <a class="min-w-0 truncate font-medium text-foreground hover:underline" href={href()} target="_blank" rel="noreferrer">{row.line}</a>}
+      <Show when={row.href} fallback={<span class="min-w-0 truncate text-foreground">{row.line}</span>}>
+        {(href) => <a class={cn('min-w-0 truncate text-foreground', quietLink)} href={href()} target="_blank" rel="noreferrer">{row.line}</a>}
       </Show>
     </div>
   ),
@@ -691,7 +705,7 @@ function SideFields(props: { detail: Detail; view: DetailView; task: BoardTask |
               {(link) => (
                 <li class="flex min-w-0 text-sm text-foreground">
                   <Show when={link.href} fallback={<span class="truncate">{link.label}</span>}>
-                    {(href) => <a class="truncate hover:underline" href={href()} target="_blank" rel="noreferrer">{link.label}</a>}
+                    {(href) => <a class={cn('truncate', quietLink)} href={href()} target="_blank" rel="noreferrer">{link.label}</a>}
                   </Show>
                 </li>
               )}

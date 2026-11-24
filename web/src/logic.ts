@@ -1,9 +1,9 @@
 import {
-  closedToday, doingOf, flowLine, foldKey, localMonthDayTime, MILESTONE_WORDS, MILESTONES, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WINDOW_WORDS,
+  closedToday, doingOf, flowLine, foldKey, localMonthDayTime, MILESTONE_WORDS, MILESTONES, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WHO_AND_WHEN_ALREADY_SHOWN, WINDOW_WORDS,
 } from '../../herdr/mods/nawaban-board/logic.js'
 import type { Pending } from './decide-logic'
 
-export { foldKey, localMonthDayTime, MILESTONE_WORDS, MILESTONES, OKR_WORDS, okrReadingOfFailure, sinceLabel, taskSections, WINDOW_WORDS }
+export { foldKey, localMonthDayTime, MILESTONE_WORDS, MILESTONES, OKR_WORDS, okrReadingOfFailure, sinceLabel, taskSections, WHO_AND_WHEN_ALREADY_SHOWN, WINDOW_WORDS }
 
 export type KrStatus = 'met' | 'missed' | 'stale' | 'untested'
 export type KrRow = { name: string; status: KrStatus; value: string; target: string; measured: boolean; gap: string | null; day: string | null }
