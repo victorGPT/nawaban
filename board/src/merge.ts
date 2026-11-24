@@ -53,7 +53,8 @@ async function viewOf(n: string): Promise<PullRequest> {
 
 async function seenOf(task: MessageView): Promise<Seen> {
   const { replies } = await board().thread(task.id)
-  const terminal = replies.flatMap((r) => r.blocks.filter((b) => b.schema === 'nawaban-dispatch').map((b) => (b.data as { terminal: string }).terminal)).at(-1) ?? null
+  const dispatchedTo = replies.flatMap((r) => r.blocks.filter((b) => b.schema === 'nawaban-dispatch').map((b) => (b.data as { terminal: string }).terminal)).at(-1)
+  const terminal = task.labels.terminal ?? dispatchedTo ?? null
   const lane = replies.map((r) => r.text.match(LANE_NOTE)?.[1]).findLast((l) => l !== undefined) ?? null
   return { task, terminal, lane }
 }
