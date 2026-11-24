@@ -6,7 +6,9 @@ import { board, type MessageView } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { deliverAsSignedWebhook, importOnlySync, pollRepo, type Reader } from '../src/github-sync.ts'
 import { HELD_FOR_A_GITHUB_ASK, settleIssueTasks } from '../src/github-tasks.ts'
-import { verifier } from '../src/server.ts'
+import { site, verifier } from '../src/server.ts'
+import { webAnswers } from '../src/page.ts'
+import { registerSchemas } from '../src/schemas.ts'
 import { boardData } from '../src/views.ts'
 
 const REPO = 'acme/roubao'
@@ -158,6 +160,25 @@ describe('读的一侧', () => {
     const { columns } = await boardData(team, 'roubao')
     const row = columns.flatMap((c) => c.tasks as { id: string; progress?: { body: string } }[]).find((t) => t.id === 'ROUBAO-1770')!
     expect(row.progress?.body).toBe('做完了，下一步：合并')
+  })
+})
+
+describe('网页答 GitHub 来的待决', () => {
+  it('看板 JSON 给出这条待决的 ID，网页按它答，答复记在板上、挂起不动、不写 GitHub', async () => {
+    await registerSchemas(team)
+    await poll({ issues: [issue(1780, 'open', '2026-11-24T10:00:00Z')], comments: [comment(1780, '待决：直达 X 上不上？', '2026-11-24T10:01:00Z')] })
+    const row = (await boardData(team, 'roubao')).columns.flatMap((c) => c.tasks as { id: string; pending?: { ask: string | null; brief: string } }[]).find((t) => t.id === 'ROUBAO-1780')!
+    expect(row.pending?.brief).toBe('直达 X 上不上？')
+    expect(row.pending?.ask).toBeTruthy()
+    const handler = site(team, { dir, webToken: 'web', boardToken: 'board-secret', port: 4999, dist: dir })
+    const answered = await handler(new Request('http://127.0.0.1:4999/api/nawaban/answer/ROUBAO-1780?project=roubao', {
+      method: 'POST',
+      headers: { host: '127.0.0.1:4999', authorization: 'Bearer web', origin: 'http://127.0.0.1:4999', 'content-type': 'application/json' },
+      body: JSON.stringify({ ask: row.pending!.ask, words: '先不上' }),
+    }))
+    expect(answered.status, await answered.clone().text()).toBe(201)
+    expect((await theTask('ROUBAO-1780')).task?.blocked?.kind).toBe('awaiting_approval')
+    expect((await webAnswers(team, 'roubao')).map((a) => [a.task, a.words])).toEqual([['ROUBAO-1780', '先不上']])
   })
 })
 

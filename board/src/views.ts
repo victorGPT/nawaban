@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises'
+import { githubAskIn } from './github-tasks.ts'
 import { syncStalledNote } from './github-sync-status.ts'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -109,6 +110,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: st
   const decision = latest('nawaban-decision')
   const ruling = h.replies.findLast((r) => data(r.message, 'nawaban-decision')?.by === 'user')
   const card = latest('nawaban-ask')
+  const asked = h.replies.findLast((r) => data(r.message, 'nawaban-ask') || githubAskIn(r.message) !== null)
   const open = (t.needs ?? []).filter((id) => byId.get(id)?.task?.state !== 'completed')
   const out = {
     id: key(m),
@@ -136,11 +138,11 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: st
     pending:
       t.blocked?.kind === 'awaiting_approval'
         ? {
-            brief: String(card ? data(card.message, 'nawaban-ask')!.decision : t.blocked.reason),
-            at: card?.at ?? h.active,
+            brief: String(asked && githubAskIn(asked.message) !== null ? githubAskIn(asked.message) : card ? data(card.message, 'nawaban-ask')!.decision : t.blocked.reason),
+            at: asked?.at ?? h.active,
             progress: notes.slice(-NOTES_CARRIED_BY_A_PENDING_DECISION).map(progress),
             card: completeCardElseNull(card && data(card.message, 'nawaban-ask')),
-            ask: card?.message.id ?? null,
+            ask: asked?.message.id ?? null,
           }
         : null,
   }

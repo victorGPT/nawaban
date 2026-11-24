@@ -59,6 +59,12 @@ function askOrRulingIn(text: string): { ask: string } | 'ruling' | null {
   return RULING.test(visible) ? 'ruling' : null
 }
 
+export const githubAskIn = (m: MessageView) => {
+  if (m.from !== 'github' || m.deleted) return null
+  const said = askOrRulingIn(m.text)
+  return said && said !== 'ruling' ? said.ask : null
+}
+
 function pendingGithubAsk(replies: MessageView[]) {
   const inGithubOrder = replies.filter((r) => r.from === 'github' && !r.deleted).sort((a, b) => Number(a.origin?.message) - Number(b.origin?.message) || (a.createdAt < b.createdAt ? -1 : 1))
   let pending: string | null = null
