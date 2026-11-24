@@ -16,4 +16,4 @@ board_tracks_this_repository() {
 
 names_a_task_verb_or_merge || exit 0
 board_tracks_this_repository || exit 0
-printf '%s' "$input" | node "$hooks/../board/src/cli.ts" guard
+printf '%s' "$input" | node "$hooks/../board/src/cli.ts" hook guard

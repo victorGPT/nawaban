@@ -266,7 +266,7 @@ async function claimForWorkerKeepingTheTokenWhereItsCliLooks(task: MessageView, 
   const as = workerProfileOf(worker)
   if (!as) return false
   try {
-    await exec('node', [CLI, 'tasks', 'claim', task.id, '--as', as, '--lease', CLAIM_LEASE, '--json'])
+    await exec('node', [CLI, 'board', 'tasks', 'claim', task.id, '--as', as, '--lease', CLAIM_LEASE, '--json'])
     await board().as(null).label(task.id, { set: { terminal: worker.address } })
     return true
   } catch {

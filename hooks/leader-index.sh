@@ -11,7 +11,7 @@ route=$(node "$hooks/route.mjs" "$dir" 2>/dev/null)
 
 print_index_from_the_tracker_this_repository_uses() {
   if [ "${route%% *}" = board ]; then
-    node "$hooks/../board/src/cli.ts" index --project "${route#* }"
+    node "$hooks/../board/src/cli.ts" status --project "${route#* }"
   else
     (cd "$dir" && python3 "$hooks/../nawaban/cli.py" index)
   fi

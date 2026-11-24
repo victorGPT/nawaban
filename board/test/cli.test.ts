@@ -71,8 +71,10 @@ it('fits the help on one screen and lists the ten everyday verbs', async () => {
 
 it("answers every verb's --help without reaching a board", EVERY_STEP_STARTS_A_NODE, async () => {
   const listed = [...verbsListedIn((await succeeds('--help')).out), ...verbsListedIn((await succeeds('help', 'more')).out)]
-  const ownHelp = await Promise.all(listed.filter((verb) => verb !== 'board').map(async (verb) => [verb, await nawaban([verb, '--help'], { more: { BOARD_URL: NOTHING_LISTENS_HERE } })] as const))
-  for (const [verb, r] of ownHelp) expect([verb, r.code, r.out.split('\n')[0]]).toEqual([verb, 0, expect.stringMatching(new RegExp(`^用法：nawaban ${verb}`))])
+  for (const verb of listed.filter((v) => v !== 'board')) {
+    const r = await nawaban([verb, '--help'], { more: { BOARD_URL: NOTHING_LISTENS_HERE } })
+    expect([verb, r.code, r.out.split('\n')[0]]).toEqual([verb, 0, expect.stringMatching(new RegExp(`^用法：nawaban ${verb}`))])
+  }
   expect((await nawaban(['show', 'X', '-h'], { more: { BOARD_URL: NOTHING_LISTENS_HERE } })).out).toMatch(/^用法：nawaban show/)
   const upstreamHelp = await nawaban(['board'], { more: { BOARD_URL: NOTHING_LISTENS_HERE } })
   expect([upstreamHelp.code, upstreamHelp.out]).toEqual([0, expect.stringContaining('usage: nawaban board <command>')])
