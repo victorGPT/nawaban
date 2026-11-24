@@ -10,6 +10,6 @@ Land the work, then free the worker.
 3. Merge with `gh pr merge <PR> --squash --match-head-commit <sha>`, record the pull request as a `link` event, close the ticket as done.
 4. When the merged repository is nawaban, update this machine: `git -C ~/.nawaban/plugin pull --ff-only && sh ~/.nawaban/plugin/herdr/install-mod.sh`. For a change to the schema or to data, run `python3 ~/.nawaban/plugin/nawaban/cli.py backup` first.
 5. After a ticket that registered a KR closes, whoever closed it, run `nawaban okr` once. A hard stop it prints goes to the owner through the **ask** skill.
-6. Route the worker's next ticket with the **dispatch-route** skill. With none: `hc kill <terminal>`, then `git worktree remove <its worktree>`.
+6. Elsewhere, route the worker's next ticket with the **dispatch-route** skill. With none: `hc kill <terminal>`, then `git worktree remove <its worktree>`.
 
 Never merge on a report alone: read the checks and the review line yourself. No padding.
