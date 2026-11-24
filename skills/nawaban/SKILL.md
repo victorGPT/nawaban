@@ -173,6 +173,7 @@ nawaban close <ID> --done --kr "<KR name>=95 实测" --kr "<KR name>=83.3% 预�
 - `close --done --kr "<KR name>=<after> 实测|预计"` reports each registered KR's value after; heading, reading and measure stay as registered.
 - The Objective and KR names must exist in the repository's `docs/agents/okr.toml`; run it from that repository. In a GitHub-tracked repository the ID is `'#N'` and the kind goes as `--kind impact`.
 - The declaration is kept on the local board (`kr_impacts`) and recorded on the ticket: a note `impact: …` on the board, a `影响：` comment with its marker on GitHub. The locks read only the local board.
+- nawaban itself keeps an `okr.toml`, so every nawaban ticket declares too; a docs-only ticket declares `--o 无`.
 - In a repository with `okr.toml`, `close --done` is refused without one, or with registered KRs and no result, and the plugin's hook denies `gh pr merge` and `scripts/merge.sh <PR>` until every ticket the PR is linked to (its closing issues, `Refs #N` in its body, or an open board task named in its title, body or branch) has one: GitHub closes an issue on merge without `nawaban close`.
 - Triage labels are notes: `note "triage: <label>"`.
 

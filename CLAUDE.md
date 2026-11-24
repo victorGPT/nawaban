@@ -8,6 +8,10 @@ Specs and tickets live on the nawaban board (project `nawaban`), used through it
 
 Three labels (`needs-info`, `ready-for-agent`, `ready-for-human`), recorded as `triage: <label>` note events on a task. See `docs/agents/triage-labels.md`.
 
+### OKR
+
+This repository keeps its own `docs/agents/okr.toml`, so every ticket here declares its KR impact before it closes as done: register it as you claim (`nawaban claim <ID> --o … --kr …`), and a docs-only or pure-infrastructure ticket declares `--o 无`.
+
 ### Domain docs
 
 Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

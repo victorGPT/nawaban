@@ -982,3 +982,83 @@ export function standingText(data: ReturnType<typeof judge>) {
     .filter(Boolean)
     .join('\n')
 }
+
+const PREREG_WINDOW = 20
+const STATS_DRIFT_SKIPS = 'okr-stat'
+const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const percent = (part: number, whole: number) => toNinePlaces((100 * part) / whole).toFixed(1)
+
+async function verdictRate(team: Team, project: string, objectives: Objective[]) {
+  const { rows, declared } = await load(team, project)
+  let onTheirWord = 0
+  let offTheirWord = 0
+  for (const o of objectives) {
+    for (const kr of o.kr ?? []) {
+      const [op, goalText] = target(kr)
+      const rs = currentSeriesOf(rows, kr.name)
+      for (const i of declared.get(`${o.name}\0${kr.name}`) ?? []) {
+        const verdict = judgedOnce(op, dec(goalText), kr.unit ?? '', rs, i)?.verdict
+        if (verdict === '符合') onTheirWord++
+        if (verdict === '不符') offTheirWord++
+      }
+    }
+  }
+  const n = onTheirWord + offTheirWord
+  if (!n) throw new Refused('还没有判出符合或不符的声明(当前序列,不含未定和事后)')
+  return `${percent(onTheirWord, n)} ${localDay()} n=${n} 符合 ${onTheirWord} 张`
+}
+
+async function preregisteredShare(team: Team, project: string) {
+  const tickets: { at: string; registered: boolean }[] = []
+  for (const thread of await wholeThreadsRootFirst(team, project, 'nawaban-impact')) {
+    const firstPullRequest = thread.find((m) => blocksOf(m, 'nawaban-link').some((d) => d.kind === 'pr'))
+    const first = thread.find((m) => blocksOf(m, 'nawaban-impact').length || blocksOf(m, 'nawaban-impact', 2).length)
+    if (!first) continue
+    const before = !firstPullRequest || onTheOneClock(first) < onTheOneClock(firstPullRequest)
+    tickets.push({ at: onTheOneClock(first), registered: blocksOf(first, 'nawaban-impact', 2).length > 0 && before })
+  }
+  const latest = tickets.sort((a, b) => order(b.at, a.at)).slice(0, PREREG_WINDOW)
+  if (!latest.length) throw new Refused('这个项目还没有影响声明')
+  return `${percent(latest.filter((t) => t.registered).length, latest.length)} ${localDay()} n=${latest.length} 最近 ${PREREG_WINDOW} 张有声明的票`
+}
+
+async function driftedKrs(team: Team, project: string, repo: string, objectives: Objective[]) {
+  const { rows } = await load(team, project)
+  const drifted: string[] = []
+  let checked = 0
+  for (const o of objectives) {
+    for (const kr of o.kr ?? []) {
+      if (!kr.measure || kr.measure.includes(STATS_DRIFT_SKIPS)) continue
+      const def_hash = await defHash(repo, kr)
+      const kept = rows.filter((r) => r.kr === kr.name && r.value !== FAILED && r.def_hash === def_hash).sort((a, b) => order(a.measured_at, b.measured_at)).at(-1)
+      if (!kept) continue
+      const live = await keptReadingOrFailure(repo, o, kr, await measure(repo, kr.measure))
+      if (!live || live.value === FAILED || live.as_of !== kept.as_of) continue
+      checked++
+      if (cmp(dec(live.value), dec(kept.value)) !== 0) drifted.push(kr.name)
+    }
+  }
+  return `${drifted.length} ${localDay()} 重算 ${checked} 条${drifted.length ? ' 不一致:' + drifted.join('、') : ''}`
+}
+
+const STATS: Record<string, (team: Team, project: string, repo: string, objectives: Objective[]) => Promise<string>> = {
+  verdicts: (team, project, _repo, objectives) => verdictRate(team, project, objectives),
+  prereg: (team, project) => preregisteredShare(team, project),
+  drift: driftedKrs,
+}
+
+export async function okrStat(argv: string[], team: Team, dir: string, cwd = process.cwd()): Promise<number> {
+  try {
+    const [what] = argv
+    if (argv.length !== 1 || !Object.hasOwn(STATS, what!)) throw new Refused(`usage: nawaban okr-stat ${Object.keys(STATS).join('|')}`, 2)
+    const top = await git(cwd, 'rev-parse', '--show-toplevel')
+    const repo = top && (await mainCheckout(top))
+    if (!top || !repo) throw new Refused('okr-stat 要在 git 仓库里跑')
+    const project = await projectOf(dir, repo)
+    if (!project) throw new Refused(`仓库 ${repo} 不在 ${join(dir, 'repos.json')}`)
+    process.stdout.write((await STATS[what!]!(team, project, top, await defs(top))) + '\n')
+    return 0
+  } catch (error) {
+    return exitCodeOfRefusalOrBoardError(error)
+  }
+}
