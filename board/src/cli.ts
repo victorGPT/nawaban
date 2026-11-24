@@ -10,7 +10,7 @@ import { pointAt } from './hint.ts'
 import { guard } from './guard.ts'
 import { importOld } from './import.ts'
 import { merge } from './merge.ts'
-import { jsonOkr, okr } from './okr.ts'
+import { jsonOkr, okr, okrStat } from './okr.ts'
 import { inbox, index, page } from './orchestrator.ts'
 import { boardDirAsConfiguredWhenAsked, DIR, PORT, serve, urlFor, web, webOverTailnet } from './server.ts'
 import { oldCli } from './github.ts'
@@ -170,6 +170,7 @@ const COMMANDS: Record<string, Command> = {
     run: (rest) => dispatch(rest),
   },
   merge: { group: '派', usage: 'merge <PR>', about: '合并 PR，关票，交下一张', run: (rest) => merge(rest) },
+  'okr-stat': { group: '少用', usage: 'okr-stat verdicts|prereg|drift', about: 'nawaban 自己 KR 的量法：声明符合率、预注册占比、账本漂移', run: (rest) => okrStat(rest, board(), DIR) },
   block: { group: '少用', usage: 'block <票> <挡它的票>', about: '建票之后补一条被挡', flags: [['--json', '输出 JSON']], run: taskVerb('block') },
   web: {
     group: '少用',

@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { block, board, type MessageView } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { gapsOfADecisionCard, registerSchemas } from '../src/schemas.ts'
-import { defHash, standingText, hardStop, HARD_STOP_EXIT, judge, jsonOkr, load, keepEachNewReadingOnce, okr, run, type Declared, type Heading, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
+import { defHash, okrStat, standingText, hardStop, HARD_STOP_EXIT, judge, jsonOkr, load, keepEachNewReadingOnce, okr, run, type Declared, type Heading, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
 
 const OKR_PORTED_FROM_THE_OLD_TEST_OKR_PY = `
 [[objective]]
@@ -1007,5 +1007,56 @@ describe('committed KRs hold a line, aspirational ones score, and an Objective i
   it('refuses a kind other than committed or aspirational, and a baseline that is no number', async () => {
     await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nkind = "output"\n'))).rejects.toThrow(/kind 只能写 committed 或 aspirational/)
     await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nbaseline = 3\n'))).rejects.toThrow(/baseline 要写成数字字符串/)
+  })
+})
+
+describe('okr-stat: the measures of nawaban’s own KRs', () => {
+  const stat = (p: Project, what: string) => capture(() => okrStat([what], team, p.dir, p.root))
+  const today = () => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+
+  it('reads the share of the latest declared tickets that registered before their first pull request', async () => {
+    const p = await projectOnItsOwnBoardWithItsOwnReposJson()
+    const registered = (await team.tasks.create(p.name, { text: 'a', labels: { key: 'A-1' } })).task
+    await team.reply(registered.id, block('nawaban-impact@2', { objective: '无', change: 'product', krs: [] }))
+    await team.reply(registered.id, block('nawaban-link@1', { kind: 'pr', ref: 'https://example.test/pull/1' }))
+    const late = (await team.tasks.create(p.name, { text: 'b', labels: { key: 'B-1' } })).task
+    await team.reply(late.id, block('nawaban-link@1', { kind: 'pr', ref: 'https://example.test/pull/2' }))
+    await team.reply(late.id, block('nawaban-impact@2', { objective: '无', change: 'product', krs: [] }))
+    const old = (await team.tasks.create(p.name, { text: 'c', labels: { key: 'C-1' } })).task
+    await team.reply(old.id, block('nawaban-impact@1', { objective: '无', krs: [] }))
+    expect((await stat(p, 'prereg')).out).toBe(`33.3 ${today()} n=3 最近 20 张有声明的票\n`)
+  })
+
+  it('reads the share of judged declarations on their word, and fails while none is judged', async () => {
+    const p = await projectOnItsOwnBoardWithItsOwnReposJson()
+    await define(p.root, [['K', '>= 95', 'measure = "cat k.txt"']])
+    await writeFile(join(p.root, 'k.txt'), '80 2026-11-10')
+    await nawabanOkr(p)
+    const none = await stat(p, 'verdicts')
+    expect([none.code, none.err]).toEqual([1, expect.stringContaining('还没有判出符合或不符的声明')])
+    await declareTicketMovesKrOfO(p, '#7', 'K', 'toward')
+    await writeFile(join(p.root, 'k.txt'), '85 2026-11-11')
+    await nawabanOkr(p)
+    expect((await stat(p, 'verdicts')).out).toBe(`100.0 ${today()} n=1 符合 1 张\n`)
+  })
+
+  it('counts the KRs whose live reading for the same as-of differs from the ledger', async () => {
+    const p = await projectOnItsOwnBoardWithItsOwnReposJson()
+    await define(p.root, [['K', '>= 95', 'measure = "cat k.txt"'], ['S', '== 0', 'measure = "node board/src/cli.ts okr-stat drift"']])
+    await writeFile(join(p.root, 'k.txt'), '80 2026-11-10')
+    await nawabanOkr(p)
+    expect((await stat(p, 'drift')).out).toBe(`0 ${today()} 重算 1 条\n`)
+    await writeFile(join(p.root, 'k.txt'), '81 2026-11-10')
+    expect((await stat(p, 'drift')).out).toBe(`1 ${today()} 重算 1 条 不一致:K\n`)
+    await writeFile(join(p.root, 'k.txt'), '81 2026-11-11')
+    expect((await stat(p, 'drift')).out).toBe(`0 ${today()} 重算 0 条\n`)
+  })
+
+  it('refuses anything but verdicts, prereg or drift', async () => {
+    const p = await projectOnItsOwnBoardWithItsOwnReposJson()
+    expect((await stat(p, 'all')).code).toBe(2)
   })
 })

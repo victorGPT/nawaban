@@ -1,0 +1,26 @@
+[[objective]]
+name = "编排者不用决策者盯也能把 O 推完"
+
+[[objective.kr]]
+name = "影响声明判定符合率（当前序列，不含未定和事后）"
+target = ">= 70"
+unit = "%"
+kind = "aspirational"
+measure = "node board/src/cli.ts okr-stat verdicts"
+inputs = ["board/src/okr.ts"]
+
+[[objective.kr]]
+name = "认领时就预注册的声明占比"
+target = ">= 90"
+unit = "%"
+kind = "aspirational"
+measure = "node board/src/cli.ts okr-stat prereg"
+inputs = ["board/src/okr.ts"]
+
+[[objective.kr]]
+name = "账本最新值与现场重算不一致的 KR"
+target = "== 0"
+unit = "条"
+kind = "committed"
+measure = "node board/src/cli.ts okr-stat drift"
+inputs = ["board/src/okr.ts"]
