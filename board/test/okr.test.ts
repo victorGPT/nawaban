@@ -859,6 +859,8 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect(gapsOfADecisionCard({ ...card, recommendation: '换打法继续，先查 K 为什么不动' })).toEqual([])
     const movingNowStillStopped = await measuring(p, 90, 11)
     expect(movingNowStillStopped.code).toBe(HARD_STOP_EXIT)
+    const doneNowStillStopped = await measuring(p, 99, 12)
+    expect(doneNowStillStopped.code).toBe(HARD_STOP_EXIT)
   })
 
   it('takes --resume only once a decision request on the Objective or its KRs is resolved, and starts a new sprint', async () => {
@@ -869,9 +871,17 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect([refused.code, refused.err]).toEqual([1, expect.stringContaining('没有 resolve 过的待决策项')])
     const { task } = await team.tasks.create(p.name, { text: 'stop', labels: { key: 'STOP-1' } })
     const option = (choice: string) => ({ choice, tradeoff: 'x', door: 'two-way' })
-    await team.reply(task.id, block('nawaban-ask@1', { decision: 'O 下一步怎么走', kr: 'K', context: '硬停', options: [option('a'), option('b')], recommendation: 'a' }))
+    const earlier = (await team.tasks.create(p.name, { text: 'earlier', labels: { key: 'EARLIER-1' } })).task
+    await team.reply(earlier.id, block('nawaban-ask@1', { decision: 'K 怎么办', kr: 'K', context: 'x', options: [option('a'), option('b')], recommendation: 'a' }))
+    await team.reply(earlier.id, block('nawaban-ask@1', { decision: '另一件', kr: '别的 O', context: 'x', options: [option('a'), option('b')], recommendation: 'a' }))
+    await team.reply(earlier.id, block('nawaban-resolve@1', { words: '只答了另一件' }))
+    expect((await nawabanOkr(p, '--resume', 'O')).code).toBe(1)
+    await team.reply(task.id, block('nawaban-ask@1', { decision: 'O 下一步怎么走', kr: 'J、K', context: '硬停', options: [option('a'), option('b')], recommendation: 'a' }))
     expect((await nawabanOkr(p, '--resume', 'O')).code).toBe(1)
     await team.reply(task.id, block('nawaban-resolve@1', { words: '换打法' }))
+    const other = (await team.tasks.create(p.name, { text: 'other', labels: { key: 'OTHER-1' } })).task
+    await team.reply(other.id, block('nawaban-ask@1', { decision: '别的', kr: '别的 O', context: 'x', options: [option('a'), option('b')], recommendation: 'a' }))
+    await team.reply(other.id, block('nawaban-resolve@1', { words: '好' }))
     expect((await nawabanOkr(p, '--resume', 'O')).code).toBe(0)
     expect((await measuring(p, 85, 12)).code).toBe(0)
   })
@@ -884,12 +894,13 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect(await draftOf(p)).toContain('冲刺满 5 轮还没收工')
   })
 
-  it('counts no committed KR as moving', () => {
+  it('counts no committed KR as moving, and stops no Objective done as the round ran, but stays stopped once it was', () => {
     const o: Objective = { name: 'O', kr: [{ name: 'C', target: '>= 1', kind: 'committed' }, { name: 'A', target: '>= 1' }] }
-    const round = (n: number, moved: string[]) => ({ at: `2026-11-1${n}`, n, kept: 1, moved })
-    expect(hardStop(o, [round(1, ['C']), round(2, ['C'])], '', false)?.why).toMatch(/连续 2 轮/)
-    expect(hardStop(o, [round(1, ['C']), round(2, ['A'])], '', false)).toBeNull()
-    expect(hardStop(o, [round(1, []), round(2, [])], '', true)).toBeNull()
+    const round = (n: number, moved: string[], done: string[] = []) => ({ at: `2026-11-1${n}`, n, kept: 1, moved, done })
+    expect(hardStop(o, [round(1, ['C']), round(2, ['C'])], '')?.why).toMatch(/连续 2 轮/)
+    expect(hardStop(o, [round(1, ['C']), round(2, ['A'])], '')).toBeNull()
+    expect(hardStop(o, [round(1, [], ['O']), round(2, [], ['O'])], '')).toBeNull()
+    expect(hardStop(o, [round(1, []), round(2, []), round(3, [], ['O'])], '')?.why).toMatch(/连续 2 轮/)
   })
 
   it('refuses okr in a repository the old CLI keeps, keeping nothing', async () => {

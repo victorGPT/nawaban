@@ -28,7 +28,7 @@ export type Declared = {
   declared_at: string
   result_at: string | null
 }
-export type OkrRound = { at: string; n: number; kept: number; moved: string[] }
+export type OkrRound = { at: string; n: number; kept: number; moved: string[]; done: string[] }
 export type Reading = { objective: string; kr: string; value: string; as_of: string; source: string; def_hash?: string }
 type Round = string
 type Movement = 'closer' | 'away' | 'flat'
@@ -585,7 +585,7 @@ export async function load(team: Team, project: string) {
       rows.push(...keptOf(m))
       for (const d of blocksOf(m, 'nawaban-okr-accept')) latestPer(latestAccept, m, d.objective as string)
       for (const d of blocksOf(m, 'nawaban-okr-resume')) latestPer(latestResume, m, d.objective as string)
-      for (const d of blocksOf(m, 'nawaban-okr-round')) rounds.push({ at: onTheOneClock(m), n: d.n as number, kept: d.kept as number, moved: d.moved as string[] })
+      for (const d of blocksOf(m, 'nawaban-okr-round')) rounds.push({ at: onTheOneClock(m), n: d.n as number, kept: d.kept as number, moved: d.moved as string[], done: (d.done as string[]) ?? [] })
     }
   }
   rounds.sort((a, b) => order(a.at, b.at))
@@ -734,7 +734,8 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
     const kept = await keepEachNewReadingOnceNamingTheKrs(team, project, readings, commit)
     const objectives = await defs(repo)
     const before = await load(team, project)
-    const round = { n: before.rounds.length + 1, kept: kept.length, moved: movedTowardTheirTarget(objectives, before.rows, kept) }
+    const doneNow = judge(objectives, before.rows, before.accepts, before.declared, repo, null).objectives.filter((x) => x.total > 0 && x.met === x.total).map((x) => x.name)
+    const round = { n: before.rounds.length + 1, kept: kept.length, moved: movedTowardTheirTarget(objectives, before.rows, kept), done: doneNow }
     await team.post(okrChannel(project), block('nawaban-okr-round@1', round))
     if (values.accept !== undefined) await acceptAfterThisRunsReadingsSoNoneCountsAsAMissSince(team, project, values.accept, full, kept.length)
     process.stdout.write(`第 ${round.n} 轮${round.kept ? '' : '(空转)'} · 读数新记 ${kept.length} 条${values.accept !== undefined ? ` · ✓ accept ${values.accept}` : ''}\n`)
@@ -745,8 +746,7 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
     let stopped = false
     for (const o of objectives) {
       const start = later(accepts.get(o.name), resumes.get(o.name))
-      const judged = data.objectives.find((x) => x.name === o.name)!
-      const stop = hardStop(o, rounds, start, judged.total > 0 && judged.met === judged.total)
+      const stop = hardStop(o, rounds, start)
       if (!stop) continue
       const draft = join(dir, 'okr-stop', `${project}-${o.name}.md`)
       await mkdir(join(dir, 'okr-stop'), { recursive: true })
@@ -798,12 +798,12 @@ export async function jsonOkr(argv: string[], team: Team, dir: string, cwd = pro
 const isAspirational = (kr: Kr) => kr.kind !== 'committed'
 const later = (a: string | undefined, b: string | undefined) => ((a ?? '') > (b ?? '') ? a ?? '' : b ?? '')
 
-export function hardStop(o: Objective, rounds: OkrRound[], sprintStart: string, done: boolean) {
-  if (done) return null
+export function hardStop(o: Objective, rounds: OkrRound[], sprintStart: string) {
   const aspirational = new Set((o.kr ?? []).filter(isAspirational).map((k) => k.name))
   const sprint = rounds.filter((r) => r.at > sprintStart)
   const still = (r: OkrRound) => !r.moved.some((k) => aspirational.has(k))
   for (let i = 0; i < sprint.length; i++) {
+    if (sprint[i]!.done.includes(o.name)) continue
     if (i + 1 >= STILL_ROUNDS_TO_STOP && sprint.slice(i + 1 - STILL_ROUNDS_TO_STOP, i + 1).every(still)) {
       return { why: `连续 ${STILL_ROUNDS_TO_STOP} 轮没有进取型 KR 往目标动`, sprint }
     }
@@ -867,14 +867,17 @@ export function decisionDraft(o: Objective, stop: NonNullable<ReturnType<typeof 
 async function resolvedDecisionOn(team: Team, project: string, o: Objective, since: string) {
   const names = new Set([o.name, ...(o.kr ?? []).map((k) => k.name)])
   for (const thread of await wholeThreadsRootFirst(team, project, 'nawaban-ask')) {
-    let asked = false
+    let askedOnIt = false
     for (const m of thread) {
-      if (blocksOf(m, 'nawaban-ask').some((d) => names.has(d.kr as string))) asked = true
-      else if (asked && onTheOneClock(m) > since && blocksOf(m, 'nawaban-resolve').length) return true
+      const asks = blocksOf(m, 'nawaban-ask')
+      if (asks.length) askedOnIt = asks.some((d) => String(d.kr).split(KR_LIST_SEPARATOR).some((k) => names.has(k.trim())))
+      else if (askedOnIt && onTheOneClock(m) > since && blocksOf(m, 'nawaban-resolve').length) return true
     }
   }
   return false
 }
+
+const KR_LIST_SEPARATOR = /[、,，]/
 
 const ROUTE = join(import.meta.dirname, '../../hooks/route.mjs')
 

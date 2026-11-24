@@ -151,12 +151,12 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
     },
   },
   'nawaban-okr-round@1': {
-    description: "One run of the board CLI's okr, the orchestrator's self-check: its number in the project, how many readings it kept, and the KRs that moved toward their target past the noise gate. Kept 0 is an idle round. The message's time is the round's.",
+    description: "One run of the board CLI's okr, the orchestrator's self-check: its number in the project, how many readings it kept, the KRs that moved toward their target past the noise gate, and the Objectives done as it ran. Kept 0 is an idle round. The message's time is the round's.",
     schema: {
       type: 'object',
-      required: ['n', 'kept', 'moved'],
+      required: ['n', 'kept', 'moved', 'done'],
       additionalProperties: false,
-      properties: { n: { type: 'integer', minimum: 1 }, kept: { type: 'integer', minimum: 0 }, moved: { type: 'array', items: text } },
+      properties: { n: { type: 'integer', minimum: 1 }, kept: { type: 'integer', minimum: 0 }, moved: { type: 'array', items: text }, done: { type: 'array', items: text } },
     },
   },
   'nawaban-okr-resume@1': {
