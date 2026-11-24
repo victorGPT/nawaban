@@ -1,4 +1,5 @@
 import { block, BoardError, type board, type MessageView } from '@vercel/board'
+import { askOrRulingIn } from './github-tasks.ts'
 import { Refused } from './tasks.ts'
 import { tasksOf } from './views.ts'
 
@@ -30,7 +31,7 @@ const summaryLineThatOpensNoFence = (words: string) => words.split('\n')[0]!.rep
 export const inboxItemText = (words: string) => `${summaryLineThatOpensNoFence(words)}\n\n${block('nawaban-inbox@1', { words })}`
 
 const startsOrEndsAHold = (m: MessageView) =>
-  !!firstBlock(m, 'nawaban-ask') || !!firstBlock(m, 'nawaban-resolve') || (m.blocks.length === 0 && NOTE_THAT_RAISES_OR_ENDS_A_HOLD_FOR_A_PERSON.test(m.text))
+  !!firstBlock(m, 'nawaban-ask') || !!firstBlock(m, 'nawaban-resolve') || (m.from === 'github' ? askOrRulingIn(m.text) !== null : m.blocks.length === 0 && NOTE_THAT_RAISES_OR_ENDS_A_HOLD_FOR_A_PERSON.test(m.text))
 
 export function answerToTheCurrentHold(root: MessageView, replies: MessageView[]): WebAnswer | null {
   const hold = root.task?.blocked?.kind ?? ''

@@ -1,5 +1,6 @@
 import { realpath } from 'node:fs/promises'
 import { githubAskIn } from './github-tasks.ts'
+import { cardFromAGithubAsk } from './github-card.ts'
 import { syncStalledNote } from './github-sync-status.ts'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -141,7 +142,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: st
             brief: String(asked && githubAskIn(asked.message) !== null ? githubAskIn(asked.message) : card ? data(card.message, 'nawaban-ask')!.decision : t.blocked.reason),
             at: asked?.at ?? h.active,
             progress: notes.slice(-NOTES_CARRIED_BY_A_PENDING_DECISION).map(progress),
-            card: completeCardElseNull(card && data(card.message, 'nawaban-ask')),
+            card: asked && githubAskIn(asked.message) !== null ? cardFromAGithubAsk(githubAskIn(asked.message)!) : completeCardElseNull(card && data(card.message, 'nawaban-ask')),
             ask: asked?.message.id ?? null,
           }
         : null,

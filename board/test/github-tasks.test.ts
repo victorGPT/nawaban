@@ -182,6 +182,36 @@ describe('网页答 GitHub 来的待决', () => {
   })
 })
 
+describe('网页的决策卡和答复轮次', () => {
+  const fullAsk = (what: string) => [`待决：决策事项：${what}`, '关联 KR：O1 肉包 MVP', '背景：分享面板要加渠道', '备选方案：', '- A：上｜多一个域名风险｜双向门', '- B：不上｜少一个渠道｜双向门', '建议：B，风险小'].join('\n')
+  const answerOn = async (key: string, ask: string, words: string) =>
+    site(team, { dir, webToken: 'web', boardToken: 'board-secret', port: 4999, dist: dir })(new Request(`http://127.0.0.1:4999/api/nawaban/answer/${key}?project=roubao`, {
+      method: 'POST',
+      headers: { host: '127.0.0.1:4999', authorization: 'Bearer web', origin: 'http://127.0.0.1:4999', 'content-type': 'application/json' },
+      body: JSON.stringify({ ask, words }),
+    }))
+  const pendingOf = async (key: string) =>
+    (await boardData(team, 'roubao')).columns.flatMap((c) => c.tasks as { id: string; pending?: { ask: string; card: { decision: string; options: unknown[] } | null } }[]).find((t) => t.id === key)!.pending!
+
+  it('GitHub 上写全了的待决在网页上是一张完整的决策卡，缺项的不是', async () => {
+    await poll({ issues: [issue(1790, 'open', '2026-11-24T10:00:00Z'), issue(1791, 'open', '2026-11-24T10:00:00Z')], comments: [comment(1790, fullAsk('直达 X 上不上'), '2026-11-24T10:01:00Z'), comment(1791, '待决：直达 X 上不上？', '2026-11-24T10:01:00Z')] })
+    expect((await pendingOf('ROUBAO-1790')).card).toMatchObject({ decision: '直达 X 上不上', options: [{ key: 'A', text: '上' }, { key: 'B', text: '不上' }] })
+    expect((await pendingOf('ROUBAO-1791')).card).toBeNull()
+  })
+
+  it('上一轮的网页答复不算到 GitHub 上新提的待决头上', async () => {
+    await registerSchemas(team)
+    const world: World = { issues: [issue(1792, 'open', '2026-11-24T10:00:00Z')], comments: [comment(1792, fullAsk('第一件'), '2026-11-24T10:01:00Z')] }
+    await poll(world)
+    expect((await answerOn('ROUBAO-1792', (await pendingOf('ROUBAO-1792')).ask, '选 B')).status).toBe(201)
+    expect(await webAnswers(team, 'roubao')).toHaveLength(1)
+    world.comments.push(comment(1792, '已决：选 B', '2026-11-24T10:05:00Z', owner), comment(1792, fullAsk('第二件'), '2026-11-24T10:06:00Z'))
+    await poll(world)
+    expect((await pendingOf('ROUBAO-1792')).card?.decision).toBe('第二件')
+    expect(await webAnswers(team, 'roubao')).toEqual([])
+  })
+})
+
 describe('结算出错', () => {
   it('一个 issue 结算失败，别的照常结算，游标照常前进', async () => {
     const world: World = { issues: [issue(1740, 'open', '2026-11-24T10:00:00Z'), issue(1741, 'open', '2026-11-24T10:00:00Z')], comments: [] }

@@ -51,7 +51,7 @@ function markerOf(text: string): { kind?: unknown; body?: unknown } | null {
   }
 }
 
-function askOrRulingIn(text: string): { ask: string } | 'ruling' | null {
+export function askOrRulingIn(text: string): { ask: string } | 'ruling' | null {
   const marker = markerOf(text)
   if (marker && typeof marker.body === 'string') return marker.kind === 'ask' ? { ask: marker.body } : marker.kind === 'resolve' ? 'ruling' : null
   const visible = text.replace(TRAILING_NAWABAN_MARKER, '')
