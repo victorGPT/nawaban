@@ -547,6 +547,7 @@ const krRow = (k, w) => {
     value: measured ? oneDecimal(k.value) + unit : w.status[status], target: targetText(k, unit), measured,
     series: isLaterSeries(k) ? w.series(k.series.version, isoMonthDay(k.series.since)) : null, failure: k.failure ?? null,
     interval: isInterval(k.interval) ? w.interval(k.interval) : null,
+    kind: w.kinds[k.kind] ?? null, score: Number.isFinite(k.score) ? w.score(k.score) : null,
     gap: measured && hasStructuredTarget(k) ? varianceText(gapOf(k.target_op, k.target_value, k.value), unit, w) : null,
     as_of: k.as_of ?? null, day: measured && k.as_of ? isoMonthDay(k.as_of) : null, source: k.source ?? null,
     trend: w.trend[k.trend] ?? w.trend.null, missed_rounds: k.missed_rounds ?? 0, wait: k.wait ?? null,
@@ -564,10 +565,17 @@ const neediestObjectiveFirst = (x, y) => OBJECTIVE_STANDING.indexOf(x.standing) 
 export const OBJECTIVE_FOLD_PREFIX = "okr:";
 const UNTESTED_FOLD_PREFIX = "okr-untested:";
 
+const isTally = (x) => Number.isInteger(x?.met) && Number.isInteger(x?.total);
+const scoringText = (o, w) => {
+  const parts = [...(isTally(o.committed) && o.committed.total > 0 ? [w.committed(o.committed.met, o.committed.total)] : []),
+    ...(Number.isFinite(o.aspirational_score) ? [w.aspirational(o.aspirational_score)] : [])];
+  return parts.length ? parts.join(" · ") : null;
+};
+
 function objectiveView(o, w) {
   const krs = (o.krs ?? []).map((k) => krRow(k, w)).sort(worstFirst);
   return { name: o.name, met: o.met ?? krs.filter(isMet).length, total: o.total ?? krs.length,
-    standing: standingOf(krs), rulers: Number.isInteger(o.rulers) && o.rulers > 0 ? w.rulers(o.rulers) : null, fold: OBJECTIVE_FOLD_PREFIX + o.name, untestedFold: UNTESTED_FOLD_PREFIX + o.name,
+    standing: standingOf(krs), scoring: scoringText(o, w), rulers: Number.isInteger(o.rulers) && o.rulers > 0 ? w.rulers(o.rulers) : null, fold: OBJECTIVE_FOLD_PREFIX + o.name, untestedFold: UNTESTED_FOLD_PREFIX + o.name,
     krs: krs.filter(isListed), untestedKrs: krs.filter(isUntested), metKrs: krs.filter(isMet) };
 }
 
@@ -587,6 +595,8 @@ export const OKR_WORDS = {
   zh: { tally: (met, total, at) => `${met}/${total} 达标${at ? ` · ${at} 量` : ""}`,
     status: { met: "绿", missed: "红", unmeasurable: "量不了", undecided: "未定", stale: "黄", untested: "未测" },
     interval: ([a, b]) => `区间 [${a}, ${b}]`, rulers: (n) => `改尺子 ${n} 张`,
+    kinds: { committed: "承诺", aspirational: "进取" }, score: (s) => `分 ${s.toFixed(2)}`,
+    committed: (met, total) => `承诺 ${met}/${total}`, aspirational: (s) => `进取均分 ${s.toFixed(2)}`,
     series: (n, day) => `口径 v${n} 起 ${day}`, failure: "测量失败",
     trend: { closer: "在变好", away: "在变差", flat: "没动", null: "首次读数" },
     target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮未达标`, wait: "要你做",
@@ -595,6 +605,8 @@ export const OKR_WORDS = {
   en: { tally: (met, total, at) => `Green ${met}/${total}${at ? ` · measured ${at}` : ""}`,
     status: { met: "Green", missed: "Red", unmeasurable: "Unmeasurable", undecided: "Undecided", stale: "Amber", untested: "Untested" },
     interval: ([a, b]) => `interval [${a}, ${b}]`, rulers: (n) => `${n} changing the ruler`,
+    kinds: { committed: "Committed", aspirational: "Aspirational" }, score: (s) => `score ${s.toFixed(2)}`,
+    committed: (met, total) => `committed ${met}/${total}`, aspirational: (s) => `aspirational avg ${s.toFixed(2)}`,
     series: (n, day) => `measure v${n} since ${day}`, failure: "Measure failed",
     trend: { closer: "Getting closer", away: "Moving away", flat: "Flat", null: "First reading" },
     target: "Target", value: "Value", asOf: "As of", source: "Source", trendLabel: "Trend", rounds: (n) => `Red ${n} rounds in a row`, wait: "Needs you to",

@@ -747,6 +747,7 @@ function ObjectiveCard(props: { o: ObjectiveRow }) {
         <header class="flex items-baseline gap-3 px-4 pt-2">
           <h2 class="min-w-0 flex-1 truncate text-base leading-snug font-medium">{o().name}</h2>
           <Show when={o().rulers}><span class="shrink-0 text-sm text-muted-foreground">{o().rulers}</span></Show>
+          <Show when={o().scoring}><span class="shrink-0 text-sm text-muted-foreground tabular-nums">{o().scoring}</span></Show>
           <span class={cn('shrink-0 text-sm font-medium tabular-nums', STANDING_TONES[o().standing])}>{o().met}/{o().total}</span>
         </header>
         <div class="flex flex-col"><For each={o().krs}>{(k) => <KrLine k={k} />}</For></div>
@@ -777,7 +778,10 @@ function KrLine(props: { k: KrRow; quiet?: boolean }) {
   const tone = () => KR_TONES[k().status]
   return (
     <div class="flex flex-col gap-1.5 px-4 py-2.5">
-      <div class={cn('truncate', props.quiet || k().status === 'untested' ? 'text-muted-foreground' : 'text-foreground')}>{k().name}</div>
+      <div class="flex items-baseline gap-2">
+        <span class={cn('min-w-0 truncate', props.quiet || k().status === 'untested' ? 'text-muted-foreground' : 'text-foreground')}>{k().name}</span>
+        <Show when={k().kind}><span class="shrink-0 text-xs text-muted-foreground">{k().kind}</span></Show>
+      </div>
       <Show when={fill() != null}>
         <Progress value={Math.round(fill()! * 100)} aria-label={k().name}>
           <ProgressTrack class="h-1.5 overflow-hidden rounded-full bg-muted">
@@ -786,7 +790,7 @@ function KrLine(props: { k: KrRow; quiet?: boolean }) {
         </Progress>
       </Show>
       <div class="flex flex-wrap items-baseline gap-1 text-xs text-subtle-foreground tabular-nums">
-        <Show when={k().measured} fallback={<span><span class={tone().text}>{O.status[k().status]}</span> / {O.target} {k().target}<Show when={k().failure}> · {k().failure}</Show></span>}>
+        <Show when={k().measured} fallback={<span><span class={tone().text}>{O.status[k().status]}</span> / {O.target} {k().target}<Show when={k().failure}> · {k().failure}</Show><Show when={k().score}> · {k().score}</Show></span>}>
           <span class={cn(props.quiet ? 'text-sm text-muted-foreground' : 'text-sm font-medium', !props.quiet && (k().status === 'missed' ? 'text-destructive' : 'text-foreground'))}>{k().value}</span>
           <span>/ {O.target} {k().target}</span>
           <Show when={k().gap}>
@@ -797,6 +801,7 @@ function KrLine(props: { k: KrRow; quiet?: boolean }) {
           <span class={tone().text}>{O.status[k().status]}</span>
           <Show when={k().day}><span>· {O.asOfShort} {k().day}</span></Show>
           <Show when={k().interval}><span>· {k().interval}</span></Show>
+          <Show when={k().score}><span>· {k().score}</span></Show>
           <Show when={k().series}><span>· {k().series}</span></Show>
         </Show>
       </div>
