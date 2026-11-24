@@ -995,6 +995,15 @@ describe('committed KRs hold a line, aspirational ones score, and an Objective i
     expect([refused.code, refused.err]).toEqual([1, expect.stringContaining('还没收工')])
   })
 
+  it('refuses okr --accept when this run reads an aspirational KR with no date, however well the ledger scored it', async () => {
+    const p = await projectOnItsOwnBoardWithItsOwnReposJson('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "A"\ntarget = ">= 100"\nmeasure = "cat a.txt"\n')
+    await writeFile(join(p.root, 'a.txt'), '100 2026-11-24')
+    await nawabanOkr(p)
+    await writeFile(join(p.root, 'a.txt'), '0 yesterday')
+    const refused = await nawabanOkr(p, '--accept', 'O')
+    expect([refused.code, refused.err]).toEqual([1, expect.stringContaining('还没收工')])
+  })
+
   it('refuses a kind other than committed or aspirational, and a baseline that is no number', async () => {
     await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nkind = "output"\n'))).rejects.toThrow(/kind 只能写 committed 或 aspirational/)
     await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nbaseline = 3\n'))).rejects.toThrow(/baseline 要写成数字字符串/)

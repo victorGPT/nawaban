@@ -304,7 +304,7 @@ export async function run(root: string, timeout = MEASURE_READS_RESULTS_NEVER_RU
       const kept = await keptReadingOrFailure(root, o, kr, got)
       if (kept) readings.push(kept)
       const r = measuredRow(kr, got)
-      live.set(`${o.name}\0${kr.name}`, { met: r.met, read: r.read === true })
+      live.set(`${o.name}\0${kr.name}`, { met: r.met, read: r.read === true && kept !== null && kept.value !== FAILED })
       met += Number(r.met)
       rows.push(r.row)
     }
