@@ -290,11 +290,9 @@ export async function claimNextReady(project: string, wait?: string): Promise<Me
     throw new Refused(`claim --ready in ${project} failed: ${said}`)
   }
   const { task } = JSON.parse(claimed) as { task: MessageView }
-  try {
-    await labelTerminalThePanelReadsWhileClaimed(task.id)
-  } catch (error) {
-    throw new Refused(`claimed ${task.labels.key ?? task.id}, but labelling its terminal failed: ${(error as Error).message}`)
-  }
+  await labelTerminalThePanelReadsWhileClaimed(task.id).catch((error) =>
+    process.stderr.write(`claimed ${task.labels.key ?? task.id}; its terminal label for the panel failed: ${(error as Error).message}\n`),
+  )
   return task
 }
 
@@ -339,7 +337,7 @@ async function startWorkerElseRemoveWorktree(c: Checked, a: Args, wt: Worktree, 
   }
 }
 
-const workerProfileOf = (t: Terminal) => {
+export const workerProfileOf = (t: Terminal) => {
   const agent = t.labels?.['revive.agent']
   const session = t.labels?.['revive.session']
   return agent && session && isAgent(agent) ? sessionProfile(PROFILE_PREFIX_OF_AGENT[agent], session) : null

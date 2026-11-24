@@ -5,11 +5,11 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
-import { claimNextReady, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf } from './dispatch.ts'
+import { claimNextReady, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf, workerProfileOf } from './dispatch.ts'
 import { mergeGate } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
-import { all, profile, Refused, resolve, run as taskVerb } from './tasks.ts'
+import { all, live, profile, Refused, resolve, run as taskVerb } from './tasks.ts'
 
 const exec = promisify(execFile)
 const CLAIM_WAIT = '10m'
@@ -192,12 +192,17 @@ async function retirableElseWhyNot(terminal: string, root: string): Promise<Reti
 async function claimNextElseRetire(closed: MessageView, root: string, did: string[], wait: string): Promise<Outcome> {
   const terminal = (await seenOf(closed)).terminal
   if (!terminal) return { kind: 'done', did, thenRetire: null }
-  const stillHolding = (await all({ channel: closed.channel, state: 'open' })).find((t) => t.id !== closed.id && terminalWhileClaimed(t) === terminal)
-  if (stillHolding) return { kind: 'done', did: [...did, `${terminal} 还有 ${stillHolding.labels.key ?? stillHolding.id}，留着`], thenRetire: null }
   const worker = await terminalOf(terminal)
+  const theWorkerItselfMerges = process.env.HC_TERMINAL_ID === terminal
+  const as = theWorkerItselfMerges ? profile() : worker ? workerProfileOf(worker) : null
+  const ofTheWorker = (actor: string | null | undefined) => !!as && !!actor?.endsWith(`+${as}`)
+  const open = (await all({ channel: closed.channel, state: 'open' })).filter((t) => t.id !== closed.id)
+  const stillHolding = open.find((t) => terminalWhileClaimed(t) === terminal || ofTheWorker(live(t)?.actor))
+  if (stillHolding) return { kind: 'done', did: [...did, `${terminal} 还有 ${stillHolding.labels.key ?? stillHolding.id}，留着`], thenRetire: null }
   if (worker?.state !== 'live') return { kind: 'done', did: [...did, `worker ${terminal} 已不在`], thenRetire: null }
   const worktree = worker.cwd && existsSync(worker.cwd) ? worker.cwd : null
-  const theWorkerItselfMerges = process.env.HC_TERMINAL_ID === terminal
+  const assignedToIt = worktree && !theWorkerItselfMerges ? open.find((t) => t.task?.state === 'ready' && ofTheWorker(t.task.for)) : undefined
+  if (assignedToIt) return { kind: 'done', did: [...did, `${terminal} 有指派给它的 ${assignedToIt.labels.key ?? assignedToIt.id}，留着，它在自己的终端里 claim --ready 领`], thenRetire: null }
   if (worktree && theWorkerItselfMerges) {
     let next: MessageView | null
     try {
