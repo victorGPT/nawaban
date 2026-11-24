@@ -13,6 +13,7 @@ E3 = "条件抽取：硬条件和倾向放错档（E3）"
 LONG_KEEP = "长对话接着轮保留全部修饰"
 E3_TICKETS = ("#1411", "#1413", "#1427", "#1480", "#1509", "#1512", "#1511")
 E3_MEASURE_CHANGED_IN = {"#1411": "量法（点名题不计）", "#1427": "量法（判档前过 saidArgs + normalize）", "#1480": "产品 + 金标"}
+E3_JUDGED_BY_THE_SPEC = {"#1413", "#1509", "#1512", "#1511"}
 LONG_KEEP_TICKETS = ("#1419", "#1462", "#1469")
 DRAFT_COMMITTED = {"拒答、说教率（40 条集，取两者高的）", "硬拦（未成年等）每题每次都拦住（范围样例集）", "检索硬条件违反（标准框前 20，闸 10）",
                    "库里没有时冒充", "合规过滤：不合规内容出现在结果里", "偏好规则用例通过率", "每人每周对话轮数比基线（护栏）", "对话到达播放率比基线（护栏）"}
@@ -132,7 +133,7 @@ def declarations(krs, rows, impacts, table):
         n1 = table[E3]["点名题计入"] if t == "#1411" else table[E3]["点名题不计"]
         n2 = table[E3]["点名题不计"]
         out.append(dict(kr="E3", ticket=t, declared=i["dir"], as_=declared_as(op, i["dir"]), before=before, n1=n1, after=after, n2=n2,
-                        moved=toward(op, goal, before, after), v1="不判（↓）", note=E3_MEASURE_CHANGED_IN.get(t, "产品")))
+                        moved=toward(op, goal, before, after), v1="不判（↓）", note=E3_MEASURE_CHANGED_IN.get(t, "产品"), judged=t in E3_JUDGED_BY_THE_SPEC))
     op, goal = target(krs[LONG_KEEP])
     keep = [r for r in rows if r["kr"] == LONG_KEEP][:2]
     for t in LONG_KEEP_TICKETS:
@@ -140,24 +141,28 @@ def declarations(krs, rows, impacts, table):
         before, after = float(keep[0]["value"]), float(keep[1]["value"])
         out.append(dict(kr="长对话接着轮", ticket=t, declared=i["dir"], as_=declared_as(op, i["dir"]), before=before,
                         n1=n_of(table, LONG_KEEP, keep[0]["source"]), after=after, n2=n_of(table, LONG_KEEP, keep[1]["source"]),
-                        moved=toward(op, goal, before, after), v1="不符", note="换评测集 b1-1244 → 1539（SENSOR 下是新序列，不判）"))
+                        moved=toward(op, goal, before, after), v1="不符", note="换评测集 b1-1244 → 1539（SENSOR 下是新序列）", judged=False))
     return out
+
+
+def one_item(n1, n2):
+    return 100 / min(n1, n2)
 
 
 def e3_chain(impacts, table):
     e3 = {i["ticket"]: i for i in impacts if i["kr"] == E3}
-    steps = [e3[t] for t in E3_TICKETS if t != "#1512"]
+    steps = [e3[t] for t in E3_TICKETS]
     n = lambda t: table[E3]["点名题计入"] if t == "#1411" else table[E3]["点名题不计"]
     return [(number(steps[0]["before"]), n("#1411"))] + [(number(i["after"]), n("")) for i in steps]
 
 
-def stuck_rounds(op, goal, seq, z):
+def stuck_rounds(op, goal, seq, z, gate=None):
     flagged = []
     for i in range(2, len(seq)):
         (v0, n0), (v1, n1), (v2, n2) = seq[i - 2], seq[i - 1], seq[i]
         if green(op, goal, v2, n2, z):
             continue
-        moved = [toward(op, goal, a, b) >= max(100 * mde(a / 100, na, b / 100, nb, z) if na and nb else 0, 1e-9)
+        moved = [toward(op, goal, a, b) >= max((gate or (lambda na, nb: 100 * mde(a / 100, na, b / 100, nb, z)))(na, nb) if na and nb else 0, 1e-9)
                  for (a, na), (b, nb) in (((v0, n0), (v1, n1)), ((v1, n1), (v2, n2)))]
         if not any(moved):
             flagged.append(i + 1)
@@ -194,19 +199,20 @@ def report(krs, rows, impacts, table_path):
         by_kr.setdefault(r["kr"], []).append(r)
     zs = " | ".join(f"z={z}" for z in ZS)
     out = ["## 一、声明判定（E3 七张 + 长对话接着轮三张）", "",
-           f"| KR | 票 | 声明 | 前→后（n） | 往目标走 | MDE {zs} | 现在 | {zs} | 改动 |",
-           "|" + "---|" * (7 + 2 * len(ZS))]
+           f"| KR | 票 | 声明 | 前→后（n） | 往目标走 | MDE {zs} | 一题门 | 现在 | {zs} | 一题门 | 改动 |",
+           "|" + "---|" * (9 + 2 * len(ZS))]
     for d in declarations(krs, rows, impacts, table):
-        gates = [100 * mde(d["before"] / 100, d["n1"], d["after"] / 100, d["n2"], z) for z in ZS]
-        verdicts = [verdict(d["as_"], d["moved"], g) for g in gates]
+        gates = [100 * mde(d["before"] / 100, d["n1"], d["after"] / 100, d["n2"], z) for z in ZS] + [one_item(d["n1"], d["n2"])]
+        verdicts = [verdict(d["as_"], d["moved"], g) if d["judged"] else "不判" for g in gates]
         out.append(f"| {d['kr']} | {d['ticket']} | {d['declared']}（{d['as_']}） | {d['before']}（{d['n1']}）→{d['after']}（{d['n2']}） | "
                    f"{d['moved']:+.1f} | " + " | ".join(f"{g:.1f}" for g in gates) + f" | {d['v1']} | " + " | ".join(verdicts) + f" | {d['note']} |")
     out += ["", "## 二、「两轮没动」在第几轮触发（按读数先后数轮）", "",
-            f"| KR | 读数（n） | 现在 | {zs} |", "|" + "---|" * (3 + len(ZS))]
+            f"| KR | 读数（n） | 现在 | {zs} | 一题门（绿灯 z=1.96） |", "|" + "---|" * (4 + len(ZS))]
     op, goal = target(krs[E3])
     chain = e3_chain(impacts, table)
     out.append(f"| E3 声明链（kr_impacts 前后值，SENSOR 前账本吃掉的中间值） | " + "、".join(f"{v:g}（{n}）" for v, n in chain)
-               + f" | {stuck_now(op, goal, chain) or '—'} | " + " | ".join(str(stuck_rounds(op, goal, chain, z) or "—") for z in ZS) + " |")
+               + f" | {stuck_now(op, goal, chain) or '—'} | " + " | ".join(str(stuck_rounds(op, goal, chain, z) or "—") for z in ZS)
+               + f" | {stuck_rounds(op, goal, chain, 1.96, one_item) or '—'} |")
     for name, kr in krs.items():
         series = current_series(by_kr.get(name, []))
         if len(series) < 3:
@@ -214,7 +220,8 @@ def report(krs, rows, impacts, table_path):
         op, goal = target(kr)
         seq = [(float(r["value"]), n_of(table, name, r["source"])) for r in series]
         shown = "、".join(f"{v:g}（{n if n else '点'}）" for v, n in seq)
-        out.append(f"| {name} | {shown} | {stuck_now(op, goal, seq) or '—'} | " + " | ".join(str(stuck_rounds(op, goal, seq, z) or "—") for z in ZS) + " |")
+        out.append(f"| {name} | {shown} | {stuck_now(op, goal, seq) or '—'} | " + " | ".join(str(stuck_rounds(op, goal, seq, z) or "—") for z in ZS)
+                   + f" | {stuck_rounds(op, goal, seq, 1.96, one_item) or '—'} |")
     out += ["", "## 三、绿灯（每条 KR 最新读数）", "",
             f"| KR | 现值 | n | 目标 | 现在 | " + " | ".join(f"z={z} 区间 / 绿" for z in ZS) + " | 草案 kind |", "|" + "---|" * (6 + len(ZS))]
     tally = {"现在": 0, **{z: 0 for z in ZS}, **{("draft", z): 0 for z in ZS}}

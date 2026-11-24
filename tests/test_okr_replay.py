@@ -14,11 +14,12 @@ def test_the_replay_reruns_from_the_committed_ledger():
     assert "绿灯数：现在 18；z=1.0 全按进取 13" in out
 
 
-def test_only_z_1_keeps_e3_from_reading_stuck_while_it_fell_from_21_6_to_2_1():
+def test_every_z_reads_e3_stuck_while_it_fell_from_21_6_to_2_1_and_a_one_item_gate_does_not():
     data = json.loads((REPLAY / "ledger.json").read_text())
     table = json.loads((REPLAY / "kr_n.json").read_text())
     chain = replay_z.e3_chain(data["impacts"], table)
-    assert [replay_z.stuck_rounds("<=", 3.0, chain, z) for z in replay_z.ZS] == [[], [3, 4, 5, 6, 7], [3, 4, 5, 6, 7]]
+    assert [replay_z.stuck_rounds("<=", 3.0, chain, z) for z in replay_z.ZS] == [[8], [3, 4, 5, 6, 7, 8], [3, 4, 5, 6, 7, 8]]
+    assert replay_z.stuck_rounds("<=", 3.0, chain, 1.96, replay_z.one_item) == []
 
 
 def test_the_committed_ledger_holds_no_production_reading():
