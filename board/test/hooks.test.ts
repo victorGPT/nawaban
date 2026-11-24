@@ -129,6 +129,7 @@ it('prints the index off the board when an orchestrator window starts, and nothi
   expect(start.out).toContain('## 进行中\n- K2 在干的\n  进展 0 分钟前：写完测试\n  下一步：接 CLI')
   expect(start.out).toContain('- K1 要密钥')
   expect(start.out).toContain('规矩正文')
+  expect(start.err).not.toContain('改用')
   expect((await hook('leader-index.sh', '', { ROLE: 'worker' })).out).toBe('')
 })
 
@@ -216,14 +217,14 @@ it('lets a session outside Herdr that the owner declared read what the web page 
   expect(await stop(SESSION)).toBe('待决 1 件，网页已答 1 件：P1 发不发（网页已答）；收件箱 1 条｜说「同步」看待决')
   const context = (await prompt('同步')).out
   expect(context).toContain(`- ${item.id} 面板加夜间模式`)
-  expect(await nawaban('index', '--project', 'proj')).toContain(`- ${item.id} 面板加夜间模式`)
+  expect(await nawaban('status', '--project', 'proj')).toContain(`- ${item.id} 面板加夜间模式`)
 
   await nawaban('event', p1, '--kind', 'resolve', '--body', '发吧，周五前')
   await nawaban('create', 'IN1', '--project', 'proj', '--title', '面板加夜间模式', '--body', `收件箱 ${item.id}`)
-  await nawaban('label', item.id, 'inbox=done', 'task=IN1', '--if', 'inbox=open')
+  await nawaban('board', 'label', item.id, 'inbox=done', 'task=IN1', '--if', 'inbox=open')
   expect(await stop(SESSION)).toBe('待决 0 件')
   expect((await prompt('继续')).out).toBe('')
-  expect(await nawaban('index', '--project', 'proj')).toContain('- IN1 面板加夜间模式')
+  expect(await nawaban('status', '--project', 'proj')).toContain('- IN1 面板加夜间模式')
 
   await team.tasks.block(p1, '发不发', { kind: 'awaiting_approval' })
   expect(await stop(SESSION)).toBe('待决 1 件：P1 发不发｜说「同步」看待决')
@@ -272,7 +273,7 @@ it('gives the orchestrator what the web page wrote in full once per session, the
   expect(await prompt(S2)).toContain(longWords)
 
   await nawaban('event', q1, '--kind', 'resolve', '--body', '上')
-  for (const m of [item, second]) await nawaban('label', m.id, 'inbox=done', '--if', 'inbox=open')
+  for (const m of [item, second]) await nawaban('board', 'label', m.id, 'inbox=done', '--if', 'inbox=open')
   expect(await prompt(S2)).toBe('')
 })
 
@@ -284,6 +285,7 @@ it('runs one impact guard per repository: the board\'s where the project moved, 
 
   const boardClose = await hook('board-impact-guard.sh', close)
   expect([boardClose.code, boardClose.err]).toEqual([2, expect.stringContaining('nawaban close')])
+  expect(boardClose.err).not.toContain('改用')
   expect((await hook('impact-guard.sh', merge)).code).toBe(0)
   const oldGuardNeverAskedGitHub = await log()
   expect(oldGuardNeverAskedGitHub).toBe('')

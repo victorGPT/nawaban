@@ -9,7 +9,7 @@ no_board_here_yet() { [ -z "$sid" ] || [ ! -f "$dir/token" ]; }
 renewed_within_half_the_lease() { [ -n "$(find "$stamp" -mmin -"$RENEW_EVERY_MINUTES" 2>/dev/null)" ]; }
 
 renew_in_background_stamping_only_on_success() {
-  (node "$(dirname "$0")/../board/src/cli.ts" renew --session "$sid" && touch "$stamp") </dev/null >/dev/null 2>&1 &
+  (node "$(dirname "$0")/../board/src/cli.ts" hook renew --session "$sid" && touch "$stamp") </dev/null >/dev/null 2>&1 &
 }
 
 no_board_here_yet && exit 0

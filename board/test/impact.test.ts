@@ -15,6 +15,7 @@ import { run } from '../src/tasks.ts'
 
 const SECRET = 'test-secret'
 const HOOK = join(import.meta.dirname, '../../hooks/board-impact-guard.sh')
+const EVERY_HOOK_RUN_STARTS_A_SHELL_AND_TWO_NODES = { timeout: 60_000 }
 let team: ReturnType<typeof board>
 let server: Awaited<ReturnType<typeof listen>>
 let url = ''
@@ -167,8 +168,8 @@ function preToolUseHookOnBashAsClaudeCodeRunsIt(command: string, cwd = worktree,
   })
 }
 
-it("stops an agent closing a task with the board's CLI", async () => {
-  for (const cmd of ['vb tasks complete 12', 'cd x && npx vb tasks fail 3 boom', 'nawaban --as cc-1 tasks cancel 4', 'vercel board tasks complete 5', 'npx --yes @vercel/board tasks complete 12', 'pnpm --silent dlx @vercel/board@0.53.0 tasks fail 1 x']) {
+it("stops an agent closing a task with the board's CLI", EVERY_HOOK_RUN_STARTS_A_SHELL_AND_TWO_NODES, async () => {
+  for (const cmd of ['vb tasks complete 12', 'cd x && npx vb tasks fail 3 boom', 'nawaban --as cc-1 tasks cancel 4', 'vercel board tasks complete 5', 'npx --yes @vercel/board tasks complete 12', 'pnpm --silent dlx @vercel/board@0.53.0 tasks fail 1 x', 'nawaban board tasks complete 12', 'node ~/.nawaban/plugin/board/src/cli.ts board tasks cancel 4 x']) {
     expect([cmd, closeGate(cmd)]).toEqual([cmd, expect.stringMatching(/nawaban close/)])
   }
   for (const cmd of ['nawaban close NAWABAN-X --done', 'vb tasks list', 'echo "vb tasks complete 1"', 'git commit -m "tasks complete"', 'echo board tasks complete', 'printf "%s\\n" nawaban tasks complete']) {
@@ -180,7 +181,7 @@ it("stops an agent closing a task with the board's CLI", async () => {
   expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('ls')).code).toBe(0)
 })
 
-it('refuses a merge whose task declares no impact, from a worktree of the repository', async () => {
+it('refuses a merge whose task declares no impact, from a worktree of the repository', EVERY_HOOK_RUN_STARTS_A_SHELL_AND_TWO_NODES, async () => {
   const id = await newTask('nawaban', 'NAWABAN-T-01')
   const pr = { number: 7, title: 'feat: x', body: 'NAWABAN-T-01', headRefName: 'feat/x' }
   const refused = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 7 --squash', worktree, pr)
@@ -197,7 +198,7 @@ it('refuses a merge whose task declares no impact, from a worktree of the reposi
   expect(doneStillHasItsDeclaration.code).toBe(0)
 })
 
-it("reads gh's -R before pr merge as a merge", async () => {
+it("reads gh's -R before pr merge as a merge", EVERY_HOOK_RUN_STARTS_A_SHELL_AND_TWO_NODES, async () => {
   await newTask('nawaban', 'NAWABAN-T-02')
   const pr = { number: 8, title: 'NAWABAN-T-02', body: '', headRefName: 'x' }
   const refused = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh -R acme/web pr merge 8 --squash', worktree, pr)

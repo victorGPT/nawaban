@@ -13,7 +13,7 @@ description: 人和 agent 在 nawaban 上的协作流程：需求怎么拆、任
 
 - **Markdown** 定规矩：仓库的 `AGENTS.md`（`CLAUDE.md` 只写 `@AGENTS.md`）、`docs/agents/*.md`、`docs/adr/`、`GLOSSARY.md`。改约定就改这里。
 - **Skill** 教做法：Matt Pocock 的工程 skill（`grilling` → `to-spec` → `to-tickets`）管需求怎么变成任务；`/pstack:poteto-mode` 管一张任务怎么做好；`nawaban` 管记账。
-- **CLI** 是唯一写入口：`nawaban`（claim、event、close、dispatch、index、okr…），GitHub 用 `gh`，终端之间用 `hc`。
+- **CLI** 是唯一写入口：`nawaban`（claim、event、close、dispatch、status、okr…），GitHub 用 `gh`，终端之间用 `hc`。
 - **Hook** 在关键处强制：能机器查的规矩做成检查，做不成的才写进文档。
 - **Tracker** 是状态的唯一来源：有同事的仓库用 GitHub Issues，只有自己的仓库用本机看板。仓库用哪个，看它的 `docs/agents/issue-tracker.md`。
 
