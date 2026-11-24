@@ -7,7 +7,7 @@ import {
   boardColumns, boardTaskOf, cardSignal, foldKey, krFill, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
   WINDOW_WORDS, type Board, type BoardTask, type Item, type Project, type Route, type Tab,
 } from './logic'
-import { clockOf, detailView, stampOf, type By, type Timeline as TimelineRows, type Detail, type DetailView, type Entry, type Ref, type Row, type Section, type Step } from './detail-logic'
+import { clockOf, detailView, stampOf, type By, type Timeline as TimelineRows, type Detail, type DetailView, type Entry, type Narrated, type Ref, type Row, type Section, type Step } from './detail-logic'
 import { Inbox } from './inbox'
 import { DecidePage } from './Decide'
 import { badge, button, card, cardList, cardTitle, cn, empty, Icon, selectTrigger, sectionHead } from './ui'
@@ -573,6 +573,8 @@ function SayingRow(props: { fold: string; said: Entry; folds: Folds; tone: strin
   )
 }
 
+const WORKER_DID_ICONS: Record<Narrated['kind'], IconName> = { said: 'MessageSquare', edited: 'Pencil', tested: 'FlaskConical' }
+
 type RowViews = { [K in Row['kind']]: (row: Extract<Row, { kind: K }>, ctx: RowContext) => JSX.Element }
 const ROW_VIEWS: RowViews = {
   decision: (row, ctx) => (
@@ -592,6 +594,7 @@ const ROW_VIEWS: RowViews = {
   ),
   note: (row, ctx) => <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} tone="text-muted-foreground" />,
   dispatch: (row, ctx) => <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} mark={<Dot class="size-2 border border-muted-foreground" />} tone="text-muted-foreground" />,
+  worker: (row, ctx) => <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} mark={<Icon name={WORKER_DID_ICONS[row.did]} class="size-3.5 text-subtle-foreground" />} tone="text-muted-foreground" />,
 }
 const rowView = (row: Row, ctx: RowContext) => (ROW_VIEWS[row.kind] as (row: Row, ctx: RowContext) => JSX.Element)(row, ctx)
 

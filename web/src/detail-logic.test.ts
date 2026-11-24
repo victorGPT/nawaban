@@ -41,6 +41,24 @@ describe('detailView timeline', () => {
     expect(view.timeline.total).toBe(5)
   })
 
+  it('puts what the worker did among everything by time, its whole text one step away, and never up front', () => {
+    const view = detailView(detail([ev('note', '进展：开工', at(24, 9)), ev('decision', '决定：行', at(24, 11), 'user')], {
+      narration: [
+        { at: at(24, 9, 5), kind: 'said', text: '先读票\n再改看板' },
+        { at: at(24, 10), kind: 'edited', text: 'web/src/main.tsx, board/src/views.ts' },
+        { at: at(24, 12), kind: 'tested', text: '在跑测试 / 检查' },
+      ],
+    }), task(), NOW)
+    expect(view.timeline.forTheOwner.map((d) => d.rows.map((r) => r.kind + ' ' + r.line))).toEqual([['decision 行']])
+    expect(lines(view)).toEqual([['今天', ['worker 在跑测试 / 检查', 'decision 行', 'worker web/src/main.tsx, board/src/views.ts', 'worker 先读票', 'note 开工']]])
+    expect(view.timeline.everything[0]!.rows.flatMap((r) => (r.kind === 'worker' ? [[r.did, r.full]] : []))).toEqual([
+      ['tested', '在跑测试 / 检查'],
+      ['edited', 'web/src/main.tsx, board/src/views.ts'],
+      ['said', '先读票\n再改看板'],
+    ])
+    expect(view.timeline.total).toBe(5)
+  })
+
   it('reads a decision as its verdict line, its question, and who made it', () => {
     const view = detailView(detail([
       ev('decision', '决定：只做里程碑\n背景：怎么报进度\n否决方案：每轮摘要', at(24, 9), 'user'),

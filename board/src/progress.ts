@@ -17,7 +17,7 @@ const TRANSCRIPT_TAIL_BYTES = 4 << 20
 const WRITE_EVERY_SECONDS = 5 * 60
 const LOOKS_AGAIN_AFTER_SECONDS = 60
 const PROBE_TIMEOUT_MS = 10_000
-const TOOLS_THAT_EDIT = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch', 'write_to_file', 'replace_file_content'])
+export const TOOLS_THAT_EDIT = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch', 'write_to_file', 'replace_file_content'])
 const AT_A_COMMAND = String.raw`(?:^|[;&|(\n]\s*)`
 const COMMAND_SIGNS: [Milestone, RegExp, RegExp | null][] = [
   ['reported', new RegExp(AT_A_COMMAND + String.raw`hc\s+send\b`), /^[^\n]*回报：/],
@@ -28,7 +28,7 @@ const COMMAND_SIGNS: [Milestone, RegExp, RegExp | null][] = [
 const QUOTED = /'[^']*'|"(?:[^"\\]|\\.)*"/g
 const HEREDOC_BODY = /(<<-?\s*(['"]?)(\w+)\2[^\n]*\n)([\s\S]*?\n[ \t]*\3)(?=\n|$)/g
 const blankedKeepingLength = (text: string) => text.replace(/[^\n]/g, ' ')
-const quotesBlanked = (command: string) =>
+export const quotesBlanked = (command: string) =>
   command
     .replace(HEREDOC_BODY, (_all, opener: string, _q, _tag, body: string) => opener + blankedKeepingLength(body))
     .replace(QUOTED, (q) => q[0] + ' '.repeat(q.length - 2) + q.at(-1))
@@ -97,7 +97,7 @@ function tailLines(path: string): string[] {
   }
 }
 
-type Call = { name: string; input: Record<string, unknown> }
+export type Call = { name: string; input: Record<string, unknown> }
 
 const parsedOrEmpty = (json: unknown): Record<string, unknown> => {
   if (json && typeof json === 'object') return json as Record<string, unknown>
@@ -108,7 +108,7 @@ const parsedOrEmpty = (json: unknown): Record<string, unknown> => {
   }
 }
 
-function callsOfStep(d: Record<string, any>): Call[] {
+export function callsOfStep(d: Record<string, any>): Call[] {
   if (d.type === 'assistant' && Array.isArray(d.message?.content)) {
     return d.message.content.filter((c: { type?: string }) => c.type === 'tool_use').map((c: { name: string; input: unknown }) => ({ name: c.name, input: parsedOrEmpty(c.input) }))
   }
@@ -123,7 +123,7 @@ function callsOfStep(d: Record<string, any>): Call[] {
 
 const asText = (v: unknown) => (Array.isArray(v) ? v.join(' ') : typeof v === 'string' ? v : '')
 
-function commandsRunBy({ name, input }: Call): string[] {
+export function commandsRunBy({ name, input }: Call): string[] {
   if (name === 'REPL') return [...asText(input.code).matchAll(SHELL_IN_A_SCRIPT)].map((m) => m[1]!)
   return [input.command, input.cmd, input.CommandLine].map(asText).filter(Boolean)
 }
@@ -135,7 +135,7 @@ export function milestoneOfCall(call: Call): Milestone {
   return furthest([edits ? 'edited' : 'started', reviewer ? 'review' : 'started', ...signs])
 }
 
-const stepTime = (d: Record<string, any>) => {
+export const stepTime = (d: Record<string, any>) => {
   const at = Date.parse(d.timestamp ?? d.created_at ?? '')
   return Number.isNaN(at) ? null : at / 1000
 }
