@@ -9,6 +9,7 @@ const HOLD_REASON_MAX = 200
 const FINISHED = new Set(['completed', 'canceled'])
 const ASK = /^\s*(?:#{1,6}\s*)?\**(?:待决|需要你定)\**\s*(?:[（(][^）)\n]*[）)])?\**\s*[：:]\**\s*/
 const RULING = /^\s*(?:#{1,6}\s*)?\**已决\**\s*(?:[（(][^）)\n]*[）)])?\**\s*[：:]/
+const TRAILING_NAWABAN_MARKER = /\n*<!-- nawaban (\{[^\n]*\}) -->\s*$/
 
 export const keyOf = (channel: string, issue: number) => `${channel.toUpperCase()}-${issue}`
 const issueNumberOf = (root: MessageView) => Number(root.labels.issue!.slice(root.labels.issue!.lastIndexOf('#') + 1))
@@ -41,12 +42,30 @@ async function reopenedAsANewTask(person: Person, root: MessageView, finished: M
   return task
 }
 
+function markerOf(text: string): { kind?: unknown; body?: unknown } | null {
+  const found = TRAILING_NAWABAN_MARKER.exec(text)
+  try {
+    return found ? JSON.parse(found[1]!) : null
+  } catch {
+    return null
+  }
+}
+
+function askOrRulingIn(text: string): { ask: string } | 'ruling' | null {
+  const marker = markerOf(text)
+  if (marker && typeof marker.body === 'string') return marker.kind === 'ask' ? { ask: marker.body } : marker.kind === 'resolve' ? 'ruling' : null
+  const visible = text.replace(TRAILING_NAWABAN_MARKER, '')
+  if (ASK.test(visible)) return { ask: visible.replace(ASK, '') }
+  return RULING.test(visible) ? 'ruling' : null
+}
+
 function pendingGithubAsk(replies: MessageView[]) {
   const inGithubOrder = replies.filter((r) => r.from === 'github' && !r.deleted).sort((a, b) => Number(a.origin?.message) - Number(b.origin?.message) || (a.createdAt < b.createdAt ? -1 : 1))
   let pending: string | null = null
   for (const r of inGithubOrder) {
-    if (ASK.test(r.text)) pending = r.text.replace(ASK, '')
-    else if (RULING.test(r.text)) pending = null
+    const said = askOrRulingIn(r.text)
+    if (said === 'ruling') pending = null
+    else if (said) pending = said.ask
   }
   return pending
 }

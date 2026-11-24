@@ -103,6 +103,16 @@ describe('前缀变成任务状态', () => {
     expect((await theTask('ROUBAO-1728')).task?.state).toBe('ready')
   })
 
+  it('按 marker 的 kind 认，不看可见前缀', async () => {
+    const marked = (kind: string, body: string) => `${body}\n\n<!-- nawaban {"v":1,"kind":"${kind}","body":"${body}"} -->`
+    const world: World = { issues: [issue(1727, 'open', '2026-11-24T10:00:00Z')], comments: [comment(1727, marked('ask', '直达 X 上不上'), '2026-11-24T10:01:00Z', owner)] }
+    await poll(world)
+    expect((await theTask('ROUBAO-1727')).task?.blocked?.reason).toBe(`${HELD_FOR_A_GITHUB_ASK}直达 X 上不上`)
+    world.comments.push(comment(1727, marked('resolve', '选 B'), '2026-11-24T10:05:00Z', owner))
+    await poll(world)
+    expect((await theTask('ROUBAO-1727')).task?.state).toBe('ready')
+  })
+
   it('带粗体和署名的手写前缀也认', async () => {
     await poll({ issues: [issue(1729, 'open', '2026-11-24T10:00:00Z')], comments: [comment(1729, '**待决**（岳不同）：要不要上', '2026-11-24T10:01:00Z')] })
     expect((await theTask('ROUBAO-1729')).task?.blocked?.kind).toBe('awaiting_approval')
