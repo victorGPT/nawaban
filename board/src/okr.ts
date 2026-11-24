@@ -539,8 +539,10 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
     const met = krs.filter((k) => k.status === 'met').length
     const committed = krs.filter((k) => k.kind === 'committed')
     const scored = krs.filter((k) => k.kind === 'aspirational' && k.wait === null).map((k) => k.score!)
-    const aspirationalScore = scored.length ? toNinePlaces(scored.reduce((a, b) => a + b, 0) / scored.length) : null
-    const done = committed.length + scored.length > 0 && committed.every((k) => k.status === 'met') && (aspirationalScore === null || aspirationalScore >= ASPIRATIONAL_DONE_SCORE)
+    const units = scored.reduce((sum, s) => sum + scoreUnits(s), 0n)
+    const aspirationalScore = scored.length ? Number(units / BigInt(scored.length)) / Number(SCORE_SCALE) : null
+    const reachesTheBar = units >= scoreUnits(ASPIRATIONAL_DONE_SCORE) * BigInt(scored.length)
+    const done = committed.length + scored.length > 0 && committed.every((k) => k.status === 'met') && reachesTheBar
     const pending = done && (!accepts.has(name) || missedSinceAccept)
     const scoreText = aspirationalScore === null ? '' : `、进取型均分 ${aspirationalScore.toFixed(SCORE_PLACES)}`
     if (pending) out.attention.push({ kind: 'accept', objective: name, kr: null, text: `${name} 承诺型全过${scoreText}，待你验收（nawaban okr --accept）` })
@@ -927,17 +929,21 @@ async function keptByTheOldCli(top: string) {
 
 const UNSCORED_STATUSES = new Set(['untested', 'unmeasurable', 'stale'])
 
+const SCORE_SCALE = 10n ** 12n
+const scoreUnits = (score: number) => BigInt(Math.round(score * Number(SCORE_SCALE)))
+
 function scoreOf(op: string, goal: ExactDecimalAsTheOldClisDecimal, status: string, series: KeptReading[], baseline?: string) {
   if (status === 'met') return 1
   if (UNSCORED_STATUSES.has(status) || !series.length) return 0
-  const g = Number(goal.n) * 10 ** goal.e
-  const distance = (value: string) => {
-    const v = Number(value)
-    return WANTS_MORE.has(op) ? Math.max(0, g - v) : op === '==' ? Math.abs(v - g) : Math.max(0, v - g)
+  const distance = (value: string): ExactDecimalAsTheOldClisDecimal => {
+    const [v, g, e] = align(dec(value), goal)
+    const d = WANTS_MORE.has(op) ? g - v : op === '==' ? (v > g ? v - g : g - v) : v - g
+    return { n: d > 0n ? d : 0n, e }
   }
-  const d0 = distance(baseline?.trim() ?? series[0]!.value)
-  if (d0 === 0) return 0
-  return toNinePlaces(Math.min(1, Math.max(0, (d0 - distance(series.at(-1)!.value)) / d0)))
+  const [d0, d] = align(distance(baseline?.trim() ?? series[0]!.value), distance(series.at(-1)!.value))
+  if (d0 === 0n) return 0
+  const ratio = ((d0 - d) * SCORE_SCALE) / d0
+  return Number(ratio < 0n ? 0n : ratio > SCORE_SCALE ? SCORE_SCALE : ratio) / Number(SCORE_SCALE)
 }
 
 export function standingText(data: ReturnType<typeof judge>) {

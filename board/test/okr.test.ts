@@ -962,6 +962,17 @@ describe('committed KRs hold a line, aspirational ones score, and an Objective i
     expect(standingText(data)).toBe('O O · 进取均分 0.70 · 未收工(进取均分要 ≥ 0.7)')
   })
 
+  it('averages in exact units, so three at the bar are done', () => {
+    const rows = ['A', 'B', 'C'].flatMap((k) => [{ ...reading(k, 0, '2026-11-09T00:00:00') }, reading(k, 70, at)])
+    const data = judge(o(['A', 'B', 'C'].map((name) => ({ name, target: '>= 100' }))), rows, new Map(), new Map(), '/r', null)
+    expect([data.objectives[0]!.aspirational_score, data.objectives[0]!.done]).toEqual([0.7, true])
+  })
+
+  it('scores in exact decimals, even past what a float holds', () => {
+    const data = judge(o([{ name: 'K', target: '>= 9007199254740993', baseline: '9007199254740990' }]), [{ ...reading('K', 0, at), value: '9007199254740992' }], new Map(), new Map(), '/r', null)
+    expect([data.objectives[0]!.aspirational_score, data.objectives[0]!.done]).toEqual([0.666666666666, false])
+  })
+
   it('refuses a kind other than committed or aspirational, and a baseline that is no number', async () => {
     await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nkind = "output"\n'))).rejects.toThrow(/kind 只能写 committed 或 aspirational/)
     await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nbaseline = 3\n'))).rejects.toThrow(/baseline 要写成数字字符串/)
