@@ -19,12 +19,22 @@ const LOOKS_AGAIN_AFTER_SECONDS = 60
 const PROBE_TIMEOUT_MS = 10_000
 const TOOLS_THAT_EDIT = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch', 'write_to_file', 'replace_file_content'])
 const AT_A_COMMAND = String.raw`(?:^|[;&|(\n]\s*)`
-const COMMAND_SIGNS: [Milestone, RegExp][] = [
-  ['reported', new RegExp(AT_A_COMMAND + String.raw`hc\s+send\b[^\n]*回报：`)],
-  ['review', new RegExp(AT_A_COMMAND + String.raw`(?:gh\s+pr\s+checks\b|codex\s+review\b|node\s+\S*codex-companion\S*\s+(?:task|review))`)],
-  ['pr', new RegExp(AT_A_COMMAND + String.raw`gh\s+pr\s+create\b`)],
-  ['committed', new RegExp(AT_A_COMMAND + String.raw`git(?:\s+-[Cc]\s+\S+)*\s+commit\b`)],
+const COMMAND_SIGNS: [Milestone, RegExp, RegExp | null][] = [
+  ['reported', new RegExp(AT_A_COMMAND + String.raw`hc\s+send\b`), /^[^\n]*回报：/],
+  ['review', new RegExp(AT_A_COMMAND + String.raw`(?:gh\s+pr\s+checks\b|codex\s+review\b|node\s+\S*codex-companion\S*\s+(?:task|review))`), null],
+  ['pr', new RegExp(AT_A_COMMAND + String.raw`gh\s+pr\s+create\b`), null],
+  ['committed', new RegExp(AT_A_COMMAND + String.raw`git(?:\s+-[Cc]\s+\S+)*\s+commit\b`), null],
 ]
+const QUOTED = /'[^']*'|"(?:[^"\\]|\\.)*"/g
+const quotesBlanked = (command: string) => command.replace(QUOTED, (q) => q[0] + ' '.repeat(q.length - 2) + q.at(-1))
+
+function signsOf(command: string): Milestone[] {
+  const blanked = quotesBlanked(command)
+  return COMMAND_SIGNS.flatMap(([milestone, head, restOfTheLine]) => {
+    const at = head.exec(blanked)
+    return at && (!restOfTheLine || restOfTheLine.test(command.slice(at.index))) ? [milestone] : []
+  })
+}
 const REVIEWER_AGENT = /codex/i
 const SCRIPT_THAT_EDITS = /\b(?:edit|write)\(/
 const SHELL_IN_A_SCRIPT = /\$`([^`]*)`/g
@@ -93,7 +103,7 @@ function commandsRunBy({ name, input }: Call): string[] {
 export function milestoneOfCall(call: Call): Milestone {
   const edits = TOOLS_THAT_EDIT.has(call.name) || (call.name === 'REPL' && SCRIPT_THAT_EDITS.test(asText(call.input.code)))
   const reviewer = (call.name === 'Agent' || call.name === 'Task') && REVIEWER_AGENT.test(asText(call.input.subagent_type))
-  const signs = commandsRunBy(call).flatMap((command) => COMMAND_SIGNS.filter(([, re]) => re.test(command)).map(([m]) => m))
+  const signs = commandsRunBy(call).flatMap(signsOf)
   return furthest([edits ? 'edited' : 'started', reviewer ? 'review' : 'started', ...signs])
 }
 
