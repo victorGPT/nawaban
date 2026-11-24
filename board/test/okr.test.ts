@@ -867,14 +867,19 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect((await measuring(p, 99, 12)).code).toBe(HARD_STOP_EXIT)
   })
 
-  it('takes --resume only once a decision request on the Objective or its KRs is resolved, and starts a new sprint', async () => {
+  it('takes --resume only once a decision request on the Objective or its KRs is resolved after the stop, and starts a new sprint', async () => {
     const p = await kOnly()
+    const option = (choice: string) => ({ choice, tradeoff: 'x', door: 'two-way' })
+    const before = (await team.tasks.create(p.name, { text: 'before', labels: { key: 'BEFORE-1' } })).task
+    await team.reply(before.id, block('nawaban-ask@1', { decision: 'K 怎么办', kr: 'K', context: 'x', options: [option('a'), option('b')], recommendation: 'a' }))
+    await team.reply(before.id, block('nawaban-resolve@1', { words: '硬停之前答的' }))
     await measuring(p, 80, 10)
+    const notStopped = await nawabanOkr(p, '--resume', 'O')
+    expect([notStopped.code, notStopped.err]).toEqual([1, expect.stringContaining('没在硬停')])
     await measuring(p, 80, 10)
     const refused = await nawabanOkr(p, '--resume', 'O')
     expect([refused.code, refused.err]).toEqual([1, expect.stringContaining('没有 resolve 过的待决策项')])
     const { task } = await team.tasks.create(p.name, { text: 'stop', labels: { key: 'STOP-1' } })
-    const option = (choice: string) => ({ choice, tradeoff: 'x', door: 'two-way' })
     const earlier = (await team.tasks.create(p.name, { text: 'earlier', labels: { key: 'EARLIER-1' } })).task
     await team.reply(earlier.id, block('nawaban-ask@1', { decision: 'K 怎么办', kr: 'K', context: 'x', options: [option('a'), option('b')], recommendation: 'a' }))
     await team.reply(earlier.id, block('nawaban-ask@1', { decision: '另一件', kr: '别的 O', context: 'x', options: [option('a'), option('b')], recommendation: 'a' }))

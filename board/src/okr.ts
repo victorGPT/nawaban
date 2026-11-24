@@ -770,10 +770,11 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
 async function resumeOnceADecisionOnItWasResolved(team: Team, project: string, objectives: Objective[], name: string) {
   const o = objectives.find((x) => x.name === name)
   if (!o) throw new Refused(`没有这个 O:${name}`)
-  const { accepts, resumes } = await load(team, project)
-  const start = later(accepts.get(name), resumes.get(name))
-  if (!(await resolvedDecisionOn(team, project, o, start))) {
-    throw new Refused(`${name} 这个冲刺里没有 resolve 过的待决策项(挂在这个 O 或它的 KR 上),--resume 不收`)
+  const { accepts, resumes, rounds } = await load(team, project)
+  const stop = hardStop(o, rounds, later(accepts.get(name), resumes.get(name)))
+  if (!stop) throw new Refused(`${name} 没在硬停,不用 --resume`)
+  if (!(await resolvedDecisionOn(team, project, o, stop.at))) {
+    throw new Refused(`${name} 硬停之后还没有 resolve 过的待决策项(挂在这个 O 或它的 KR 上),--resume 不收`)
   }
   await team.post(okrChannel(project), block('nawaban-okr-resume@1', { objective: name }))
 }
@@ -812,9 +813,9 @@ export function hardStop(o: Objective, rounds: OkrRound[], sprintStart: string) 
   for (let i = 0; i < sprint.length; i++) {
     if (sprint[i]!.done.includes(o.name)) continue
     if (i + 1 >= STILL_ROUNDS_TO_STOP && sprint.slice(i + 1 - STILL_ROUNDS_TO_STOP, i + 1).every(still)) {
-      return { why: `连续 ${STILL_ROUNDS_TO_STOP} 轮没有进取型 KR 往目标动`, sprint }
+      return { why: `连续 ${STILL_ROUNDS_TO_STOP} 轮没有进取型 KR 往目标动`, sprint, at: sprint[i]!.at }
     }
-    if (i + 1 >= SPRINT_ROUNDS_TO_STOP) return { why: `冲刺满 ${SPRINT_ROUNDS_TO_STOP} 轮还没收工`, sprint }
+    if (i + 1 >= SPRINT_ROUNDS_TO_STOP) return { why: `冲刺满 ${SPRINT_ROUNDS_TO_STOP} 轮还没收工`, sprint, at: sprint[i]!.at }
   }
   return null
 }
