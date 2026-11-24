@@ -184,7 +184,7 @@ def test_dispatch_starts_a_worker_in_a_fresh_worktree_and_records_it_on_the_tick
     assert run[run.index("--cwd") + 1] == str(wt)
     brief = run[-1]
     assert brief.startswith("/pstack:poteto-mode Issue：#950") and "目标：修 X" in brief and "验收：pytest 绿" in brief
-    assert 'hc send t9 "回报：#950 完成 |' in brief
+    assert 'hc send t9 "回报：#950 完成 PR #<号>"' in brief and 'hc send t9 "回报：#950 受阻，详情在票上"' in brief
     assert "中途进展、阶段结果记在票上" in brief  # 只报完成、受阻：每条回报都叫醒编排者
     note = cli.read_marker(posted(gh)[0])
     assert note["kind"] == "note" and "hc t77" in note["body"] and "验收：pytest 绿" in note["body"]

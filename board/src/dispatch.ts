@@ -214,10 +214,10 @@ function briefReportingTo(c: Checked, a: Args, worktreeLine: string): string {
     worktreeLine,
     a.brief,
     `验收：${a.accept}`,
-    '完成或受阻：照抄其一，三段位置固定、段里的话自己写，详情记在票上：',
-    `  hc send ${c.orch} "回报：${c.who} 完成 | 结论一句 | 证据在哪（PR / 票上的记录）"`,
-    `  hc send ${c.orch} "回报：${c.who} 受阻 | 卡在什么 | 要谁做什么"`,
-    '只发这两种：中途进展、阶段结果记在票上的「进展」里，不发给编排者（每条消息都会叫醒它，留在它的上下文里）。',
+    '完成或受阻：只发一行，照抄其一，PR 号填上；结论、实测输出、卡在哪、要谁做什么都写在票上：',
+    `  hc send ${c.orch} "回报：${c.who} 完成 PR #<号>"`,
+    `  hc send ${c.orch} "回报：${c.who} 受阻，详情在票上"`,
+    '只发这一行：中途进展、阶段结果记在票上的「进展」里，不发给编排者（每条消息都会叫醒它，留在它的上下文里）。',
   ].join('\n')
 }
 
