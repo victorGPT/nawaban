@@ -183,6 +183,12 @@ describe('写保护', () => {
     await guarded('http://127.0.0.1:4999/api/board/webhooks/github', { method: 'POST', body: '{}' })
     expect(through).toHaveBeenCalledTimes(2)
   })
+
+  it('放行的请求原样交出去，body 没被读掉', async () => {
+    const guarded = refusingGithubWrites(async (input) => new Response(await (input as Request).text()))
+    expect(await (await guarded(new Request('http://127.0.0.1:4999/api/board/webhooks/github', { method: 'POST', body: 'payload' }))).text()).toBe('payload')
+    await expect(guarded(new Request('https://api.github.com/graphql', { method: 'POST', body: '{}' }))).rejects.toThrow('不往 GitHub 写')
+  })
 })
 
 describe('配置', () => {

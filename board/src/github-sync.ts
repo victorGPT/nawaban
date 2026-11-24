@@ -57,9 +57,10 @@ export async function webhookSecret(dir: string): Promise<string> {
 
 export function refusingGithubWrites(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
   return (input, init) => {
-    const request = new Request(input, init)
-    if (new URL(request.url).host === GITHUB_API_HOST && !READ_METHODS.has(request.method)) {
-      return Promise.reject(new Error(`推送身份未定，不往 GitHub 写：拒绝了 ${request.method} ${request.url}`))
+    const url = input instanceof Request ? input.url : String(input)
+    const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
+    if (new URL(url).host === GITHUB_API_HOST && !READ_METHODS.has(method)) {
+      return Promise.reject(new Error(`推送身份未定，不往 GitHub 写：拒绝了 ${method} ${url}`))
     }
     return fetch(input, init)
   }
