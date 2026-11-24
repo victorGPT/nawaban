@@ -979,8 +979,8 @@ def _refuse_whole_file_for_a_malformed_kr(o: dict, kr: dict) -> None:
     inputs = kr.get("inputs", [])
     if not isinstance(inputs, list) or not all(isinstance(i, str) and i and "\0" not in i for i in inputs):
         raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 inputs 要写成非空字符串的数组")
-    if any(GLOB_SYNTAX_THE_TWO_CLIS_READ_APART.search(i) for i in inputs):
-        raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 inputs 只认 *、?、** 通配，不收 {{}}[]()!\\")
+    if any(GLOB_SYNTAX_THE_TWO_CLIS_READ_APART.search(i) or {".", ".."} & set(i.split("/")) for i in inputs):
+        raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 inputs 只认 *、?、** 通配，不收 {{}}[]()!\\，也不收 . 和 .. 段")
     if not all(isinstance(kr.get(k, ""), str) and "\0" not in kr.get(k, "") for k in ("measure", "unit", "wait")):
         raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 measure、unit、wait 要写成字符串")
     age = kr.get("max_age_days", 0)
@@ -1078,7 +1078,7 @@ def def_hash(root: Path, kr: dict) -> str:
 
 
 def _input_files(root: Path, pattern: str) -> list[Path]:
-    expanded = os.path.expanduser(pattern)
+    expanded = str(Path.home()) + pattern[1:] if pattern == "~" or pattern.startswith("~/") else pattern
     start = "/" if os.path.isabs(expanded) else str(root)
     found = _files_matching(start, [s for s in expanded.split("/") if s])
     return [Path(p) for p in dict.fromkeys(os.path.realpath(p) for p in found)]

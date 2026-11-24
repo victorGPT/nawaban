@@ -634,7 +634,7 @@ describe('a measure that changes and fails at once', () => {
   })
 })
 
-const INPUTS_HASH = 'd7e5e0e755fbe52a'
+const INPUTS_HASH = '053c677dcdb3c251'
 
 describe('inputs a KR declares', () => {
   it('hash as the old CLI does, dotfiles and missing patterns alike', async () => {
@@ -644,7 +644,8 @@ describe('inputs a KR declares', () => {
       await writeFile(join(root, path), text)
     }
     await symlink(join(root, 'outside'), join(root, 'gold', 'out'))
-    expect(await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl', 'cases.json', 'missing/*.txt', 'gold/**/**/*.jsonl'] })).toBe(INPUTS_HASH)
+    await writeFile(join(root, 'gold', '😀.jsonl'), 'e')
+    expect(await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl', 'cases.json', 'missing/*.txt', 'gold/**/**/*.jsonl', 'gold/?.jsonl'] })).toBe(INPUTS_HASH)
     const before = await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl'] })
     await writeFile(join(root, 'gold/sub/b.jsonl'), 'b2')
     expect(await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl'] })).not.toBe(before)
@@ -654,7 +655,7 @@ describe('inputs a KR declares', () => {
     await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\ninputs = "gold.jsonl"\n'))).rejects.toThrow(/inputs 要写成非空字符串的数组/)
   })
 
-  it.each(['gold/{a,b}.jsonl', 'gold/[ab].jsonl', 'gold/!(x).jsonl'])('refuses %s, glob syntax the old CLI reads apart', async (pattern) => {
+  it.each(['gold/{a,b}.jsonl', 'gold/[ab].jsonl', 'gold/!(x).jsonl', 'gold/../x.jsonl', './gold/a.jsonl'])('refuses %s, glob syntax the old CLI reads apart', async (pattern) => {
     await expect(run(await repo(`[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\ninputs = ['${pattern}']\n`))).rejects.toThrow(/只认 \*、\?、\*\* 通配/)
   })
 })

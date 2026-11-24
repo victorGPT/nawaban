@@ -98,8 +98,8 @@ function refuseWholeFileNeverSkipAKr(objectives: unknown): asserts objectives is
       if (!Array.isArray(inputs) || !inputs.every((i) => typeof i === 'string' && i && !i.includes('\0'))) {
         throw new Refused(`${OKR_FILE}:${o.name} / ${kr.name} 的 inputs 要写成非空字符串的数组`)
       }
-      if (inputs.some((i) => GLOB_SYNTAX_THE_TWO_CLIS_READ_APART.test(i))) {
-        throw new Refused(`${OKR_FILE}:${o.name} / ${kr.name} 的 inputs 只认 *、?、** 通配，不收 {}[]()!\\`)
+      if (inputs.some((i) => GLOB_SYNTAX_THE_TWO_CLIS_READ_APART.test(i) || i.split('/').some((s: string) => s === '.' || s === '..'))) {
+        throw new Refused(`${OKR_FILE}:${o.name} / ${kr.name} 的 inputs 只认 *、?、** 通配，不收 {}[]()!\\，也不收 . 和 .. 段`)
       }
       const age = kr.max_age_days
       if (age !== undefined) {
@@ -221,7 +221,7 @@ async function filesMatching(at: string, segments: string[]): Promise<string[]> 
     return found
   }
   if (!/[*?]/.test(segment)) return filesMatching(join(at, segment), rest)
-  const whole = new RegExp('^' + segment.replace(REGEX_SPECIALS, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$')
+  const whole = new RegExp('^' + segment.replace(REGEX_SPECIALS, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$', 'u')
   const found: string[] = []
   for (const name of await entries(at)) {
     if ((segment.startsWith('.') || !name.startsWith('.')) && whole.test(name)) found.push(...(await filesMatching(join(at, name), rest)))

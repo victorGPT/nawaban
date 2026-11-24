@@ -640,14 +640,15 @@ def inputs_fixture(root):
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         (root / path).write_text(text)
     (root / "gold" / "out").symlink_to(root / "outside")
-    return {"name": "K", "target": "<= 3", "inputs": ["gold/**/*.jsonl", "cases.json", "missing/*.txt", "gold/**/**/*.jsonl"]}
+    (root / "gold" / "😀.jsonl").write_text("e")
+    return {"name": "K", "target": "<= 3", "inputs": ["gold/**/*.jsonl", "cases.json", "missing/*.txt", "gold/**/**/*.jsonl", "gold/?.jsonl"]}
 
 
 def test_inputs_hash_as_the_board_cli_does(tmp_path):
     assert cli.def_hash(tmp_path, inputs_fixture(tmp_path)) == INPUTS_HASH_BOTH_CLIS_AGREE_ON
 
 
-INPUTS_HASH_BOTH_CLIS_AGREE_ON = "d7e5e0e755fbe52a"
+INPUTS_HASH_BOTH_CLIS_AGREE_ON = "053c677dcdb3c251"
 
 
 def test_a_changed_gold_file_starts_a_new_series_and_an_untouched_one_does_not(repo, board, capsys):
@@ -674,7 +675,8 @@ def test_inputs_under_home_are_read_from_home(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("inputs,why", [('"gold.jsonl"', "非空字符串的数组"), ('[""]', "非空字符串的数组"), ("[1]", "非空字符串的数组"),
-                                        ("['gold/{a,b}.jsonl']", "只认 *、?、** 通配"), ("['gold/[ab].jsonl']", "只认 *、?、** 通配")])
+                                        ("['gold/{a,b}.jsonl']", "只认 *、?、** 通配"), ("['gold/[ab].jsonl']", "只认 *、?、** 通配"),
+                                        ("['gold/../x.jsonl']", "也不收 . 和 .. 段")])
 def test_inputs_must_be_paths_with_the_wildcards_both_clis_read_alike(repo, capsys, inputs, why):
     define(repo, [("K", "<= 3", f"inputs = {inputs}")])
     assert cli.main(["okr"]) != 0
