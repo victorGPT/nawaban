@@ -1,9 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { panelView, okrView, OKR_WORDS, WINDOW_WORDS, BOARD_PROJECTS, moreKey } from "./logic.js";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { homedir, tmpdir } from "node:os";
+import { panelView, okrView, OKR_WORDS, WINDOW_WORDS, moreKey } from "./logic.js";
 
 const called = new Set();
 let lastId = null;
@@ -511,31 +514,64 @@ test("a space on another machine is read there: the CLI under that machine's hom
   }
 });
 
-test("a project moved to the board is read with the board's CLI, every json verb; the rest with the old one", async () => {
+test("the panel reads a repository with the CLI the hooks' route.mjs picks for it, every json verb", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "nawaban-route-"));
+  const repoOf = (name, oldBoard) => {
+    const dir = join(tmp, name);
+    execFileSync("git", ["init", "-q", dir]);
+    if (oldBoard) { mkdirSync(join(dir, ".nawaban")); writeFileSync(join(dir, ".nawaban/nawaban.db"), ""); }
+    return dir;
+  };
+  const checkout = fileURLToPath(new URL("../../..", import.meta.url));
+  const env = { ...process.env, NAWABAN_CLI: "", NAWABAN_DB: "" };
+  const real = (cmd, args, cwd) => {
+    try { return { code: 0, stdout: execFileSync(cmd, args, { cwd, env, encoding: "utf8" }) }; } catch (e) { return { code: e.status ?? 1, stdout: "" }; }
+  };
+  const hookRoute = (dir) => real("node", [join(checkout, "hooks/route.mjs"), dir], dir).stdout.split(" ")[0].trim();
   const calls = [];
   execImpl = async (cmd, args = [], opts = {}) => {
-    if (cmd === "git") return { code: 0, stdout: `${opts.cwd}/.git\n` };
+    if (cmd === "git") return real(cmd, args, opts.cwd);
+    if (cmd === "node" && args[0] === "/h/nawaban/hooks/route.mjs") return real(cmd, [join(checkout, "hooks/route.mjs"), ...args.slice(1)], opts.cwd);
     calls.push([cmd, args[0], args[2]]);
     return { code: 0, stdout: JSON.stringify(args[2] === "board" ? board : args[2] === "db" ? { db: "/b/local.db" } : { projects: [{ name: "x" }] }) };
   };
   const quiet = { spawn() {}, notify() {} };
   const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
-  const settle = () => new Promise((r) => setImmediate(r));
+  const readAllFour = async () => { for (let i = 0; i < 200 && calls.length < 4; i++) await new Promise((r) => setTimeout(r, 25)); };
   try {
-    for (const moved of [false, true]) {
-      if (moved) BOARD_PROJECTS.add("x");
+    for (const [dir, cli] of [[repoOf("x", false), "board"], [repoOf("withold", true), "old"]]) {
+      assert.equal(hookRoute(dir), cli);
+      where = { spaces: () => [{ id: "here", active: true, name: "x", folder: dir }], focused: () => ({ space: "here", cwd: dir }) };
       calls.length = 0;
       const view = new NawabanBoard();
       view.init({}, cx);
-      await settle();
-      const [cmd, cli] = moved ? ["node", "/h/nawaban/board/src/cli.ts"] : ["python3", "/h/nawaban/nawaban/cli.py"];
+      await readAllFour();
+      const [cmd, path] = cli === "board" ? ["node", "/h/nawaban/board/src/cli.ts"] : ["python3", "/h/nawaban/nawaban/cli.py"];
       assert.deepEqual(calls.filter(([c]) => c !== "defaults" && c !== "sh").sort(),
-        ["board", "db", "okr", "projects"].map((v) => [cmd, cli, v]).sort());
-      assert.equal(view.project, "x");
-      assert.equal(view.db, "/b/local.db");
+        ["board", "db", "okr", "projects"].map((v) => [cmd, path, v]).sort(), dir);
     }
   } finally {
-    BOARD_PROJECTS.delete("x");
+    where = here;
+    execImpl = async () => ({ code: 1 });
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("a failed route.mjs run reads the old CLI this time and is asked again on the next read", async () => {
+  let routeRuns = 0;
+  execImpl = async (cmd, args = []) => {
+    if (cmd === "node" && args[0] === "/h/nawaban/hooks/route.mjs") return ++routeRuns === 1 ? { code: 1, stdout: "" } : { code: 0, stdout: "board x\n" };
+    return { code: 1, stdout: "" };
+  };
+  try {
+    const view = new NawabanBoard();
+    view.cliOfPlace = new Map();
+    const at = { on: null, cwd: "/x", key: "|/x" };
+    assert.equal(await view.cliOf(at), "old");
+    assert.equal(await view.cliOf(at), "board");
+    assert.equal(await view.cliOf(at), "board");
+    assert.equal(routeRuns, 2);
+  } finally {
     execImpl = async () => ({ code: 1 });
   }
 });
