@@ -213,10 +213,13 @@ async function outcomeOf(r: Run): Promise<Outcome> {
     if (failed) return { kind: 'refused', why: failed }
   }
   const did = [`PR #${pr.number} 已合`]
-  const pulled = await failureElseNull('git', ['-C', r.root, 'pull', '--ff-only'])
-  if (pulled) return { kind: 'mergedButUnfinished', left: `主检出 pull 失败：${pulled}` }
-  did.push('主检出已 pull')
   const pluginHold = await pluginHoldElsePull(did)
+  const mainCheckoutIsThePlugin = (await realpath(pluginDir()).catch(() => null)) === r.root
+  if (!mainCheckoutIsThePlugin) {
+    const pulled = await failureElseNull('git', ['-C', r.root, 'pull', '--ff-only'])
+    if (pulled) return { kind: 'mergedButUnfinished', left: `主检出 pull 失败：${pulled}` }
+    did.push('主检出已 pull')
+  }
   const unclosed = await linkThenClose(r.task, pr, did)
   return pluginHold ?? unclosed ?? handOnElseRetire(r.task, r.root, did)
 }

@@ -345,6 +345,16 @@ it('merges, but leaves the plugin unpulled and tells the orchestrator while what
   expect(rerun.hc.trim().split('\n').at(-1)).toBe('kill t77')
 })
 
+it('holds a schema change when the main checkout is the plugin, never pulling it in first', async () => {
+  const { worktree } = await workerOnItsOwnTicket('M-SAME', 't63')
+  const before = (await git(repo, 'rev-parse', 'HEAD')).stdout
+  await upstreamCommit('unapproved schema change for the shared checkout', 'board/src/schemas.ts')
+  const r = await mergeAsTheWorker('M-SAME', 't63', worktree, { NAWABAN_PLUGIN_DIR: repo })
+  expect(r.code).toBe(1)
+  expect((await git(repo, 'rev-parse', 'HEAD')).stdout).toBe(before)
+  expect(r.stdout).toContain('插件要拉进来的改动里有 schema')
+})
+
 it('pulls the plugin when it tracks this repository and the PR touches no schema', async () => {
   const plugin = join(tmp, 'plugin-ok')
   await exec('git', ['clone', '-q', join(tmp, 'origin.git'), plugin])
