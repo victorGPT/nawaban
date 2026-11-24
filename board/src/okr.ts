@@ -484,6 +484,7 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
     const krs = []
     const counts = { toward: 0, away: 0, hold: 0 }
     const rulers = new Set<string>()
+    const exactScores = new Map<string, Fraction>()
     let missedSinceAccept = false
     for (const kr of o.kr ?? []) {
       const [op, goalText] = target(kr)
@@ -501,6 +502,7 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
       const trends = rs.slice(1).map((r, i) => movementTowardTarget(op, goal, dec(rs[i]!.value), dec(r.value)))
       const accepted = accepts.get(name)
       missedSinceAccept ||= accepted !== undefined && rounds.some((r) => r.measured_at > accepted && !ok(r))
+      if (kr.kind !== 'committed') exactScores.set(kr.name, scoreOf(op, goal, status, rs, kr.baseline))
       const { pending, verdicts, mismatch } = declarationsSinceLastRoundAndTheirVerdicts(op, goal, unit, rs, declared.get(`${name}\0${kr.name}`) ?? [])
       for (const i of pending) {
         if (i.late) continue
@@ -515,7 +517,7 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
         unit,
         status,
         kind: kr.kind === 'committed' ? 'committed' : 'aspirational',
-        score: kr.kind === 'committed' ? null : scoreOf(op, goal, status, rs, kr.baseline),
+        score: kr.kind === 'committed' ? null : shown(exactScores.get(kr.name)!),
         n: last ? sampleOf(unit, last).n : null,
         interval: lastGreen?.interval ?? null,
         value: last ? Number(last.value) : null,
@@ -538,10 +540,11 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
     }
     const met = krs.filter((k) => k.status === 'met').length
     const committed = krs.filter((k) => k.kind === 'committed')
-    const scored = krs.filter((k) => k.kind === 'aspirational' && k.wait === null).map((k) => k.score!)
-    const units = scored.reduce((sum, s) => sum + scoreUnits(s), 0n)
-    const aspirationalScore = scored.length ? Number(units / BigInt(scored.length)) / Number(SCORE_SCALE) : null
-    const reachesTheBar = units >= scoreUnits(ASPIRATIONAL_DONE_SCORE) * BigInt(scored.length)
+    const scored = krs.filter((k) => k.kind === 'aspirational' && k.wait === null).map((k) => exactScores.get(k.name)!)
+    const sum = scored.reduce(plus, ZERO)
+    const aspirationalScore = scored.length ? shown({ num: sum.num, den: sum.den * BigInt(scored.length) }) : null
+    const bar = fractionOf(ASPIRATIONAL_DONE_SCORE)
+    const reachesTheBar = sum.num * bar.den >= bar.num * BigInt(scored.length) * sum.den
     const done = committed.length + scored.length > 0 && committed.every((k) => k.status === 'met') && reachesTheBar
     const pending = done && (!accepts.has(name) || missedSinceAccept)
     const scoreText = aspirationalScore === null ? '' : `、进取型均分 ${aspirationalScore.toFixed(SCORE_PLACES)}`
@@ -929,21 +932,35 @@ async function keptByTheOldCli(top: string) {
 
 const UNSCORED_STATUSES = new Set(['untested', 'unmeasurable', 'stale'])
 
-const SCORE_SCALE = 10n ** 12n
-const scoreUnits = (score: number) => BigInt(Math.round(score * Number(SCORE_SCALE)))
+type Fraction = { num: bigint; den: bigint }
+const DISPLAY_SCALE = 10n ** 12n
+const ZERO: Fraction = { num: 0n, den: 1n }
+const ONE: Fraction = { num: 1n, den: 1n }
+const gcd = (a: bigint, b: bigint): bigint => (b === 0n ? a : gcd(b, a % b))
+const plus = (a: Fraction, b: Fraction): Fraction => {
+  const num = a.num * b.den + b.num * a.den
+  const den = a.den * b.den
+  const g = gcd(num, den) || 1n
+  return { num: num / g, den: den / g }
+}
+const shown = (f: Fraction) => Number((f.num * DISPLAY_SCALE) / f.den) / Number(DISPLAY_SCALE)
+const fractionOf = (x: number): Fraction => {
+  const d = dec(String(x))
+  return d.e >= 0 ? { num: d.n * 10n ** BigInt(d.e), den: 1n } : { num: d.n, den: 10n ** BigInt(-d.e) }
+}
 
-function scoreOf(op: string, goal: ExactDecimalAsTheOldClisDecimal, status: string, series: KeptReading[], baseline?: string) {
-  if (status === 'met') return 1
-  if (UNSCORED_STATUSES.has(status) || !series.length) return 0
+function scoreOf(op: string, goal: ExactDecimalAsTheOldClisDecimal, status: string, series: KeptReading[], baseline?: string): Fraction {
+  if (status === 'met') return ONE
+  if (UNSCORED_STATUSES.has(status) || !series.length) return ZERO
   const distance = (value: string): ExactDecimalAsTheOldClisDecimal => {
     const [v, g, e] = align(dec(value), goal)
     const d = WANTS_MORE.has(op) ? g - v : op === '==' ? (v > g ? v - g : g - v) : v - g
     return { n: d > 0n ? d : 0n, e }
   }
   const [d0, d] = align(distance(baseline?.trim() ?? series[0]!.value), distance(series.at(-1)!.value))
-  if (d0 === 0n) return 0
-  const ratio = ((d0 - d) * SCORE_SCALE) / d0
-  return Number(ratio < 0n ? 0n : ratio > SCORE_SCALE ? SCORE_SCALE : ratio) / Number(SCORE_SCALE)
+  if (d0 === 0n) return ZERO
+  const gained = d0 - d
+  return gained <= 0n ? ZERO : gained >= d0 ? ONE : { num: gained, den: d0 }
 }
 
 export function standingText(data: ReturnType<typeof judge>) {

@@ -962,6 +962,12 @@ describe('committed KRs hold a line, aspirational ones score, and an Objective i
     expect(standingText(data)).toBe('O O · 进取均分 0.70 · 未收工(进取均分要 ≥ 0.7)')
   })
 
+  it('averages exact fractions, so two thirds and eleven fifteenths are done', () => {
+    const krs: Kr[] = [{ name: 'A', target: '>= 3', baseline: '0' }, { name: 'B', target: '>= 15', baseline: '0' }]
+    const data = judge(o(krs), [{ ...reading('A', 2, at) }, reading('B', 11, at)], new Map(), new Map(), '/r', null)
+    expect(data.objectives[0]!.done).toBe(true)
+  })
+
   it('averages in exact units, so three at the bar are done', () => {
     const rows = ['A', 'B', 'C'].flatMap((k) => [{ ...reading(k, 0, '2026-11-09T00:00:00') }, reading(k, 70, at)])
     const data = judge(o(['A', 'B', 'C'].map((name) => ({ name, target: '>= 100' }))), rows, new Map(), new Map(), '/r', null)
