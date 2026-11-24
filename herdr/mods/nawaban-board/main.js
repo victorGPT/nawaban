@@ -1,7 +1,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover, HoverCard, InputState, Input } from "gpui-base";
 import { spaces, focused, agents, terminals, run, exec, hc, checking, home, nextCommand, watchFolder, props, closeOverlay } from "herdr";
-import { projectFor, repoName, cliFor, resolveLang, moveSelection, keyCommand, boardChanged, okrChanged, folderOf, canGo, panelView,
+import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, okrChanged, folderOf, canGo, panelView,
   sinceLabel, isoMonthDay, WINDOW_WORDS, okrView, OKR_WORDS, OKR_FOLDER_IN_REPO, okrReadingOfFailure, hasNoObjective,
   taskSections, panelKeys, groupOfKey, foldKey, isGroupOpen, moreKey, groupOfMoreKey, decisionCardsView, repoRootOf, TO_ORCHESTRATOR,
   marksStillToKeep, TABS, openingTab, tabBadges, orchestratorOf, CAPTURE_FOLD, captureStoreKey, capturesFrom, addCapture, removeCapture,
@@ -14,6 +14,8 @@ const OKR_READ_GIVEN_UP_AFTER_MS = 5000;
 const ICON = (name) => "mods/nawaban-board/" + name + ".svg";
 const HERDR_ICON = (name) => "mods/workspace-chrome/" + name + ".svg";
 const CLI = { board: () => ["node", home() + "/nawaban/board/src/cli.ts"], old: () => ["python3", home() + "/nawaban/nawaban/cli.py"] };
+const ROUTE = () => home() + "/nawaban/hooks/route.mjs";
+const ROUTED_TO_BOARD = /^board /;
 const OLD_CLI_ON_ANOTHER_MACHINE = 'exec python3 "$HOME/nawaban/nawaban/cli.py" "$@"';
 
 const INK = {
@@ -142,6 +144,7 @@ export default class NawabanBoard extends View {
     this.error = null;
     this.projectOfPlace = new Map();
     this.gitDirOfPlace = new Map();
+    this.cliOfPlace = new Map();
     this.boardFileOfPlace = new Map();
     this.watchedBoardFiles = new Set();
     this.githubBoardOfPlace = new Map();
@@ -259,7 +262,7 @@ export default class NawabanBoard extends View {
     this.placeShown = key;
     cx.spawn(async (cx) => {
       try {
-        const git = await this.gitOf(at), via = cliFor(repoName(git), at.on), repo = repoRootOf(git);
+        const git = await this.gitOf(at), via = await this.cliOf(at), repo = repoRootOf(git);
         const projects = await nawaban(["json", "projects"], at, undefined, via);
         if (!this.projectOfPlace.has(key)) await this.learnPlace(at, git, projects, via);
         this.db = this.boardFileOfPlace.get(key);
@@ -325,6 +328,15 @@ export default class NawabanBoard extends View {
     return this.gitDirOfPlace.get(at.key);
   }
 
+  cliOf(at) {
+    if (at.on) return "old";
+    if (!this.cliOfPlace.has(at.key)) {
+      this.cliOfPlace.set(at.key, exec("node", [ROUTE(), at.cwd], { cwd: at.cwd })
+        .then((r) => (r.code === 0 && ROUTED_TO_BOARD.test(r.stdout) ? "board" : "old"), () => "old"));
+    }
+    return this.cliOfPlace.get(at.key);
+  }
+
   watch(db, cx) {
     if (this.watchedBoardFiles.has(db)) return;
     this.watchedBoardFiles.add(db);
@@ -353,7 +365,7 @@ export default class NawabanBoard extends View {
     const gen = ++this.okrGen;
     this.okrFlight.set(at.key, gen);
     cx.spawn(async (cx) => {
-      const via = cliFor(repoName(await this.gitOf(at)), at.on);
+      const via = await this.cliOf(at);
       const okr = await nawaban(["json", "okr"], at, OKR_READ_GIVEN_UP_AFTER_MS, via).catch(okrReadingOfFailure);
       if (!this.isNewestOkrRead(at, gen)) return;
       this.okrFlight.delete(at.key);
