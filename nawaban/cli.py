@@ -1609,7 +1609,7 @@ def _issue_pending(i: dict) -> dict | None:
     lines = c["body"].splitlines()
     notes = _prefixed([{**x, "body": "\n".join(lines[:k])} if x is c else x for x in i["comments"]], "进展")
     brief, at = "\n".join(lines[k:]), _at(c["createdAt"])
-    return {"brief": brief, "at": at,
+    return {"brief": brief, "at": at, "ask": f"{c['createdAt']}:{k}",
             "progress": [{"body": b, "at": t} for b, t in notes[-PENDING_NOTES:]],
             "card": _decision_card(brief), "talk": _talk_in_a_window(brief),
             "ruled_after": _owner_ruled_since([b for b, t in notes if t > at], _owner_names())}
@@ -1800,6 +1800,46 @@ def _issue_task(root: Path, i: dict, cs: list[dict], ruling: dict | None = None)
         task["ruling"] = {"at": ruling["at"], "verdict": ruling["verdict"]} if ruling else None
         task["live"] = _live_of(root, i["number"], claimant) if status == "in_progress" else None
     return task
+
+
+_GH_EVENT_KINDS = {"进展": "note", "决定": "decision", "PR": "link", "待决": "ask", "已决": "resolve"}
+
+
+def _issue_event(raw: dict, c: dict, names: list[str], asking: re.Pattern) -> dict | None:
+    for word, kind in _GH_EVENT_KINDS.items():
+        if said := _prefixed([c], word):
+            ev = _marked(raw) or {}
+            owner = kind == "resolve" or kind == "decision" and _owners_call(raw, said[0][0], names, asking)
+            body = f"pr:{said[0][0]}" if kind == "link" else said[0][0]
+            return {"kind": "decision" if kind == "resolve" else kind, "body": body,
+                    "author": "user" if owner else ev.get("author") or (raw.get("author") or {}).get("login", ""),
+                    "at": said[0][1]}
+    return None
+
+
+def github_task_detail(root: Path, task_id: str) -> dict:
+    if not (m := _GH_ISSUE.fullmatch(task_id)):
+        raise Refused(f"任务不存在:{task_id}")
+    i = _gh_json(root, "issue", "view", m.group(1), "--json", _GH_FIELDS)
+    cs = [_canonical(c) for c in i["comments"]]
+    task = _issue_task(root, i, cs)
+    names = _owner_names()
+    events = [e for raw, c in zip(reversed(i["comments"]), reversed(cs))
+              if (e := _issue_event(raw, c, names, _asking_for_a_ruling(names)))]
+    parent = i.get("parent")
+    return {
+        "id": task["id"], "title": i["title"], "body": i.get("body") or "",
+        "status": "cancelled" if i.get("stateReason") == "NOT_PLANNED" else task["status"],
+        "project": root.name, "session": task["session"], "created_at": task["created_at"],
+        "parent": {"id": f"#{parent['number']}", "title": parent.get("title", ""),
+                   "status": "done" if parent.get("state") == "CLOSED" else "open"} if parent else None,
+        "children": [], "blocked_by": [], "dependents": [],
+        "latest_note": next((e for e in events if e["kind"] == "note"), None),
+        "decisions": [e for e in events if e["kind"] == "decision"],
+        "links": [e for e in events if e["kind"] == "link"],
+        "events": events,
+        "pending": task.get("pending"),
+    }
 
 
 def task_detail(path: Path | str, task_id: str) -> dict:
@@ -2073,6 +2113,8 @@ def _json_view(path: Path, a) -> dict:
         if not (repo := _repo_root(Path(a.repo or ".").resolve())):
             raise Refused("json okr 要在 git 仓库里跑,或给 --repo")
         return okr_data(path, repo)
+    if root := github_root():
+        return github_task_detail(root, a.id)
     return task_detail(path, a.id)
 
 

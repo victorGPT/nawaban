@@ -362,3 +362,47 @@ it('refuses an inbox write it can\'t keep, and keeps nothing', async () => {
   expect((await send('/api/nawaban/inbox')).status).toBe(400)
   expect(await inboxOf('bad')).toEqual([])
 })
+
+it('reads a GitHub-tracked repository in repos.json through the old CLI, and answers its 待决 with an 已决', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'nawaban-web-roubao-'))
+  await mkdir(join(repo, 'docs', 'agents'), { recursive: true })
+  await writeFile(join(repo, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
+  const ghDir = await mkdtemp(join(tmpdir(), 'nawaban-web-gh-board-'))
+  await writeFile(join(ghDir, 'repos.json'), JSON.stringify({ roubao: repo, nawaban: dir }))
+  let pending: { ask: string } | null = { ask: 'c1:0' }
+  const calls: string[][] = []
+  const githubBoard = { tracker: 'github', columns: [{ key: 'open', tasks: [{ id: '#7', status: 'open', pending }] }, { key: 'done', tasks: [{ id: '#6', status: 'done' }] }] }
+  const cli = async (at: string, args: string[]) => {
+    expect(at).toBe(repo)
+    calls.push(args)
+    if (args[1] === 'board') return JSON.stringify(githubBoard)
+    if (args[1] === 'okr') return JSON.stringify({ repo, objectives: [] })
+    if (args[1] === 'task') return JSON.stringify({ id: args[2], pending })
+    pending = null
+    return '✓ event'
+  }
+  handler = site(team, { dir: ghDir, webToken: WEB_SECRET, boardToken: SECRET, port, dist, cli })
+  try {
+    expect(JSON.parse((await send('/api/nawaban/board?project=roubao')).body)).toEqual(githubBoard)
+    await send('/api/nawaban/board?project=roubao')
+    expect(calls.filter((c) => c[1] === 'board'), 'one gh read serves reads close together').toHaveLength(1)
+    expect(JSON.parse((await send('/api/nawaban/projects')).body).projects).toContainEqual({ name: 'roubao', open: 1, total: 2, waiting: 1 })
+    expect(JSON.parse((await send('/api/nawaban/okr?project=roubao')).body)).toEqual({ repo, objectives: [] })
+    expect(JSON.parse((await send('/api/nawaban/task/%237?project=roubao')).body)).toEqual({ id: '#7', pending })
+    expect((await send('/api/nawaban/task/--help?project=roubao')).status).toBe(404)
+
+    const asPage = (key: string, answer: unknown) =>
+      send(`/api/nawaban/answer/${encodeURIComponent(key)}?project=roubao`, { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify(answer) })
+    expect((await asPage('#7', { ask: 'an-older-card', words: '发' })).status).toBe(409)
+    expect((await asPage('--kind', { ask: 'c1:0', words: '发' })).status).toBe(409)
+    const written = await asPage('#7', { ask: 'c1:0', option: 'A', words: '就这么定' })
+    expect(written.status).toBe(201)
+    expect(JSON.parse(written.body)).toMatchObject({ task: '#7', option: 'A', words: '就这么定' })
+    expect(calls.at(-1)).toEqual(['event', '#7', '--kind', 'resolve', '--by', 'user', '--body', '选 A：就这么定'])
+    expect((await asPage('#7', { ask: 'c1:0', words: '再答一次' })).status).toBe(409)
+    await send('/api/nawaban/board?project=roubao')
+    expect(calls.filter((c) => c[1] === 'board'), 'an answer makes the next read fresh').toHaveLength(2)
+  } finally {
+    handler = site(team, { dir, webToken: WEB_SECRET, boardToken: SECRET, port, dist })
+  }
+})

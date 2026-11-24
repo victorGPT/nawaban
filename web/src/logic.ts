@@ -59,7 +59,7 @@ export type BoardTask = {
   pending?: Pending | null
   blocked_by?: string[]
 }
-export type Board = { columns: { key: string; tasks: BoardTask[] }[]; decisions: unknown[] }
+export type Board = { tracker?: 'github'; columns: { key: string; tasks: BoardTask[] }[]; decisions: unknown[] }
 export type Project = { name: string; open: number; total: number; waiting: number }
 
 export type ItemState = 'done' | 'stopped' | 'working' | 'todo'
@@ -120,8 +120,10 @@ const GROUP_OF: Record<ItemState, Group> = { stopped: 'stopped', working: 'worki
 export function taskGroups(board: Board | null, now: number): { group: Group; items: Item[] }[] {
   const tasks = allOf(board)
   const byId = new Map(tasks.map((t) => [t.id, t]))
-  const roots = tasks.filter((t) => rootOf(t, byId) === t)
-  const items = roots.map((root) => itemOf(root, tasks.filter((t) => t !== root && rootOf(t, byId) === root), byId, now))
+  const eachIssueStandsAloneAsInThePanel = board?.tracker === 'github'
+  const roots = eachIssueStandsAloneAsInThePanel ? tasks : tasks.filter((t) => rootOf(t, byId) === t)
+  const ticketsUnder = (root: BoardTask) => (eachIssueStandsAloneAsInThePanel ? [] : tasks.filter((t) => t !== root && rootOf(t, byId) === root))
+  const items = roots.map((root) => itemOf(root, ticketsUnder(root), byId, now))
   return GROUPS.map((group) => ({
     group,
     items: items

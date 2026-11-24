@@ -143,7 +143,7 @@ function App() {
       }
       const [b, d] = await Promise.all([
         project ? read<Board>(`board?project=${encodeURIComponent(project)}`) : null,
-        r.task ? read<Detail>(`task/${encodeURIComponent(r.task)}`).then((x) => [x, ''] as const, (e: Error) => [null, e.message] as const) : ([null, ''] as const),
+        r.task ? read<Detail>(`task/${encodeURIComponent(r.task)}${project ? `?project=${encodeURIComponent(project)}` : ''}`).then((x) => [x, ''] as const, (e: Error) => [null, e.message] as const) : ([null, ''] as const),
       ])
       if (mine !== reads) return
       setProjects(list)

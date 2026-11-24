@@ -81,6 +81,8 @@ write_the_launch_agent() {
     <string>$(xml "$board_dir")</string>
     <key>NAWABAN_BOARD_PORT</key>
     <string>$(xml "$port")</string>
+    <key>PATH</key>
+    <string>$(xml "$PATH")</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
