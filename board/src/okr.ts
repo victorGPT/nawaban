@@ -35,6 +35,7 @@ export const FAILED = ''
 const DEF_HASH_LENGTH = 16
 const KR_FIELDS_IN_DEF_HASH = ['max_age_days', 'measure', 'name', 'target', 'unit', 'wait'] as const
 const MEASURE_CODE_SUFFIXES = ['.ts', '.mts', '.js', '.mjs', '.cjs', '.py', '.sh']
+const SHELL_SEPARATORS = /[\s'"`;|&<>()=]+/
 
 const TARGET = /^(>=|<=|>|<|==)\s*(-?\d+(?:\.\d+)?)$/
 const READING = /^(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s+(\S.*)$/
@@ -166,7 +167,7 @@ const sha256 = (data: string | Buffer) => createHash('sha256').update(data)
 
 async function repoFilesNamedIn(root: string, cmd: string) {
   const named: string[] = []
-  for (const word of cmd.split(/\s+/).filter(Boolean).map((w) => w.replace(/^['"]+|['"]+$/g, ''))) {
+  for (const word of cmd.split(SHELL_SEPARATORS).filter(Boolean)) {
     const inside = !isAbsolute(word) && !word.split(sep).includes('..')
     if (!inside || !MEASURE_CODE_SUFFIXES.includes(extname(word)) || named.includes(word)) continue
     if (await stat(join(root, word)).then((s) => s.isFile(), () => false)) named.push(word)
@@ -271,11 +272,14 @@ const withoutTieBreak = (at: string) => at.split('~')[0]!
 
 const sameReading = (a: KeptReading, b: KeptReading) => a.value === b.value && a.as_of === b.as_of && a.source === b.source && a.def_hash === b.def_hash
 
-function roundsAndCurrentSeries(kept: KeptReading[]) {
+function roundsOf(kept: KeptReading[]) {
   const readings = kept.filter((r) => r.value !== FAILED)
-  const rounds = readings.filter((r, i) => i === 0 || !sameReading(readings[i - 1]!, r))
-  const starts = rounds.flatMap((r, i) => (i === 0 || rounds[i - 1]!.def_hash !== r.def_hash ? [i] : []))
-  return { rounds, series: starts.length ? rounds.slice(starts.at(-1)) : [], version: starts.length }
+  return readings.filter((r, i) => i === 0 || !sameReading(readings[i - 1]!, r))
+}
+
+function roundsAndCurrentSeries(kept: KeptReading[]) {
+  const starts = kept.flatMap((r, i) => (i === 0 || kept[i - 1]!.def_hash !== r.def_hash ? [i] : []))
+  return { rounds: roundsOf(kept), series: starts.length ? roundsOf(kept.slice(starts.at(-1))) : [], version: starts.length }
 }
 
 function missedRoundsSinceLastMet(rs: KeptReading[], ok: (r: KeptReading) => boolean) {
@@ -327,11 +331,8 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
       const [op, goalText] = target(kr)
       const goal = dec(goalText)
       const kept = byKr.get(kr.name) ?? []
-      const { rounds, ...current } = roundsAndCurrentSeries(kept)
+      const { rounds, series: rs, version } = roundsAndCurrentSeries(kept)
       const failure = kept.at(-1)?.value === FAILED ? kept.at(-1)!.source : null
-      const failedUnderANewMeasure = failure !== null && current.series.length > 0 && kept.at(-1)!.def_hash !== current.series.at(-1)!.def_hash
-      const rs = failedUnderANewMeasure ? [] : current.series
-      const version = current.version + Number(failedUnderANewMeasure)
       const ok = (r: KeptReading) => meets(op, dec(r.value), goal)
       const missed = missedRoundsSinceLastMet(rs, ok)
       const last = rs.at(-1)

@@ -618,6 +618,13 @@ describe('a measure that changes and fails at once', () => {
     const before = await defHash(root, kr)
     await writeFile(join(root, 'm.py'), 'v2')
     expect(await defHash(root, kr)).not.toBe(before)
+    const separated = { ...kr, measure: 'python3 m.py; echo' }
+    const beforeSeparated = await defHash(root, separated)
+    await writeFile(join(root, 'm.py'), 'v3')
+    expect(await defHash(root, separated)).not.toBe(beforeSeparated)
+    const back: KeptReading[] = [['3', 'A'], ['2', 'A'], ['', 'B'], ['1', 'A']].map(([value, def_hash], i) => ({ kr: 'K', value: value!, as_of: '2026-11-17', source: 's', measured_at: String(i), def_hash: def_hash! }))
+    const k2 = judge(objectives([['K', '>= 5']]), back, new Map(), new Map(), '/r', null).objectives[0]!.krs[0] as Record<string, unknown>
+    expect([(k2.series as { version: number }).version, k2.trend, k2.missed_rounds]).toEqual([3, null, 1])
     const rows: KeptReading[] = [
       ...['3', '2'].map((value, i) => ({ kr: 'K', value, as_of: '2026-11-17', source: 's', measured_at: `2026-11-25T00:00:0${i}`, def_hash: 'old' })),
       { kr: 'K', value: '', as_of: '', source: 'exit 1', measured_at: '2026-11-25T00:00:03', def_hash: 'new' },

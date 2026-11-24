@@ -617,3 +617,18 @@ def test_a_new_measure_that_fails_first_leaves_the_old_series_behind(repo, board
     assert cli.main(["--db", str(board), "okr"]) == 0
     k = kr_of(jokr(board, capsys)[1], "K")
     assert (k["status"], k["series"], k["trend"], k["missed_rounds"], k["history"]) == ("unmeasurable", None, None, 0, [])
+
+
+def test_a_script_right_before_a_shell_separator_is_hashed(tmp_path):
+    (tmp_path / "m.py").write_text("v1")
+    kr = {"name": "K", "target": ">= 1", "measure": "python3 m.py; echo"}
+    before = cli.def_hash(tmp_path, kr)
+    (tmp_path / "m.py").write_text("v2")
+    assert cli.def_hash(tmp_path, kr) != before
+
+
+def test_a_measure_that_fails_under_another_hash_and_comes_back_starts_over():
+    kept = [dict(value=v, def_hash=h, as_of="2026-11-17", source="s", measured_at=str(i))
+            for i, (v, h) in enumerate([("3", "A"), ("2", "A"), ("", "B"), ("1", "A")])]
+    k, _ = cli._kr_view("O", {"name": "K", "target": ">= 5"}, kept, {}, [], [])
+    assert (k["series"]["version"], k["trend"], k["missed_rounds"], k["history"]) == (3, None, 1, [{"value": 1, "as_of": "2026-11-17"}])

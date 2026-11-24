@@ -1056,6 +1056,7 @@ FAILED = ""
 DEF_HASH_LENGTH = 16
 KR_FIELDS_IN_DEF_HASH = ("max_age_days", "measure", "name", "target", "unit", "wait")
 MEASURE_CODE_SUFFIXES = (".ts", ".mts", ".js", ".mjs", ".cjs", ".py", ".sh")
+_SHELL_SEPARATORS = re.compile(r"[\s'\"`;|&<>()=]+")
 
 
 def def_hash(root: Path, kr: dict) -> str:
@@ -1068,7 +1069,7 @@ def def_hash(root: Path, kr: dict) -> str:
 
 def _repo_files_named_in(root: Path, cmd: str) -> list[str]:
     named = []
-    for word in (w.strip("'\"") for w in cmd.split()):
+    for word in filter(None, _SHELL_SEPARATORS.split(cmd)):
         p = Path(word)
         inside = not p.is_absolute() and ".." not in p.parts
         if inside and p.suffix in MEASURE_CODE_SUFFIXES and word not in named and (root / word).is_file():
@@ -1212,8 +1213,6 @@ def _kr_view(name: str, kr: dict, kept: list, accepts: dict, declared: list, att
     ok = lambda r: _MEETS_ON_DECIMAL[op](Decimal(r["value"]), g)
     rounds, rs, version = _rounds_and_current_series(kept)
     failure = kept[-1]["source"] if kept and kept[-1]["value"] == FAILED else None
-    if failure is not None and rs and kept[-1]["def_hash"] != rs[-1]["def_hash"]:
-        rs, version = [], version + 1
     missed = _missed_rounds_since_last_met(rs, ok)
     last = rs[-1] if rs else None
     status = "unmeasurable" if failure is not None else _kr_status(kr, last, missed)
@@ -1233,11 +1232,15 @@ def _kr_view(name: str, kr: dict, kept: list, accepts: dict, declared: list, att
 
 
 def _rounds_and_current_series(kept: list) -> tuple[list, list, int]:
+    starts = [i for i, r in enumerate(kept) if i == 0 or kept[i - 1]["def_hash"] != r["def_hash"]]
+    current = kept[starts[-1]:] if starts else []
+    return _rounds(kept), _rounds(current), len(starts)
+
+
+def _rounds(kept: list) -> list:
     readings = [r for r in kept if r["value"] != FAILED]
     same = lambda a, b: (a["value"], a["as_of"], a["source"], a["def_hash"]) == (b["value"], b["as_of"], b["source"], b["def_hash"])
-    rounds = [r for i, r in enumerate(readings) if i == 0 or not same(readings[i - 1], r)]
-    starts = [i for i, r in enumerate(rounds) if i == 0 or rounds[i - 1]["def_hash"] != r["def_hash"]]
-    return rounds, rounds[starts[-1]:] if starts else [], len(starts)
+    return [r for i, r in enumerate(readings) if i == 0 or not same(readings[i - 1], r)]
 
 
 def _missed_rounds_since_last_met(rs: list, ok) -> int:
