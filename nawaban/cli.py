@@ -980,6 +980,8 @@ def _refuse_whole_file_for_a_malformed_kr(o: dict, kr: dict) -> None:
     inputs = kr.get("inputs", [])
     if not isinstance(inputs, list) or not all(isinstance(i, str) and i and "\0" not in i for i in inputs):
         raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 inputs 要写成非空字符串的数组")
+    if any(GLOB_SYNTAX_THE_TWO_CLIS_READ_APART.search(i) for i in inputs):
+        raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 inputs 只认 *、?、** 通配，不收 {{}}[]()!\\")
     if not all(isinstance(kr.get(k, ""), str) and "\0" not in kr.get(k, "") for k in ("measure", "unit", "wait")):
         raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 measure、unit、wait 要写成字符串")
     age = kr.get("max_age_days", 0)
@@ -1059,6 +1061,7 @@ def _kept_reading_or_failure(root: Path, kr: dict, got) -> tuple | None:
 FAILED = ""
 DEF_HASH_LENGTH = 16
 KR_FIELDS_IN_DEF_HASH = ("inputs", "max_age_days", "measure", "name", "target", "unit", "wait")
+GLOB_SYNTAX_THE_TWO_CLIS_READ_APART = re.compile(r"[{}\[\]()!\\]")
 MEASURE_CODE_SUFFIXES = (".ts", ".mts", ".js", ".mjs", ".cjs", ".py", ".sh")
 _SHELL_SEPARATORS = re.compile(r"[\s'\"`;|&<>()=]+")
 

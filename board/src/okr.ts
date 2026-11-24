@@ -35,6 +35,7 @@ const NOT_COMMITTED = '未提交'
 export const FAILED = ''
 const DEF_HASH_LENGTH = 16
 const KR_FIELDS_IN_DEF_HASH = ['inputs', 'max_age_days', 'measure', 'name', 'target', 'unit', 'wait'] as const
+const GLOB_SYNTAX_THE_TWO_CLIS_READ_APART = /[{}[\]()!\\]/
 const MEASURE_CODE_SUFFIXES = ['.ts', '.mts', '.js', '.mjs', '.cjs', '.py', '.sh']
 const SHELL_SEPARATORS = /[\s'"`;|&<>()=]+/
 
@@ -96,6 +97,9 @@ function refuseWholeFileNeverSkipAKr(objectives: unknown): asserts objectives is
       const inputs = kr.inputs ?? []
       if (!Array.isArray(inputs) || !inputs.every((i) => typeof i === 'string' && i && !i.includes('\0'))) {
         throw new Refused(`${OKR_FILE}:${o.name} / ${kr.name} 的 inputs 要写成非空字符串的数组`)
+      }
+      if (inputs.some((i) => GLOB_SYNTAX_THE_TWO_CLIS_READ_APART.test(i))) {
+        throw new Refused(`${OKR_FILE}:${o.name} / ${kr.name} 的 inputs 只认 *、?、** 通配，不收 {}[]()!\\`)
       }
       const age = kr.max_age_days
       if (age !== undefined) {

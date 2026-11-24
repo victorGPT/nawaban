@@ -671,8 +671,9 @@ def test_inputs_under_home_are_read_from_home(tmp_path, monkeypatch):
     assert cli.def_hash(tmp_path, kr) != before
 
 
-@pytest.mark.parametrize("inputs", ['"gold.jsonl"', '[""]', "[1]"])
-def test_inputs_must_be_an_array_of_paths(repo, capsys, inputs):
+@pytest.mark.parametrize("inputs,why", [('"gold.jsonl"', "非空字符串的数组"), ('[""]', "非空字符串的数组"), ("[1]", "非空字符串的数组"),
+                                        ("['gold/{a,b}.jsonl']", "只认 *、?、** 通配"), ("['gold/[ab].jsonl']", "只认 *、?、** 通配")])
+def test_inputs_must_be_paths_with_the_wildcards_both_clis_read_alike(repo, capsys, inputs, why):
     define(repo, [("K", "<= 3", f"inputs = {inputs}")])
     assert cli.main(["okr"]) != 0
-    assert "inputs 要写成非空字符串的数组" in capsys.readouterr().err
+    assert why in capsys.readouterr().err

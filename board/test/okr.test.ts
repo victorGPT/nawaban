@@ -652,4 +652,8 @@ describe('inputs a KR declares', () => {
   it('refuses inputs that are not an array of paths', async () => {
     await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\ninputs = "gold.jsonl"\n'))).rejects.toThrow(/inputs 要写成非空字符串的数组/)
   })
+
+  it.each(['gold/{a,b}.jsonl', 'gold/[ab].jsonl', 'gold/!(x).jsonl'])('refuses %s, glob syntax the old CLI reads apart', async (pattern) => {
+    await expect(run(await repo(`[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\ninputs = ['${pattern}']\n`))).rejects.toThrow(/只认 \*、\?、\*\* 通配/)
+  })
 })
