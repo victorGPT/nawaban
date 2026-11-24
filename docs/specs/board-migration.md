@@ -298,6 +298,8 @@ Vercel Board 已经提供了这层底座：任务带租约和 fencing、依赖�
 **Blocked by**：T2、T3
 
 ### T10 GitHub 记账的仓库（roubao）切换：issue 进本地板，决策者只看板
+
+> **已被取代（11-25）**：决策者定「本地先写」，本节的设计（写 GitHub、轮询带回、板上不回写）作废，见 [local-first-github-sync.md](local-first-github-sync.md)。下面原文只留作历史。
 **What to build**
 
 - 按待决 3 的推荐：`nawaban serve` 内跑一个 `gh` 轮询器，每 60 秒拉 roubao 开着的 issue 及新评论，用 handle 幂等写入 channel `roubao`。root 打 `issue=owner/repo#N`、`state` label，评论写成 reply。
