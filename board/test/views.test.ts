@@ -179,10 +179,11 @@ it('reads a pull request as merged, closed, failing its checks or open, and neve
   expect(await Promise.all(['--web', 'https://example.com/o/r/pull/1', 'https://github.com/o/r/pull/1 --web', 'https://github.com/o/r/issues/1'].map(pullStateFromGitHub))).toEqual([null, null, null, null])
 })
 
-it('reads past a long stretch of other projects\' events', async () => {
+it('reads past a long stretch of other projects\' events, and a dispatch brief as no progress', async () => {
   for (let i = 0; i < 650; i++) await team.as(null).post('other', 'noise')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'S-02' } })).tasks[0]!.message.id
   await team.as(null).reply(id, '最后的进展')
+  await team.as(null).reply(id, '派发 brief：not progress')
   const data = await read('board', '--project', 'nawaban')
   const s02 = data.columns.flatMap((c: { tasks: { id: string }[] }) => c.tasks).find((t: { id: string }) => t.id === 'S-02')
   expect(s02.progress.body).toBe('最后的进展')

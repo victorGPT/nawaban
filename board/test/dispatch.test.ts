@@ -217,25 +217,40 @@ async function laneOfTwoWhereFirstBlocksSecond(prefix: string, lane: string, sec
   return { first, second, worktree: join(tmp, `repo-${prefix.toLowerCase()}-a`) }
 }
 
-it('hands the next task of a lane to the worker running it, on a new branch it cuts once done, claimed for it once ready', async () => {
-  const { first, second, worktree } = await laneOfTwoWhereFirstBlocksSecond('LN', 'board')
-  await (await team.as('cc-bbbb2222').tasks.claim(first, { lease: 3600 })).complete()
+const claimAs = (session: string, ref: string) =>
+  exec('node', [CLI, 'claim', ref], { cwd: repo, env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, NAWABAN_BOARD_DIR: tmp, CLAUDE_CODE_SESSION_ID: session, HC_TERMINAL_ID: '' } }).then(
+    (ok) => ({ code: 0, ...ok }),
+    (error) => ({ code: error.code as number, stdout: error.stdout as string, stderr: error.stderr as string }),
+  )
+
+const cliAsWindowOf = (session: string, argv: string[]) =>
+  exec('node', [CLI, ...argv], { cwd: repo, env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, NAWABAN_BOARD_DIR: tmp, CLAUDE_CODE_SESSION_ID: session, HC_TERMINAL_ID: '' } })
+
+it('assigns the next task of a lane to the worker running it, which alone may claim it, and pushes it nothing', async () => {
+  const made = async (key: string, ...more: string[]) => JSON.parse((await cliAsWindowOf('orch0000-0000', ['create', key, '--title', key, '--project', 'nawaban', '--json', ...more])).stdout).task.id as string
+  const first = await made('LN-A')
+  const second = await made('LN-B', '--blocked-by', 'LN-A')
+  await note(first, 'lane: board')
+  await note(second, 'lane: board')
+  expect((await dispatchInTheRepositoryAsWindowAaaa1111(['LN-A', '--brief', 'first', '--accept', 'a'], { HC_ORCH: 'to1' })).stderr).toBe('')
+  const worktree = join(tmp, 'repo-ln-a')
+  await cliAsWindowOf(WORKER_SESSION, ['claim', 'LN-A'])
+  await cliAsWindowOf(WORKER_SESSION, ['close', 'LN-A', '--done'])
   const hc = await fileTheLaneWorkerAt(worktree, 'board', 300_000)
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LN-B', '--brief', 'second', '--accept', 'b done'], hc)
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
-  expect(r.stdout).toContain('handed LN-B to running hc t99 (lane board)')
-  expect(r.stdout).toContain('claimed for it')
-  expect(r.hc).not.toMatch(/^run/m)
-  expect(r.hc).toMatch(/^send t99 \/pstack:poteto-mode 任务：LN-B/m)
-  expect(r.hc).toContain(`接着用 ${worktree}`)
-  expect(r.hc).toContain('git fetch origin main && git switch -c wt/ln-b origin/main')
-  expect(r.hc).toContain(`node ${CLI} tell LN-B "完成 PR #<号>"`)
+  expect(r.stdout).toBe('assigned LN-B to running hc t99 (profile cc-bbbb2222) (lane board) · it claims it once its ticket is done · reports to to1\n')
+  expect(r.hc).not.toMatch(/^(run|send)/m)
+  expect(r.stdout + r.hc).not.toContain('next turn')
   expect(existsSync(join(tmp, 'repo-ln-b'))).toBe(false)
-  const b = (await team.thread(second)).message
-  expect(b.task?.claim?.actor).toMatch(/\+cc-bbbb2222$/)
-  expect(b.labels.terminal).toBe('t99')
-  expect((await replies(second)).at(-1)?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { worker: 'first-of-lane', terminal: 't99', accept: 'b done' } }])
+  expect((await team.thread(second)).message.task?.claim ?? null).toBeNull()
+  expect((await replies(second)).slice(-2).map((m) => m.blocks[0]?.data ?? m.text)).toMatchObject([{ worker: 'first-of-lane', terminal: 't99', accept: 'b done' }, '派发 brief：second'])
+  const another = await claimAs('cccc3333-0000', 'LN-B')
+  expect(another.code).toBe(1)
+  expect(another.stderr).toContain("It's assigned to another profile")
+  expect((await claimAs(WORKER_SESSION, 'LN-B')).code).toBe(0)
+  expect((await team.thread(second)).message.task?.claim?.actor).toMatch(/\+cc-bbbb2222$/)
   const closedByTheWorker = await exec('node', [CLI, 'close', 'LN-B', '--done'], {
     cwd: worktree,
     env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, NAWABAN_BOARD_DIR: tmp, CLAUDE_CODE_SESSION_ID: WORKER_SESSION, HC_TERMINAL_ID: '' },
@@ -244,14 +259,33 @@ it('hands the next task of a lane to the worker running it, on a new branch it c
   expect((await team.thread(second)).message.task?.state).toBe('completed')
 })
 
-it('hands a task still blocked in its lane to the same worker and leaves the claim to it', async () => {
+it('assigns a task still blocked in its lane to the same worker and leaves the claim to it', async () => {
   const { second, worktree } = await laneOfTwoWhereFirstBlocksSecond('LQ', 'queue')
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LQ-B', '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, 'queue', 10_000))
   expect(r.stderr).toBe('')
-  expect(r.stdout).toContain('handed LQ-B to running hc t99 (lane queue)')
-  expect(r.stdout).toContain('it claims when it starts')
+  expect(r.stdout).toContain('assigned LQ-B to running hc t99 (profile cc-bbbb2222) (lane queue)')
+  expect(r.hc).not.toMatch(/^send/m)
   expect((await team.thread(second)).message.task?.claim ?? null).toBeNull()
-  expect((await replies(second)).at(-1)?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { terminal: 't99' } }])
+  expect((await replies(second)).find((m) => m.blocks.length)?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { terminal: 't99' } }])
+})
+
+it('refuses --to with no ticket to assign, and starts nothing', async () => {
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'to-none', '--to', 't99', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(2)
+  expect(r.hc).not.toMatch(/^(run|send)/m)
+  expect(existsSync(join(tmp, 'repo-to-none'))).toBe(false)
+})
+
+it('refuses to assign to a running worker whose profile its labels do not name, and records nothing', async () => {
+  const id = await newTask('D-NOPROF')
+  const worktree = join(tmp, 'repo-d-noprof-w')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'wt/d-noprof-w', worktree, 'main')
+  await mkdir(join(tmp, 'workers'), { recursive: true })
+  await writeFile(join(tmp, 'workers', 't93.json'), JSON.stringify({ state: 'live', name: 'anon', cwd: worktree, labels: {} }))
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-NOPROF', '--to', 't93', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(1)
+  expect(r.stderr).toContain('dispatch --new')
+  expect(await replies(id)).toEqual([])
 })
 
 it.each([
