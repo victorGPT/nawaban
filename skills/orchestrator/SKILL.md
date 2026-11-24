@@ -4,23 +4,18 @@ description: Declare this session the repository's orchestrator (编排者).
 disable-model-invocation: true
 ---
 
-The owner has declared you this repository's **orchestrator**. The prompt hook has already labelled this terminal (outside Herdr, on a project on the Vercel Board: recorded this session as the project's orchestrator) and printed, above, the current state and the repository's orchestrator rules.
+The owner has declared you this repository's **orchestrator**. The prompt hook has labelled this terminal and printed, above, the current state and the repository's orchestrator rules. The board CLI is `node <plugin root>/board/src/cli.ts`.
 
-Reply to the owner in one line, by what it printed:
+1. Reply in one line, by what the hook printed:
+   - **Rules**: `<the terminal named in 已给终端, or the session named in 已把会话> 已声明为编排者，规矩已载入。` plus any `注意` and `已摘掉` line.
+   - **Index only**: the repository has no `docs/agents/orchestrator.md`; say so and run from its `AGENTS.md`.
+   - **声明失败 or nothing**: not declared; say so and carry on as an ordinary session.
+2. Act on a prompt's `## 网页已答` and `## 收件箱` before anything else that turn:
+   - **网页已答**: the answer is on the task and the hold stays. When it fits the card (an option that exists, words that answer the question), record it: a 待决策项 with `nawaban event <ID> --kind resolve --body "<their words>"`, a 等你 with `--kind decision --by user` then a `triage: ready-for-agent` note. Otherwise ask again on the tracker.
+   - **收件箱**: each line is `<id> <words>`, the bare id (an unquoted `#` starts a shell comment). Make it a task (`nawaban create <KEY> --project <p> --title … --body "…（收件箱 <id>）"`, then `nawaban label <id> inbox=done task=<KEY> --if inbox=open`), or run it as a command, or drop it, then `nawaban label <id> inbox=done --if inbox=open`. Settle what it means yourself.
+3. Record each thing the owner must decide on the tracker, then ask: a 待决策项 on GitHub (`nawaban event '#N' --kind ask …`), a `triage: needs-info — 等你：` note on the board. The pending line under each reply (`待决 N 件…`) counts only these, and the Stop hook sends back a reply that asks for a decision with no ask recorded that turn.
+4. When the owner states or changes an Objective, or you draft one, run the **o-check** skill.
+5. When you split tickets, note each one's lane, `lane: <name>`: tickets that load the same docs, change the same directories and use the same tools share one. `nawaban dispatch` hands a lane's next ticket to its running worker; pass `--new` for a ticket that should run in parallel. In a repository with `docs/agents/okr.toml`, put the KR impact declaration (`nawaban event <ID> --kind impact --o … --kr …`) in the worker's acceptance.
+6. On the board the worker merges with `nawaban merge <PR>`, which closes the ticket and hands it the lane's next ticket or retires it. Elsewhere, when a worker reports 完成 and you close its ticket, dispatch the lane's next ticket; retire the worker only when its lane is empty or dispatch passed it over. The rules are in the nawaban skill's Dispatch section.
 
-- **Rules**: `<the terminal named in the 已给终端 line, or the session named in the 已把会话 line> 已声明为编排者，规矩已载入。` Append any `注意` line and any `已摘掉` line.
-- **Index only**: the repository has no `docs/agents/orchestrator.md`; say so and run from its `AGENTS.md`.
-- **声明失败 or nothing**: not declared; say so and carry on as an ordinary session.
-
-After each of your replies the plugin shows the owner the pending line (待决提示行, `待决 N 件…`), counted from the tracker's 待决策项 (GitHub) or 等你 tasks (board), never from the chat. Anything the owner must decide goes on the tracker first, so it shows there: record it as a 待决策项 (`nawaban event '#N' --kind ask …` on GitHub, a `triage: needs-info — 等你：` note on the board), then ask. 要决策者定的事一律先记 ask 再问. A reply that asks the owner to decide (你定 / 你点头 / 批不批 / 批准吗 / 要不要 / 你选 / 请拍板, ending in a question or saying 要你) with no ask recorded in the same turn is sent back by the plugin's Stop hook; record the ask and end the turn again, the wording need not change.
-
-On the Vercel Board the decision-maker may also answer from the web page, with or without Herdr. When a prompt carries `## 网页已答` or `## 收件箱` (the same sections close `nawaban index --project <p>`), act on them before anything else that turn. The commands are the board CLI, `node <plugin root>/board/src/cli.ts` (not `nawaban/cli.py`, which has no `label` or `page`):
-
-- **网页已答**: the answer is on the task, but the hold stays. Check it fits the card (an option that exists, words that answer the question); if it does, record it: a 待决策项 with `nawaban event <ID> --kind resolve --body "<their words>"`, a 等你 with `--kind decision --by user` then a `triage: ready-for-agent` note. If it does not, ask again on the tracker. Never treat it as resolved without recording it.
-- **收件箱**: each line is `<id> <words>` (the bare id, no `#`: an unquoted `#` starts a shell comment). Make it a task (`nawaban create <KEY> --project <p> --title … --body "…（收件箱 <id>）"`, then `nawaban label <id> inbox=done task=<KEY> --if inbox=open`), or run it as a command, or drop it, and then `nawaban label <id> inbox=done --if inbox=open`. Settle what it means yourself; take only the three kinds of question to the decision-maker.
-
-With Herdr, answers the panel types into this terminal (`hc send`) arrive as before, as the decision-maker's own message.
-
-When you split tickets, record each one's lane as a note `lane: <name>`: the same docs to read, directories to change and tools to use make one lane. `nawaban dispatch` then hands a lane's next ticket to the worker already running that lane, so it starts with what it has loaded, and starts a new worker when the lane has none, the model differs, or the worker has used half its context. Pass `--new` for tickets in a lane that should run in parallel. On the board the worker merges its own pull request with `nawaban merge <PR>`, which closes the ticket, hands the worker the lane's next ready ticket or retires it; it messages you only when it refuses or a step after the merge fails. Without it, when a lane worker reports 完成 and you close its ticket, dispatch the lane's next ticket before you think of `hc kill`; retire the worker (kill it, remove its worktree) only when its lane is empty or dispatch passed it over. The rules are in the nawaban skill's Dispatch section.
-
-In a repository with `docs/agents/okr.toml`, a ticket cannot close as done, nor its pull request merge, before its KR impact declaration (`nawaban event <ID> --kind impact --o … --kr …`, see the nawaban skill). When you dispatch, put the declaration in the worker's acceptance.
+Objectives, KRs and how KRs are measured belong to the owner: write into `okr.toml` only what they took.

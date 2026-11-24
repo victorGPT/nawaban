@@ -143,6 +143,18 @@ A decision put to the owner, hung on the Objective or KR it serves, written as `
 _Avoid_: 决策卡, 待决卡, decision card, 决策简报, 来龙去脉.
 _Current identifiers_: CLI `event --kind ask --kr --context --option --rec`; block `nawaban-ask@1` (`decision` holds 决策事项, `tradeoff` holds 代价, `door` is `one-way`/`two-way`).
 
+**Objective**(目标，O)
+Where the work is going, set by the decision-maker alone: qualitative, a direction rather than a number, not a task or an output, important now, measurable by one or two result KRs, not overlapping an existing Objective, said in one sentence. An internal Objective (nawaban's 「编排者不用决策者盯也能把 O 推完」) is legitimate. An agent checks every new or changed Objective against these with the `o-check` skill (O 体检) and answers 是 O, 差一点 or 不是 O with one next step; it never writes one into `okr.toml` on its own.
+目标（O）是工作要去的方向，只由决策者定：定性、说方向而不是一个数，不是任务或产出，现在重要，能用一两个结果型 KR 量，和现有 O 不重叠，一句话说清。内部 O（如 nawaban「编排者不用决策者盯也能把 O 推完」）合法。决策者提出或改动 O 时，agent 用 `o-check` skill 照这几条做 O 体检，答「是 O / 差一点 / 不是 O」并给一个下一步；不擅自写进 `okr.toml`。
+_Avoid_: 目标值（那是 KR 的 target）, 任务, 里程碑.
+_Current identifiers_: `[[objective]] name` in `docs/agents/okr.toml`; CLI `event --kind impact --o`; skill `o-check`.
+
+**Key Result**(关键结果，KR)
+A reading of a result the user can perceive, with a target, under one Objective: it measures results, not outputs (「首次会话开播率比旧首页基线高」, not 「Feed 上线子票完成」). The agent drafts KRs from the Objective; the decision-maker approves them and how they are measured.
+关键结果（KR）是某个 O 下面、带目标值的一条结果读数：量用户能感知的结果，不量产出（「首次会话开播率比旧首页基线高」，而不是「Feed 上线子票完成」）。agent 按 O 起草，决策者点头才算，量法也由决策者定。
+_Avoid_: 指标（泛称）, 交付物.
+_Current identifiers_: `[[objective.kr]]` with `name`, `target`, `unit`, `measure` in `docs/agents/okr.toml`.
+
 **OKR progress**(OKR 进度)
 The owner's Progress view: each Objective with its KRs, each KR's current value measured now against its target. A repository defines them in `docs/agents/okr.toml`; each KR's `measure` is a command that reads results already produced and prints `<number> <as-of>`. Only a measured value that meets its target counts as met (绿灯; missed is 红灯, stale is 黄灯); a KR with no measure is 未测, and one whose measure fails says why. A KR with `max_age_days` whose reading is older than that is stale and does not count as met. Each dated reading is kept on the board (`kr_readings`); `json okr` judges the kept readings against the current definitions without measuring, and lists what the decision-maker must watch (stuck, five missed rounds, waiting on them, an Objective all met awaiting `okr --accept`).
 OKR 进度是决策者看的 Progress：每个 Objective 和它的 KR，每条 KR 当场量出的现值对目标。仓库在 `docs/agents/okr.toml` 定义；每条 KR 的 `measure` 是一条命令，只读已有结果，打印「数值 截至」。只有量出来且满足目标的才算达标；没写测量的算未测，测量失败的写明原因；设了 `max_age_days` 而读数比它旧的算过期，不算达标。带日期的读数记进看板（`kr_readings`）；`json okr` 不量，只拿存下的读数对当前定义现算，并列出要决策者盯的（两轮没动、连续 5 轮未达标、等决策者做事、O 全 ✓ 待 `okr --accept` 验收）。
