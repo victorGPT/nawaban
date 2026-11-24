@@ -21,7 +21,7 @@ def gh(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(repo)
     monkeypatch.setenv("HC_TERMINAL_ID", "t9")
     calls = type("Calls", (list,), {})()
-    issue = {"state": "OPEN", "body": "", "createdAt": "2026-11-15T00:00:00Z", "comments": [], "assignees": []}
+    issue = {"state": "OPEN", "title": "perf(api): 主模型窗口按实测调大", "body": "", "createdAt": "2026-11-15T00:00:00Z", "comments": [], "assignees": []}
     labels = {"role": "orchestrator"}  # what `hc get` reports for t9
     terminals = []  # what `hc ls` lists
     real_run = subprocess.run
@@ -222,12 +222,23 @@ def test_dispatch_starts_a_worker_in_a_fresh_worktree_and_records_it_on_the_tick
     assert (wt / ".git").exists()
     run = next(c for c in gh if c[:2] == ["hc", "run"])
     assert run[run.index("--cwd") + 1] == str(wt)
+    assert run[run.index("-n") + 1] == "【api】主模型窗口按实测调大 #950"
     brief = run[-1]
     assert brief.startswith("/pstack:poteto-mode Issue：#950") and "目标：修 X" in brief and "验收：pytest 绿" in brief
     assert 'hc send t9 "回报：#950 完成 PR #<号>"' in brief and 'hc send t9 "回报：#950 受阻，详情在票上"' in brief
     assert "中途进展、阶段结果记在票上" in brief  # 只报完成、受阻：每条回报都叫醒编排者
     note = cli.read_marker(posted(gh)[0])
     assert note["kind"] == "note" and "hc t77" in note["body"] and "验收：pytest 绿" in note["body"]
+
+
+@pytest.mark.parametrize("title, tag, named", [
+    ("perf(api): 主模型窗口按实测调大", "#1700", "【api】主模型窗口按实测调大 #1700"),
+    ("每晚复盘 2026-11-23", "#1657", "每晚复盘 2026-11-23 #1657"),
+    ("fix: 无 scope 的前缀只去掉", "P-01", "无 scope 的前缀只去掉 P-01"),
+    ("feat(web): 一二三四五六七八九十一二三四五六七八九十一二三四五六", "NAWABAN-X", "【web】一二三四五六七八九十一二三四五六七八九十一二三四… NAWABAN-X"),
+])
+def test_a_worker_is_named_module_task_and_ticket(title, tag, named):
+    assert cli.worker_title(title, tag) == named
 
 
 def test_dispatch_without_a_live_orchestrator_starts_nothing(gh):
@@ -282,6 +293,7 @@ def test_dispatch_on_a_local_board_records_a_dispatch_note(tmp_path, monkeypatch
     assert cli.main(["--db", db, "dispatch", "P-01", "--brief", "b", "--accept", "a"]) == 0
     assert (tmp_path / "proj-p-01" / ".git").exists()
     assert f"NAWABAN_DB={tmp_path / 'b.db'}" in runs[-1]
+    assert runs[-1][runs[-1].index("-n") + 1] == "t P-01"
     assert runs[-1][-1].startswith("/pstack:poteto-mode 任务：P-01") and 'hc send t9 "回报：P-01 完成' in runs[-1][-1]
     cli.main(["--db", db, "show", "P-01"])
     assert "dispatch: p-01 · 派给 hc t77" in capsys.readouterr().out

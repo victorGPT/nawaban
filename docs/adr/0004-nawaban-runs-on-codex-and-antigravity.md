@@ -140,6 +140,7 @@ The lease file was written under `$HOME/.config/board/claims/`. Two more runs wi
 - `board/src/dispatch.ts` starts `hc run … claude --model <m> <brief>`, and the brief opens with `/pstack:poteto-mode`. Both are Claude Code's. `--agent` picks a row from one table: `claude` → `claude --model m <brief>`, `codex` → `codex -m m <brief>`, `agy` → `agy -i <brief>` (plus `--model` if given). The `/pstack:poteto-mode` prefix belongs to the `claude` row, and `--model` has no default for the other rows. Herdr still runs the terminal and carries the reports (`hc send`), so the report protocol does not change.
 - Here (NAWABAN-AGENTS-05): in a repository Codex has not trusted, `codex "<brief>"` stops at the trust prompt first, and trusting applies to the repository root. After that one answer the brief submits on its own, and later worktrees of the same repository start without the prompt. So the first Codex worker in a repository waits until the owner answers that prompt once. `CODEX_HOME` is passed to the worker with the board variables, so it runs under the dispatcher's Codex config.
 - Here (NAWABAN-AGENTS-06): `agy -i "<brief>"` in a folder it has not trusted submits the brief and also shows its trust prompt.
+- NAWABAN-WORKER-NAME: the `claude` row starts with `-n "【<scope>】<title> <#N | task id>"`, so the session and the Herdr title carry the task from the first second. Codex `0.171` and agy `1.5.15` have no flag that names a session at start (`codex --help`, `agy --help`), so their rows keep Herdr's name only.
 
 ### 装
 

@@ -8,6 +8,7 @@ import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import { board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
+import { workerTitle } from '../src/dispatch.ts'
 import { registerSchemas } from '../src/schemas.ts'
 import { listen, verifier } from '../src/server.ts'
 
@@ -94,7 +95,7 @@ it('starts the worker in its own worktree, briefed to report to the orchestrator
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
   const run = r.hc.slice(r.hc.indexOf('run --bg'))
-  expect(run).toContain(`--name d-go --cwd ${join(tmp, 'repo-d-go')} env BOARD_URL=${url} claude --model opus`)
+  expect(run).toContain(`--name d-go --cwd ${join(tmp, 'repo-d-go')} env BOARD_URL=${url} claude -n D-GO D-GO --model opus`)
   expect(run).toContain('hc send to1 "回报：D-GO 完成 PR #<号>"')
   expect(run).toContain('hc send to1 "回报：D-GO 受阻，详情在票上"')
   expect(run).not.toMatch(/回报：D-GO [^"\n]*\|/)
@@ -102,6 +103,22 @@ it('starts the worker in its own worktree, briefed to report to the orchestrator
   const [reply] = await replies(id)
   expect(reply?.author).toMatchObject({ kind: 'agent', handle: 'victor/cc-aaaa1111' })
   expect(reply?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { worker: 'd-go', terminal: 't99', accept: 'it is done', orchestrator: 'to1', agent: 'claude', model: 'opus' } }])
+})
+
+it.each([
+  { title: 'perf(api): 主模型窗口按实测调大', tag: '#1700', named: '【api】主模型窗口按实测调大 #1700' },
+  { title: '每晚复盘 2026-11-23', tag: '#1657', named: '每晚复盘 2026-11-23 #1657' },
+  { title: 'fix: 无 scope 的前缀只去掉', tag: 'P-01', named: '无 scope 的前缀只去掉 P-01' },
+  { title: 'feat(web): 一二三四五六七八九十一二三四五六七八九十一二三四五六', tag: 'NAWABAN-X', named: '【web】一二三四五六七八九十一二三四五六七八九十一二三四… NAWABAN-X' },
+])('names the worker $named', ({ title, tag, named }) => {
+  expect(workerTitle(title, tag)).toBe(named)
+})
+
+it('names a board-tracked worker by its title and task id from the start', async () => {
+  await team.as(null).tasks.create('nawaban', { id: 'D-NAMED', text: 'perf(api): 主模型窗口按实测调大\n\nbody', labels: { key: 'D-NAMED' } })
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-NAMED', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(0)
+  expect(r.hc).toContain('claude -n 【api】主模型窗口按实测调大 D-NAMED --model opus /pstack:poteto-mode')
 })
 
 it('removes the worktree and records nothing when hc run fails', async () => {
@@ -124,8 +141,8 @@ it('dispatches with no task, under --name, and records nothing', async () => {
 })
 
 it.each([
-  { agent: [], model: [], starts: 'claude --model opus /pstack:poteto-mode 任务：row-default\n' },
-  { agent: ['--agent', 'claude'], model: ['--model', 'sonnet'], starts: 'claude --model sonnet /pstack:poteto-mode 任务：row-claude\n' },
+  { agent: [], model: [], starts: 'claude -n row-default --model opus /pstack:poteto-mode 任务：row-default\n' },
+  { agent: ['--agent', 'claude'], model: ['--model', 'sonnet'], starts: 'claude -n row-claude --model sonnet /pstack:poteto-mode 任务：row-claude\n' },
   { agent: ['--agent', 'codex'], model: [], starts: 'codex 任务：row-codex\n' },
   { agent: ['--agent', 'codex'], model: ['--model', 'gpt-5.5'], starts: 'codex -m gpt-5.5 任务：row-codex-m\n' },
   { agent: ['--agent', 'agy'], model: [], starts: 'agy -i 任务：row-agy\n' },
