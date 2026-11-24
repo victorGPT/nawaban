@@ -18,13 +18,16 @@ const WRITE_EVERY_SECONDS = 5 * 60
 const LOOKS_AGAIN_AFTER_SECONDS = 60
 const PROBE_TIMEOUT_MS = 10_000
 const TOOLS_THAT_EDIT = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch', 'write_to_file', 'replace_file_content'])
-const CALL_SIGNS: [Milestone, RegExp][] = [
-  ['reported', /\bhc\s+send\b[^\n]*回报：/],
-  ['review', /\bcodex\b[^\n]*\breview\b|codex:rescue|codex-companion|\bgh\s+pr\s+checks\b/],
-  ['pr', /\bgh\s+pr\s+create\b/],
-  ['committed', /\bgit(?:\s+-C\s+\S+)?\s+commit\b/],
-  ['edited', /\b(?:edit|write)\(|\bapply_patch\b/],
+const AT_A_COMMAND = String.raw`(?:^|[;&|(\n]\s*)`
+const COMMAND_SIGNS: [Milestone, RegExp][] = [
+  ['reported', new RegExp(AT_A_COMMAND + String.raw`hc\s+send\b[^\n]*回报：`)],
+  ['review', new RegExp(AT_A_COMMAND + String.raw`(?:gh\s+pr\s+checks\b|codex\s+review\b|node\s+\S*codex-companion\S*\s+(?:task|review))`)],
+  ['pr', new RegExp(AT_A_COMMAND + String.raw`gh\s+pr\s+create\b`)],
+  ['committed', new RegExp(AT_A_COMMAND + String.raw`git(?:\s+-[Cc]\s+\S+)*\s+commit\b`)],
 ]
+const REVIEWER_AGENT = /codex/i
+const SCRIPT_THAT_EDITS = /\b(?:edit|write)\(/
+const SHELL_IN_A_SCRIPT = /\$`([^`]*)`/g
 
 export const progressDir = (boardDir: string) => join(boardDir, PROGRESS_FOLDER)
 export const liveFile = (boardDir: string, taskId: string) => join(progressDir(boardDir), `${taskId}.json`)
@@ -56,24 +59,42 @@ function tailLines(path: string): string[] {
   }
 }
 
-type Call = { name: string; says: string }
+type Call = { name: string; input: Record<string, unknown> }
+
+const parsedOrEmpty = (json: unknown): Record<string, unknown> => {
+  if (json && typeof json === 'object') return json as Record<string, unknown>
+  try {
+    return JSON.parse(String(json))
+  } catch {
+    return {}
+  }
+}
 
 function callsOfStep(d: Record<string, any>): Call[] {
   if (d.type === 'assistant' && Array.isArray(d.message?.content)) {
-    return d.message.content.filter((c: { type?: string }) => c.type === 'tool_use').map((c: { name: string; input: unknown }) => ({ name: c.name, says: JSON.stringify(c.input) }))
+    return d.message.content.filter((c: { type?: string }) => c.type === 'tool_use').map((c: { name: string; input: unknown }) => ({ name: c.name, input: parsedOrEmpty(c.input) }))
   }
   if (d.type === 'response_item' && String(d.payload?.type).endsWith('_call')) {
-    return [{ name: String(d.payload.name), says: String(d.payload.arguments ?? d.payload.input ?? '') }]
+    return [{ name: String(d.payload.name), input: parsedOrEmpty(d.payload.arguments ?? d.payload.input) }]
   }
   if (d.type === 'PLANNER_RESPONSE' && Array.isArray(d.tool_calls)) {
-    return d.tool_calls.map((c: { name?: string }) => ({ name: String(c.name ?? ''), says: JSON.stringify(c) }))
+    return d.tool_calls.map((c: { name?: string; args?: unknown }) => ({ name: String(c.name ?? ''), input: parsedOrEmpty(c.args) }))
   }
   return []
 }
 
-export function milestoneOfCall({ name, says }: Call): Milestone {
-  const sign = CALL_SIGNS.find(([, re]) => re.test(says))?.[0]
-  return furthest([TOOLS_THAT_EDIT.has(name) ? 'edited' : 'started', sign ?? 'started'])
+const asText = (v: unknown) => (Array.isArray(v) ? v.join(' ') : typeof v === 'string' ? v : '')
+
+function commandsRunBy({ name, input }: Call): string[] {
+  if (name === 'REPL') return [...asText(input.code).matchAll(SHELL_IN_A_SCRIPT)].map((m) => m[1]!)
+  return [input.command, input.cmd, input.CommandLine].map(asText).filter(Boolean)
+}
+
+export function milestoneOfCall(call: Call): Milestone {
+  const edits = TOOLS_THAT_EDIT.has(call.name) || (call.name === 'REPL' && SCRIPT_THAT_EDITS.test(asText(call.input.code)))
+  const reviewer = (call.name === 'Agent' || call.name === 'Task') && REVIEWER_AGENT.test(asText(call.input.subagent_type))
+  const signs = commandsRunBy(call).flatMap((command) => COMMAND_SIGNS.filter(([, re]) => re.test(command)).map(([m]) => m))
+  return furthest([edits ? 'edited' : 'started', reviewer ? 'review' : 'started', ...signs])
 }
 
 export function milestoneOfTranscript(transcript: string | undefined): Milestone {

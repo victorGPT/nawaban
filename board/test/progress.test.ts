@@ -23,6 +23,15 @@ it('takes the furthest milestone a Claude Code session reached, from its tool ca
   expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: 'hc send t19p "回报：X 完成 | ok | PR"' })))).toBe('reported')
 })
 
+it('counts only commands it ran, not text it wrote or searched for', async () => {
+  const brief = '完成后 hc send t19p "回报：X 完成"，再 gh pr create'
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Write', { file_path: 'brief.md', content: brief })))).toBe('edited')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: 'rg -n "gh pr create" board/src' })))).toBe('started')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('REPL', { code: `const b = ${JSON.stringify(brief)}; await $\`rg -n gh board\`` })))).toBe('started')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('REPL', { code: 'await $`git add -A && git commit -qm x`' })))).toBe('committed')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Agent', { subagent_type: 'codex:codex-rescue', prompt: 'review' })))).toBe('review')
+})
+
 it('reads Codex and Antigravity tool calls the same way', async () => {
   const codex = await transcriptOf({ type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"git commit -m x"}' } })
   const agy = await transcriptOf({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: { CommandLine: 'gh pr create --fill' } }] }, { type: 'USER_INPUT', content: 'hc send t1 "回报：…"' })

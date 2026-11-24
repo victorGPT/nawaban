@@ -21,4 +21,6 @@ On the Vercel Board the decision-maker may also answer from the web page, with o
 
 With Herdr, answers the panel types into this terminal (`hc send`) arrive as before, as the decision-maker's own message.
 
+When you split tickets, record each one's lane as a note `lane: <name>`: the same docs to read, directories to change and tools to use make one lane. `nawaban dispatch` then hands a lane's next ticket to the worker already running that lane, so it starts with what it has loaded, and starts a new worker when the lane has none, the model differs, or the worker has used half its context. Pass `--new` for tickets in a lane that should run in parallel. When a lane worker reports 完成 and you close its ticket, dispatch the lane's next ticket before you think of `hc kill`; retire the worker (kill it, remove its worktree) only when its lane is empty or dispatch passed it over. The rules are in the nawaban skill's Dispatch section.
+
 In a repository with `docs/agents/okr.toml`, a ticket cannot close as done, nor its pull request merge, before its KR impact declaration (`nawaban event <ID> --kind impact --o … --kr …`, see the nawaban skill). When you dispatch, put the declaration in the worker's acceptance.

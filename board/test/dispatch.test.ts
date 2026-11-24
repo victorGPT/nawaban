@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmod, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,11 +20,11 @@ let url = ''
 let tmp = ''
 let repo = ''
 
-const HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_STARTING_T99 = `#!/bin/sh
+const HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_AND_ANY_WORKER_FILED_IN_HC_WORKERS_STARTING_T99 = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HC_LOG"
 case "$1" in
-  get) if [ -n "$HC_ORCH" ] && [ "$2" = "$HC_ORCH" ]; then echo '{"labels":{"role":"orchestrator"}}'; else echo '{"labels":{}}'; fi ;;
-  ls) if [ -n "$HC_ORCH" ]; then echo "{\\"terminals\\":[{\\"address\\":\\"$HC_ORCH\\",\\"state\\":\\"live\\",\\"cwd\\":\\"$HC_ORCH_CWD\\"}]}"; else echo '{"terminals":[]}'; fi ;;
+  get) if [ -n "$HC_ORCH" ] && [ "$2" = "$HC_ORCH" ]; then echo '{"labels":{"role":"orchestrator"}}'; elif [ -f "$HC_WORKERS/$2.json" ]; then cat "$HC_WORKERS/$2.json"; else echo '{"labels":{}}'; fi ;;
+  ls) if [ -n "$HC_ORCH" ]; then echo "{\\"terminals\\":[{\\"address\\":\\"$HC_ORCH\\",\\"state\\":\\"live\\",\\"cwd\\":\\"$HC_ORCH_CWD\\"}$HC_LS_WORKERS]}"; else echo '{"terminals":[]}'; fi ;;
   run) if [ -n "$HC_RUN_FAIL" ]; then echo 'no core' >&2; exit 1; fi; echo '{"address":"t99"}' ;;
 esac
 `
@@ -37,7 +37,7 @@ beforeAll(async () => {
   team = board({ backend: local({ memory: true }), authenticate: verifier(SECRET, 'victor'), url })
   await registerSchemas(team)
   tmp = await realpath(await mkdtemp(join(tmpdir(), 'nawaban-dispatch-')))
-  await writeFile(join(tmp, 'hc'), HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_STARTING_T99)
+  await writeFile(join(tmp, 'hc'), HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_AND_ANY_WORKER_FILED_IN_HC_WORKERS_STARTING_T99)
   await chmod(join(tmp, 'hc'), 0o755)
   await exec('git', ['init', '-q', '--bare', '-b', 'main', join(tmp, 'origin.git')])
   repo = join(tmp, 'repo')
@@ -61,6 +61,9 @@ async function dispatchInTheRepositoryAsWindowAaaa1111(argv: string[], hc: Recor
     HC_ORCH: '',
     HC_ORCH_CWD: repo,
     HC_RUN_FAIL: '',
+    HC_WORKERS: join(tmp, 'workers'),
+    HC_LS_WORKERS: '',
+    CLAUDE_CONFIG_DIR: join(tmp, 'claude'),
     CODEX_HOME: '',
     ...hc,
   }
@@ -151,4 +154,99 @@ it('refuses an agent it has no row for, and starts nothing', async () => {
   expect(r.stderr).toContain('--agent claude|codex|agy')
   expect(r.hc).toBe('')
   expect(existsSync(join(tmp, 'repo-row-gemini'))).toBe(false)
+})
+
+const LANE_WORKER = 't99'
+const WORKER_SESSION = 'bbbb2222-0000'
+
+async function fileTheLaneWorkerAt(worktree: string, lane: string, contextTokens: number, startedAs = ['claude', '--model', 'opus']) {
+  await mkdir(join(tmp, 'workers'), { recursive: true })
+  await writeFile(
+    join(tmp, 'workers', `${LANE_WORKER}.json`),
+    JSON.stringify({
+      state: 'live',
+      name: 'first-of-lane',
+      cwd: worktree,
+      argv: ['env', `BOARD_URL=${url}`, ...startedAs, '/pstack:poteto-mode 任务：A'],
+      labels: { lane, 'revive.agent': 'claude', 'revive.session': WORKER_SESSION },
+    }),
+  )
+  await mkdir(join(tmp, 'claude', 'projects', 'worker'), { recursive: true })
+  const turn = (usage: object, isSidechain = false) => JSON.stringify({ type: 'assistant', isSidechain, message: { usage } })
+  await writeFile(
+    join(tmp, 'claude', 'projects', 'worker', `${WORKER_SESSION}.jsonl`),
+    [turn({ input_tokens: 1, cache_read_input_tokens: 10 }), turn({ input_tokens: 2, cache_creation_input_tokens: 1000, cache_read_input_tokens: contextTokens - 1002 }), turn({ input_tokens: 900_000 }, true), ''].join('\n'),
+  )
+  return { HC_ORCH: 'to1', HC_LS_WORKERS: `,{"address":"${LANE_WORKER}","state":"live","cwd":"${worktree}"}` }
+}
+
+const note = (id: string, text: string) => team.as('cc-orch0000').reply(id, text)
+
+async function laneOfTwoWhereFirstBlocksSecond(prefix: string, lane: string, secondLane = lane) {
+  const first = await newTask(`${prefix}-A`)
+  const second = (await team.as(null).tasks.create('nawaban', { id: `${prefix}-B`, text: `${prefix}-B`, labels: { key: `${prefix}-B` }, needs: [first] })).task.id
+  await note(first, `lane: ${lane}`)
+  await note(second, `lane: ${secondLane}`)
+  const a = await dispatchInTheRepositoryAsWindowAaaa1111([`${prefix}-A`, '--brief', 'first', '--accept', 'a'], { HC_ORCH: 'to1' })
+  expect(a.stderr).toBe('')
+  expect(a.hc).toContain(`label t99 lane=${lane}`)
+  return { first, second, worktree: join(tmp, `repo-${prefix.toLowerCase()}-a`) }
+}
+
+it('hands the next task of a lane to the worker running it, on a new branch it cuts once done, claimed for it once ready', async () => {
+  const { first, second, worktree } = await laneOfTwoWhereFirstBlocksSecond('LN', 'board')
+  await (await team.as('cc-bbbb2222').tasks.claim(first, { lease: 3600 })).complete()
+  const hc = await fileTheLaneWorkerAt(worktree, 'board', 300_000)
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LN-B', '--brief', 'second', '--accept', 'b done'], hc)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.stdout).toContain('handed LN-B to running hc t99 (lane board)')
+  expect(r.stdout).toContain('claimed for it')
+  expect(r.hc).not.toMatch(/^run/m)
+  expect(r.hc).toMatch(/^send t99 \/pstack:poteto-mode 任务：LN-B/m)
+  expect(r.hc).toContain(`接着用 ${worktree}`)
+  expect(r.hc).toContain('git fetch origin main && git switch -c wt/ln-b origin/main')
+  expect(r.hc).toContain('hc send to1 "回报：LN-B 完成')
+  expect(existsSync(join(tmp, 'repo-ln-b'))).toBe(false)
+  const b = (await team.thread(second)).message
+  expect(b.task?.claim?.actor).toMatch(/\+cc-bbbb2222$/)
+  expect(b.labels.terminal).toBe('t99')
+  expect((await replies(second)).at(-1)?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { worker: 'first-of-lane', terminal: 't99', accept: 'b done' } }])
+})
+
+it('hands a task still blocked in its lane to the same worker and leaves the claim to it', async () => {
+  const { second, worktree } = await laneOfTwoWhereFirstBlocksSecond('LQ', 'queue')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LQ-B', '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, 'queue', 10_000))
+  expect(r.stderr).toBe('')
+  expect(r.stdout).toContain('handed LQ-B to running hc t99 (lane queue)')
+  expect(r.stdout).toContain('it claims when it starts')
+  expect((await team.thread(second)).message.task?.claim ?? null).toBeNull()
+  expect((await replies(second)).at(-1)?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { terminal: 't99' } }])
+})
+
+it.each([
+  { why: 'its worker has used half its context', lane: 'half', secondLane: 'half', tokens: 500_000, argv: [], passedOver: 't99 has used 50% of its context' },
+  { why: 'it is in another lane', lane: 'one', secondLane: 'other', tokens: 10_000, argv: [], passedOver: undefined },
+  { why: 'it asks for another model', lane: 'model', secondLane: 'model', tokens: 10_000, argv: ['--model', 'sonnet'], passedOver: 't99 runs another agent or model' },
+  { why: 'it asks for Codex on its default model and the worker runs another', lane: 'cxm', secondLane: 'cxm', tokens: 10_000, argv: ['--agent', 'codex'], startedAs: ['codex', '-m', 'other'], passedOver: 't99 runs another agent or model' },
+  { why: '--new asks for parallel work', lane: 'par', secondLane: 'par', tokens: 10_000, argv: ['--new'], passedOver: undefined },
+])('starts a new worker when $why', async ({ lane, secondLane, tokens, argv, passedOver, startedAs }) => {
+  const prefix = `LF${lane.toUpperCase()}`
+  const { worktree } = await laneOfTwoWhereFirstBlocksSecond(prefix, lane, secondLane)
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111([`${prefix}-B`, ...argv, '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, lane, tokens, startedAs))
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.hc).toMatch(/^run --bg/m)
+  expect(r.hc).not.toMatch(/^send/m)
+  expect(r.stdout).toContain(`dispatched ${prefix}-B → hc t99 (lane ${secondLane})`)
+  if (passedOver) expect(r.stdout).toContain(passedOver)
+  expect(existsSync(join(tmp, `repo-${prefix.toLowerCase()}-b`))).toBe(true)
+})
+
+it('refuses --to a terminal outside this repository, and starts nothing', async () => {
+  await newTask('D-TO')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-TO', '--to', 'tnowhere', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(1)
+  expect(r.stderr).toContain('--to tnowhere is no live terminal in this repository')
+  expect(r.hc).not.toMatch(/^(run|send)/m)
 })
