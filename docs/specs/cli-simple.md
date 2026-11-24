@@ -146,7 +146,7 @@ nawaban：记票、事件、待决和读数的看板
   close <票>          关票：--done 或 --cancelled
 派
   dispatch <票>       把票派给 worker
-  merge <PR>          合并 PR，关票，交下一张
+  merge <PR>          合并 PR，关票，领下一张或收掉 worker
 
 <票> 是 KEY 或板上的编号；同步仓库里是 GitHub 的 '#N'。
 每个动词加 --help 看参数，加 --json 给机器读。

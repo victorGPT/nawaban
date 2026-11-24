@@ -5,9 +5,11 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
+import { projectOf } from './impact.ts'
 import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
-import { profile, Refused, resolve, sessionProfile } from './tasks.ts'
+import { boardDirAsConfiguredWhenAsked } from './server.ts'
+import { labelTerminalThePanelReadsWhileClaimed, profile, Refused, resolve, row, sessionProfile } from './tasks.ts'
 
 const exec = promisify(execFile)
 const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
@@ -41,17 +43,21 @@ const PROFILE_PREFIX_OF_AGENT = { claude: 'cc', codex: 'cx', agy: 'agy' } as con
 const CLAUDE_CONTEXT_WINDOW_TOKENS = 1_000_000
 const REUSE_WHILE_CONTEXT_SHARE_BELOW = 0.5
 const CLAIM_LEASE = '1h'
-export const LANE_NOTE = /^\s*lane:\s*(\S.*?)\s*$/
+const LANE_NOTE = /^\s*lane:\s*(\S.*?)\s*$/
+const BRIEF_NOTE = '派发 brief：'
+const NEXT_BRIEF = '照票正文和票上最新的决定'
+export const NEXT_ACCEPT = '照票上 Acceptance criteria；开 PR 不合并'
+const NOTHING_TO_CLAIM = ['nothing_ready', 'timeout']
 type Agent = keyof typeof WORKER_ARGV
 const isAgent = (name: string): name is Agent => Object.hasOwn(WORKER_ARGV, name)
 const USAGE =
-  `usage: nawaban dispatch [<key>] --brief "<goal, scope>" --accept "<what counts as done>" [--name <worker>] [--agent ${Object.keys(WORKER_ARGV).join('|')}] [--model <m>, opus for claude] [--to <terminal> | --new]; a task with a lane: note goes to that lane's live worker unless --new; no key (a nightly retro, say) takes --name and records nothing`
+  `usage: nawaban dispatch [<key>] --brief "<goal, scope>" --accept "<what counts as done>" [--name <worker>] [--agent ${Object.keys(WORKER_ARGV).join('|')}] [--model <m>, opus for claude] [--to <terminal> | --new]; --to, or a task with a lane: note while that lane has a live worker, assigns the task to that worker, which claims it once its ticket is done; --new starts a worker; no key (a nightly retro, say) takes --name and records nothing`
 
 type Args = { ref: string | undefined; name: string | undefined; brief: string; accept: string; agent: Agent; model: string | undefined; to: string | undefined; fresh: boolean }
 type Checked = { as: string; task: MessageView | null; root: string; orch: string; name: string; who: string; lane: string | null }
 type Worktree = { path: string; branch: string }
 type Terminal = { address: string; name?: string; state?: string; cwd?: string; argv?: string[]; labels?: Record<string, string> }
-type Seat = { reuse: Terminal } | { reuse: null; passedOver: string[] }
+type Seat = { reuse: Terminal; task: MessageView } | { reuse: null; passedOver: string[] }
 
 export async function stdoutOrNullOnFailure(cmd: string, args: string[]): Promise<string | null> {
   try {
@@ -107,7 +113,7 @@ export async function orchestratorFor(root: string): Promise<string | null> {
   return (await thisTerminalIfOrchestrator()) ?? (await liveOrchestratorInRepository(root))
 }
 
-type Dispatched = { terminal: string; orchestrator?: string }
+type Dispatched = { terminal: string; accept: string; orchestrator?: string }
 export const lastDispatchOf = (replies: MessageView[]) =>
   replies.flatMap((r) => r.blocks.filter((b) => b.schema === 'nawaban-dispatch').map((b) => b.data as Dispatched)).at(-1)
 
@@ -206,17 +212,18 @@ async function laneWorkersInRepository(root: string, lane: string): Promise<Term
 
 async function seatFor(c: Checked, a: Args): Promise<Seat> {
   if (a.to) {
+    if (!c.task) throw new Refused('--to assigns a ticket for the worker to claim: with no ticket, start a worker without --to', 2)
     const t = await terminalOf(a.to)
     if (t?.state !== 'live' || !t.cwd || (await mainCheckoutRealPathOf(t.cwd)) !== c.root) throw new Refused(`--to ${a.to} is no live terminal in this repository`)
-    return { reuse: t }
+    return { reuse: t, task: c.task }
   }
-  if (a.fresh || !c.lane) return { reuse: null, passedOver: [] }
+  if (a.fresh || !c.lane || !c.task) return { reuse: null, passedOver: [] }
   const passedOver: string[] = []
   for (const t of await laneWorkersInRepository(c.root, c.lane)) {
     const share = await contextShareOf(t)
     if (!startsTheWayThisDispatchWould(t, a)) passedOver.push(`${t.address} runs another agent or model`)
     else if (share !== null && share >= REUSE_WHILE_CONTEXT_SHARE_BELOW) passedOver.push(`${t.address} has used ${Math.round(share * 100)}% of its context`)
-    else return { reuse: t }
+    else return { reuse: t, task: c.task }
   }
   return { reuse: null, passedOver }
 }
@@ -234,28 +241,86 @@ async function worktreeOffOriginMain(root: string, name: string): Promise<Worktr
   return { path, branch }
 }
 
-const MERGE_LINE = `收尾：验收没说不合并时，PR 的 CI 绿、评论里贴了带 head sha 的「Codex review：无挡…」之后，跑 node ${CLI} merge <PR 号>，它合并、关票、交下一张或收掉你`
+const MERGE_LINE = `收尾：验收没说不合并时，PR 的 CI 绿、评论里贴了带 head sha 的「Codex review：无挡…」之后，跑 node ${CLI} merge <PR 号>：它合并、关票，再最多等 10 分钟领指派给你的下一张（Claude Code 里用 Bash 的 run_in_background 放后台跑，别干等）。领到就照它打印的 brief 在这个 worktree 切新分支接着做；没领到它收掉 worktree 和终端`
 
 const freshWorktreeLine = (wt: Worktree) =>
-  `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改。同一泳道的下一张可能接着派到这个终端，worktree 留着）。${MERGE_LINE}`
+  `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改）。${MERGE_LINE}`
 
 const reusedWorktreeLine = (wt: Worktree) =>
-  `worktree：接着用 ${wt.path}。手上那张做完、回报后再开工：git fetch origin main && git switch -c ${wt.branch} origin/main，只在这个分支上改。${MERGE_LINE}`
+  `worktree：接着用 ${wt.path}，先 git fetch origin main && git switch -c ${wt.branch} origin/main，只在这个分支上改。${MERGE_LINE}`
 
-function briefReportingTo(c: Checked, a: Args, worktreeLine: string): string {
+type ReportsVia = { ref: string } | { name: string; orch: string }
+
+function briefReportingTo(via: ReportsVia, brief: string, accept: string, worktreeLine: string, firstSteps: string[] = []): string {
   const nawaban = `node ${CLI}`
-  const reportLines = a.ref
-    ? [`  ${nawaban} tell ${a.ref} "完成 PR #<号>"`, `  ${nawaban} tell ${a.ref} "受阻，详情在票上"`]
-    : [`  hc send ${c.orch} "回报：${c.who} 完成 PR #<号>"`, `  hc send ${c.orch} "回报：${c.who} 受阻，详情在票上"`]
+  const [task, reportLines] =
+    'ref' in via
+      ? [`${via.ref}（${nawaban} show ${via.ref} 看全文；认领、进展、关闭用 ${nawaban} claim|event|close 记）`, [`  ${nawaban} tell ${via.ref} "完成 PR #<号>"`, `  ${nawaban} tell ${via.ref} "受阻，详情在票上"`]]
+      : [via.name, [`  hc send ${via.orch} "回报：${via.name} 完成 PR #<号>"`, `  hc send ${via.orch} "回报：${via.name} 受阻，详情在票上"`]]
   return [
-    `任务：${a.ref ? `${a.ref}（${nawaban} show ${a.ref} 看全文；认领、进展、关闭用 ${nawaban} claim|event|close 记）` : c.name}`,
+    `任务：${task}`,
     worktreeLine,
-    a.brief,
-    `验收：${a.accept}`,
+    ...firstSteps,
+    brief,
+    `验收：${accept}`,
     '完成或受阻：只发一行，照抄其一，PR 号填上；结论、实测输出、卡在哪、要谁做什么都写在票上：',
     ...reportLines,
     '只发这一行：中途进展、阶段结果记在票上的「进展」里，不发给编排者（每条消息都会叫醒它，留在它的上下文里）。',
   ].join('\n')
+}
+
+const refusalOf = (stderr: string): { reason?: string; said: string } => {
+  try {
+    const { reason, message } = JSON.parse(stderr)
+    return { reason, said: `${reason}: ${message}` }
+  } catch {
+    return { said: stderr.trim() }
+  }
+}
+
+export async function claimNextReady(project: string, wait?: string): Promise<MessageView | null> {
+  const argv = [CLI, 'board', 'tasks', 'claim', project, '--ready', '--as', profile(), '--lease', CLAIM_LEASE, '--json', ...(wait ? ['--wait', wait] : [])]
+  let claimed: string
+  try {
+    claimed = (await exec('node', argv)).stdout
+  } catch (error) {
+    const { code, stderr } = error as { code?: unknown; stderr?: string }
+    const { reason, said } = refusalOf(stderr || (error as Error).message)
+    if (code === 1 && reason && NOTHING_TO_CLAIM.includes(reason)) return null
+    throw new Refused(`claim --ready in ${project} failed: ${said}`)
+  }
+  const { task } = JSON.parse(claimed) as { task: MessageView }
+  try {
+    await labelTerminalThePanelReadsWhileClaimed(task.id)
+  } catch (error) {
+    throw new Refused(`claimed ${task.labels.key ?? task.id}, but labelling its terminal failed: ${(error as Error).message}`)
+  }
+  return task
+}
+
+export async function pickupBrief(task: MessageView, worktree: string): Promise<string> {
+  const ref = task.labels.key ?? task.id
+  const { replies } = await board().thread(task.id)
+  const brief = replies.map((r) => r.text).findLast((t) => t.startsWith(BRIEF_NOTE))?.slice(BRIEF_NOTE.length) ?? NEXT_BRIEF
+  const accept = lastDispatchOf(replies)?.accept ?? NEXT_ACCEPT
+  const declareFirst = `这张已替你认领，但认领时没登记 KR 影响：先跑 node ${CLI} event ${ref} impact --o "<O 名>" --kr "<KR>=toward|away|hold"（纯基础设施写 --o 无），不然 merge 会拦`
+  return briefReportingTo({ ref }, brief, accept, reusedWorktreeLine({ path: worktree, branch: `wt/${ref.toLowerCase()}` }), [declareFirst])
+}
+
+export async function claimReady(wait: string | undefined, project: string | undefined, json: boolean): Promise<number> {
+  const worktree = (await stdoutOrNullOnFailure('git', ['rev-parse', '--show-toplevel']))?.trim()
+  if (!worktree) throw new Refused('claim --ready runs in the worktree that takes the ticket')
+  const root = (await mainCheckoutRealPathOf(worktree)) ?? worktree
+  const channel = project ?? (await projectOf(boardDirAsConfiguredWhenAsked(), root))
+  if (!channel) throw new Refused(`${root} is no project in repos.json: pass --project`, 2)
+  const task = await claimNextReady(channel, wait)
+  if (!task) {
+    process.stderr.write(`nothing ready for ${profile()} in ${channel}${wait ? ` within ${wait}` : ''}\n`)
+    return 1
+  }
+  const brief = await pickupBrief(task, worktree)
+  process.stdout.write(json ? JSON.stringify({ task, brief }) + '\n' : `${row(task)}\n\n${brief}\n`)
+  return 0
 }
 
 const envReachingThisBoardWithoutToken = () => ENV_NAMING_THIS_BOARD_AND_CODEX_CONFIG_NOT_THE_BOARD_TOKEN.flatMap((k) => (process.env[k] ? [`${k}=${process.env[k]}`] : []))
@@ -274,36 +339,24 @@ async function startWorkerElseRemoveWorktree(c: Checked, a: Args, wt: Worktree, 
   }
 }
 
-async function handToRunningWorker(c: Checked, a: Args, worker: Terminal): Promise<Worktree> {
-  const wt = { path: worker.cwd!, branch: `wt/${c.name}` }
-  const message = WORKER_ARGV[a.agent](a.model, briefReportingTo(c, a, reusedWorktreeLine(wt))).at(-1)!
-  try {
-    await exec('hc', ['send', worker.address, message])
-  } catch (error) {
-    throw new Refused(`hc send to ${worker.address} failed, nothing recorded: ${String((error as { stderr?: string }).stderr || (error as Error).message).trim()}`)
-  }
-  return wt
-}
-
 const workerProfileOf = (t: Terminal) => {
   const agent = t.labels?.['revive.agent']
   const session = t.labels?.['revive.session']
   return agent && session && isAgent(agent) ? sessionProfile(PROFILE_PREFIX_OF_AGENT[agent], session) : null
 }
 
-async function claimForWorkerKeepingTheTokenWhereItsCliLooks(task: MessageView, worker: Terminal): Promise<boolean> {
+async function assignToRunningWorker(task: MessageView, worker: Terminal): Promise<string> {
   const as = workerProfileOf(worker)
-  if (!as) return false
+  if (!as) throw new Refused(`hc ${worker.address} has no revive.agent and revive.session labels to name the profile it claims as: dispatch --new`)
   try {
-    await exec('node', [CLI, 'board', 'tasks', 'claim', task.id, '--as', as, '--lease', CLAIM_LEASE, '--json'])
-    await board().as(null).label(task.id, { set: { terminal: worker.address } })
-    return true
-  } catch {
-    return false
+    await exec('node', [CLI, 'board', 'tasks', 'assign', task.id, as])
+  } catch (error) {
+    throw new Refused(`assigning ${task.labels.key ?? task.id} to ${as} failed, nothing recorded: ${String((error as { stderr?: string }).stderr || (error as Error).message).trim()}`)
   }
+  return as
 }
 
-async function recordDispatchAsThisWindow(c: Checked, a: Args, wt: Worktree, address: string, worker = c.name) {
+async function recordDispatchAsThisWindow(c: Checked, a: Args, address: string, worker = c.name) {
   const model = a.model ?? (a.agent === 'claude' ? CLAUDE_MODEL_WHEN_NONE_IS_NAMED : undefined)
   const value = { worker, terminal: address, accept: a.accept, orchestrator: c.orch, agent: a.agent, ...(model ? { model } : {}) }
   const why = checkValue(SCHEMAS['nawaban-dispatch@2'].schema, value)
@@ -311,7 +364,15 @@ async function recordDispatchAsThisWindow(c: Checked, a: Args, wt: Worktree, add
     if (why) throw new Error(why)
     if (c.task) await board().as(c.as).reply(c.task.id, block('nawaban-dispatch@2', value))
   } catch (error) {
-    throw new Refused(`dispatched to hc ${address} (${wt.path}), but recording it on ${a.ref} failed: ${(error as Error).message}`)
+    throw new Refused(`dispatched to hc ${address}, but recording it on ${a.ref} failed: ${(error as Error).message}`)
+  }
+}
+
+async function recordBriefThePickupReads(c: Checked, a: Args, task: MessageView, address: string) {
+  try {
+    await board().as(c.as).reply(task.id, `${BRIEF_NOTE}${a.brief}`)
+  } catch (error) {
+    throw new Refused(`assigned ${a.ref} for hc ${address}, but recording its brief failed: ${(error as Error).message}`)
   }
 }
 
@@ -326,16 +387,16 @@ export async function dispatch(argv: string[]): Promise<number> {
     const lane = checked.lane ? ` (lane ${checked.lane})` : ''
     if (seat.reuse) {
       const worker = seat.reuse
-      const wt = await handToRunningWorker(checked, a, worker)
-      await recordDispatchAsThisWindow(checked, a, wt, worker.address, worker.name ?? worker.address)
-      const claimed = checked.task ? await claimForWorkerKeepingTheTokenWhereItsCliLooks(checked.task, worker) : false
-      const claim = checked.task ? (claimed ? ' · claimed for it' : ' · it claims when it starts') : ''
-      process.stdout.write(`handed ${checked.who} to running hc ${worker.address}${lane} · ${wt.path} · branch ${wt.branch} on its next turn${claim} · reports to ${checked.orch}\n`)
+      const as = await assignToRunningWorker(seat.task, worker)
+      await recordDispatchAsThisWindow(checked, a, worker.address, worker.name ?? worker.address)
+      await recordBriefThePickupReads(checked, a, seat.task, worker.address)
+      process.stdout.write(`assigned ${checked.who} to running hc ${worker.address} (profile ${as})${lane} · it claims it once its ticket is done · reports to ${checked.orch}\n`)
       return 0
     }
     const wt = await worktreeOffOriginMain(checked.root, checked.name)
-    const address = await startWorkerElseRemoveWorktree(checked, a, wt, briefReportingTo(checked, a, freshWorktreeLine(wt)))
-    await recordDispatchAsThisWindow(checked, a, wt, address)
+    const brief = briefReportingTo(a.ref ? { ref: a.ref } : { name: checked.name, orch: checked.orch }, a.brief, a.accept, freshWorktreeLine(wt))
+    const address = await startWorkerElseRemoveWorktree(checked, a, wt, brief)
+    await recordDispatchAsThisWindow(checked, a, address)
     if (checked.lane) await stdoutOrNullOnFailure('hc', ['label', address, `lane=${checked.lane}`])
     const passedOver = seat.passedOver.length ? `, passed over ${seat.passedOver.join('; ')}` : ''
     process.stdout.write(`dispatched ${checked.who} → hc ${address}${lane}${passedOver} · ${wt.path} · reports to ${checked.orch}\n`)

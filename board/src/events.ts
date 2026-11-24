@@ -4,6 +4,7 @@ import { checkValue } from '@vercel/board/schemas'
 import { type DecisionCard, gapsOfADecisionCard, SCHEMAS, type SchemaId } from './schemas.ts'
 import { IMPACT_FORMAT, whyNotDeclarable } from './impact.ts'
 import { registeredReadings } from './okr.ts'
+import { claimReady } from './dispatch.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { bodyFrom, Refused, resolve } from './tasks.ts'
 import { optionWordsBut, pointAt, withBody } from './hint.ts'
@@ -269,11 +270,20 @@ export async function event(argv: string[], run: Run, team: Team): Promise<numbe
 export async function claimRegistering(argv: string[], claim: Run, run: Run, team: Team): Promise<number> {
   let parsed
   try {
-    parsed = parseArgs({ args: argv, allowPositionals: true, options: { o: { type: 'string' }, kr: { type: 'string', multiple: true }, change: { type: 'string' }, release: { type: 'boolean' }, json: { type: 'boolean' } } })
+    parsed = parseArgs({
+      args: argv,
+      allowPositionals: true,
+      options: { o: { type: 'string' }, kr: { type: 'string', multiple: true }, change: { type: 'string' }, release: { type: 'boolean' }, json: { type: 'boolean' }, ready: { type: 'boolean' }, wait: { type: 'string' }, project: { type: 'string' } },
+    })
   } catch (error) {
     return refuse((error as Error).message, 2)
   }
-  const { o, kr, change, release, json } = parsed.values
+  const { o, kr, change, release, json, ready, wait, project } = parsed.values
+  if (ready) {
+    if (parsed.positionals.length || o !== undefined || kr || change || release) return refuse('--ready claims the next ticket for you: no <票>, and not with --o, --kr, --change or --release', 2)
+    return claimReady(wait, project, !!json).catch((error) => refuse((error as Error).message, error instanceof Refused ? error.code : 1))
+  }
+  if (wait !== undefined || project !== undefined) return refuse('--wait and --project go with --ready', 2)
   const plain = [...parsed.positionals, ...(release ? ['--release'] : []), ...(json ? ['--json'] : [])]
   if (o === undefined) return kr || change ? refuse('--kr and --change register an impact, and go with --o "<O 名>"', 2) : claim(plain)
   if (release) return refuse('--o registers an impact as the task is claimed, not released', 2)

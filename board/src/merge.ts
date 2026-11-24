@@ -3,23 +3,22 @@ import { existsSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { promisify } from 'node:util'
+import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
-import { dispatch, LANE_NOTE, lastDispatchOf, mainCheckoutRealPathOf, orchestratorToReportTo, stdoutOrNullOnFailure, terminalOf } from './dispatch.ts'
+import { claimNextReady, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf } from './dispatch.ts'
 import { mergeGate } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
 import { all, profile, Refused, resolve, run as taskVerb } from './tasks.ts'
 
 const exec = promisify(execFile)
-const USAGE = 'usage: nawaban merge <PR 号>'
+const CLAIM_WAIT = '10m'
+const USAGE = `usage: nawaban merge <PR 号> [--wait <时长>，领下一张最多等多久，默认 ${CLAIM_WAIT}]`
 const PR_FIELDS = 'number,state,url,title,headRefName,headRefOid,files,statusCheckRollup,comments,mergeCommit'
 const NO_BLOCKER_REVIEW_LINE = /review[:：]\s*无挡/i
 const SHA_PREFIX_A_REVIEW_NAMES = /\b[0-9a-f]{7,40}\b/gi
 const WORKTREE_BRANCH = /^wt\/(.+)$/
 const SCHEMA_FILE = 'board/src/schemas.ts'
-const NEXT_BRIEF = '照票正文和票上最新的决定'
-const NEXT_ACCEPT = '照票上 Acceptance criteria；开 PR 不合并'
 const EXIT_CODE = { waiting: 3, refused: 1, mergedButUnfinished: 1, done: 0 } as const
 const pluginDir = () => process.env.NAWABAN_PLUGIN_DIR ?? join(homedir(), '.nawaban', 'plugin')
 
@@ -39,9 +38,9 @@ type Outcome =
   | { kind: 'waiting'; on: string }
   | { kind: 'refused'; why: string }
   | { kind: 'mergedButUnfinished'; left: string }
-  | { kind: 'done'; did: string[]; thenRetire: Retirable | null }
-type Run = { n: string; task: MessageView | null; root: string | null }
-type Seen = { task: MessageView; terminal: string | null; lane: string | null }
+  | { kind: 'done'; did: string[]; thenRetire: Retirable | null; pickedUp?: string }
+type Run = { n: string; wait: string; task: MessageView | null; root: string | null }
+type Seen = { task: MessageView; terminal: string | null }
 
 const failureOf = (error: unknown) => String((error as { stderr?: string }).stderr || (error as Error).message).trim()
 
@@ -55,11 +54,8 @@ const terminalWhileClaimed = (task: MessageView) => (claimLive(task) ? task.labe
 
 export async function seenOf(task: MessageView): Promise<Seen> {
   const { replies } = await board().thread(task.id)
-  const terminal = terminalWhileClaimed(task) ?? lastDispatchedTerminal(replies) ?? null
-  const lane = replies.map((r) => r.text.match(LANE_NOTE)?.[1]).findLast((l) => l !== undefined) ?? null
-  return { task, terminal, lane }
+  return { task, terminal: terminalWhileClaimed(task) ?? lastDispatchedTerminal(replies) ?? null }
 }
-
 
 function ciVerdict(checks: Check[]): Outcome | null {
   if (!checks.length) return { kind: 'waiting', on: 'CI 还没有任何 check' }
@@ -193,21 +189,23 @@ async function retirableElseWhyNot(terminal: string, root: string): Promise<Reti
   return { terminal, worktree: t.cwd }
 }
 
-async function handOnElseRetire(closed: MessageView, root: string, did: string[]): Promise<Outcome> {
-  const mine = await seenOf(closed)
-  const terminal = mine.terminal
+async function claimNextElseRetire(closed: MessageView, root: string, did: string[], wait: string): Promise<Outcome> {
+  const terminal = (await seenOf(closed)).terminal
   if (!terminal) return { kind: 'done', did, thenRetire: null }
-  const others = await Promise.all((await all({ channel: closed.channel, state: 'open' })).filter((t) => t.id !== closed.id).map(seenOf))
-  const stillHolding = others.find((o) => o.terminal === terminal)
-  if (stillHolding) return { kind: 'done', did: [...did, `${terminal} 还有 ${stillHolding.task.labels.key ?? stillHolding.task.id}，留着`], thenRetire: null }
+  const stillHolding = (await all({ channel: closed.channel, state: 'open' })).find((t) => t.id !== closed.id && terminalWhileClaimed(t) === terminal)
+  if (stillHolding) return { kind: 'done', did: [...did, `${terminal} 还有 ${stillHolding.labels.key ?? stillHolding.id}，留着`], thenRetire: null }
   const worker = await terminalOf(terminal)
   if (worker?.state !== 'live') return { kind: 'done', did: [...did, `worker ${terminal} 已不在`], thenRetire: null }
-  const workerStillHasItsWorktree = !!worker.cwd && existsSync(worker.cwd)
-  const next = mine.lane && workerStillHasItsWorktree ? others.find((o) => o.lane === mine.lane && o.task.task?.state === 'ready' && !o.terminal) : undefined
-  if (next) {
-    const key = next.task.labels.key ?? next.task.id
-    if ((await dispatch([key, '--to', terminal, '--brief', NEXT_BRIEF, '--accept', NEXT_ACCEPT])) !== 0) return { kind: 'mergedButUnfinished', left: `把 ${key} 交给 ${terminal} 失败` }
-    return { kind: 'done', did: [...did, `下一张 ${key} 交给 ${terminal}`], thenRetire: null }
+  const worktree = worker.cwd && existsSync(worker.cwd) ? worker.cwd : null
+  const theWorkerItselfMerges = process.env.HC_TERMINAL_ID === terminal
+  if (worktree && theWorkerItselfMerges) {
+    let next: MessageView | null
+    try {
+      next = await claimNextReady(closed.channel, wait)
+    } catch (error) {
+      return { kind: 'mergedButUnfinished', left: `领下一张出错，worker ${terminal} 留着：${failureOf(error)}` }
+    }
+    if (next) return { kind: 'done', did: [...did, `领到下一张 ${next.labels.key ?? next.id}`], thenRetire: null, pickedUp: await pickupBrief(next, worktree) }
   }
   const retirable = await retirableElseWhyNot(terminal, root)
   if (typeof retirable === 'string') return { kind: 'mergedButUnfinished', left: retirable }
@@ -236,7 +234,7 @@ async function outcomeOf(r: Run): Promise<Outcome> {
     did.push('主检出已 pull')
   }
   const unclosed = await linkThenClose(r.task, pr, did)
-  return pluginHold ?? unclosed ?? handOnElseRetire(r.task, r.root, did)
+  return pluginHold ?? unclosed ?? claimNextElseRetire(r.task, r.root, did, r.wait)
 }
 
 const noteOf = (o: Exclude<Outcome, { kind: 'waiting' }>, n: string) =>
@@ -272,6 +270,7 @@ async function report(o: Outcome, r: Run): Promise<number> {
     return EXIT_CODE.waiting
   }
   if (o.kind !== 'done') return unfinished(r, o)
+  if (o.pickedUp) process.stdout.write(o.pickedUp + '\n\n')
   const unrecorded = await noteElseWhyNot(r, noteOf(o, r.n))
   if (unrecorded) return unfinished(r, { kind: 'mergedButUnfinished', left: `${unrecorded}，worker 没收` })
   if (!o.thenRetire) return EXIT_CODE.done
@@ -282,13 +281,21 @@ async function report(o: Outcome, r: Run): Promise<number> {
   return notKilled ? unfinished(r, { kind: 'mergedButUnfinished', left: `hc kill ${terminal} 失败：${notKilled}，重跑 merge 会再收` }) : EXIT_CODE.done
 }
 
+const misused = () => {
+  process.stderr.write(`error: ${USAGE}\n`)
+  return 2
+}
+
 export async function merge(argv: string[]): Promise<number> {
-  const [n] = argv
-  if (argv.length !== 1 || !/^\d+$/.test(n!)) {
-    process.stderr.write(`error: ${USAGE}\n`)
-    return 2
+  let parsed
+  try {
+    parsed = parseArgs({ args: argv, allowPositionals: true, options: { wait: { type: 'string', default: CLAIM_WAIT } } })
+  } catch {
+    return misused()
   }
-  const r: Run = { n: n!, task: null, root: await mainCheckoutRealPathOf(process.cwd()) }
+  const [n] = parsed.positionals
+  if (parsed.positionals.length !== 1 || !/^\d+$/.test(n!)) return misused()
+  const r: Run = { n: n!, wait: parsed.values.wait, task: null, root: await mainCheckoutRealPathOf(process.cwd()) }
   try {
     profile()
     return await report(await outcomeOf(r), r)

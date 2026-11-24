@@ -87,7 +87,7 @@ export async function bodyFrom(positional: string | undefined, flag: string | un
 }
 
 const print = (json: boolean, doc: unknown, text: string) => process.stdout.write(json ? JSON.stringify(doc) + '\n' : text + '\n')
-const row = (m: MessageView) => `#${m.id}  ${state(m).padEnd(9)}  ${key(m)}  ${title(m)}`
+export const row = (m: MessageView) => `#${m.id}  ${state(m).padEnd(9)}  ${key(m)}  ${title(m)}`
 
 const create: Verb = async (argv) => {
   const { values, positionals, tokens } = parseArgs({
@@ -181,7 +181,7 @@ const show: Verb = async (argv) => {
 
 const terminal = () => (process.env.CLAUDE_CODE_SESSION_ID ? process.env.HC_TERMINAL_ID : undefined)
 
-async function labelTerminalThePanelReadsWhileClaimed(taskId: string) {
+export async function labelTerminalThePanelReadsWhileClaimed(taskId: string) {
   const t = terminal()
   await personOwningEveryTaskTheirProfilesMade().label(taskId, t ? { set: { terminal: t } } : { unset: ['terminal'] })
 }

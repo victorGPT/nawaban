@@ -20,7 +20,7 @@ The shared language for tasks recorded by agents and read by people. English ter
 - **进行中** — 开着、开工过、24 小时内有动静 — 出处：WIP（Kanban）。
 - **待办** — 开着、从没认领也没写进展 — 出处：Backlog（Scrum / Kanban）。
 - **已完成** — 关成完成 — 出处：Done。
-- **泳道** — 开工前要装进脑子的东西（要读的 ADR 和文档、要改的目录、要用的工具或环境）基本相同的一组任务，记成任务上的 note「lane: <名>」；`dispatch` 把同泳道的下一张交给该泳道在跑的 worker，按依赖顺序串行 — 出处：Swimlane（Kanban）。
+- **泳道** — 开工前要装进脑子的东西（要读的 ADR 和文档、要改的目录、要用的工具或环境）基本相同的一组任务，记成任务上的 note「lane: <名>」；`dispatch` 把同泳道的下一张指派给该泳道在跑的 worker，它做完手上那张自己领，按依赖顺序串行 — 出处：Swimlane（Kanban）。
 - **负责人** — 持有一张票的那一个会话或终端 — 出处：DRI（Apple）。
 - **红黄绿灯** — KR 状态：红＝未达标，黄＝过期或有风险，绿＝达标；没有读数的写「未测」 — 出处：RAG status（PRINCE2）。
 - **偏差** — 实际减目标，按目标方向算：+ 领先，- 落后；百分比按「点」计 — 出处：Variance。
