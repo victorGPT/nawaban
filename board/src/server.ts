@@ -12,6 +12,7 @@ import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { githubBoards, githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type OldCli } from './github.ts'
+import { settleIssueTasks, type KnownIssue } from './github-tasks.ts'
 import { deliverAsSignedWebhook, ghReader, githubSyncConfig, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
 import { okrData } from './okr.ts'
 import { isLiveFileName, progressDir } from './progress.ts'
@@ -443,7 +444,8 @@ export async function serve(dir = DIR, port = PORT) {
   await registerSchemas(team)
   if (syncConfig && secret) {
     const reader = async () => ghReader(await readerToken(syncConfig.reader))
-    pollForever(syncConfig, dir, reader, deliverAsSignedWebhook((request) => team.fetch(request), url, secret), (line) => console.error(line))
+    const settleFor = (repo: string, channel: string) => (known: KnownIssue[]) => settleIssueTasks(team, channel, repo, known)
+    pollForever(syncConfig, dir, reader, deliverAsSignedWebhook((request) => team.fetch(request), url, secret), settleFor, (line) => console.error(line))
   }
   const server = await listen(site(team, { dir, webToken: await token(dir, WEB_TOKEN), boardToken: await token(dir), port, tailnet, pullStateOf: pullStateFromGitHub }), port)
   const tailnetPage = tailnet ? ` and https://${tailnet}/ through tailscale serve` : ''

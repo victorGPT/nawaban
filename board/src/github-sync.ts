@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createGitHubAdapter } from '@chat-adapter/github'
 import { into } from '@vercel/board/sync'
 import { github, repos } from '@vercel/board/sync-github'
+import type { KnownIssue } from './github-tasks.ts'
 
 const CONFIG_FILE = 'github-sync.json'
 const STATE_FOLDER = 'github-sync'
@@ -21,9 +22,9 @@ const GITHUB_DATE_HEADER = /^date:\s*(.+?)\r?$/im
 
 export type SyncConfig = { repos: Record<string, string>; reader: string }
 type User = { id: number; login: string }
-type Issue = { number: number; title: string; state: 'open' | 'closed'; updated_at: string; user: User; closed_by?: User | null; pull_request?: unknown }
+type Issue = { number: number; title: string; state: 'open' | 'closed'; state_reason?: string | null; updated_at: string; user: User; closed_by?: User | null; pull_request?: unknown }
 type Comment = { id: number; issue_url: string; created_at: string; updated_at: string; user: User }
-type Seen = { state: Issue['state']; title: string }
+type Seen = { state: Issue['state']; title: string; state_reason?: string | null; reopens?: number }
 type RepoState = { since?: string; issues: Record<string, Seen> }
 export type Reader = { list: (path: string) => Promise<unknown[]>; one: (path: string) => Promise<unknown>; now: () => Promise<string> }
 export type Deliver = (event: 'issues' | 'issue_comment', payload: Record<string, unknown>) => Promise<void>
@@ -128,7 +129,9 @@ function actionsBringingTheBoardTo(issue: Issue, seen: Seen | undefined): { acti
   return [...retitled, ...moved]
 }
 
-export async function pollRepo(repo: string, dir: string, reader: Reader, deliver: Deliver, now = Date.now()) {
+export type Settle = (known: KnownIssue[]) => Promise<void>
+
+export async function pollRepo(repo: string, dir: string, reader: Reader, deliver: Deliver, now = Date.now(), settle: Settle = async () => {}) {
   const path = stateFile(dir, repo)
   const state = await loadState(path)
   const roundStartedOnGithubClock = await reader.now()
@@ -151,9 +154,13 @@ export async function pollRepo(repo: string, dir: string, reader: Reader, delive
       await deliver('issues', { action, issue, repository, sender, ...(changes ? { changes } : {}) })
     }
     if (!seen) for (const comment of ((await reader.list(`repos/${repo}/issues/${issue.number}/comments?per_page=100`)) as Comment[]).sort(byUpdated)) await deliverComment(issue, comment)
-    state.issues[issue.number] = { state: issue.state, title: issue.title }
+    const reopens = (seen?.reopens ?? 0) + (actions.some((a) => a.action === 'reopened') ? 1 : 0)
+    state.issues[issue.number] = { state: issue.state, title: issue.title, state_reason: issue.state_reason ?? null, reopens }
   }
   try {
+    for (const [number, seen] of Object.entries(state.issues)) {
+      if (seen.state === 'closed' && seen.state_reason === undefined && !issues.has(Number(number))) seen.state_reason = ((await reader.one(`repos/${repo}/issues/${number}`)) as Issue).state_reason ?? null
+    }
     for (const issue of issues.values()) await bringIssueUpToDate(issue)
     for (const comment of [...comments].sort(byUpdated)) {
       const issue = issues.get(numberOf(comment)) ?? ((await reader.one(`repos/${repo}/issues/${numberOf(comment)}`)) as Issue)
@@ -165,13 +172,14 @@ export async function pollRepo(repo: string, dir: string, reader: Reader, delive
   } finally {
     await saveState(path, state)
   }
+  await settle(Object.entries(state.issues).map(([number, seen]) => ({ number: Number(number), state_reason: seen.state_reason, reopens: seen.reopens ?? 0 })))
 }
 
-export function pollForever(config: SyncConfig, dir: string, reader: () => Promise<Reader>, deliver: Deliver, log: (line: string) => void) {
+export function pollForever(config: SyncConfig, dir: string, reader: () => Promise<Reader>, deliver: Deliver, settleFor: (repo: string, channel: string) => Settle, log: (line: string) => void) {
   const round = async () => {
     try {
       const read = await reader()
-      for (const repo of Object.keys(config.repos)) await pollRepo(repo, dir, read, deliver)
+      for (const [repo, channel] of Object.entries(config.repos)) await pollRepo(repo, dir, read, deliver, Date.now(), settleFor(repo, channel))
     } catch (error) {
       log(`${new Date().toISOString()} GitHub 同步这一轮没完成，游标没动，下一轮重来：${(error as Error).message}`)
     }
