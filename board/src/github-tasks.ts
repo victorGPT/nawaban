@@ -65,15 +65,20 @@ export const githubAskIn = (m: MessageView) => {
   return said && said !== 'ruling' ? said.ask : null
 }
 
-function pendingGithubAsk(replies: MessageView[]) {
+export function currentGithubAsk(replies: MessageView[]): MessageView | null {
   const inGithubOrder = replies.filter((r) => r.from === 'github' && !r.deleted).sort((a, b) => Number(a.origin?.message) - Number(b.origin?.message) || (a.createdAt < b.createdAt ? -1 : 1))
-  let pending: string | null = null
+  let pending: MessageView | null = null
   for (const r of inGithubOrder) {
     const said = askOrRulingIn(r.text)
     if (said === 'ruling') pending = null
-    else if (said) pending = said.ask
+    else if (said) pending = r
   }
   return pending
+}
+
+const pendingGithubAsk = (replies: MessageView[]) => {
+  const asked = currentGithubAsk(replies)
+  return asked ? githubAskIn(asked) : null
 }
 
 async function finishAsGithubClosedIt(person: Person, task: MessageView, closedAs: string | undefined) {

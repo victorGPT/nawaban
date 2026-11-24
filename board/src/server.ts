@@ -12,7 +12,7 @@ import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { githubBoards, githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type OldCli } from './github.ts'
-import { githubAskIn, settleIssueTasks, type KnownIssue } from './github-tasks.ts'
+import { currentGithubAsk, HELD_FOR_A_GITHUB_ASK, settleIssueTasks, type KnownIssue } from './github-tasks.ts'
 import { deliverAsSignedWebhook, ghReader, githubSyncConfig, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
 import { okrData } from './okr.ts'
 import { isLiveFileName, progressDir } from './progress.ts'
@@ -319,7 +319,7 @@ async function answer(team: Team, asThisPerson: (body: unknown) => Promise<Respo
   const [task] = await team.tasks.list({ state: 'blocked', label: { key: ref } }).then((p) => p.tasks.map((t) => t.message))
   if (task?.task?.blocked?.kind !== 'awaiting_approval') return refuse(409, `${ref} 没有在等决策者答复`)
   const { replies } = await team.thread(task.id)
-  const current = replies.findLast((m) => !m.deleted && (m.blocks.some((b) => b.schema === 'nawaban-ask') || githubAskIn(m) !== null))
+  const current = task.task.blocked.reason.startsWith(HELD_FOR_A_GITHUB_ASK) ? currentGithubAsk(replies) : replies.findLast((m) => !m.deleted && m.blocks.some((b) => b.schema === 'nawaban-ask'))
   if (current?.id !== said.ask) return theCardChanged(ref)
   const posted = await asThisPerson({ re: task.id, after: replies.at(-1)!.id, text: webAnswerText(said.answer) })
   if (posted.status === 409) return theCardChanged(ref)

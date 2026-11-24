@@ -1,5 +1,5 @@
 import { realpath } from 'node:fs/promises'
-import { githubAskIn } from './github-tasks.ts'
+import { currentGithubAsk, githubAskIn, HELD_FOR_A_GITHUB_ASK } from './github-tasks.ts'
 import { cardFromAGithubAsk } from './github-card.ts'
 import { syncStalledNote } from './github-sync-status.ts'
 import { join } from 'node:path'
@@ -111,7 +111,9 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: st
   const decision = latest('nawaban-decision')
   const ruling = h.replies.findLast((r) => data(r.message, 'nawaban-decision')?.by === 'user')
   const card = latest('nawaban-ask')
-  const asked = h.replies.findLast((r) => data(r.message, 'nawaban-ask') || githubAskIn(r.message) !== null)
+  const heldForAGithubAsk = t.blocked?.reason.startsWith(HELD_FOR_A_GITHUB_ASK) ?? false
+  const githubAsk = heldForAGithubAsk ? currentGithubAsk(h.replies.map((r) => r.message)) : null
+  const asked = githubAsk ? h.replies.find((r) => r.message.id === githubAsk.id) : card
   const open = (t.needs ?? []).filter((id) => byId.get(id)?.task?.state !== 'completed')
   const out = {
     id: key(m),

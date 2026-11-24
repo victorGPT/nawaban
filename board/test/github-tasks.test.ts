@@ -199,6 +199,13 @@ describe('网页的决策卡和答复轮次', () => {
     expect((await pendingOf('ROUBAO-1791')).card).toBeNull()
   })
 
+  it('当前那张卡按 GitHub 上的先后定，不按导入的先后', async () => {
+    const older = { ...comment(1793, fullAsk('旧问题'), '2026-11-24T10:01:00Z'), updated_at: '2026-11-24T11:00:00Z' }
+    const newer = comment(1793, fullAsk('新问题'), '2026-11-24T10:02:00Z')
+    await poll({ issues: [issue(1793, 'open', '2026-11-24T10:00:00Z')], comments: [older, newer] })
+    expect((await pendingOf('ROUBAO-1793')).card?.decision).toBe('新问题')
+  })
+
   it('上一轮的网页答复不算到 GitHub 上新提的待决头上', async () => {
     await registerSchemas(team)
     const world: World = { issues: [issue(1792, 'open', '2026-11-24T10:00:00Z')], comments: [comment(1792, fullAsk('第一件'), '2026-11-24T10:01:00Z')] }

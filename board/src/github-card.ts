@@ -34,7 +34,7 @@ export function cardFromAGithubAsk(brief: string): GithubCard | null {
   const options: Option[] = []
   let current: string | null = null
   const lines = brief.replace(PENDING_HEADING, '').split(/\r?\n/)
-  const oneSyntaxPerCard = CARD_FIELD_SYNTAXES.find((s) => lines.some((l) => s.test(l))) ?? DR_FIELD
+  const oneSyntaxPerCard = lines.map((l) => CARD_FIELD_SYNTAXES.find((s) => s.test(l))).find(Boolean) ?? DR_FIELD
   for (const line of lines) {
     const option: RegExpExecArray | null = current === OPTIONS ? CARD_OPTION_LINE.exec(line) : null
     const field: RegExpExecArray | null = option ? null : oneSyntaxPerCard.exec(line)
