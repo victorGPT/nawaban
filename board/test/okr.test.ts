@@ -349,7 +349,7 @@ function judged(objs: Objective[], rows: KeptReading[], accepts: Record<string, 
 
 const kinds = (data: ReturnType<typeof judge>) => data.attention.map((a) => [a.kind, a.kr])
 
-type KrOut = { name: string; trend: string; status: string; missed_rounds: number; wait: string; mismatch: unknown[]; impacts: { ticket: string }[] }
+type KrOut = { name: string; trend: string; status: string; missed_rounds: number; wait: string; mismatch: unknown[]; verdicts: unknown[]; impacts: { ticket: string }[]; interval: [number, number] | null }
 
 const krOf = (data: ReturnType<typeof judge>, name: string) => (data.objectives[0]!.krs as unknown as KrOut[]).find((k) => k.name === name)!
 
@@ -476,22 +476,23 @@ describe('declarations against readings', () => {
   })
 
   it.each([
-    ['>= 95', 80, 80, '↑', true],
-    ['>= 95', 80, 79, '↑', true],
-    ['>= 95', 80, 85, '↑', false],
-    ['<= 5', 9, 7, '↑', false],
-    ['<= 5', 7, 7, '↑', true],
-    ['== 0', 2, -1, '↑', false],
-    ['== 0', 2, -3, '↑', true],
-    ['>= 95', 80, 79, '=', true],
-    ['>= 95', 80, 80, '=', false],
-    ['>= 95', 80, 85, '=', false],
-    ['<= 5', 7, 9, '↓', false],
-    ['<= 5', 7, 6, '↓', false],
-    ['<= 5', 7, 7, '↓', false],
-  ] as const)('judges a declaration by the first round after it: %s %d→%d declared %s, mismatch %s', (target, before, after, dir, mismatch) => {
+    ['>= 95', 80, 80, '↑', 'toward', '未定'],
+    ['>= 95', 80, 79, '↑', 'toward', '不符'],
+    ['>= 95', 80, 85, '↑', 'toward', '符合'],
+    ['<= 5', 9, 7, '↑', 'away', '不符'],
+    ['<= 5', 7, 7, '↑', 'away', '未定'],
+    ['== 0', 2, -1, '↑', 'toward', '符合'],
+    ['== 0', 2, -3, '↑', 'toward', '不符'],
+    ['>= 95', 80, 79, '=', 'hold', '不符'],
+    ['>= 95', 80, 80, '=', 'hold', '符合'],
+    ['>= 95', 80, 85, '=', 'hold', '符合'],
+    ['<= 5', 7, 9, '↓', 'toward', '不符'],
+    ['<= 5', 7, 6, '↓', 'toward', '符合'],
+    ['<= 5', 7, 7, '↓', 'toward', '未定'],
+  ] as const)('judges a declaration by the first round after it, exactly with no n: %s %d→%d declared %s reads %s, %s', (target, before, after, dir, declared, verdict) => {
     const data = judged(objectives([['K', target]]), [reading('K', before, '2026-11-10T00:00:00'), reading('K', after, '2026-11-12T00:00:00')], {}, [decl('#7', 'K', dir, '2026-11-11T00:00:00')])
-    expect(krOf(data, 'K').mismatch).toEqual(mismatch ? [{ ticket: '#7', dir }] : [])
+    expect(krOf(data, 'K').verdicts).toEqual([{ ticket: '#7', declared, verdict }])
+    expect(krOf(data, 'K').mismatch).toEqual(verdict === '不符' ? [{ ticket: '#7', dir }] : [])
     const pendingOnceARoundHasComeSince = krOf(data, 'K').impacts
     expect(pendingOnceARoundHasComeSince).toEqual([])
   })
@@ -658,4 +659,83 @@ describe('inputs a KR declares', () => {
   it.each(['gold/{a,b}.jsonl', 'gold/[ab].jsonl', 'gold/!(x).jsonl', 'gold/../x.jsonl', './gold/a.jsonl'])('refuses %s, glob syntax the old CLI reads apart', async (pattern) => {
     await expect(run(await repo(`[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\ninputs = ['${pattern}']\n`))).rejects.toThrow(/只认 \*、\?、\*\* 通配/)
   })
+})
+
+describe('a proportion reading carries its n and judges against the noise of n items', () => {
+  const sampled = (kr: string, value: number, at: string, n: number, aa?: number): KeptReading => ({ ...reading(kr, value, at), source: `n=${n}${aa ? ` aa=${aa}` : ''} e3` })
+  const e3 = (rows: KeptReading[], before: string, after: string) => krOf(judgedWith(rows, before, after), 'E3')
+
+  const judgedWith = (rows: KeptReading[], before: string, after: string) => {
+    const byKr = new Map<string, Declared[]>([['O\0E3', [{ ticket: '#1509', dir: '↓', before, after, basis: '实测', declared_at: '2026-11-11T00:00:00' }]]])
+    return judge([{ name: 'O', kr: [{ name: 'E3', target: '<= 3', unit: '%' }] }], rows, new Map(), byKr, '/r', null)
+  }
+
+  it('reads a <= KR going down by more than one item of 233 as on its word, and less as undecided', () => {
+    const down3 = [sampled('E3', 7.7, '2026-11-10T00:00:00', 233), sampled('E3', 4.7, '2026-11-12T00:00:00', 233)]
+    expect(e3(down3, '7.7%', '4.7%').verdicts).toEqual([{ ticket: '#1509', declared: 'toward', verdict: '符合' }])
+    const downLessThanOneItem = [sampled('E3', 4.7, '2026-11-10T00:00:00', 233), sampled('E3', 4.4, '2026-11-12T00:00:00', 233)]
+    expect(e3(downLessThanOneItem, '4.7', '4.4').verdicts).toEqual([{ ticket: '#1509', declared: 'toward', verdict: '未定' }])
+  })
+
+  it('makes a change clear twice the same-commit rerun spread when that is wider than one item', () => {
+    const rows = [sampled('E3', 7.7, '2026-11-10T00:00:00', 233, 2), sampled('E3', 4.7, '2026-11-12T00:00:00', 233, 2)]
+    expect(e3(rows, '7.7', '4.7').verdicts).toEqual([{ ticket: '#1509', declared: 'toward', verdict: '未定' }])
+  })
+
+  it('falls back to exact comparison for a reading with no n', () => {
+    const rows = [reading('E3', 4.7, '2026-11-10T00:00:00'), reading('E3', 4.6, '2026-11-12T00:00:00')]
+    expect(e3(rows, '4.7', '4.6').verdicts).toEqual([{ ticket: '#1509', declared: 'toward', verdict: '符合' }])
+  })
+
+  it('lights green only when the Wilson bound clears the target, and reads undecided with its interval when only the point does', () => {
+    const intent = (value: number, n: number) => krOf(judged([{ name: 'O', kr: [{ name: 'K', target: '>= 95', unit: '%' }] }], [sampled('K', value, '2026-11-10T00:00:00', n)]), 'K')
+    expect([intent(97.5, 40).status, intent(97.5, 40).interval]).toEqual(['undecided', [87.1, 99.6]])
+    expect(intent(100, 80).status).toBe('met')
+    expect(intent(90, 80).status).toBe('missed')
+  })
+
+  it('prints undecided with its interval in okr', async () => {
+    const out = await text(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 95"\nunit = "%"\nmeasure = "echo 97.5 2026-11-18 n=40 cases"\n'))
+    expect(out).toContain('97.5% / 目标 >= 95% · 偏差 +2.5 点 · 未定（区间 [87.1, 99.6]）')
+    expect(out).toContain('0/1 达标')
+  })
+})
+
+describe("V2-01's replay, as json okr now judges it", () => {
+  const E3_DECLARED = [
+    ['#1411', '21.6', '17.2', 268, true, null],
+    ['#1413', '17.2%', '12.9%', 233, false, '符合'],
+    ['#1427', '12.9', '11.6', 233, true, null],
+    ['#1480', '11.6%', '7.7%', 233, true, null],
+    ['#1509', '7.7%', '4.7%', 233, false, '符合'],
+    ['#1512', '4.7%', '3.4%', 233, false, '符合'],
+    ['#1511', '4.7%', '2.1%', 233, false, '符合'],
+  ] as const
+  it.each(E3_DECLARED)('E3 %s %s→%s reads as its one-item column did', (ticket, before, after, nBefore, newMeasure, verdict) => {
+    const row = (value: string, at: string, n: number, def_hash: string): KeptReading => ({ kr: 'E3', value: value.replace('%', ''), as_of: '2026-11-17', source: `n=${n} e3`, measured_at: at, def_hash })
+    const rows = [row(before, '2026-11-10T00:00:00', nBefore, 'v1'), row(after, '2026-11-12T00:00:00', 233, newMeasure ? 'v2' : 'v1')]
+    const declared = new Map<string, Declared[]>([['O\0E3', [{ ticket, dir: '↓', before, after, basis: '实测', declared_at: '2026-11-11T00:00:00' }]]])
+    const k = krOf(judge([{ name: 'O', kr: [{ name: 'E3', target: '<= 3', unit: '%' }] }], rows, new Map(), declared, '/r', null), 'E3')
+    expect(k.verdicts).toEqual(verdict ? [{ ticket, declared: 'toward', verdict }] : [])
+  })
+})
+
+describe('float dust at the edges', () => {
+  it('reads a perfect proportion as met against == 100', () => {
+    const rows: KeptReading[] = [{ kr: 'K', value: '100', source: 'n=6', as_of: '2026-11-25', measured_at: 'a', def_hash: 'v1' }]
+    expect(krOf(judge([{ name: 'O', kr: [{ name: 'K', target: '== 100', unit: '%' }] }], rows, new Map(), new Map(), '/r', null), 'K').status).toBe('met')
+  })
+
+  it('reads a change of exactly one item as clearing the gate', () => {
+    const rows: KeptReading[] = ['4.5', '4.4'].map((value, i) => ({ kr: 'K', value, source: 'n=1000', as_of: '2026-11-25', measured_at: String(i * 2), def_hash: 'v1' }))
+    const declared = new Map<string, Declared[]>([['O\0K', [{ ticket: 'T', dir: '↓', before: '4.5%', after: '4.4%', basis: null, declared_at: '1' }]]])
+    expect(krOf(judge([{ name: 'O', kr: [{ name: 'K', target: '<= 3', unit: '%' }] }], rows, new Map(), declared, '/r', null), 'K').verdicts).toEqual([{ ticket: 'T', declared: 'toward', verdict: '符合' }])
+  })
+})
+
+it('keeps the exact comparison for readings with no n, however small the step', () => {
+  const declared = new Map<string, Declared[]>([['O\0K', [{ ticket: 'T', dir: '=', before: null, after: null, basis: null, declared_at: '1' }]]])
+  const rows: KeptReading[] = ['1', '0.9999999999'].map((value, i) => ({ kr: 'K', value, source: '', as_of: '2026-11-25', measured_at: String(i * 2), def_hash: 'v1' }))
+  const k = krOf(judge([{ name: 'O', kr: [{ name: 'K', target: '>= 2' }] }], rows, new Map(), declared, '/r', null), 'K')
+  expect(k.verdicts).toEqual([{ ticket: 'T', declared: 'hold', verdict: '不符' }])
 })

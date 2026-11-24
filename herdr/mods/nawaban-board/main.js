@@ -33,7 +33,7 @@ const GROUP_LOOK = {
   todo: { accent: INK.untouched, side: INK.dim },
   done: { accent: INK.finished, side: INK.dim, faded: true },
 };
-const GAP_COLOR = { missed: INK.red, unmeasurable: INK.amber, stale: INK.amber, met: INK.green, untested: INK.dim };
+const GAP_COLOR = { missed: INK.red, unmeasurable: INK.amber, undecided: INK.amber, stale: INK.amber, met: INK.green, untested: INK.dim };
 const OBJECTIVE_TALLY_COLOR = { missed: INK.red, unsure: INK.muted, met: INK.green };
 const BADGE_COLOR = { ask: INK.amberText, missed: INK.red, met: INK.green, plain: INK.dim };
 const CHIP_COLOR = { pick: INK.amber, maybe: INK.amber, talk: INK.sky, waiting: INK.amber };
@@ -838,6 +838,7 @@ export default class NawabanBoard extends View {
       .when(Boolean(k.gap), (el) => el.child(dim("· " + o.variance)).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(k.gap)))
       .child(dim("·")).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(o.status[k.status]))
       .when(Boolean(k.day), (el) => el.child(dim("· " + o.asOfShort + " " + k.day)))
+      .when(Boolean(k.interval), (el) => el.child(dim("· " + k.interval)))
       .when(Boolean(k.series), (el) => el.child(dim("· " + k.series)));
   }
 

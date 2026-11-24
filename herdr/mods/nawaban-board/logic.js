@@ -516,8 +516,9 @@ export function moveSelection(keys, key, delta) {
 const KEYS = { down: "down", up: "up", enter: "open", escape: "back", left: "left", right: "right", 1: "1", 2: "2", 3: "3", 4: "4" };
 export const keyCommand = (e) => KEYS[e.keystroke] ?? null;
 
-const OKR_STATES = ["met", "missed", "unmeasurable", "stale", "untested"];
-const KR_STATUS_WORST_FIRST = ["missed", "unmeasurable", "stale", "untested", "met"];
+const OKR_STATES = ["met", "missed", "unmeasurable", "undecided", "stale", "untested"];
+const KR_STATUS_WORST_FIRST = ["missed", "unmeasurable", "undecided", "stale", "untested", "met"];
+const isInterval = (x) => Array.isArray(x) && x.length === 2 && x.every(Number.isFinite);
 const NO_CURRENT_VALUE = new Set(["untested", "unmeasurable"]);
 const OPS = { ">=": "≥", "<=": "≤", ">": ">", "<": "<", "==": "=" };
 const LOWER_IS_BETTER = new Set(["<=", "<"]);
@@ -545,6 +546,7 @@ const krRow = (k, w) => {
   return { name: k.name, status,
     value: measured ? oneDecimal(k.value) + unit : w.status[status], target: targetText(k, unit), measured,
     series: isLaterSeries(k) ? w.series(k.series.version, isoMonthDay(k.series.since)) : null, failure: k.failure ?? null,
+    interval: isInterval(k.interval) ? w.interval(k.interval) : null,
     gap: measured && hasStructuredTarget(k) ? varianceText(gapOf(k.target_op, k.target_value, k.value), unit, w) : null,
     as_of: k.as_of ?? null, day: measured && k.as_of ? isoMonthDay(k.as_of) : null, source: k.source ?? null,
     trend: w.trend[k.trend] ?? w.trend.null, missed_rounds: k.missed_rounds ?? 0, wait: k.wait ?? null,
@@ -583,14 +585,16 @@ export function okrView(okr, lang) {
 
 export const OKR_WORDS = {
   zh: { tally: (met, total, at) => `${met}/${total} 达标${at ? ` · ${at} 量` : ""}`,
-    status: { met: "绿", missed: "红", unmeasurable: "量不了", stale: "黄", untested: "未测" },
+    status: { met: "绿", missed: "红", unmeasurable: "量不了", undecided: "未定", stale: "黄", untested: "未测" },
+    interval: ([a, b]) => `区间 [${a}, ${b}]`,
     series: (n, day) => `口径 v${n} 起 ${day}`, failure: "测量失败",
     trend: { closer: "在变好", away: "在变差", flat: "没动", null: "首次读数" },
     target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮未达标`, wait: "要你做",
     mismatch: (ts) => `预期不符 ${ts.join(" ")}`, noObjective: "这个项目还没有 O",
     variance: "偏差", asOfShort: "截至", point: "点", metFolded: (n) => `${n} 条已达标`, untestedFolded: (n) => `${n} 条未测`, allMet: "全部达标" },
   en: { tally: (met, total, at) => `Green ${met}/${total}${at ? ` · measured ${at}` : ""}`,
-    status: { met: "Green", missed: "Red", unmeasurable: "Unmeasurable", stale: "Amber", untested: "Untested" },
+    status: { met: "Green", missed: "Red", unmeasurable: "Unmeasurable", undecided: "Undecided", stale: "Amber", untested: "Untested" },
+    interval: ([a, b]) => `interval [${a}, ${b}]`,
     series: (n, day) => `measure v${n} since ${day}`, failure: "Measure failed",
     trend: { closer: "Getting closer", away: "Moving away", flat: "Flat", null: "First reading" },
     target: "Target", value: "Value", asOf: "As of", source: "Source", trendLabel: "Trend", rounds: (n) => `Red ${n} rounds in a row`, wait: "Needs you to",

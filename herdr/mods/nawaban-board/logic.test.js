@@ -612,3 +612,13 @@ test("a KR whose measure failed reads 量不了 with no stale value, and a later
   assert.equal(o.standing, "unsure");
   assert.deepEqual([e3.value, e3.series], ["2.1%", "口径 v2 起 11-25"]);
 });
+
+test("a KR whose point meets the target but whose interval does not reads 未定 with its interval, listed above the stale ones", () => {
+  const krs = [
+    { name: "旧", target: ">= 1", target_op: ">=", target_value: 1, status: "stale", value: 2, as_of: "2026-10-01" },
+    { name: "意图", target: ">= 95", target_op: ">=", target_value: 95, unit: "%", status: "undecided", value: 97.5, as_of: "2026-11-18", interval: [87.1, 99.6] },
+  ];
+  const [o] = okrView({ objectives: [{ name: "O", krs }] }, "zh").objectives;
+  assert.deepEqual(o.krs.map((k) => [k.name, k.status, k.measured, k.interval]), [["意图", "undecided", true, "区间 [87.1, 99.6]"], ["旧", "stale", true, null]]);
+  assert.equal(o.standing, "unsure");
+});
