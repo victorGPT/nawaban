@@ -73,7 +73,7 @@ NAWABAN-CLI-SIMPLE。只出设计和拆票，不写代码。仓库 `9445c6f`，�
 读法：
 
 - `event` 合计 2576 次，占 56%。它是这个 CLI 的主路径。
-- 决策者手敲（`!` 前缀）的 nawaban 命令是 0 次。决策者用面板和网页，不用 CLI。
+- 决策者手敲（`!` 前缀）的 nawaban 命令没测到。检测靠会话记录里的 `<bash-input>`，这个格式对着别的仓库里一条已知的 `!` 命令核过。
 - Codex 会话 12 次，全是 `show` 和 `json task`。
 - agent 猜过 13 种不存在的动词，共 19 次（不算本次盘点自己试的 1 次）：`help` 5，`note` 2，`board` 2，`decision link resolve unblock release open ls log` 等各 1。`note`、`decision`、`link`、`resolve` 说明 agent 想把事件的类当动词敲。
 - skill 写了但板 CLI 没实现的 flag：`--take` 在板上试了 3 次，`--reopen` 试了 1 次。`show` 上猜过 `--all`、`--full`、`--events` 各 1 次。
@@ -89,7 +89,7 @@ NAWABAN-CLI-SIMPLE。只出设计和拆票，不写代码。仓库 `9445c6f`，�
 | Stop 钩子 | `inbox --project`；两个钩子都 import `cli.py` | `hooks/inbox.sh:12,20`、`hooks/ask-guard.sh:13` |
 | Herdr 面板 | `json projects`、`json db`、`json board`、`json okr`。面板对两套 CLI 发同一组参数，另一台机器固定走旧 CLI | `herdr/mods/nawaban-board/main.js:83-99,266,284,292,372` |
 | 网页 | 浏览器不调 CLI，走 `/api/nawaban/*`。服务端给 GitHub 记账的仓库记已决时调 `cli.py event … --kind resolve --by user` | `web/src/main.tsx:62`、`board/src/server.ts:341`、`board/src/github.ts:9` |
-| 板 CLI 自己 | 上游 `reply`、`tasks block`、`tasks claim`、`tasks release`、`tasks complete`、`tasks renew`。派单替 worker 认领时起子进程跑 `tasks claim --as` | `board/src/events.ts:92,93`、`board/src/tasks.ts:185-289`、`board/src/dispatch.ts:269` |
+| 板 CLI 自己 | 进程内直接调上游的 `reply`、`tasks block`、`tasks claim`、`tasks release`、`tasks complete`、`tasks renew`，不经顶层分发，改名不影响它们。只有派单替 worker 认领时起子进程跑顶层的 `tasks claim --as` | `board/src/events.ts:92,93`、`board/src/tasks.ts:16,185-289`、`board/src/dispatch.ts:269` |
 | 旧 CLI 调板 CLI | retire-guard 跑 `cli.ts list --json`，不带 `--project`，要全部项目 | `nawaban/cli.py:1492` |
 | 打印给 agent 照着敲的提示 | 网页已答、收件箱、影响声明的提示里写着 `event … --kind`、`create … --body`、`label`、`page` | `board/src/page.ts:108,114`、`board/src/orchestrator.ts:190`、`board/src/impact.ts:94` |
 | 派单 brief | `show`、`claim`、`event`、`close`、`merge` 的全路径写法 | `board/src/dispatch.ts:210,221` |
@@ -123,7 +123,7 @@ NAWABAN-CLI-SIMPLE。只出设计和拆票，不写代码。仓库 `9445c6f`，�
 | 读数 | 一条 KR 在某一天量到的值 | reading、现值、实际 |
 | 泳道 | 开工前要读同一批东西的一组票 | lane |
 
-与 GLOSSARY 冲突：GLOSSARY 的词条是「任务」，票正文和决策者的追加要求用「票」。本文照决策者的用词，GLOSSARY 的词条由 -07 改。NAWABAN-VOCAB 如果裁定英文术语，只改 help 的字符串，不改动词。
+这张表和 GLOSSARY 有一处冲突。GLOSSARY 的词条是「任务」，票正文和决策者的追加要求用「票」。本文照决策者的用词，GLOSSARY 的词条由 -07 改。NAWABAN-VOCAB 如果裁定英文术语，只改 help 的字符串，不改动词。
 
 事件的六类是一个带标签的联合，每类有自己的字段。所以类是位置参数，每类只收自己的 flag，`event --help` 一类一行。今天六类的 flag 混在一个解析器里，`--kr` 在 `decision`、`ask`、`impact` 上各有一种格式。
 
@@ -153,7 +153,7 @@ nawaban：记票、事件、待决和读数的看板
 少用的和本机服务：nawaban help more
 ```
 
-这十个动词覆盖 7 天里 4619 次调用的 98.1%（4530 次，按「旧到新对照」折算）。
+这十个动词覆盖 7 天里 4619 次调用的 96.3%（4450 次，按「旧到新对照」折算）。草稿是 -02 合并之后的样子。脚注里的 `--json` 到 -04 才每个动词都有，`'#N'` 要等 MIGRATE-10，-02 的 help 先不写这两句。
 
 ### `nawaban help more`（草稿）
 
@@ -272,7 +272,7 @@ nawaban：记票、事件、待决和读数的看板
 9. **顶层的 `renew`、`progress`、`guard`。** 只有钩子调，收进 `hook`。
 10. **`whoami`、`conformance` 等没人用的上游动词。** 不单独处理，跟着第 1 条进 `board`。
 
-没去掉的：`block` 7 天只有 1 次，但建票之后补依赖没有别的写法，留在 `help more`。`dispatch --name` 用了 12 次，留着。
+有两样没去掉。`block` 7 天只有 1 次，但建票之后补依赖没有别的写法，留在 `help more`。`dispatch --name` 用了 12 次，留着。
 
 ## 4. 迁移
 
@@ -304,17 +304,17 @@ MIGRATE-10-03 之后，同步仓库的写动词由旧 CLI 转给板 CLI，转过
 -07 删别名，要同时满足：
 
 1. 盘点脚本连续 7 天数到 0 次旧写法。在途 worker 的 brief 里有旧写法，所以不设固定日期。
-2. 仓库里 grep 不到旧写法的静态调用点和子进程调用点。会话记录看不到这两种调用，它们是 `dispatch.ts:269`、`cli.py:1492`、`events.ts:92-111`、`tasks.ts:185-289`、六个钩子脚本、`page.ts:108,114`、`orchestrator.ts:190`、`impact.ts:94`。
+2. 仓库里 grep 不到旧写法的静态调用点和子进程调用点。会话记录看不到这两种调用，它们是 `dispatch.ts:269`、`cli.py:1492`、六个钩子脚本、`page.ts:108,114`、`orchestrator.ts:190`、`impact.ts:94`。
 3. MIGRATE-10-03 已合并，旧 CLI 的转发处已经换成新写法。否则 roubao 冻结的写法转过来会被拒，而计数看不出来。
 
 ### 一起改的调用方
 
 每张子票在同一个 PR 里改掉它动到的调用方，不留只改了一半的状态。上面「不经会话的调用方」表里的每一行都归到一张子票，见「拆票」。
 
-守卫按命令文本匹配，动词改名后可能不再命中而不报错。两位评审员把新写法的命令串喂给了这些守卫：
+守卫按命令文本匹配，动词改名后可能不再命中而不报错。新写法的命令串喂给这些守卫的结果：
 
 - `closeGate`（`impact.ts:24`）照样拦 `nawaban board tasks complete`、`fail`、`cancel`，放行 `nawaban close`（实测）。
-- `hooks/repo_write.py`、`hooks/comment-guard.sh`、retire-guard 用的 `cli.retiring_terminals` 行为不变（实测）。
+- `hooks/repo_write.py`、`hooks/comment-guard.sh`、retire-guard 用的 `cli.retiring_terminals` 行为不变（评审员实测，我没复跑）。
 - ask-guard 出错，见上。
 
 动到命令文本的子票各补一条用新写法的守卫用例。
@@ -334,11 +334,11 @@ MIGRATE-10-03 之后，同步仓库的写动词由旧 CLI 转给板 CLI，转过
 
 ## 拆票
 
-竖切，每张都能单独演示。key 是 NAWABAN-CLI-SIMPLE-01 到 -07，parent 是 NAWABAN-CLI-SIMPLE，同一条泳道 `cli`，依次做。规则：help 只列当时已经能跑的写法，每张票加一条检查，把 help 里每一行的写法跑一遍。所以本文的 help 草稿是 -02 合并之后的样子。
+竖切，每张都能单独演示。key 是 NAWABAN-CLI-SIMPLE-01 到 -07，parent 是 NAWABAN-CLI-SIMPLE，同一条泳道 `cli`，依次做。help 只列当时已经能跑的写法。每张票加一条检查，把 help 里每一行的写法跑一遍。子票等决策者看过拆法再建。
 
 | 子票 | 做什么 | 演示 | 被挡 |
 | --- | --- | --- | --- |
-| -01 一屏 help | 新 `nawaban --help` 和 `help more`；每个动词的 `--help`；上游动词收进 `board`，钩子入口收进 `hook`，六个钩子脚本和板 CLI 自己的子进程调用（`dispatch.ts:269`、`events.ts`、`tasks.ts`）同一个 PR 改；`index` 改名 `status`；未知动词报错并列出十个动词；旧的顶层写法变别名。`event` 那一行先写今天的 `--kind` 文法 | `nawaban --help` 不超过 24 行 80 列；help 里每一行的写法都跑通；`nawaban event --help` 退出 0；`nawaban bogus` 退出 2；`hook guard` 拦 `nawaban board tasks complete` 时退出 2 | 无 |
+| -01 一屏 help | 新 `nawaban --help` 和 `help more`；每个动词的 `--help`；上游动词收进 `board`，钩子入口收进 `hook`，六个钩子脚本和 `dispatch.ts:269` 的子进程调用同一个 PR 改；`index` 改名 `status`；未知动词报错并列出十个动词；旧的顶层写法变别名。`event` 那一行先写今天的 `--kind` 文法 | `nawaban --help` 不超过 24 行 80 列；help 里每一行的写法都跑通；`nawaban event --help` 退出 0；`nawaban bogus` 退出 2；`hook guard` 拦 `nawaban board tasks complete` 时退出 2 | 无 |
 | -02 事件的类 | `event <票> <类> [正文]`；正文位置参数、`-`、`--body-file`，`create` 同样；删 `--question`、`--verdict`、`--rejected`；ask-guard 的 `_RECORDED` 和它的补救提示、`page.ts`、`impact.ts`、`cli.py` 的「已迁到 Board」提示、派单 brief 一起改 | `nawaban event X note "…"` 写成；以 `-` 开头的正文从标准输入写成；旧写法照常执行并打出改用提示；喂新写法的 `event X ask …`，ask-guard 放行 | -01 |
 | -03 一个调用名 | 板记账仓库的 skill 一节、派单 brief、钩子提示、`docs/agents` 全部写 `nawaban <动词>`；`create` 和 `status` 的 `--project` 缺省取当前仓库 | 新派的 worker 的 brief 里没有 `cli.ts` 路径；在仓库里 `nawaban create X --title t` 不带 `--project` 能建票；Codex 沙箱里 `nawaban show X` 能跑 | -01 |
 | -04 输出 | 写动词默认一两行中文的 ✓ 和 ✗，被拒时第二行给下一步；每个动词有 `--json`；退出码四个，`hook guard` 例外；行输出以 KEY 开头，板上编号不带 `#` | 十个动词各一条成功、一条被拒的输出快照 | -02 |
