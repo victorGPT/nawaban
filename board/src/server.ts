@@ -12,6 +12,7 @@ import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { githubBoards, githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type OldCli } from './github.ts'
+import { deliverAsSignedWebhook, ghReader, githubSyncConfig, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
 import { okrData } from './okr.ts'
 import { isLiveFileName, progressDir } from './progress.ts'
 import { noPullStates, pullStateFromGitHub, type PullStateOf } from './pulls.ts'
@@ -434,8 +435,16 @@ export async function webOverTailnet(dir = DIR): Promise<number> {
 export async function serve(dir = DIR, port = PORT) {
   const url = urlFor(port)
   const tailnet = await tailnetHost(dir)
-  const team = board({ backend: local({ dir }), authenticate: verifier(await token(dir)), url, middleware: [impactNames(dir)] })
+  const syncConfig = await githubSyncConfig(dir)
+  const secret = syncConfig && (await webhookSecret(dir))
+  if (syncConfig) globalThis.fetch = refusingGithubWrites(globalThis.fetch)
+  const sync = syncConfig && secret ? { github: importOnlySync(syncConfig, await readerToken(syncConfig.reader), secret) } : undefined
+  const team = board({ backend: local({ dir }), authenticate: verifier(await token(dir)), url, middleware: [impactNames(dir)], ...(sync ? { sync } : {}) })
   await registerSchemas(team)
+  if (syncConfig && secret) {
+    const reader = async () => ghReader(await readerToken(syncConfig.reader))
+    pollForever(syncConfig, dir, reader, deliverAsSignedWebhook((request) => team.fetch(request), url, secret), (line) => console.error(line))
+  }
   const server = await listen(site(team, { dir, webToken: await token(dir, WEB_TOKEN), boardToken: await token(dir), port, tailnet, pullStateOf: pullStateFromGitHub }), port)
   const tailnetPage = tailnet ? ` and https://${tailnet}/ through tailscale serve` : ''
   console.log(`serving the board at ${url} and its page at http://127.0.0.1:${port}/${tailnetPage}, its log in ${dir.replace(homedir(), '~')}`)
