@@ -164,11 +164,11 @@ export async function pollRepo(repo: string, dir: string, reader: Reader, delive
       if (state.issues[issue.number]) await deliverComment(issue, comment)
       else await bringIssueUpToDate(issue)
     }
-    await settle(Object.entries(state.issues).map(([number, seen]) => ({ number: Number(number), state_reason: seen.state_reason })))
     state.since = roundStartedOnGithubClock
   } finally {
     await saveState(path, state)
   }
+  await settle(Object.entries(state.issues).map(([number, seen]) => ({ number: Number(number), state_reason: seen.state_reason })))
 }
 
 export function pollForever(config: SyncConfig, dir: string, reader: () => Promise<Reader>, deliver: Deliver, settleFor: (repo: string, channel: string) => Settle, log: (line: string) => void) {

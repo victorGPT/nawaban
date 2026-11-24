@@ -80,8 +80,14 @@ async function settleRoot(person: Person, root: MessageView, closedAs: string | 
 }
 
 export async function settleIssueTasks(person: Person, channel: string, repo: string, known: KnownIssue[]) {
+  const failed: string[] = []
   for (const issue of known) {
-    const root = await nativeRoot(person, channel, `${repo}#${issue.number}`)
-    if (root) await settleRoot(person, root, issue.state_reason ?? undefined)
+    try {
+      const root = await nativeRoot(person, channel, `${repo}#${issue.number}`)
+      if (root) await settleRoot(person, root, issue.state_reason ?? undefined)
+    } catch (error) {
+      failed.push(`#${issue.number}：${(error as Error).message}`)
+    }
   }
+  if (failed.length) throw new Error(`这些 issue 这轮没结算成，下一轮再试：${failed.join('；')}`)
 }
