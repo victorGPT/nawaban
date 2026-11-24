@@ -64,3 +64,34 @@ def test_a_malformed_marker_falls_back_to_the_visible_text(monkeypatch, capsys):
            '进展：可见三\n<!-- nawaban {"kind": [], "body": "x"} -->']
     tasks, _ = board(monkeypatch, capsys, [issue(bad)])
     assert tasks["#1"]["progress"]["body"] == "可见三"
+
+
+def detail(monkeypatch, capsys, i, ref="#1"):
+    board(monkeypatch, capsys, [i])
+    monkeypatch.setattr(cli, "_gh_json", lambda root, *args: i)
+    code = cli.main(["json", "task", ref])
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_an_issue_reads_as_the_task_detail_the_page_draws(monkeypatch, capsys):
+    i = issue([marked("note", "做到一半"), marked("decision", "选 B"), marked("link", "https://github.com/o/r/pull/9"),
+               marked("ask", "定 A 还是 B"), marked("resolve", "A"), "认领：s1"], assignees=["s1"])
+    code, d = detail(monkeypatch, capsys, i)
+    assert code == 0 and d["id"] == "#1" and d["status"] == "in_progress" and d["project"] == "roubao"
+    assert [(e["kind"], e["body"]) for e in d["events"]] == [
+        ("decision", "A"), ("ask", "定 A 还是 B"), ("link", "pr:https://github.com/o/r/pull/9"), ("decision", "选 B"), ("note", "做到一半")]
+    assert [e["author"] for e in d["decisions"]] == ["user", "s1"]
+    assert d["latest_note"]["body"] == "做到一半" and d["pending"] is None
+
+
+def test_an_open_ask_names_its_card_so_an_answer_to_an_older_one_is_refused(monkeypatch, capsys):
+    _, first = detail(monkeypatch, capsys, issue([marked("ask", "定 A")]))
+    _, second = detail(monkeypatch, capsys, issue([marked("ask", "定 A"), "进展：x", marked("ask", "改问 B")]))
+    _, edited = detail(monkeypatch, capsys, issue([marked("ask", "定 B")]))
+    assert first["pending"]["ask"] and second["pending"]["ask"] != first["pending"]["ask"]
+    assert edited["pending"]["ask"] != first["pending"]["ask"], "a card edited in place is another card"
+
+
+def test_a_key_that_is_not_an_issue_number_is_refused(monkeypatch, capsys):
+    code, d = detail(monkeypatch, capsys, issue([]), ref="abc")
+    assert code == 1 and d["error"].startswith("任务不存在")

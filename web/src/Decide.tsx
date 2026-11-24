@@ -48,6 +48,7 @@ export function DecidePage(props: Props) {
               <DecisionCardView
                 card={c}
                 headers={props.headers}
+                scope={scope()}
                 handedWhileTheBoardStays={handedWhileTheBoardStays}
                 option={picked()[markOf(c)] ?? ''}
                 onPick={(option) => setPicked((all) => ({ ...all, [markOf(c)]: option }))}
@@ -59,7 +60,7 @@ export function DecidePage(props: Props) {
   )
 }
 
-type CardProps = { card: DecisionCard; headers: Record<string, string>; handedWhileTheBoardStays: () => (a: WebAnswer) => void; option: string; onPick: (option: string) => void }
+type CardProps = { card: DecisionCard; headers: Record<string, string>; scope: string; handedWhileTheBoardStays: () => (a: WebAnswer) => void; option: string; onPick: (option: string) => void }
 
 function DecisionCardView(props: CardProps) {
   const option = () => props.option
@@ -71,7 +72,7 @@ function DecisionCardView(props: CardProps) {
     setSending(true)
     setFailed('')
     try {
-      const r = await fetch(`/api/nawaban/answer/${encodeURIComponent(id())}`, {
+      const r = await fetch(`/api/nawaban/answer/${encodeURIComponent(id())}${props.scope}`, {
         method: 'POST',
         headers: { ...props.headers, 'content-type': 'application/json' },
         body: JSON.stringify({ ask: props.card.ask, ...reply }),

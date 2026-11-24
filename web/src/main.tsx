@@ -143,7 +143,7 @@ function App() {
       }
       const [b, d] = await Promise.all([
         project ? read<Board>(`board?project=${encodeURIComponent(project)}`) : null,
-        r.task ? read<Detail>(`task/${encodeURIComponent(r.task)}`).then((x) => [x, ''] as const, (e: Error) => [null, e.message] as const) : ([null, ''] as const),
+        r.task ? read<Detail>(`task/${encodeURIComponent(r.task)}${project ? `?project=${encodeURIComponent(project)}` : ''}`).then((x) => [x, ''] as const, (e: Error) => [null, e.message] as const) : ([null, ''] as const),
       ])
       if (mine !== reads) return
       setProjects(list)
@@ -285,7 +285,7 @@ function App() {
                     </Show>
                   </Show>
                 }>
-                  {(key) => <TaskDetail key={key()} detail={detail()} task={boardTaskOf(board(), key())} error={detailError()} />}
+                  {(key) => <TaskDetail key={key()} detail={detail()} task={boardTaskOf(board(), key())} github={board()?.tracker === 'github'} error={detailError()} />}
                 </Show>
               </TabsPanel>
               <TabsPanel value="inbox" class="outline-none">
@@ -409,13 +409,13 @@ const markCell = 'flex h-5 w-4 shrink-0 items-center justify-center'
 const oneLine = 'md:truncate max-md:line-clamp-2'
 const wholeText = 'whitespace-pre-wrap [overflow-wrap:anywhere]'
 
-function TaskDetail(props: { key: string; detail: Detail | null; task: BoardTask | null; error: string }) {
+function TaskDetail(props: { key: string; detail: Detail | null; task: BoardTask | null; github: boolean; error: string }) {
   const [opened, setOpened] = createSignal<Record<string, boolean>>({})
   const folds: Folds = {
     isOpen: (key) => !!opened()[props.key + '|' + key],
     setOpen: (key, open) => setOpened((all) => ({ ...all, [props.key + '|' + key]: open })),
   }
-  const shown = createMemo(() => (props.detail?.id === props.key ? { detail: props.detail, view: detailView(props.detail, props.task, nowInSeconds()) } : null))
+  const shown = createMemo(() => (props.detail?.id === props.key ? { detail: props.detail, view: detailView(props.detail, props.task, nowInSeconds(), props.github) } : null))
   return (
     <Show when={shown()} fallback={<p class={empty}>{props.error || W.loading}</p>}>
       {(s) => <DetailCard detail={s().detail} view={s().view} task={props.task} folds={folds} />}

@@ -11,6 +11,7 @@ import type { CallerRequest } from '@vercel/board/access'
 import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
+import { githubBoards, githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type OldCli } from './github.ts'
 import { okrData } from './okr.ts'
 import { isLiveFileName, progressDir } from './progress.ts'
 import { noPullStates, pullStateFromGitHub, type PullStateOf } from './pulls.ts'
@@ -42,6 +43,8 @@ const TYPES: Record<string, string> = {
 }
 
 type Team = ReturnType<typeof board>
+type Github = { cli: OldCli; boards: ReturnType<typeof githubBoards>; wrote: EventTarget }
+const WROTE = 'wrote'
 
 export const boardDirAsConfiguredWhenAsked = () => process.env.NAWABAN_BOARD_DIR ?? join(homedir(), '.nawaban', 'board')
 export const DIR = boardDirAsConfiguredWhenAsked()
@@ -162,7 +165,7 @@ async function eachProgressWrite(dir: string, signal: AbortSignal, changed: () =
   for await (const { filename } of watch(progressDir(dir), { signal })) if (filename && isLiveFileName(filename)) changed()
 }
 
-function changes(team: Team, dir: string, signal: AbortSignal) {
+function changes(team: Team, dir: string, signal: AbortSignal, githubWrote: EventTarget) {
   const stop = new AbortController()
   signal.addEventListener('abort', () => stop.abort())
   const line = (text: string) => new TextEncoder().encode(text)
@@ -176,6 +179,7 @@ function changes(team: Team, dir: string, signal: AbortSignal) {
           } catch {}
         }
         eachProgressWrite(dir, stop.signal, changed).catch(() => {})
+        githubWrote.addEventListener(WROTE, changed, { signal: stop.signal })
         void (async () => {
           try {
             for await (const _ of team.events({}, { signal: stop.signal })) changed()
@@ -196,10 +200,53 @@ function changes(team: Team, dir: string, signal: AbortSignal) {
   )
 }
 
-async function view(team: Team, dir: string, pullStateOf: PullStateOf, path: string, query: URLSearchParams, signal: AbortSignal) {
+async function githubRepoOf(dir: string, project: string | null) {
+  const repos = project ? await githubRepos(dir) : {}
+  return project && Object.hasOwn(repos, project) ? repos[project]! : null
+}
+
+async function allProjects(team: Team, dir: string, github: Github) {
+  const onTheBoard = (await projectsData(team)).projects
+  const shown = new Set(onTheBoard.map((p) => p.name))
+  const onGithub = Object.entries(await githubRepos(dir)).filter(([name]) => !shown.has(name))
+  for (const [, repo] of onGithub) github.boards.board(repo).catch(() => {})
+  const projects = [...onTheBoard, ...onGithub.map(([name, repo]) => projectOfGithub(name, github.boards.latest(repo)))]
+  return { projects: projects.sort((a, b) => (a.name < b.name ? -1 : 1)) }
+}
+
+const issueKeyOf = (segment: string) => {
+  const key = decodeURIComponent(segment)
+  return ISSUE_KEY.test(key) ? key : null
+}
+
+async function githubView(github: Github, repo: string, what: string | undefined, rest: string[]) {
+  if (what === 'board' && !rest.length) return Response.json(await github.boards.board(repo))
+  if (what === 'okr' && !rest.length) return Response.json(JSON.parse(await github.cli(repo, ['json', 'okr', '--repo', repo])))
+  if (what === 'task' && rest.length === 1 && rest[0]) {
+    let key
+    try {
+      key = issueKeyOf(rest[0])
+    } catch {
+      return refuse(400, 'bad task key')
+    }
+    if (!key) return refuse(404, `任务不存在:${rest[0]}`)
+    try {
+      return Response.json(JSON.parse(await github.cli(repo, ['json', 'task', key])))
+    } catch (error) {
+      if (error instanceof Refused) return refuse(404, error.message)
+      throw error
+    }
+  }
+  return null
+}
+
+async function view(team: Team, dir: string, pullStateOf: PullStateOf, github: Github, path: string, query: URLSearchParams, signal: AbortSignal) {
   const [what, ...rest] = path.split('/')
+  const repo = await githubRepoOf(dir, query.get('project'))
+  const onGithub = repo && (await githubView(github, repo, what, rest))
+  if (onGithub) return onGithub
   if (what === 'board' && !rest.length) return Response.json(await boardData(team, query.get('project') || undefined, dir))
-  if (what === 'projects' && !rest.length) return Response.json(await projectsData(team))
+  if (what === 'projects' && !rest.length) return Response.json(await allProjects(team, dir, github))
   if (what === 'okr' && !rest.length) {
     const project = query.get('project')
     const repos = project ? await reposReadOnEveryUseSoEditsNeedNoRestart(dir) : {}
@@ -207,7 +254,7 @@ async function view(team: Team, dir: string, pullStateOf: PullStateOf, path: str
     if (repo) return Response.json(await okrData(team, dir, repo))
     return project ? refuse(404, `项目 ${project} 没在 repos.json 登记仓库`) : refuse(400, 'usage: /api/nawaban/okr?project=<name>|repo=<path>')
   }
-  if (what === 'changes' && !rest.length) return changes(team, dir, signal)
+  if (what === 'changes' && !rest.length) return changes(team, dir, signal, github.wrote)
   if (what === 'answers' && !rest.length) return Response.json({ answers: await webAnswers(team, query.get('project') || undefined) })
   if (what === 'inbox' && !rest.length) {
     const project = query.get('project')
@@ -278,9 +325,31 @@ async function answer(team: Team, asThisPerson: (body: unknown) => Promise<Respo
   return Response.json(answerToTheCurrentHold(written.message, written.replies), { status: 201 })
 }
 
-async function write(team: Team, asThisPerson: (body: unknown) => Promise<Response>, path: string, query: URLSearchParams, request: Request) {
+async function answerOnGithub(github: Github, repo: string, segment: string, request: Request) {
+  let key
+  try {
+    key = issueKeyOf(segment)
+  } catch {
+    return refuse(400, 'bad task key')
+  }
+  const said = answerSent(await jsonSent(request, ANSWER_SHAPE))
+  if (!key) return refuse(409, `${segment} 没有在等决策者答复`)
+  const { pending } = JSON.parse(await github.cli(repo, ['json', 'task', key])) as { pending?: { ask?: string } | null }
+  if (!pending) return refuse(409, `${key} 没有在等决策者答复`)
+  if (pending.ask !== said.ask) return theCardChanged(key)
+  const { option, words } = said.answer
+  await github.cli(repo, ['event', key, '--kind', 'resolve', '--by', 'user', '--body', option ? `选 ${option}：${words}` : words])
+  github.boards.forget(repo)
+  github.wrote.dispatchEvent(new Event(WROTE))
+  return Response.json({ task: key, option: option ?? null, words, at: new Date().toISOString() }, { status: 201 })
+}
+
+async function write(team: Team, asThisPerson: (body: unknown) => Promise<Response>, github: Github, dir: string, path: string, query: URLSearchParams, request: Request) {
   const [what, ...rest] = path.split('/')
-  if (what === 'answer' && request.method === 'POST' && rest.length === 1 && rest[0]) return answer(team, asThisPerson, rest[0], request)
+  if (what === 'answer' && request.method === 'POST' && rest.length === 1 && rest[0]) {
+    const repo = await githubRepoOf(dir, query.get('project'))
+    return repo ? answerOnGithub(github, repo, rest[0], request) : answer(team, asThisPerson, rest[0], request)
+  }
   if (what === 'inbox' && request.method === 'POST' && !rest.length) {
     return Response.json(await keepInboxItem(team, query.get('project') ?? '', await wordsSent(request)), { status: 201 })
   }
@@ -310,9 +379,10 @@ async function builtFile(pathname: string, dist: string) {
 
 export function site(
   team: Team,
-  { dir, webToken, boardToken, port, dist = BUILT_PAGE, tailnet, pullStateOf = noPullStates }: { dir: string; webToken: string; boardToken: string; port: number; dist?: string; tailnet?: string; pullStateOf?: PullStateOf },
+  { dir, webToken, boardToken, port, dist = BUILT_PAGE, tailnet, pullStateOf = noPullStates, cli = oldCli }: { dir: string; webToken: string; boardToken: string; port: number; dist?: string; tailnet?: string; pullStateOf?: PullStateOf; cli?: OldCli },
 ) {
   const want = Buffer.from(webToken)
+  const github: Github = { cli, boards: githubBoards(cli), wrote: new EventTarget() }
   const asThisPerson = (body: unknown) =>
     team.fetch(new Request(`${urlFor(port)}/messages`, { method: 'POST', headers: { authorization: `Bearer ${boardToken}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }))
   return async (request: Request): Promise<Response> => {
@@ -326,7 +396,7 @@ export function site(
     if (!isApi) return READS.has(request.method) ? builtFile(pathname, dist) : refuse(405, 'read-only')
     const path = pathname.slice(API.length)
     try {
-      return await (READS.has(request.method) ? view(team, dir, pullStateOf, path, searchParams, request.signal) : write(team, asThisPerson, path, searchParams, request))
+      return await (READS.has(request.method) ? view(team, dir, pullStateOf, github, path, searchParams, request.signal) : write(team, asThisPerson, github, dir, path, searchParams, request))
     } catch (error) {
       if (error instanceof Refused) return refuse(400, error.message)
       throw error
