@@ -107,10 +107,10 @@ ReUI（编排者截图）和 Mobbin 上找的 7 张。图在本机 `~/nawaban-ho
 | [ReUI list](https://reui.io/blocks/application/list) | 一条一行，细线分开，右边一个动作位。 | 大数字加涨跌百分比。 |
 | [ReUI dashboard](https://reui.io/blocks/application/dashboard) | 图例那种小圆点加一个词加一个数。方向 B 的那一行这样写。 | 整屏指标卡、环图、进度条。 |
 | [ReUI kanban-board](https://reui.io/blocks/application/kanban-board) | 卡上状态是小圆点加一个词。任务页可以照这个。 | 整列染色、头像、百分比圆环。 |
-| [Linear Inbox](https://mobbin.com/screens/18c6955a-c42f-4cc1-9aa2-0276456720fb) | 两栏：中间一行一件，没读的前面一个小点；右边是选中那件的内容，就地回复。首页照这个做。 | 每行的头像和图标；右栏没选中时的大插画。 |
-| [7shifts Pending Requests](https://mobbin.com/screens/cc7d3fa8-66ee-45cb-9332-e7e557975c70) | 每行右边直接是批和不批，答完就走。 | 旁边的活动记录和推广块。 |
+| [Linear Inbox](https://mobbin.com/screens/8337813e-f0dd-4415-8a29-87c114b0442b) | 两栏：中间一行一件，没读的前面一个小点；右边是选中那件的内容，就地回复。首页照这个做。 | 每行的头像和图标；右栏没选中时的大插画。 |
+| [7shifts Pending Requests](https://mobbin.com/screens/cc7d3fa8-66ee-45cb-9332-e7e557975c70) | 一行一件，谁、要什么、多久了，一眼扫完。 | 批和不批直接放在行上：我们的决定要看过选项和背景才定，作答放详情。 |
 | [Airwallex 审批](https://mobbin.com/screens/f163ee8f-79d1-4dc5-a626-68c25a971bca) | 详情里主按钮只有一个，「退回重交」在次要按钮里；金额、提交人这些事实排成两列。 | 抽屉盖住列表，批完要关一次。 |
-| [Oyster Time off](https://mobbin.com/screens/d64f474d-0cd5-4f76-acac-958aa70d76c2) | 反面例子：批准藏在菜单里，多点一次。 | 表格和状态胶囊。 |
+| [Oyster Time off](https://mobbin.com/screens/d64f474d-0cd5-4f76-acac-958aa70d76c2) | 反面例子：批准藏在菜单里，看不见。我们的作答按钮在详情里直接露着。 | 表格和状态胶囊。 |
 | [GitHub Notifications](https://mobbin.com/screens/2e7cf2ed-0d26-4544-93c4-4a7b6cba2e8d) | 同一件事的通知并成一组。 | 一长串筛选项和分页。 |
 | [ClickUp Inbox Zero](https://mobbin.com/screens/f784aba7-c329-4e4f-90b2-6f21a0a2a70d) | 空的时候一句话说清。 | 庆祝表情和名人名言。 |
 | [Height Inbox](https://mobbin.com/screens/d9d42488-459e-4785-ba38-94bc55ab7963) | 空状态只有一句「all caught up」。 | 旁边的新手引导。 |
