@@ -917,6 +917,14 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect(hardStop(o, [round('2026-11-05', 2), round('2026-11-07', 3, 0)], '', failingAgain)).toBeNull()
   })
 
+  it('skips a round where every measure of this Objective failed, whatever another Objective kept', () => {
+    const o: Objective = { name: 'O', kr: [{ name: 'K', target: '>= 100', measure: 'cat k.txt' }] }
+    const row = (kr: string, d: string, value: string): KeptReading => ({ kr, value, as_of: d, source: 'x', measured_at: d, def_hash: 'a' })
+    const rows = [row('K', '2026-11-01', '10'), row('K', '2026-11-02', '9'), row('K', '2026-11-03', ''), row('OTHER', '2026-11-03', '1')]
+    const rounds = [1, 2, 3].map((n) => ({ at: `2026-11-0${n}`, n, kept: 1, moved: [], done: [] }))
+    expect(hardStop(o, rounds, '', rows)).toBeNull()
+  })
+
   it('keeps a stop once it fired, though a later series starts', () => {
     const o: Objective = { name: 'O', kr: [{ name: 'K', target: '>= 100', measure: 'cat k.txt' }] }
     const row = (d: string, h: string): KeptReading => ({ kr: 'K', value: '1', as_of: d, source: d, measured_at: d, def_hash: h })
