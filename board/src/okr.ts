@@ -292,6 +292,8 @@ function latestAsOfPerRound(readingsByAsOf: KeptReading[]) {
 }
 
 const WILSON_Z = 1.96
+const PLACES_THAT_HIDE_FLOAT_DUST = 9
+const toNinePlaces = (x: number) => Number(x.toFixed(PLACES_THAT_HIDE_FLOAT_DUST))
 const SAMPLE_SIZE = /(?:^|\s)n=(\d+)(?=\s|$)/
 const SAME_COMMIT_RERUN_SPREAD = /(?:^|\s)aa=(\d+(?:\.\d+)?)(?=\s|$)/
 const AA_SPREADS_A_CHANGE_MUST_CLEAR = 2
@@ -306,7 +308,7 @@ export function wilson(percent: number, n: number, z = WILSON_Z): [number, numbe
   const p = percent / 100
   const centre = (p + (z * z) / (2 * n)) / (1 + (z * z) / n)
   const half = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / (1 + (z * z) / n)
-  return [Math.max(0, 100 * (centre - half)), Math.min(100, 100 * (centre + half))]
+  return [Math.max(0, toNinePlaces(100 * (centre - half))), Math.min(100, toNinePlaces(100 * (centre + half)))]
 }
 
 function greenOf(op: string, goalText: string, unit: string, r: Pick<KeptReading, 'value' | 'source'>) {
@@ -324,7 +326,7 @@ function noiseGate(unit: string, prev: KeptReading, cur: KeptReading) {
   const [a, b] = [sampleOf(unit, prev), sampleOf(unit, cur)]
   if (a.n === null || b.n === null) return 0
   const oneItem = 100 / Math.min(a.n, b.n)
-  return Math.max(AA_SPREADS_A_CHANGE_MUST_CLEAR * Math.max(a.aa, b.aa), oneItem)
+  return toNinePlaces(Math.max(AA_SPREADS_A_CHANGE_MUST_CLEAR * Math.max(a.aa, b.aa), oneItem))
 }
 
 const judgedOnlyByItsFirstRound = (i: Declared, prev: Round, last: Round) => prev <= i.declared_at && i.declared_at < last
@@ -352,8 +354,8 @@ function verdictOf(heading: Heading, towardBy: number, gate: number): Verdict {
 }
 
 function towardTargetBy(op: string, goal: ExactDecimalAsTheOldClisDecimal, prev: KeptReading, cur: KeptReading) {
-  const distance = (r: KeptReading) => Number(distanceToTarget(op, goal, dec(r.value)).n) * 10 ** distanceToTarget(op, goal, dec(r.value)).e
-  return distance(prev) - distance(cur)
+  const [before, after, e] = align(distanceToTarget(op, goal, dec(prev.value)), distanceToTarget(op, goal, dec(cur.value)))
+  return toNinePlaces(Number(before - after) * 10 ** e)
 }
 
 function declarationsSinceLastRoundAndTheirVerdicts(op: string, goal: ExactDecimalAsTheOldClisDecimal, unit: string, readings: KeptReading[], declared: Declared[]) {

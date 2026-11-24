@@ -719,3 +719,16 @@ describe("V2-01's replay, as json okr now judges it", () => {
     expect(k.verdicts).toEqual(verdict ? [{ ticket, declared: 'toward', verdict }] : [])
   })
 })
+
+describe('float dust at the edges', () => {
+  it('reads a perfect proportion as met against == 100', () => {
+    const rows: KeptReading[] = [{ kr: 'K', value: '100', source: 'n=6', as_of: '2026-11-25', measured_at: 'a', def_hash: 'v1' }]
+    expect(krOf(judge([{ name: 'O', kr: [{ name: 'K', target: '== 100', unit: '%' }] }], rows, new Map(), new Map(), '/r', null), 'K').status).toBe('met')
+  })
+
+  it('reads a change of exactly one item as clearing the gate', () => {
+    const rows: KeptReading[] = ['4.5', '4.4'].map((value, i) => ({ kr: 'K', value, source: 'n=1000', as_of: '2026-11-25', measured_at: String(i * 2), def_hash: 'v1' }))
+    const declared = new Map<string, Declared[]>([['O\0K', [{ ticket: 'T', dir: '↓', before: '4.5%', after: '4.4%', basis: null, declared_at: '1' }]]])
+    expect(krOf(judge([{ name: 'O', kr: [{ name: 'K', target: '<= 3', unit: '%' }] }], rows, new Map(), declared, '/r', null), 'K').verdicts).toEqual([{ ticket: 'T', declared: 'toward', verdict: '符合' }])
+  })
+})
