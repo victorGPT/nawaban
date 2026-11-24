@@ -331,8 +331,11 @@ export default class NawabanBoard extends View {
   cliOf(at) {
     if (at.on) return "old";
     if (!this.cliOfPlace.has(at.key)) {
-      this.cliOfPlace.set(at.key, exec("node", [ROUTE(), at.cwd], { cwd: at.cwd })
-        .then((r) => (r.code === 0 && ROUTED_TO_BOARD.test(r.stdout) ? "board" : "old"), () => "old"));
+      const routed = exec("node", [ROUTE(), at.cwd], { cwd: at.cwd }).then((r) => (r.code === 0 ? r.stdout : null), () => null);
+      this.cliOfPlace.set(at.key, routed.then((out) => {
+        if (out === null) this.cliOfPlace.delete(at.key);
+        return ROUTED_TO_BOARD.test(out ?? "") ? "board" : "old";
+      }));
     }
     return this.cliOfPlace.get(at.key);
   }

@@ -557,6 +557,25 @@ test("the panel reads a repository with the CLI the hooks' route.mjs picks for i
   }
 });
 
+test("a failed route.mjs run reads the old CLI this time and is asked again on the next read", async () => {
+  let routeRuns = 0;
+  execImpl = async (cmd, args = []) => {
+    if (cmd === "node" && args[0] === "/h/nawaban/hooks/route.mjs") return ++routeRuns === 1 ? { code: 1, stdout: "" } : { code: 0, stdout: "board x\n" };
+    return { code: 1, stdout: "" };
+  };
+  try {
+    const view = new NawabanBoard();
+    view.cliOfPlace = new Map();
+    const at = { on: null, cwd: "/x", key: "|/x" };
+    assert.equal(await view.cliOf(at), "old");
+    assert.equal(await view.cliOf(at), "board");
+    assert.equal(await view.cliOf(at), "board");
+    assert.equal(routeRuns, 2);
+  } finally {
+    execImpl = async () => ({ code: 1 });
+  }
+});
+
 const okrFixture = JSON.parse(readFileSync(new URL("./okr.fixture.json", import.meta.url), "utf8"));
 
 test("the OKR tab opens with the tally, leads with the neediest Objective, lists missed and stale KRs, folds the untested and the met ones and an all-met Objective into one line", () => {
