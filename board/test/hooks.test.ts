@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -318,10 +318,56 @@ it('keeps a worker running while its terminal holds a claimed task, and lets it 
   expect([released.code, released.out]).toEqual([0, ''])
 })
 
+it('moves a worker\'s task only forward along its milestones and stamps when it last moved, at most once in five minutes, and forgets it on close', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const liveOf = async (id: string, until: (live: { milestone: string; at: number }) => boolean = () => true) => {
+    for (let tries = 0; tries < 100; tries++) {
+      try {
+        const live = JSON.parse(await readFile(join(tmp, 'board/progress', `${id}.json`), 'utf8'))
+        if (until(live)) return live
+      } catch {}
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    return null
+  }
+  await writeFile(join(tmp, 'board/token'), SECRET)
+  const transcript = join(tmp, 'transcript.jsonl')
+  const called = (input: unknown) => writeFile(transcript, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input }] } }) + '\n')
+  const afterATool = { session_id: SESSION, cwd: repo, transcript_path: transcript, hook_event_name: 'PostToolUse' }
+  const stamp = join(tmp, 'board/progress-stamps', SESSION)
+  const gapPassed = () => utimes(stamp, Date.now() / 1000 - 6 * 60, Date.now() / 1000 - 6 * 60)
+  await nawaban('create', 'LP1', '--title', '接上进展', '--project', 'proj')
+  await nawaban('claim', 'LP1')
+  const id = await idOf('LP1')
+
+  await called({ command: 'git commit -m x' })
+  expect((await hook('progress.sh', afterATool)).out).toBe('')
+  const first = await liveOf(id)
+  expect(first.milestone).toBe('committed')
+
+  await called({ command: 'gh pr create --fill' })
+  await hook('progress.sh', afterATool)
+  await new Promise((r) => setTimeout(r, 1500))
+  expect((await liveOf(id)).milestone).toBe('committed')
+
+  await gapPassed()
+  await called({ command: 'ls' })
+  await hook('progress.sh', afterATool)
+  const later = await liveOf(id, (live) => live.at > first.at || live.milestone !== 'committed')
+  expect(later?.milestone ?? 'not rewritten').toBe('committed')
+
+  const board = JSON.parse(await nawaban('json', 'board', '--project', 'proj'))
+  const row = board.columns.flatMap((c: { tasks: { id: string }[] }) => c.tasks).find((t: { id: string }) => t.id === 'LP1')
+  expect(row.live.milestone).toBe('committed')
+
+  await nawaban('close', 'LP1', '--cancelled')
+  expect(await readFile(join(tmp, 'board/progress', `${id}.json`)).catch(() => 'gone')).toBe('gone')
+})
+
 it('registers the renewal on every prompt and tool call, and both impact guards before Bash', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   const { hooks } = JSON.parse(await readFile(join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, 'hooks.json'), 'utf8'))
   const names = (event: string) => hooks[event].flatMap((g: { hooks: { command: string }[] }) => g.hooks.map((h) => h.command.split('/').pop()!.replace('"', '')))
   expect(names('UserPromptSubmit')).toContain('renew.sh')
   expect(names('PostToolUse')).toContain('renew.sh')
+  expect(names('PostToolUse')).toContain('progress.sh')
   expect(names('PreToolUse')).toEqual(expect.arrayContaining(['impact-guard.sh', 'board-impact-guard.sh']))
 })

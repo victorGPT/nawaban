@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { Readable } from 'node:stream'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { link, mkdir, readFile, unlink, watch, writeFile } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 import { extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +12,7 @@ import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { okrData } from './okr.ts'
+import { isLiveFileName, progressDir } from './progress.ts'
 import { Refused } from './tasks.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
 import { answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, webAnswers, webAnswerText } from './page.ts'
@@ -124,7 +125,12 @@ function writesOnlyFromThePagesOwnOriginElseRefusal(request: Request) {
   return null
 }
 
-function changes(team: Team, signal: AbortSignal) {
+async function eachProgressWrite(dir: string, signal: AbortSignal, changed: () => void) {
+  await mkdir(progressDir(dir), { recursive: true })
+  for await (const { filename } of watch(progressDir(dir), { signal })) if (filename && isLiveFileName(filename)) changed()
+}
+
+function changes(team: Team, dir: string, signal: AbortSignal) {
   const stop = new AbortController()
   signal.addEventListener('abort', () => stop.abort())
   const line = (text: string) => new TextEncoder().encode(text)
@@ -132,9 +138,15 @@ function changes(team: Team, signal: AbortSignal) {
     new ReadableStream({
       start(out) {
         out.enqueue(line(': live\n\n'))
+        const changed = () => {
+          try {
+            out.enqueue(line('data: changed\n\n'))
+          } catch {}
+        }
+        eachProgressWrite(dir, stop.signal, changed).catch(() => {})
         void (async () => {
           try {
-            for await (const _ of team.events({}, { signal: stop.signal })) out.enqueue(line('data: changed\n\n'))
+            for await (const _ of team.events({}, { signal: stop.signal })) changed()
           } catch {
           } finally {
             stop.abort()
@@ -154,7 +166,7 @@ function changes(team: Team, signal: AbortSignal) {
 
 async function view(team: Team, dir: string, path: string, query: URLSearchParams, signal: AbortSignal) {
   const [what, ...rest] = path.split('/')
-  if (what === 'board' && !rest.length) return Response.json(await boardData(team, query.get('project') || undefined))
+  if (what === 'board' && !rest.length) return Response.json(await boardData(team, query.get('project') || undefined, dir))
   if (what === 'projects' && !rest.length) return Response.json(await projectsData(team))
   if (what === 'okr' && !rest.length) {
     const project = query.get('project')
@@ -163,7 +175,7 @@ async function view(team: Team, dir: string, path: string, query: URLSearchParam
     if (repo) return Response.json(await okrData(team, dir, repo))
     return project ? refuse(404, `项目 ${project} 没在 repos.json 登记仓库`) : refuse(400, 'usage: /api/nawaban/okr?project=<name>|repo=<path>')
   }
-  if (what === 'changes' && !rest.length) return changes(team, signal)
+  if (what === 'changes' && !rest.length) return changes(team, dir, signal)
   if (what === 'answers' && !rest.length) return Response.json({ answers: await webAnswers(team, query.get('project') || undefined) })
   if (what === 'inbox' && !rest.length) {
     const project = query.get('project')

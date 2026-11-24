@@ -4,6 +4,7 @@ import { board, type MessageView } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
 import { undeclared } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
+import { forgetLive } from './progress.ts'
 
 type Verb = (argv: string[]) => Promise<number>
 
@@ -183,6 +184,7 @@ const claim: Verb = async (argv) => {
   if (values.release) {
     const code = await cliWhoseClaimsTheRenewHookFinds(['tasks', 'release', task.id, '--as', as, ...json])
     if (code === 0) await personOwningEveryTaskTheirProfilesMade().label(task.id, { unset: ['terminal'] })
+    if (code === 0) await forgetLive(boardDirAsConfiguredWhenAsked(), task.id)
     return code
   }
   const code = await cliWhoseClaimsTheRenewHookFinds(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE, ...json])
@@ -204,6 +206,7 @@ async function refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team: ReturnT
   }
   const code = await cliWhoseClaimsTheRenewHookFinds(['tasks', 'complete', task.id, '--as', as, ...json])
   if (code === 0) await team.label(task.id, { unset: ['terminal'] })
+  if (code === 0) await forgetLive(boardDirAsConfiguredWhenAsked(), task.id)
   return code
 }
 
@@ -219,6 +222,7 @@ async function needsWithoutAnyCanceledSinceBoardTakesNone(team: ReturnType<typeo
 async function cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView, json: boolean) {
   if (task.task?.state !== 'canceled') await team.tasks.cancel(task.id, 'cancelled')
   await team.label(task.id, { unset: ['terminal'] })
+  await forgetLive(boardDirAsConfiguredWhenAsked(), task.id)
   const stillWaitingRerunFinishesThem: string[] = []
   for (const down of await all({ state: 'open', needs: task.id })) {
     try {
@@ -248,18 +252,41 @@ const close: Verb = async (argv) => {
   return cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team, task, !!values.json)
 }
 
+const profilesTheHookSessionMayHold = (session: string) => (['cx', 'agy', 'cc'] as const).map((agent) => sessionProfile(agent, session))
+
+async function heldByAnyOf(profiles: string[]): Promise<{ id: string; channel: string; as: string }[]> {
+  return (await all({ state: 'claimed' })).flatMap((task) => {
+    const claim = live(task)
+    const as = profiles.find((p) => claim?.actor.endsWith(`+${p}`))
+    return as ? [{ id: task.id, channel: task.channel, as }] : []
+  })
+}
+
+async function lastClaimedAt(task: { id: string; channel: string }, as: string): Promise<number> {
+  const team = personOwningEveryTaskTheirProfilesMade()
+  let at = 0
+  for (let after = task.id; ; ) {
+    const { events, cursor } = await team.poll({ channel: task.channel, after })
+    for (const e of events) {
+      const p = e.payload as { id?: string; by?: { actor: string } }
+      if (e.type === 'task.claimed' && p.id === task.id && p.by?.actor.endsWith(`+${as}`)) at = Date.parse(e.createdAt) / 1000
+    }
+    const feedEndsWhereTheCursorStays = cursor === after
+    if (feedEndsWhereTheCursorStays) return at
+    after = cursor
+  }
+}
+
+export const heldBy = async (session: string) =>
+  Promise.all((await heldByAnyOf(profilesTheHookSessionMayHold(session))).map(async (t) => ({ id: t.id, claimedAt: await lastClaimedAt(t, t.as) })))
+
 const renew: Verb = async (argv) => {
   const { values } = parseArgs({ args: argv, options: { session: { type: 'string' }, json: { type: 'boolean' } } })
-  const hookSession = values.session
-  const profilesTheHookSessionMayHold = hookSession ? (['cx', 'agy', 'cc'] as const).map((agent) => sessionProfile(agent, hookSession)) : [profile()]
+  const held = await heldByAnyOf(values.session ? profilesTheHookSessionMayHold(values.session) : [profile()])
   let lastFailureWhileEveryClaimStillGetsItsRenewal = 0
-  for (const task of await all({ state: 'claimed' })) {
-    const claim = live(task)
-    const as = profilesTheHookSessionMayHold.find((p) => claim?.actor.endsWith(`+${p}`))
-    if (as) {
-      lastFailureWhileEveryClaimStillGetsItsRenewal =
-        (await cliWhoseClaimsTheRenewHookFinds(['tasks', 'renew', task.id, '--as', as, '--lease', LEASE, ...(values.json ? ['--json'] : [])])) || lastFailureWhileEveryClaimStillGetsItsRenewal
-    }
+  for (const { id, as } of held) {
+    lastFailureWhileEveryClaimStillGetsItsRenewal =
+      (await cliWhoseClaimsTheRenewHookFinds(['tasks', 'renew', id, '--as', as, '--lease', LEASE, ...(values.json ? ['--json'] : [])])) || lastFailureWhileEveryClaimStillGetsItsRenewal
   }
   return lastFailureWhileEveryClaimStillGetsItsRenewal
 }

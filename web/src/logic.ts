@@ -1,5 +1,5 @@
 import {
-  foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WINDOW_WORDS,
+  doingOf, flowCounts, flowLine, foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WINDOW_WORDS,
 } from '../../herdr/mods/nawaban-board/logic.js'
 import type { Pending } from './decide-logic'
 
@@ -39,6 +39,9 @@ const decodeOrNull = (s: string) => {
 export const taskHref = (key: string) => '#' + TASK_PART + encodeURIComponent(key)
 
 export type Progress = { body: string; at: number } | null
+export type Live = { milestone: 'started' | 'edited' | 'committed' | 'pr' | 'review' | 'reported'; at: number } | null
+export type Ruling = { at: number; verdict: string } | null
+export type Doing = { head: string; chain: string | null; stale: boolean }
 export type BoardTask = {
   id: string
   title: string
@@ -49,6 +52,8 @@ export type BoardTask = {
   claimed_at: number | null
   done_at?: number | null
   progress?: Progress
+  live?: Live
+  ruling?: Ruling
   waiting?: string | null
   pending?: Pending | null
   blocked_by?: string[]
@@ -57,7 +62,7 @@ export type Board = { columns: { key: string; tasks: BoardTask[] }[]; decisions:
 export type Project = { name: string; open: number; total: number; waiting: number }
 
 export type ItemState = 'done' | 'stopped' | 'working' | 'todo'
-export type Item = { key: string; id: string; title: string; state: ItemState; at: number | null; note: string | null; spec: { done: number; total: number } | null }
+export type Item = { key: string; id: string; title: string; state: ItemState; at: number | null; note: string | null; doing: Doing | null; spec: { done: number; total: number } | null }
 export type Group = 'stopped' | 'working' | 'todo' | 'done'
 
 const HOUR = 3600
@@ -82,7 +87,7 @@ function rootOf(t: BoardTask, byId: Map<string, BoardTask>) {
   return t
 }
 
-function itemOf(root: BoardTask, tickets: BoardTask[], now: number) {
+function itemOf(root: BoardTask, tickets: BoardTask[], byId: Map<string, BoardTask>, now: number) {
   const states = tickets.map((t) => stateOf(t, now))
   const lead = tickets[states.indexOf('stopped')] ?? tickets[states.indexOf('working')] ?? root
   const allTicketsDone = tickets.length > 0 && states.every((s) => s === 'done')
@@ -103,6 +108,7 @@ function itemOf(root: BoardTask, tickets: BoardTask[], now: number) {
     state,
     at,
     note: held ? (lead.waiting ?? lead.progress?.body ?? null) : null,
+    doing: held ? (doingOf(lead, byId, root.title, undefined, now) as Doing) : null,
     spec: tickets.length ? { done: states.filter((s) => s === 'done').length, total: tickets.length } : null,
     active: Math.max(...[root, ...tickets].map((t) => t.active_at ?? 0)),
   }
@@ -114,7 +120,7 @@ export function taskGroups(board: Board | null, now: number): { group: Group; it
   const tasks = allOf(board)
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const roots = tasks.filter((t) => rootOf(t, byId) === t)
-  const items = roots.map((root) => itemOf(root, tasks.filter((t) => t !== root && rootOf(t, byId) === root), now))
+  const items = roots.map((root) => itemOf(root, tasks.filter((t) => t !== root && rootOf(t, byId) === root), byId, now))
   return GROUPS.map((group) => ({
     group,
     items: items
@@ -138,13 +144,7 @@ export function boardColumns(groups: { group: Group; items: Item[] }[], doneShow
   })
 }
 
-export function summaryOf(groups: { group: Group; items: Item[] }[], pending: number) {
-  const count = (g: Group) => groups.find((x) => x.group === g)?.items.length ?? 0
-  const w = WINDOW_WORDS.zh.groups
-  return [pending ? `待决 ${pending}` : null, `${w.working} ${count('working')}`, `${w.stopped} ${count('stopped')}`, `${w.todo} ${count('todo')}`]
-    .filter(Boolean)
-    .join(' · ')
-}
+export const summaryOf = (board: Board | null, now: number): string => (board ? flowLine(flowCounts(board, now)) : '')
 
 export const pendingCount = (board: Board | null) => allOf(board).filter((t) => t.status !== 'done' && t.pending).length
 

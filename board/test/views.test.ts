@@ -67,7 +67,7 @@ const ok = async (session: string, terminal: string, ...argv: string[]) => {
 const read = (...argv: string[]) => ok(ORCHESTRATOR_WINDOW_IN_T1, '', 'json', ...argv)
 
 const OLD_BOARD_DATA_ROW_KEYS = ['id', 'title', 'status', 'project', 'parent', 'session', 'created_at', 'active_at', 'open_blockers', 'terminal', 'leader', 'claimed_at']
-const OPEN_ROW_KEYS_PLUS_PENDING = [...OLD_BOARD_DATA_ROW_KEYS, 'progress', 'blocked_by', 'waiting', 'decision', 'pending'].sort()
+const OPEN_ROW_KEYS_PLUS_PENDING = [...OLD_BOARD_DATA_ROW_KEYS, 'progress', 'live', 'ruling', 'blocked_by', 'waiting', 'decision', 'pending'].sort()
 const DONE_ROW_KEYS = [...OLD_BOARD_DATA_ROW_KEYS, 'done_at'].sort()
 
 it('prints the board in the shape the panel reads, and the panel draws the 等你 card and the orchestrator group from it', async () => {
