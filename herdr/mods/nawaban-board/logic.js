@@ -567,7 +567,7 @@ const UNTESTED_FOLD_PREFIX = "okr-untested:";
 function objectiveView(o, w) {
   const krs = (o.krs ?? []).map((k) => krRow(k, w)).sort(worstFirst);
   return { name: o.name, met: o.met ?? krs.filter(isMet).length, total: o.total ?? krs.length,
-    standing: standingOf(krs), fold: OBJECTIVE_FOLD_PREFIX + o.name, untestedFold: UNTESTED_FOLD_PREFIX + o.name,
+    standing: standingOf(krs), rulers: Number.isInteger(o.rulers) && o.rulers > 0 ? w.rulers(o.rulers) : null, fold: OBJECTIVE_FOLD_PREFIX + o.name, untestedFold: UNTESTED_FOLD_PREFIX + o.name,
     krs: krs.filter(isListed), untestedKrs: krs.filter(isUntested), metKrs: krs.filter(isMet) };
 }
 
@@ -586,7 +586,7 @@ export function okrView(okr, lang) {
 export const OKR_WORDS = {
   zh: { tally: (met, total, at) => `${met}/${total} 达标${at ? ` · ${at} 量` : ""}`,
     status: { met: "绿", missed: "红", unmeasurable: "量不了", undecided: "未定", stale: "黄", untested: "未测" },
-    interval: ([a, b]) => `区间 [${a}, ${b}]`,
+    interval: ([a, b]) => `区间 [${a}, ${b}]`, rulers: (n) => `改尺子 ${n} 张`,
     series: (n, day) => `口径 v${n} 起 ${day}`, failure: "测量失败",
     trend: { closer: "在变好", away: "在变差", flat: "没动", null: "首次读数" },
     target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮未达标`, wait: "要你做",
@@ -594,7 +594,7 @@ export const OKR_WORDS = {
     variance: "偏差", asOfShort: "截至", point: "点", metFolded: (n) => `${n} 条已达标`, untestedFolded: (n) => `${n} 条未测`, allMet: "全部达标" },
   en: { tally: (met, total, at) => `Green ${met}/${total}${at ? ` · measured ${at}` : ""}`,
     status: { met: "Green", missed: "Red", unmeasurable: "Unmeasurable", undecided: "Undecided", stale: "Amber", untested: "Untested" },
-    interval: ([a, b]) => `interval [${a}, ${b}]`,
+    interval: ([a, b]) => `interval [${a}, ${b}]`, rulers: (n) => `${n} changing the ruler`,
     series: (n, day) => `measure v${n} since ${day}`, failure: "Measure failed",
     trend: { closer: "Getting closer", away: "Moving away", flat: "Flat", null: "First reading" },
     target: "Target", value: "Value", asOf: "As of", source: "Source", trendLabel: "Trend", rounds: (n) => `Red ${n} rounds in a row`, wait: "Needs you to",

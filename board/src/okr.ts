@@ -13,7 +13,21 @@ type Team = ReturnType<typeof board>
 export type Kr = { name: string; target: string; unit?: string; measure?: string; wait?: string; max_age_days?: number; inputs?: string[] }
 export type Objective = { name: string; kr?: Kr[] }
 export type KeptReading = { kr: string; value: string; as_of: string; source: string; measured_at: Round; def_hash: string }
-export type Declared = { ticket: string; dir: string; before: string | null; after: string | null; basis: string | null; declared_at: string }
+export type Heading = 'toward' | 'away' | 'hold'
+export type Change = 'product' | 'measure' | 'gold'
+export type Declared = {
+  ticket: string
+  dir: string | null
+  heading: Heading | null
+  change: Change
+  late: boolean
+  before: string | null
+  after: string | null
+  basis: string | null
+  def_hash: string | null
+  declared_at: string
+  result_at: string | null
+}
 export type Reading = { objective: string; kr: string; value: string; as_of: string; source: string; def_hash?: string }
 type Round = string
 type Movement = 'closer' | 'away' | 'flat'
@@ -329,9 +343,6 @@ function noiseGate(unit: string, prev: KeptReading, cur: KeptReading) {
   return toNinePlaces(Math.max(AA_SPREADS_A_CHANGE_MUST_CLEAR * Math.max(a.aa, b.aa), oneItem))
 }
 
-const judgedOnlyByItsFirstRound = (i: Declared, prev: Round, last: Round) => prev <= i.declared_at && i.declared_at < last
-
-type Heading = 'toward' | 'away' | 'hold'
 type Verdict = '符合' | '未定' | '不符'
 const WANTS_MORE = new Set(['>=', '>'])
 
@@ -358,23 +369,33 @@ function towardTargetBy(op: string, goal: ExactDecimalAsTheOldClisDecimal, prev:
   return toNinePlaces(Number(before - after) * 10 ** e)
 }
 
+const judgedAtAll = (i: Declared) => !i.late && i.change === 'product'
+const resultOrDeclaredAt = (i: Declared) => i.result_at ?? i.declared_at
+
+function verdictBetween(op: string, goal: ExactDecimalAsTheOldClisDecimal, unit: string, heading: Heading, prev: KeptReading, cur: KeptReading) {
+  const gate = noiseGate(unit, prev, cur)
+  const exactly = { closer: 1, away: -1, flat: 0 }[movementTowardTarget(op, goal, dec(prev.value), dec(cur.value))]
+  return verdictOf(heading, gate === 0 ? exactly : towardTargetBy(op, goal, prev, cur), gate)
+}
+
 function declarationsSinceLastRoundAndTheirVerdicts(op: string, goal: ExactDecimalAsTheOldClisDecimal, unit: string, readings: KeptReading[], declared: Declared[]) {
   const rounds = latestAsOfPerRound(readings)
   const times = [...rounds.keys()].sort()
   const last = times.at(-1) ?? ''
+  const headingOf = (i: Declared) => i.heading ?? headingOfAnOldDeclaration(op, goal, i)
   const pending = declared
-    .filter((i) => i.declared_at >= last)
-    .map((i) => ({ ticket: i.ticket, dir: i.dir, before: i.before, after: i.after, basis: i.basis, at: withoutTieBreak(i.declared_at) }))
-  if (times.length < 2) return { pending, verdicts: [], mismatch: [] }
-  const [prev, cur] = [rounds.get(times.at(-2)!)!, rounds.get(last)!]
-  const gate = noiseGate(unit, prev, cur)
-  const exactly = { closer: 1, away: -1, flat: 0 }[movementTowardTarget(op, goal, dec(prev.value), dec(cur.value))]
-  const towardBy = gate === 0 ? exactly : towardTargetBy(op, goal, prev, cur)
+    .filter((i) => (i.heading !== null && i.result_at === null) || resultOrDeclaredAt(i) >= last)
+    .map((i) => ({ ticket: i.ticket, declared: headingOf(i), change: i.change, late: i.late, before: i.before, after: i.after, basis: i.basis, at: withoutTieBreak(i.declared_at) }))
+  const series = readings[0]?.def_hash
   const verdicts = new Map<string, { ticket: string; dir: string; declared: Heading; verdict: Verdict }>()
   for (const i of declared) {
-    if (!judgedOnlyByItsFirstRound(i, times.at(-2)!, last)) continue
-    const heading = headingOfAnOldDeclaration(op, goal, i)
-    verdicts.set(i.ticket, { ticket: i.ticket, dir: i.dir, declared: heading, verdict: verdictOf(heading, towardBy, gate) })
+    if (!judgedAtAll(i) || i.result_at === null || (i.def_hash !== null && i.def_hash !== series)) continue
+    const registeredAgainst = times.findLast((t) => t <= i.declared_at)
+    const firstRoundAfterTheResult = times.find((t) => t > i.result_at!)
+    if (registeredAgainst === undefined || firstRoundAfterTheResult !== last) continue
+    const heading = headingOf(i)
+    const verdict = verdictBetween(op, goal, unit, heading, rounds.get(registeredAgainst)!, rounds.get(last)!)
+    verdicts.set(i.ticket, { ticket: i.ticket, dir: i.dir ?? heading, declared: heading, verdict })
   }
   const all = [...verdicts.values()]
   return {
@@ -437,13 +458,14 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
     last_measured_at: rows.reduce<string | null>((m, r) => (m === null || r.measured_at > m ? r.measured_at : m), null)?.split('~')[0] ?? null,
     met: 0,
     total: 0,
-    objectives: [] as { name: string; met: number; total: number; accept_pending: boolean; impacts: Record<string, number>; krs: { name: string; mismatch: { ticket: string; dir: string }[] }[] }[],
+    objectives: [] as { name: string; met: number; total: number; accept_pending: boolean; impacts: Record<Heading, number>; rulers: number; krs: { name: string; mismatch: { ticket: string; dir: string }[] }[] }[],
     attention: [] as Attention[],
   }
   for (const o of objectives) {
     const name = o.name
     const krs = []
-    const counts = { '↑': 0, '↓': 0, '=': 0 }
+    const counts = { toward: 0, away: 0, hold: 0 }
+    const rulers = new Set<string>()
     let missedSinceAccept = false
     for (const kr of o.kr ?? []) {
       const [op, goalText] = target(kr)
@@ -462,7 +484,11 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
       const accepted = accepts.get(name)
       missedSinceAccept ||= accepted !== undefined && rounds.some((r) => r.measured_at > accepted && !ok(r))
       const { pending, verdicts, mismatch } = declarationsSinceLastRoundAndTheirVerdicts(op, goal, unit, rs, declared.get(`${name}\0${kr.name}`) ?? [])
-      for (const i of pending) counts[i.dir as keyof typeof counts]++
+      for (const i of pending) {
+        if (i.late) continue
+        if (i.change === 'product') counts[i.declared]++
+        else rulers.add(i.ticket)
+      }
       krs.push({
         name: kr.name,
         target: `${op} ${goalText}`,
@@ -490,7 +516,7 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
     const met = krs.filter((k) => k.status === 'met').length
     const pending = krs.length > 0 && met === krs.length && (!accepts.has(name) || missedSinceAccept)
     if (pending) out.attention.push({ kind: 'accept', objective: name, kr: null, text: `${name} 全 ✓，待你验收（nawaban okr --accept）` })
-    out.objectives.push({ name, met, total: krs.length, accept_pending: pending, impacts: counts, krs })
+    out.objectives.push({ name, met, total: krs.length, accept_pending: pending, impacts: counts, rulers: rulers.size, krs })
     out.met += met
     out.total += krs.length
   }
@@ -501,11 +527,14 @@ export function impactText(data: ReturnType<typeof judge>) {
   const out = []
   for (const o of data.objectives) {
     const n = o.impacts
-    if (Object.values(n).some(Boolean)) out.push(`O ${o.name} · 声明 ↑${n['↑']} ↓${n['↓']} =${n['=']}`)
-    for (const k of o.krs) if (k.mismatch.length) out.push(`  预期不符 ${k.name}：` + k.mismatch.map((m) => `${m.ticket} 声明 ${m.dir}`).join('、'))
+    const rulers = o.rulers ? ` · 改尺子 ${o.rulers} 张` : ''
+    if (Object.values(n).some(Boolean) || o.rulers) out.push(`O ${o.name} · 声明 向目标 ${n.toward} 背离 ${n.away} 不变 ${n.hold}${rulers}`)
+    for (const k of o.krs) if (k.mismatch.length) out.push(`  预期不符 ${k.name}：` + k.mismatch.map((m) => `${m.ticket} 声明 ${HEADING_WORDS[m.dir as Heading] ?? m.dir}`).join('、'))
   }
   return out.join('\n')
 }
+
+const HEADING_WORDS: Record<Heading, string> = { toward: '向目标', away: '背离', hold: '不变' }
 
 export const okrChannel = (project: string) => `okr/${project}`
 
@@ -547,19 +576,64 @@ export async function load(team: Team, project: string) {
     }
   }
   const declared = new Map<string, Declared[]>()
-  for (const [root, ...replies] of await wholeThreadsRootFirst(team, project, 'nawaban-impact')) {
-    for (const m of [root!, ...replies]) {
-      for (const d of blocksOf(m, 'nawaban-impact')) {
-        for (const kr of d.krs as { name: string; dir: string; before?: string; after?: string; basis?: string }[]) {
-          const k = `${d.objective}\0${kr.name}`
-          const ticket = root!.labels.key ?? `#${root!.id}`
-          declared.set(k, [...(declared.get(k) ?? []), { ticket, dir: kr.dir, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, declared_at: onTheOneClock(m) }])
-        }
-      }
-    }
+  for (const thread of await wholeThreadsRootFirst(team, project, 'nawaban-impact')) {
+    for (const [k, d] of declaredOnOneTicket(thread)) declared.set(k, [...(declared.get(k) ?? []), d])
   }
   for (const list of declared.values()) list.sort((a, b) => order(a.declared_at, b.declared_at))
   return { rows, accepts: latestAccept, declared }
+}
+
+function declaredOnOneTicket([root, ...replies]: MessageView[]): Map<string, Declared> {
+  const ticket = root!.labels.key ?? `#${root!.id}`
+  const messages = [root!, ...replies]
+  const firstPullRequestAt = messages.find((m) => blocksOf(m, 'nawaban-link').some((d) => d.kind === 'pr'))
+  const lateAfter = firstPullRequestAt ? onTheOneClock(firstPullRequestAt) : null
+  const results = new Map<string, { after: string; basis: string; at: Round }>()
+  for (const m of messages) for (const d of blocksOf(m, 'nawaban-impact-result')) for (const r of d.krs as { name: string; after: string; basis: string }[]) results.set(r.name, { ...r, at: onTheOneClock(m) })
+  const out = new Map<string, Declared>()
+  for (const m of messages) {
+    const at = onTheOneClock(m)
+    for (const d of blocksOf(m, 'nawaban-impact')) {
+      for (const kr of d.krs as { name: string; dir: string; before?: string; after?: string; basis?: string }[]) {
+        if (out.has(`${d.objective}\0${kr.name}`)) continue
+        const old = { dir: kr.dir, heading: null, change: 'product' as const, late: true, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, def_hash: null, result_at: null }
+        out.set(`${d.objective}\0${kr.name}`, { ticket, ...old, declared_at: at })
+      }
+    }
+    for (const d of blocksOf(m, 'nawaban-impact', 2)) {
+      for (const kr of d.krs as { name: string; heading: Heading; reading?: string; def_hash?: string }[]) {
+        const k = `${d.objective}\0${kr.name}`
+        if (out.has(k) && !out.get(k)!.late) continue
+        const result = results.get(kr.name)
+        out.set(k, {
+          ticket,
+          dir: null,
+          heading: kr.heading,
+          change: d.change as Change,
+          late: lateAfter !== null && at > lateAfter,
+          before: kr.reading ?? null,
+          after: result?.after ?? null,
+          basis: result?.basis ?? null,
+          def_hash: kr.def_hash ?? null,
+          declared_at: at,
+          result_at: result?.at ?? null,
+        })
+      }
+    }
+  }
+  return out
+}
+
+export async function registeredReadings(team: Team, project: string, krs: string[]) {
+  const kept = (await wholeThreadsRootFirst(team, okrChannel(project))).flat().flatMap(keptOf)
+  const latestOf = (kr: string) => kept.filter((r) => r.kr === kr).sort((a, b) => order(a.measured_at, b.measured_at)).at(-1)
+  return Object.fromEntries(
+    krs.map((kr) => {
+      const latest = latestOf(kr)
+      const reading = latest && latest.value !== FAILED ? { reading: latest.value } : {}
+      return [kr, latest?.def_hash ? { ...reading, def_hash: latest.def_hash } : reading]
+    }),
+  ) as Record<string, { reading?: string; def_hash?: string }>
 }
 
 async function latestKept(team: Team, clientId: string) {

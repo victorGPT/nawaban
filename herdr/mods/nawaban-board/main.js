@@ -787,6 +787,7 @@ export default class NawabanBoard extends View {
   objectiveHeading(ob, o) {
     return h_flex().flex_none().px(SPACE.m).pt(SPACE.m).pb(SPACE.s).gap(SPACE.l).items_baseline()
       .child(div().flex_1().min_w(0).truncate().text_size(TYPE.heading).font_semibold().text_color(INK.foreground).child(ob.name))
+      .when(Boolean(ob.rulers), (el) => el.child(div().flex_none().text_size(TYPE.meta).text_color(INK.dim).child(ob.rulers)))
       .child(div().flex_none().text_size(TYPE.meta).font_medium().text_color(OBJECTIVE_TALLY_COLOR[ob.standing]).child(ob.met + "/" + ob.total));
   }
 

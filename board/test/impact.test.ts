@@ -3,13 +3,14 @@ import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AddressInfo } from 'node:net'
-import { afterAll, beforeAll, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { createApp } from '@vercel/board/cli'
 import { listen, verifier } from '../src/server.ts'
 import { registerSchemas } from '../src/schemas.ts'
-import { event } from '../src/events.ts'
+import { claimRegistering, event } from '../src/events.ts'
+import { jsonOkr, okr } from '../src/okr.ts'
 import { closeGate, impactNames } from '../src/impact.ts'
 import { run } from '../src/tasks.ts'
 
@@ -63,6 +64,7 @@ afterAll(() => server.close())
 async function nawaban(...argv: string[]) {
   vi.stubEnv('BOARD_URL', url)
   vi.stubEnv('BOARD_TOKEN', SECRET)
+  vi.stubEnv('NAWABAN_BOARD_DIR', dir)
   let err = ''
   let failure: { data?: { error?: { code?: string; message?: string } } } | undefined
   const out = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
@@ -83,31 +85,31 @@ const newTask = async (channel = 'nawaban', key?: string) =>
   (await team.tasks.create(channel, { text: 'impact', ...(key ? { labels: { key } } : {}) })).task.id
 const replies = async (id: string) => (await team.thread(id)).replies.length
 
-it('takes an impact whose names are in the okr.toml', async () => {
+it('registers an impact whose names are in the okr.toml, a product change unless told otherwise', async () => {
   const id = await newTask()
-  expect((await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=↑ 3→5 实测', '--kr', 'KR2==')).code).toBe(0)
+  expect((await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=toward', '--kr', 'KR2=hold')).code).toBe(0)
+  expect((await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=away', '--change', 'gold')).code).toBe(0)
   const { replies } = await team.thread(id)
-  expect(replies[0]!.blocks[0]!.data).toEqual({ objective: 'O1', krs: [{ name: 'KR1', dir: '↑', before: '3', after: '5', basis: '实测' }, { name: 'KR2', dir: '=' }] })
-})
-
-it('keeps the values an = declaration expects to hold', async () => {
-  const id = await newTask()
-  expect((await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1== 83.3→83.3 预计')).code).toBe(0)
-  const { replies } = await team.thread(id)
-  expect(replies[0]!.blocks[0]!.data).toEqual({ objective: 'O1', krs: [{ name: 'KR1', dir: '=', before: '83.3', after: '83.3', basis: '预计' }] })
+  expect(replies.map((r) => [r.blocks[0]!.version, r.blocks[0]!.data])).toEqual([
+    [2, { objective: 'O1', change: 'product', krs: [{ name: 'KR1', heading: 'toward' }, { name: 'KR2', heading: 'hold' }] }],
+    [2, { objective: 'O1', change: 'gold', krs: [{ name: 'KR1', heading: 'away' }] }],
+  ])
+  expect((await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=toward', '--change', 'code')).code).toBe(2)
 })
 
 it('refuses a KR or an O the okr.toml does not have', async () => {
   const id = await newTask()
-  const kr = await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR9=↑ 3→5 实测')
+  const kr = await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR9=toward')
   expect(kr.code).toBe(1)
-  expect(kr.dropped).toBe('O1 下没有这个 KR:KR9(有:KR1、KR2)')
-  expect((await nawaban('event', id, '--kind', 'impact', '--o', 'O9')).dropped).toMatch(/没有这个 O:O9/)
+  expect(kr.err).toMatch('O1 下没有这个 KR:KR9(有:KR1、KR2)')
+  expect((await nawaban('event', id, '--kind', 'impact', '--o', 'O9')).err).toMatch(/没有这个 O:O9/)
   expect(await replies(id)).toBe(0)
 })
 
 it("holds the board's own writers to the names, not only nawaban event", async () => {
   const id = await newTask()
+  const registered = { objective: 'O1', change: 'product', krs: [{ name: 'KR9', heading: 'toward' }] }
+  expect((await nawaban('reply', id, '--schema', 'nawaban-impact@2', JSON.stringify(registered))).dropped).toMatch(/没有这个 KR:KR9/)
   const wrong = { objective: 'O1', krs: [{ name: 'KR9', dir: '=' }] }
   expect((await nawaban('reply', id, '--schema', 'nawaban-impact@1', JSON.stringify(wrong))).dropped).toMatch(/没有这个 KR:KR9/)
   const bare = { objective: 'O1', krs: [{ name: 'KR1', dir: '↑' }] }
@@ -115,12 +117,9 @@ it("holds the board's own writers to the names, not only nawaban event", async (
   expect(await replies(id)).toBe(0)
 })
 
-it('refuses ↑ or ↓ without numbers before and after', async () => {
+it('takes no old ↑↓= from nawaban event, and holds old blocks to numbers before and after', async () => {
   const id = await newTask()
-  const bare = await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=↑')
-  expect(bare.code).toBe(1)
-  expect(bare.err).toMatch(/krs\[0\]\.before is missing/)
-  expect((await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=↓ 3→5')).code).toBe(2)
+  expect((await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=↑ 3→5 实测')).code).toBe(2)
   const words = { objective: 'O1', krs: [{ name: 'KR1', dir: '↑', before: 'low', after: 'high', basis: '预计' }] }
   expect((await nawaban('reply', id, '--schema', 'nawaban-impact@1', JSON.stringify(words))).dropped).toMatch(/前后值要是数字/)
   expect(await replies(id)).toBe(0)
@@ -129,24 +128,29 @@ it('refuses ↑ or ↓ without numbers before and after', async () => {
 it('lets --o 无 through, with no KR, in any project', async () => {
   const id = await newTask()
   expect((await nawaban('event', id, '--kind', 'impact', '--o', '无')).code).toBe(0)
-  expect((await nawaban('event', id, '--kind', 'impact', '--o', '无', '--kr', 'KR1==')).dropped).toBe('--o 无 不带 --kr')
+  expect((await nawaban('event', id, '--kind', 'impact', '--o', '无', '--kr', 'KR1=hold')).err).toMatch('--o 无 不带 --kr')
   const plain = await newTask('plain')
   expect((await nawaban('event', plain, '--kind', 'impact', '--o', '无')).code).toBe(0)
-  expect((await nawaban('event', plain, '--kind', 'impact', '--o', 'O1')).dropped).toMatch(/没有 docs\/agents\/okr.toml/)
+  expect((await nawaban('event', plain, '--kind', 'impact', '--o', 'O1')).err).toMatch(/没有 docs\/agents\/okr.toml/)
 })
 
-it('refuses to close as done a task with no impact, where the project keeps an okr.toml', async () => {
-  const close = async (key: string) => {
-    for (const [k, v] of Object.entries({ BOARD_URL: url, BOARD_TOKEN: SECRET, NAWABAN_BOARD_DIR: dir, CLAUDE_CODE_SESSION_ID: 'aaaa1111-0', HC_TERMINAL_ID: '' })) vi.stubEnv(k, v)
-    let err = ''
-    const quiet = [vi.spyOn(process.stdout, 'write').mockImplementation(() => true), vi.spyOn(process.stderr, 'write').mockImplementation((c) => ((err += String(c)), true))]
-    try {
-      return { code: await run(['close', key, '--done']), err }
-    } finally {
-      for (const spy of quiet) spy.mockRestore()
-      vi.unstubAllEnvs()
-    }
+async function asAWorker(fn: () => Promise<number | undefined>) {
+  for (const [k, v] of Object.entries({ BOARD_URL: url, BOARD_TOKEN: SECRET, NAWABAN_BOARD_DIR: dir, CLAUDE_CODE_SESSION_ID: 'aaaa1111-0', HC_TERMINAL_ID: '' })) vi.stubEnv(k, v)
+  let out = ''
+  let err = ''
+  const quiet = [vi.spyOn(process.stdout, 'write').mockImplementation((c) => ((out += String(c)), true)), vi.spyOn(process.stderr, 'write').mockImplementation((c) => ((err += String(c)), true))]
+  try {
+    return { code: await fn(), out, err }
+  } finally {
+    for (const spy of quiet) spy.mockRestore()
+    vi.unstubAllEnvs()
   }
+}
+const close = (key: string, ...more: string[]) => asAWorker(() => run(['close', key, '--done', ...more]))
+const claimRegisteringAsTheCliDoes = (...argv: string[]) =>
+  asAWorker(() => claimRegistering(argv, async (rest) => (await run(['claim', ...rest]))!, (args) => createApp({ appName: 'nawaban' }).run(args), board()))
+
+it('refuses to close as done a task with no impact, where the project keeps an okr.toml', async () => {
   const id = await newTask('nawaban', 'NAWABAN-C-01')
   const refused = await close('NAWABAN-C-01')
   expect(refused.code).toBe(1)
@@ -188,7 +192,7 @@ it('refuses a merge whose task declares no impact, from a worktree of the reposi
   expect(refused.code).toBe(2)
   expect(refused.err).toMatch(/NAWABAN-T-01/)
 
-  await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1==')
+  await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=hold')
   expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 7 --squash', worktree, pr)).code).toBe(0)
   expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 7', worktree, { ...pr, body: 'no key' })).code).toBe(2)
   expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('echo "gh pr merge 7"', worktree, pr)).code).toBe(0)
@@ -204,4 +208,71 @@ it("reads gh's -R before pr merge as a merge", EVERY_HOOK_RUN_STARTS_A_SHELL_AND
   const refused = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh -R acme/web pr merge 8 --squash', worktree, pr)
   expect(refused.code).toBe(2)
   expect(refused.err).toMatch(/NAWABAN-T-02/)
+})
+
+it('refuses to close as done a task that registered KRs and never reported them, and takes the results as it closes', async () => {
+  const id = await newTask('nawaban', 'NAWABAN-R-01')
+  await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=toward', '--kr', 'KR2=hold')
+  const unreported = await close('NAWABAN-R-01')
+  expect([unreported.code, unreported.err]).toEqual([1, expect.stringMatching(/登记了 KR 却没补结果\(KR1、KR2\)/)])
+  expect((await close('NAWABAN-R-01', '--kr', 'KR1=up')).code).toBe(2)
+  expect((await close('NAWABAN-R-01', '--kr', 'KR1=5 实测')).err).toMatch(/没补结果\(KR2\)/)
+  expect((await close('NAWABAN-R-01', '--kr', 'KR2=83.3% 预计')).code).toBe(0)
+})
+
+it('writes no result for a ticket someone else holds', async () => {
+  const id = await newTask('nawaban', 'NAWABAN-R-03')
+  await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=toward')
+  await team.as('someone-else').tasks.claim(id)
+  expect((await close('NAWABAN-R-03', '--kr', 'KR1=999 实测')).err).toMatch(/is held by/)
+  expect((await team.thread(id)).replies.flatMap((r) => r.blocks).filter((b) => b.schema === 'nawaban-impact-result')).toEqual([])
+})
+
+it('registers as it claims, refusing a wrong name before it claims', async () => {
+  const id = await newTask('nawaban', 'NAWABAN-R-02')
+  const wrong = await claimRegisteringAsTheCliDoes('NAWABAN-R-02', '--o', 'O1', '--kr', 'KR9=toward')
+  expect([wrong.code, (await team.thread(id)).message.task?.state]).toEqual([1, 'ready'])
+  expect((await claimRegisteringAsTheCliDoes('NAWABAN-R-02', '--o', 'O1', '--kr', 'KR1=toward', '--change', 'measure')).code).toBe(0)
+  const { message, replies } = await team.thread(id)
+  expect([message.task?.state, replies.at(-1)!.blocks[0]!.data]).toEqual(['claimed', { objective: 'O1', change: 'measure', krs: [{ name: 'KR1', heading: 'toward' }] }])
+})
+
+describe('end to end: registered as claimed, reported as closed, judged by json okr', () => {
+  let e2e = ''
+  const measure = async (value: number, day: number) => {
+    await writeFile(join(e2e, 'k.txt'), `${value} 2026-11-${day}`)
+    return asAWorker(() => okr([], team, dir, { cwd: e2e }))
+  }
+  const verdicts = async () => JSON.parse((await asAWorker(() => jsonOkr([], team, dir, e2e))).out).objectives[0].krs[0].verdicts
+
+  beforeAll(async () => {
+    e2e = await mkdtemp(join(tmpdir(), 'nawaban-impact-e2e-'))
+    await mkdir(join(e2e, 'docs/agents'), { recursive: true })
+    await writeFile(join(e2e, 'docs/agents/okr.toml'), '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 95"\nmeasure = "cat k.txt"\n')
+    execFileSync('git', ['-C', e2e, 'init', '-q'])
+    execFileSync('git', ['-C', e2e, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'e2e'])
+    execFileSync('git', ['-C', e2e, 'add', '.'])
+    execFileSync('git', ['-C', e2e, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'okr'])
+    await writeFile(join(dir, 'repos.json'), JSON.stringify({ nawaban: repo, e2e }))
+  })
+
+  it('judges a declaration registered as its ticket was claimed by the first round after its result', async () => {
+    await measure(80, 10)
+    const id = await newTask('e2e', 'E2E-01')
+    expect((await claimRegisteringAsTheCliDoes('E2E-01', '--o', 'O', '--kr', 'K=toward')).code).toBe(0)
+    expect((await team.thread(id)).replies.at(-1)!.blocks[0]!.data).toMatchObject({ krs: [{ name: 'K', heading: 'toward', reading: '80' }] })
+    expect((await close('E2E-01', '--kr', 'K=85 实测')).code).toBe(0)
+    await measure(85, 11)
+    expect(await verdicts()).toEqual([{ ticket: 'E2E-01', declared: 'toward', verdict: '符合' }])
+  })
+
+  it('closes a ticket registered after its first pull request, and gives it no verdict', async () => {
+    await measure(85, 12)
+    const id = await newTask('e2e', 'E2E-02')
+    await nawaban('event', id, '--kind', 'link', '--body', 'pr:https://example.test/pull/1')
+    await nawaban('event', id, '--kind', 'impact', '--o', 'O', '--kr', 'K=toward')
+    expect((await close('E2E-02', '--kr', 'K=90 实测')).code).toBe(0)
+    await measure(90, 13)
+    expect(await verdicts()).toEqual([])
+  })
 })

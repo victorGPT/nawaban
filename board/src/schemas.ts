@@ -10,6 +10,13 @@ const UNCHANGED_KR_MAY_CARRY_A_READING_NOTHING_JUDGES = {
   properties: { name: text, dir: { enum: ['='] }, before: text, after: text, basis },
 } as const
 
+const REGISTERED_KR_WITH_THE_READING_AND_MEASURE_IT_WAS_REGISTERED_AGAINST = {
+  type: 'object',
+  required: ['name', 'heading'],
+  additionalProperties: false,
+  properties: { name: text, heading: { enum: ['toward', 'away', 'hold'] }, reading: text, def_hash: text },
+} as const
+
 const MOVED_KR_WITH_ITS_READING_BEFORE_AND_AFTER = {
   type: 'object',
   required: ['name', 'dir', 'before', 'after', 'basis'],
@@ -81,6 +88,35 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
               MOVED_KR_WITH_ITS_READING_BEFORE_AND_AFTER,
             ],
           },
+        },
+      },
+    },
+  },
+  'nawaban-impact@2': {
+    description:
+      'What a task registers it will move, before its first pull request: one Objective, each KR heading toward its target, away from it or holding, with the reading and measure hash it was registered against, and whether the change is to the product, the measure or the gold. Objective 无 with no KRs is pure infrastructure.',
+    schema: {
+      type: 'object',
+      required: ['objective', 'change', 'krs'],
+      additionalProperties: false,
+      properties: {
+        objective: text,
+        change: { enum: ['product', 'measure', 'gold'] },
+        krs: { type: 'array', items: REGISTERED_KR_WITH_THE_READING_AND_MEASURE_IT_WAS_REGISTERED_AGAINST },
+      },
+    },
+  },
+  'nawaban-impact-result@1': {
+    description: "What a task's registered KRs read when it closed as done: each KR's value after, measured or expected. Heading, reading and measure stay as registered.",
+    schema: {
+      type: 'object',
+      required: ['krs'],
+      additionalProperties: false,
+      properties: {
+        krs: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'object', required: ['name', 'after', 'basis'], additionalProperties: false, properties: { name: text, after: text, basis } },
         },
       },
     },

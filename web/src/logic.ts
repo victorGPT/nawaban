@@ -7,7 +7,7 @@ export { foldKey, localMonthDayTime, MILESTONE_WORDS, MILESTONES, OKR_WORDS, okr
 
 export type KrStatus = 'met' | 'missed' | 'unmeasurable' | 'undecided' | 'stale' | 'untested'
 export type KrRow = { name: string; status: KrStatus; value: string; target: string; measured: boolean; gap: string | null; day: string | null; series: string | null; failure: string | null; interval: string | null }
-export type ObjectiveRow = { name: string; met: number; total: number; standing: 'missed' | 'unsure' | 'met'; krs: KrRow[]; untestedKrs: KrRow[]; metKrs: KrRow[] }
+export type ObjectiveRow = { name: string; met: number; total: number; standing: 'missed' | 'unsure' | 'met'; rulers: string | null; krs: KrRow[]; untestedKrs: KrRow[]; metKrs: KrRow[] }
 export type OkrView = { met: number; total: number; measured: string | null; objectives: ObjectiveRow[] }
 export const okrView = (okr: unknown): OkrView | null => panelOkrView(okr, 'zh')
 

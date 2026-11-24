@@ -746,6 +746,7 @@ function ObjectiveCard(props: { o: ObjectiveRow }) {
       >
         <header class="flex items-baseline gap-3 px-4 pt-2">
           <h2 class="min-w-0 flex-1 truncate text-base leading-snug font-medium">{o().name}</h2>
+          <Show when={o().rulers}><span class="shrink-0 text-sm text-muted-foreground">{o().rulers}</span></Show>
           <span class={cn('shrink-0 text-sm font-medium tabular-nums', STANDING_TONES[o().standing])}>{o().met}/{o().total}</span>
         </header>
         <div class="flex flex-col"><For each={o().krs}>{(k) => <KrLine k={k} />}</For></div>
