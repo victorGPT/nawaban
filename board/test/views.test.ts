@@ -68,8 +68,8 @@ const ok = async (session: string, terminal: string, ...argv: string[]) => {
 const read = (...argv: string[]) => ok(ORCHESTRATOR_WINDOW_IN_T1, '', 'json', ...argv)
 
 const OLD_BOARD_DATA_ROW_KEYS = ['id', 'title', 'status', 'project', 'parent', 'session', 'created_at', 'active_at', 'open_blockers', 'terminal', 'leader', 'claimed_at']
-const OPEN_ROW_KEYS_PLUS_PENDING = [...OLD_BOARD_DATA_ROW_KEYS, 'progress', 'live', 'ruling', 'blocked_by', 'waiting', 'decision', 'pending'].sort()
-const DONE_ROW_KEYS = [...OLD_BOARD_DATA_ROW_KEYS, 'done_at'].sort()
+const OPEN_ROW_KEYS_PLUS_PENDING = [...OLD_BOARD_DATA_ROW_KEYS, 'agent', 'progress', 'live', 'ruling', 'blocked_by', 'waiting', 'decision', 'pending'].sort()
+const DONE_ROW_KEYS = [...OLD_BOARD_DATA_ROW_KEYS, 'agent', 'done_at'].sort()
 
 it('prints the board in the shape the panel reads, and the panel draws the 等你 card and the orchestrator group from it', async () => {
   await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'S', '--title', '报表迁到新底座', '--project', 'nawaban')
@@ -80,7 +80,16 @@ it('prints the board in the shape the panel reads, and the panel draws the 等�
   await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'D', '--title', '派出去的', '--project', 'nawaban')
   const id = async (k: string) => (await team.tasks.list({ state: 'all', label: { key: k } })).tasks[0]!.message.id
 
+  const dispatchedByTheOrchestrator = async (k: string, dispatch: Record<string, string>) => {
+    const task = await id(k)
+    vi.stubEnv('BOARD_URL', url)
+    vi.stubEnv('BOARD_TOKEN', SECRET)
+    await board().as('cc-aaaa1111').reply(task, block('nawaban-dispatch@2', dispatch))
+    vi.unstubAllEnvs()
+  }
   const s01ClaimedDecidedDoneThenS02HeldByTheOrchestratorWithProgress = async () => {
+    await dispatchedByTheOrchestrator('S-01', { worker: 's01', terminal: 't5', accept: '验收', agent: 'claude', model: 'opus' })
+    await dispatchedByTheOrchestrator('S-02', { worker: 's02', terminal: 't6', accept: '验收', agent: 'gemini' })
     await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'claim', 'S-01')
     const s01 = (await read('task', 'S-01')).id
     expect(s01).toBe('S-01')
@@ -122,7 +131,9 @@ it('prints the board in the shape the panel reads, and the panel draws the 等�
   expect(byId['P']).toMatchObject({ session: 'cc-cccc3333', terminal: 't4', waiting: '发不发', pending: { brief: '发不发', progress: [] } })
   expect(byId['P'].pending.card).toEqual({ decision: '发不发', kr: 'K', context: '事实', rec: '发',
     options: [{ key: '第 1 项', text: '发', note: '快｜two-way' }, { key: '第 2 项', text: '不发', note: '稳｜two-way' }] })
-  expect(byId['D']).toMatchObject({ status: 'open', session: null, terminal: null, leader: 'cc-aaaa1111', claimed_at: null })
+  expect(byId['D']).toMatchObject({ status: 'open', session: null, terminal: null, leader: 'cc-aaaa1111', claimed_at: null, agent: null })
+  expect(byId['S-01'].agent).toEqual({ harness: 'claude', model: 'opus', worker: 's01' })
+  expect(byId['S-02'].agent).toBeNull()
   expect(data.decisions).toEqual([expect.objectContaining({ task: 'S-02', verdict: '先只读\n第二行', owner: false })])
 
   const now = Math.floor(Date.now() / 1000)

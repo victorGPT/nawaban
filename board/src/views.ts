@@ -87,6 +87,14 @@ function completeCardElseNull(ask: DecisionCard | undefined) {
 const orchestratorAsTheGlossaryDefinesIt = (latestDispatch: Reply | undefined, holder: string | null, lastClaimer: string | null) =>
   latestDispatch?.by ?? holder ?? lastClaimer
 
+const HARNESSES_THE_PAGE_NAMES = new Set(['claude', 'codex', 'agy'])
+
+function agentOfTheLatestDispatchElseNull(dispatch: Reply | undefined) {
+  const d = dispatch && data(dispatch.message, 'nawaban-dispatch')
+  if (!d || !HARNESSES_THE_PAGE_NAMES.has(String(d.agent))) return null
+  return { harness: String(d.agent), model: d.model ? String(d.model) : null, worker: d.worker ? String(d.worker) : null }
+}
+
 const isNote = (r: Reply) => r.message.blocks.length === 0
 const progress = (r: Reply | undefined) => (r ? { body: r.message.text, at: r.at } : null)
 
@@ -118,6 +126,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: st
     terminal: session ? (m.labels.terminal ?? null) : null,
     leader: orchestratorAsTheGlossaryDefinesIt(dispatch, session, lastClaimer),
     claimed_at: h.holds[0] ? Math.floor(h.holds[0].from) : null,
+    agent: agentOfTheLatestDispatchElseNull(dispatch),
   }
   if (done) return { ...out, done_at: h.done }
   return {
