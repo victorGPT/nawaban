@@ -21,6 +21,9 @@ it('takes the furthest milestone a Claude Code session reached, from its tool ca
   expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: 'gh pr checks 9' })))).toBe('review')
   expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: 'git -C /tmp/x commit -qm x' })))).toBe('committed')
   expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: 'hc send t19p "回报：X 完成 | ok | PR"' })))).toBe('reported')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: 'node /Users/x/.nawaban/plugin/board/src/cli.ts tell X "完成 PR #5"' })))).toBe('reported')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: 'cd wt && nawaban tell X "受阻，详情在票上"' })))).toBe('reported')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: "rg -n 'nawaban tell' board/src" })))).toBe('started')
 })
 
 it('counts only commands it ran, not text it wrote or searched for', async () => {

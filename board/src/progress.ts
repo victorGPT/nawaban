@@ -21,6 +21,7 @@ export const TOOLS_THAT_EDIT = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookE
 const AT_A_COMMAND = String.raw`(?:^|[;&|(\n]\s*)`
 const COMMAND_SIGNS: [Milestone, RegExp, RegExp | null][] = [
   ['reported', new RegExp(AT_A_COMMAND + String.raw`hc\s+send\b`), /^[^\n]*回报：/],
+  ['reported', new RegExp(AT_A_COMMAND + String.raw`(?:\S*nawaban|node\s+\S*cli\.ts)\s+tell\b`), null],
   ['review', new RegExp(AT_A_COMMAND + String.raw`(?:gh\s+pr\s+checks\b|codex\s+review\b|node\s+\S*codex-companion\S*\s+(?:task|review))`), null],
   ['pr', new RegExp(AT_A_COMMAND + String.raw`gh\s+pr\s+create\b`), null],
   ['committed', new RegExp(AT_A_COMMAND + String.raw`git(?:\s+-[Cc]\s+\S+)*\s+commit\b`), null],
