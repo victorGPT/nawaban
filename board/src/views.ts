@@ -114,7 +114,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>) {
   if (done) return { ...out, done_at: h.done }
   return {
     ...out,
-    progress: progress(notes.findLast((r) => !/^\s*(?:coord|impact):/.test(r.message.text))),
+    progress: progress(notes.findLast((r) => !/^\s*(?:coord|impact|lane):/.test(r.message.text))),
     blocked_by: open.map((id) => (byId.get(id) ? key(byId.get(id)!) : `#${id}`)).sort(),
     waiting: ask?.reason ?? null,
     decision: decision ? { at: decision.at, verdict: String(data(decision.message, 'nawaban-decision')!.verdict) } : null,

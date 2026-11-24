@@ -24,7 +24,7 @@ export class Refused extends Error {
 
 const boardKeepsProfileNamesLowercase = (name: string) => name.toLowerCase()
 
-const sessionProfile = (agent: 'cx' | 'agy' | 'cc', session: string) =>
+export const sessionProfile = (agent: 'cx' | 'agy' | 'cc', session: string) =>
   boardKeepsProfileNamesLowercase(`${agent}-${session.slice(0, SESSION_PREFIX_LENGTH)}`)
 
 export function profile(): string {
