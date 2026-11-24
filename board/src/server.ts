@@ -19,7 +19,7 @@ import { isLiveFileName, progressDir } from './progress.ts'
 import { noPullStates, pullStateFromGitHub, type PullStateOf } from './pulls.ts'
 import { Refused } from './tasks.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
-import { answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, webAnswers, webAnswerText } from './page.ts'
+import { ANSWERS_LABEL, answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, webAnswers, webAnswerText } from './page.ts'
 
 const DEFAULT_PORT = 4100
 const TOKEN_BYTES = 32
@@ -321,7 +321,8 @@ async function answer(team: Team, asThisPerson: (body: unknown) => Promise<Respo
   const { replies } = await team.thread(task.id)
   const current = task.task.blocked.reason.startsWith(HELD_FOR_A_GITHUB_ASK) ? currentGithubAsk(replies) : replies.findLast((m) => !m.deleted && m.blocks.some((b) => b.schema === 'nawaban-ask'))
   if (current?.id !== said.ask) return theCardChanged(ref)
-  const posted = await asThisPerson({ re: task.id, after: replies.at(-1)!.id, text: webAnswerText(said.answer) })
+  const boundToTheGithubAskItAnswers = current && current.from === 'github' ? { labels: { [ANSWERS_LABEL]: current.id } } : {}
+  const posted = await asThisPerson({ re: task.id, after: replies.at(-1)!.id, text: webAnswerText(said.answer), ...boundToTheGithubAskItAnswers })
   if (posted.status === 409) return theCardChanged(ref)
   if (!posted.ok) return refuse(502, `看板没收下答复：${posted.status}`)
   const written = await team.thread(task.id)

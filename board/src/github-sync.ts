@@ -168,14 +168,16 @@ export async function pollRepo(repo: string, dir: string, reader: Reader, delive
 }
 
 async function deleteWhatGithubNoLongerHas(repo: string, reader: Reader, deliver: Deliver, state: RepoState, repository: unknown) {
+  const remembered = (state.comments ??= {})
   for (const [number, seen] of Object.entries(state.issues)) {
     if (seen.state !== 'open') continue
     const current = ((await reader.list(`repos/${repo}/issues/${number}/comments?per_page=100`)) as Comment[]).map((c) => c.id)
-    const gone = (state.comments?.[number] ?? []).filter((id) => !current.includes(id))
-    if (!gone.length) continue
-    const issue = (await reader.one(`repos/${repo}/issues/${number}`)) as Issue
-    for (const id of gone) await deliver('issue_comment', { action: 'deleted', issue, comment: { id, issue_url: `https://api.github.com/repos/${repo}/issues/${number}`, user: issue.user, body: '' }, repository, sender: issue.user })
-    state.comments![number] = current
+    const gone = (remembered[number] ?? []).filter((id) => !current.includes(id))
+    if (gone.length) {
+      const issue = (await reader.one(`repos/${repo}/issues/${number}`)) as Issue
+      for (const id of gone) await deliver('issue_comment', { action: 'deleted', issue, comment: { id, issue_url: `https://api.github.com/repos/${repo}/issues/${number}`, user: issue.user, body: '' }, repository, sender: issue.user })
+    }
+    remembered[number] = current
   }
 }
 

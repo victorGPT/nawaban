@@ -206,6 +206,22 @@ describe('网页的决策卡和答复轮次', () => {
     expect((await pendingOf('ROUBAO-1793')).card?.decision).toBe('新问题')
   })
 
+  it('网页答的那条待决在 GitHub 上被删了，答复不会挪到前一件待决头上', async () => {
+    await registerSchemas(team)
+    const a = comment(1794, fullAsk('A 件'), '2026-11-24T10:01:00Z')
+    const b = comment(1794, fullAsk('B 件'), '2026-11-24T10:02:00Z')
+    const world: World = { issues: [issue(1794, 'open', '2026-11-24T10:00:00Z')], comments: [a, b] }
+    await poll(world)
+    expect((await pendingOf('ROUBAO-1794')).card?.decision).toBe('B 件')
+    expect((await answerOn('ROUBAO-1794', (await pendingOf('ROUBAO-1794')).ask, '答 B')).status).toBe(201)
+    world.comments = [a]
+    await pollRepo(REPO, dir, { ...readerOf(world), now: async () => '2026-11-25T13:00:00.000Z' }, deliverAsSignedWebhook((r) => team.fetch(r), url, SECRET))
+    await importDrains()
+    await poll(world)
+    expect((await pendingOf('ROUBAO-1794')).card?.decision).toBe('A 件')
+    expect(await webAnswers(team, 'roubao')).toEqual([])
+  })
+
   it('上一轮的网页答复不算到 GitHub 上新提的待决头上', async () => {
     await registerSchemas(team)
     const world: World = { issues: [issue(1792, 'open', '2026-11-24T10:00:00Z')], comments: [comment(1792, fullAsk('第一件'), '2026-11-24T10:01:00Z')] }

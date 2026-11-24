@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -255,6 +255,24 @@ describe('同步停了要露出来', () => {
 })
 
 describe('每天对一次删除', () => {
+  it('从没记过评论 ID 的旧状态，第一次对账先记下，之后删掉的也能删', async () => {
+    const c = comment(9201, 1730, yue, '旧状态里的评论', '2026-11-24T10:01:00Z')
+    const w = { issues: [issue(1730, 'open', '2026-11-24T10:00:00Z')], comments: [c], now: '2026-11-24T12:00:00.000Z' }
+    await pollRepo(REPO, dir, readerOf(w), deliver())
+    const path = join(dir, 'github-sync', `${encodeURIComponent(REPO)}.json`)
+    const saved = JSON.parse(await readFile(path, 'utf8'))
+    delete saved.comments
+    saved.reconciledAt = '2026-11-23T11:00:00.000Z'
+    await writeFile(path, JSON.stringify(saved))
+    const onlyTheDailyReconcileSeesComments = { ...readerOf(w), list: async (p: string) => (p.includes('/issues/comments') ? [] : readerOf(w).list(p)) }
+    await pollRepo(REPO, dir, onlyTheDailyReconcileSeesComments, deliver())
+    w.comments = []
+    w.now = '2026-11-25T13:00:00.000Z'
+    await pollRepo(REPO, dir, readerOf(w), deliver())
+    await settled()
+    expect((await repliesOf(`${REPO}#1730`)).filter((r) => !r.deleted)).toEqual([])
+  })
+
   it('GitHub 上删掉的评论，过了一天的那一轮在板上也删掉', async () => {
     const kept = comment(9101, 1730, yue, '留着的', '2026-11-24T10:01:00Z')
     const removed = comment(9102, 1730, yue, '会被删的', '2026-11-24T10:02:00Z')

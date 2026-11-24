@@ -50,6 +50,7 @@ async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: Message
   const out = new Map<string, History>(tasks.map((t) => [t.id, { replies: [], holds: [], done: null, active: secs(t.createdAt) }]))
   if (!tasks.length) return out
   const seen = new Set<string>()
+  const replyOf = new Map<string, { h: History; reply: Reply }>()
   let after = tasks.reduce((a, t) => (Number(t.id) < Number(a) ? t.id : a), tasks[0]!.id)
   for (;;) {
     const { events, cursor } = await team.poll({ channel, after })
@@ -57,7 +58,10 @@ async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: Message
     if (feedEndsWhereTheCursorStaysNotAtAnEmptyPage) return out
     after = cursor
     for (const e of events as BoardEventView[]) {
-      const p = e.payload as { id?: string; by?: { actor: string } }
+      const p = e.payload as { id?: string; by?: { actor: string }; text?: string }
+      const changed = p.id ? replyOf.get(p.id) : undefined
+      if (changed && e.type === 'message.edited') changed.reply.message = { ...changed.reply.message, text: p.text ?? changed.reply.message.text }
+      if (changed && e.type === 'message.deleted') changed.h.replies = changed.h.replies.filter((r) => r !== changed.reply)
       const at = secs(e.createdAt)
       const m = e.message
       const thread = e.type === 'message.posted' ? m?.re : p.id
@@ -66,7 +70,9 @@ async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: Message
       h.active = Math.max(h.active, at)
       if (e.type === 'message.posted' && m && !m.deleted && !seen.has(m.id)) {
         seen.add(m.id)
-        h.replies.push({ message: m, at, by: windowProfileElseName(p.by?.actor ?? '') })
+        const reply = { message: m, at, by: windowProfileElseName(p.by?.actor ?? '') }
+        h.replies.push(reply)
+        replyOf.set(m.id, { h, reply })
       }
       const held = h.holds.at(-1)
       if (EVENTS_THAT_END_A_CLAIM.has(e.type) && held?.to === null) held.to = Date.parse(e.createdAt) / 1000
