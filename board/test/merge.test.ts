@@ -93,16 +93,19 @@ const replies = async (id: string) => (await team.thread(id)).replies
 const newTask = async (key: string) => (await team.as(null).tasks.create('nawaban', { id: key, text: key, labels: { key } })).task.id
 const dispatchedTo = (id: string, terminal: string) => note(id, block('nawaban-dispatch@1', { worker: 'w', terminal, accept: 'a' }))
 
-const boardCliAsSession = (session: string, cwd: string, ...argv: string[]) =>
-  exec('node', [CLI, ...argv], { cwd, env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, CLAUDE_CODE_SESSION_ID: session, HC_TERMINAL_ID: '' } })
+const boardCliAsSession = (session: string, cwd: string, ...argv: string[]) => boardCliAsSessionIn('', session, cwd, ...argv)
+const boardCliAsSessionIn = (terminal: string, session: string, cwd: string, ...argv: string[]) =>
+  exec('node', [CLI, ...argv], { cwd, env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, CLAUDE_CODE_SESSION_ID: session, HC_TERMINAL_ID: terminal } })
 
-async function workerOnItsOwnTicket(key: string, terminal: string, pr: Pr = greenCodePr(key)) {
+async function workerOnItsOwnTicket(key: string, terminal: string, pr: Pr = greenCodePr(key), how: 'dispatched' | 'claimedInItsTerminal' = 'dispatched') {
   const id = await newTask(key)
   const worktree = join(tmp, `repo-${key.toLowerCase()}`)
   await git(repo, 'worktree', 'add', '-q', '-b', `wt/${key.toLowerCase()}`, worktree, 'main')
   await writeFile(join(tmp, 'workers', `${terminal}.json`), JSON.stringify({ state: 'live', name: key.toLowerCase(), cwd: worktree, labels: {} }))
-  await dispatchedTo(id, terminal)
-  await boardCliAsSession('aaaa1111-0000', worktree, 'claim', key)
+  if (how === 'dispatched') {
+    await dispatchedTo(id, terminal)
+    await boardCliAsSession('aaaa1111-0000', worktree, 'claim', key)
+  } else await boardCliAsSessionIn(terminal, 'aaaa1111-0000', worktree, 'claim', key)
   await writeFile(join(tmp, `pr-${key}.json`), JSON.stringify(pr))
   return { id, worktree }
 }
@@ -312,6 +315,54 @@ it('hands the next ready task of the lane to the worker instead of retiring it',
   expect(r.hc).toMatch(/^send t75 \/pstack:poteto-mode 任务：M-LN-NEXT/m)
   expect((await replies(next)).at(-1)?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { terminal: 't75' } }])
   expect(existsSync(worktree)).toBe(true)
+})
+
+it('retires a worker that took its ticket without a dispatch, found by the terminal it claimed from, once its lane is empty', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-SELF', 't79', greenCodePr('M-SELF'), 'claimedInItsTerminal')
+  await note(id, 'lane: self-lane')
+  const r = await mergeAsTheWorker('M-SELF', 't79', worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(await lastNote(id)).toMatch(/收 worker t79/)
+  expect(existsSync(worktree)).toBe(false)
+  expect(r.hc.trim().split('\n').at(-1)).toBe('kill t79')
+})
+
+it('hands the next ready task of the lane to a worker that took its ticket without a dispatch, and does not retire it', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-SELFN', 't7a', greenCodePr('M-SELFN'), 'claimedInItsTerminal')
+  await note(id, 'lane: self-next-lane')
+  const next = await newTask('M-SELFN-NEXT')
+  await note(next, 'lane: self-next-lane')
+  const r = await mergeAsTheWorker('M-SELFN', 't7a', worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.hc).not.toMatch(/^kill/m)
+  expect(r.hc).toMatch(/^send t7a \/pstack:poteto-mode 任务：M-SELFN-NEXT/m)
+  expect(existsSync(worktree)).toBe(true)
+})
+
+it('finishes retiring a worker that took its ticket without a dispatch on a rerun after the close unset its terminal label', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-SELFK', 't7b', greenCodePr('M-SELFK'), 'claimedInItsTerminal')
+  const first = await mergeAsTheWorker('M-SELFK', 't7b', worktree, { HC_KILL_FAIL: '1' })
+  expect(first.code).toBe(1)
+  expect(await stateOf(id)).toBe('completed')
+  await writeFile(join(tmp, 'pr-M-SELFK.json'), JSON.stringify({ ...greenCodePr('M-SELFK'), state: 'MERGED', mergeCommit: { oid: 'f'.repeat(40) } }))
+  const rerun = await mergeAsTheWorker('M-SELFK', 't7b', repo)
+  expect(rerun.code).toBe(0)
+  expect(rerun.hc.trim().split('\n').at(-1)).toBe('kill t7b')
+})
+
+it('reads a terminal label left by a lapsed claim as no holder, so the ready ticket is handed on rather than kept for it', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-STALE', 't7c', greenCodePr('M-STALE'), 'claimedInItsTerminal')
+  await note(id, 'lane: stale-lane')
+  const next = await newTask('M-STALE-NEXT')
+  await note(next, 'lane: stale-lane')
+  await team.as(null).label(next, { set: { terminal: 't7c' } })
+  const r = await mergeAsTheWorker('M-STALE', 't7c', worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.hc).not.toMatch(/^kill/m)
+  expect(r.hc).toMatch(/^send t7c \/pstack:poteto-mode 任务：M-STALE-NEXT/m)
 })
 
 it('leaves a worker alone that still has another open ticket', async () => {

@@ -51,9 +51,13 @@ async function viewOf(n: string): Promise<PullRequest> {
   return JSON.parse((await exec('gh', ['pr', 'view', n, '--json', PR_FIELDS])).stdout)
 }
 
+const lastDispatchedTerminal = (replies: MessageView[]) => replies.flatMap((r) => r.blocks.filter((b) => b.schema === 'nawaban-dispatch').map((b) => (b.data as { terminal: string }).terminal)).at(-1)
+const claimLive = (task: MessageView) => !!task.task?.claim && Date.parse(task.task.claim.until) > Date.now()
+const terminalWhileClaimed = (task: MessageView) => (claimLive(task) ? task.labels.terminal : undefined)
+
 async function seenOf(task: MessageView): Promise<Seen> {
   const { replies } = await board().thread(task.id)
-  const terminal = replies.flatMap((r) => r.blocks.filter((b) => b.schema === 'nawaban-dispatch').map((b) => (b.data as { terminal: string }).terminal)).at(-1) ?? null
+  const terminal = terminalWhileClaimed(task) ?? lastDispatchedTerminal(replies) ?? null
   const lane = replies.map((r) => r.text.match(LANE_NOTE)?.[1]).findLast((l) => l !== undefined) ?? null
   return { task, terminal, lane }
 }
@@ -153,7 +157,21 @@ async function pluginHoldElsePull(did: string[]): Promise<Outcome | null> {
   return null
 }
 
+async function recordTheWorkerBeforeCloseUnsetsItsLabel(task: MessageView): Promise<Outcome | null> {
+  const holder = terminalWhileClaimed(task)
+  if (!holder) return null
+  if (lastDispatchedTerminal((await board().thread(task.id)).replies) === holder) return null
+  try {
+    await board().as(profile()).reply(task.id, block('nawaban-dispatch@1', { worker: (await terminalOf(holder))?.name ?? holder, terminal: holder, accept: NEXT_ACCEPT }))
+    return null
+  } catch (error) {
+    return { kind: 'mergedButUnfinished', left: `记 worker ${holder} 失败：${failureOf(error)}` }
+  }
+}
+
 async function linkThenClose(task: MessageView, pr: PullRequest, did: string[]): Promise<Outcome | null> {
+  const unrecorded = await recordTheWorkerBeforeCloseUnsetsItsLabel(task)
+  if (unrecorded) return unrecorded
   const { replies } = await board().thread(task.id)
   const linked = replies.some((r) => r.blocks.some((b) => b.schema === 'nawaban-link' && (b.data as { kind: string; ref: string }).kind === 'pr' && (b.data as { ref: string }).ref === pr.url))
   try {
