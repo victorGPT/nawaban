@@ -600,3 +600,15 @@ test("the panel rereads the board when a task's progress file is written, not fo
   assert.equal(boardChanged(["/b/progress/695.json"], db), true);
   assert.deepEqual(["/b/progress/695.json.4242", "/b/progress/.session-x", "/b/progress-stamps/x"].map((p) => boardChanged([p], db)), [false, false, false]);
 });
+
+test("a KR whose measure failed reads 量不了 with no stale value, and a later series names its measure version", () => {
+  const krs = [
+    { name: "冒充", target: "== 0", target_op: "==", target_value: 0, status: "unmeasurable", value: 0, failure: "退出码 1：CI 日志里没有", series: { version: 1, since: "2026-11-19" } },
+    { name: "E3", target: "<= 3", target_op: "<=", target_value: 3, unit: "%", status: "met", value: 2.1, as_of: "2026-11-17", series: { version: 2, since: "2026-11-25" } },
+  ];
+  const [o] = okrView({ objectives: [{ name: "O", krs }] }, "zh").objectives;
+  const [failed] = o.krs, [e3] = o.metKrs;
+  assert.deepEqual([failed.status, failed.measured, failed.value, failed.gap, failed.failure, failed.series], ["unmeasurable", false, "量不了", null, "退出码 1：CI 日志里没有", null]);
+  assert.equal(o.standing, "unsure");
+  assert.deepEqual([e3.value, e3.series], ["2.1%", "口径 v2 起 11-25"]);
+});

@@ -700,6 +700,7 @@ render(() => <App />, document.getElementById('root')!)
 const KR_TONES: Record<KrRow['status'], { text: string; bar: string }> = {
   met: { text: 'text-status-done', bar: 'bg-status-done' },
   missed: { text: 'text-destructive', bar: 'bg-destructive' },
+  unmeasurable: { text: 'text-warning', bar: 'bg-warning' },
   stale: { text: 'text-warning', bar: 'bg-warning' },
   untested: { text: 'text-subtle-foreground', bar: 'bg-status-todo' },
 }
@@ -783,7 +784,7 @@ function KrLine(props: { k: KrRow; quiet?: boolean }) {
         </Progress>
       </Show>
       <div class="flex flex-wrap items-baseline gap-1 text-xs text-subtle-foreground tabular-nums">
-        <Show when={k().measured} fallback={<span>{O.status.untested} / {O.target} {k().target}</span>}>
+        <Show when={k().measured} fallback={<span><span class={tone().text}>{O.status[k().status]}</span> / {O.target} {k().target}<Show when={k().failure}> · {k().failure}</Show></span>}>
           <span class={cn(props.quiet ? 'text-sm text-muted-foreground' : 'text-sm font-medium', !props.quiet && (k().status === 'missed' ? 'text-destructive' : 'text-foreground'))}>{k().value}</span>
           <span>/ {O.target} {k().target}</span>
           <Show when={k().gap}>
@@ -793,6 +794,7 @@ function KrLine(props: { k: KrRow; quiet?: boolean }) {
           <span>·</span>
           <span class={tone().text}>{O.status[k().status]}</span>
           <Show when={k().day}><span>· {O.asOfShort} {k().day}</span></Show>
+          <Show when={k().series}><span>· {k().series}</span></Show>
         </Show>
       </div>
     </div>

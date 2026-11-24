@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { block, BoardError, type board, type MessageView } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
-import { okrChannel, keepEachNewReadingOnce, type Reading } from './okr.ts'
+import { okrChannel, keepAs, key, type Reading } from './okr.ts'
 import { SCHEMAS } from './schemas.ts'
 import { Refused } from './tasks.ts'
 
@@ -121,7 +121,7 @@ function readOldReadOnly(from: string, projects: string[]) {
       notes: latest('note'),
       decisions: latest('decision'),
       triage: latest('note', "AND ltrim(body) LIKE 'triage:%'"),
-      readings: all<{ repo: string; kr: string; value: string; as_of: string; source: string; measured_at: string }>('SELECT * FROM kr_readings ORDER BY measured_at, rowid'),
+      readings: all<{ repo: string; kr: string; value: string; as_of: string; source: string; measured_at: string; def_hash?: string }>('SELECT * FROM kr_readings ORDER BY measured_at, rowid'),
       accepts: all<{ repo: string; objective: string; accepted_at: string }>('SELECT * FROM okr_accepts ORDER BY accepted_at, rowid'),
       impacts: all<Impact>('SELECT * FROM kr_impacts ORDER BY declared_at, rowid'),
     }
@@ -200,8 +200,13 @@ async function holdForAPersonNeedsNoClaim(team: Team, old: Old, t: Task, id: str
 function readingsThroughOkrsOwnKeepingSoTheNextOkrFindsThem(team: Team, old: Old, projectOf: ProjectOfRepo): OkrWrite[] {
   return old.readings.flatMap((r) => {
     const p = projectOf(r.repo)
-    const reading = { kr: r.kr, value: r.value, as_of: r.as_of, source: r.source } as Reading
-    return p ? [{ at: r.measured_at, kind: 'readings' as const, write: async () => (await keepEachNewReadingOnce(team, p, [reading])) > 0 }] : []
+    const reading = { kr: r.kr, value: r.value, as_of: r.as_of, source: r.source, ...(r.def_hash ? { def_hash: r.def_hash } : {}) } as Reading
+    return p ? [{ at: r.measured_at, kind: 'readings' as const, write: async () => {
+      const id = key(p, r.kr, r.as_of, r.source, ...(r.def_hash ? [r.value, r.def_hash, r.measured_at] : []))
+      if (await posted(team, id)) return false
+      await keepAs(team, p, reading, id)
+      return true
+    } }] : []
   })
 }
 
