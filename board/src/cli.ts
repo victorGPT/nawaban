@@ -83,7 +83,10 @@ const COMMANDS: Record<string, Command> = {
     group: '看',
     usage: 'okr',
     about: '各 O 的 KR 读数对目标',
-    flags: [['--accept <O>', '记下决策者验收这个 O，只在它这一轮全达标时']],
+    flags: [
+      ['--accept <O>', '记下决策者验收这个 O，只在它这一轮全达标时'],
+      ['--resume <O>', '硬停之后开新冲刺，要先有挂在这个 O 上、已 resolve 的待决策项'],
+    ],
     run: (rest) => okr(rest, board(), DIR),
   },
   create: {

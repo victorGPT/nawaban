@@ -173,6 +173,24 @@ A declaration the readings contradict. A KR's round is one `okr` run that kept a
 _Avoid_: 声明失实, 对账失败.
 _Current identifiers_: `json okr` fields `impacts`, `verdicts`, `mismatch`; `okr` lines `声明 ↑ ↓ =`, `预期不符`.
 
+**Round**(轮)
+One run of the board CLI's `okr`, the orchestrator's self-check; `json okr`, the panel and the web page only read and are no round. Each is kept in `okr/<project>` as `nawaban-okr-round@1`: its number, how many readings it kept, and the KRs that moved toward their target past the noise gate (未定 is no move). A round that kept no reading is idle (空转). A KR's own round, which judges a declaration, is still an `okr` run that kept a new reading for it.
+轮是板 CLI 的一次 `okr`，也就是编排者的一次自查；`json okr`、面板、网页只读，不算轮。每轮在 `okr/<project>` 记一条 `nawaban-okr-round@1`：第几轮、新记了几条读数、哪些 KR 往目标动过噪声门（未定不算动）。一条新读数都没记的算空转。评判声明用的是某条 KR 自己的轮，仍指给它记下新读数的那次 `okr`。
+_Avoid_: 周期, 迭代.
+_Current identifiers_: block `nawaban-okr-round@1`; `okr` line `第 N 轮`, `(空转)`.
+
+**Sprint**(冲刺)
+An Objective's rounds since its latest `okr --accept` or `okr --resume <O>`, or since the first round when it has neither.
+冲刺是一个 Objective 从最近一次 `okr --accept` 或 `okr --resume <O>` 起的各轮；两样都没有的，从第一轮起。
+_Avoid_: 迭代.
+_Current identifiers_: blocks `nawaban-okr-accept@1`, `nawaban-okr-resume@1`.
+
+**Hard stop**(硬停)
+An Objective whose sprint saw two rounds in a row with no aspirational KR moving, idle rounds included, or reached five rounds without the Objective done (all its KRs met). `okr` exits 3 and prints `硬停：<O>` on every run until `okr --resume <O>`, and writes a decision-request draft to `~/.nawaban/board/okr-stop/<project>-<O>.md`: what's to decide, the KRs that did not move, the sprint's declarations with their verdicts and each KR's readings, three options (another approach; lower the target and change the measure or data set, both only the decision-maker's), and the recommendation left blank. The orchestrator fills the recommendation and sends it with `event --kind ask`; it is never sent on its own. `--resume` is refused until a decision request on the Objective or one of its KRs was resolved within the sprint. A repository the old CLI keeps (`hooks/route.mjs` prints `old`) has its `okr` refused by the board CLI.
+硬停是一个 Objective 的冲刺里连续两轮没有进取型 KR 往目标动（空转的轮也算），或冲刺满 5 轮还没收工（KR 全达标）。之后每次 `okr` 都退出 3、打印「硬停：<O>」，直到 `okr --resume <O>`；同时把待决策项草稿写到 `~/.nawaban/board/okr-stop/<project>-<O>.md`：决策事项、没动的 KR、冲刺内声明过的票和判定、各 KR 的读数、三条备选方案（换打法继续；降目标、改量法或数据集，后两条只有决策者能定），「建议」留空。编排者补上建议后用 `event --kind ask` 发，草稿不自动发出去。挂在该 O 或它的 KR 上的待决策项在冲刺内被 resolve 之前，`--resume` 被拒。旧 CLI 记账的仓库（`hooks/route.mjs` 打印 `old`），板 CLI 的 `okr` 直接拒绝。
+_Avoid_: 熔断.
+_Current identifiers_: CLI `okr --resume <O>`, exit code 3, directory `~/.nawaban/board/okr-stop/`.
+
 ### Events
 
 **Event**(事件)

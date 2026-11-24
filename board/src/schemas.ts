@@ -150,6 +150,19 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
       properties: { objective: text, kr: text, failure: text, def_hash: text, commit: text },
     },
   },
+  'nawaban-okr-round@1': {
+    description: "One run of the board CLI's okr, the orchestrator's self-check: its number in the project, how many readings it kept, and the KRs that moved toward their target past the noise gate. Kept 0 is an idle round. The message's time is the round's.",
+    schema: {
+      type: 'object',
+      required: ['n', 'kept', 'moved'],
+      additionalProperties: false,
+      properties: { n: { type: 'integer', minimum: 1 }, kept: { type: 'integer', minimum: 0 }, moved: { type: 'array', items: text } },
+    },
+  },
+  'nawaban-okr-resume@1': {
+    description: "An Objective's new sprint after a hard stop, started once a decision request on it was resolved; the message's time is when.",
+    schema: { type: 'object', required: ['objective'], additionalProperties: false, properties: { objective: text } },
+  },
   'nawaban-okr-accept@1': {
     description: "The decision-maker's sign-off on an Objective whose KRs were all met when it was given; the message's time is when.",
     schema: { type: 'object', required: ['objective'], additionalProperties: false, properties: { objective: text } },
