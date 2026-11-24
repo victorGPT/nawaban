@@ -159,7 +159,7 @@ it('refuses an agent it has no row for, and starts nothing', async () => {
 const LANE_WORKER = 't99'
 const WORKER_SESSION = 'bbbb2222-0000'
 
-async function fileTheLaneWorkerAt(worktree: string, lane: string, contextTokens: number) {
+async function fileTheLaneWorkerAt(worktree: string, lane: string, contextTokens: number, startedAs = ['claude', '--model', 'opus']) {
   await mkdir(join(tmp, 'workers'), { recursive: true })
   await writeFile(
     join(tmp, 'workers', `${LANE_WORKER}.json`),
@@ -167,7 +167,7 @@ async function fileTheLaneWorkerAt(worktree: string, lane: string, contextTokens
       state: 'live',
       name: 'first-of-lane',
       cwd: worktree,
-      argv: ['env', `BOARD_URL=${url}`, 'claude', '--model', 'opus', '/pstack:poteto-mode 任务：A'],
+      argv: ['env', `BOARD_URL=${url}`, ...startedAs, '/pstack:poteto-mode 任务：A'],
       labels: { lane, 'revive.agent': 'claude', 'revive.session': WORKER_SESSION },
     }),
   )
@@ -228,11 +228,12 @@ it.each([
   { why: 'its worker has used half its context', lane: 'half', secondLane: 'half', tokens: 500_000, argv: [], passedOver: 't99 has used 50% of its context' },
   { why: 'it is in another lane', lane: 'one', secondLane: 'other', tokens: 10_000, argv: [], passedOver: undefined },
   { why: 'it asks for another model', lane: 'model', secondLane: 'model', tokens: 10_000, argv: ['--model', 'sonnet'], passedOver: 't99 runs another agent or model' },
+  { why: 'it asks for Codex on its default model and the worker runs another', lane: 'cxm', secondLane: 'cxm', tokens: 10_000, argv: ['--agent', 'codex'], startedAs: ['codex', '-m', 'other'], passedOver: 't99 runs another agent or model' },
   { why: '--new asks for parallel work', lane: 'par', secondLane: 'par', tokens: 10_000, argv: ['--new'], passedOver: undefined },
-])('starts a new worker when $why', async ({ lane, secondLane, tokens, argv, passedOver }) => {
+])('starts a new worker when $why', async ({ lane, secondLane, tokens, argv, passedOver, startedAs }) => {
   const prefix = `LF${lane.toUpperCase()}`
   const { worktree } = await laneOfTwoWhereFirstBlocksSecond(prefix, lane, secondLane)
-  const r = await dispatchInTheRepositoryAsWindowAaaa1111([`${prefix}-B`, ...argv, '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, lane, tokens))
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111([`${prefix}-B`, ...argv, '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, lane, tokens, startedAs))
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
   expect(r.hc).toMatch(/^run --bg/m)

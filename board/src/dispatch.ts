@@ -132,8 +132,8 @@ async function laneOf(task: MessageView): Promise<string | null> {
 
 const startsTheWayThisDispatchWould = (t: Terminal, a: Args) => {
   const want = WORKER_ARGV[a.agent](a.model, '').slice(0, -1)
-  const argv = t.argv ?? []
-  return argv.some((_, i) => want.every((w, j) => argv[i + j] === w))
+  const startedWith = (t.argv ?? []).slice(-want.length - 1, -1)
+  return startedWith.length === want.length && want.every((w, i) => startedWith[i] === w)
 }
 
 async function claudeTranscriptOf(session: string): Promise<string | null> {
