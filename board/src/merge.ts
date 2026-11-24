@@ -133,16 +133,18 @@ async function failureElseNull(cmd: string, args: string[]): Promise<string | nu
 
 const originOf = async (dir: string) => (await stdoutOrNullOnFailure('git', ['-C', dir, 'remote', 'get-url', 'origin']))?.trim() || null
 
-async function pluginHoldElsePull(pr: PullRequest, did: string[]): Promise<Outcome | null> {
+async function pluginHoldElsePull(did: string[]): Promise<Outcome | null> {
   const plugin = pluginDir()
   const ours = await originOf(process.cwd())
   if (!ours || ours !== (await originOf(plugin))) return null
-  if (pr.files.some((f) => f.path === SCHEMA_FILE || f.path.includes('migrat'))) {
-    const pulledByTheOwner = !!pr.mergeCommit && (await stdoutOrNullOnFailure('git', ['-C', plugin, 'merge-base', '--is-ancestor', pr.mergeCommit.oid, 'HEAD'])) !== null
-    if (pulledByTheOwner) return null
-    return { kind: 'mergedButUnfinished', left: '改了 schema，插件要决策者点头再 pull；pull 之后重跑 merge 收尾' }
+  const unfetched = await failureElseNull('git', ['-C', plugin, 'fetch', '-q', 'origin', 'main'])
+  if (unfetched) return { kind: 'mergedButUnfinished', left: `插件 fetch 失败：${unfetched}` }
+  const incoming = await stdoutOrNullOnFailure('git', ['-C', plugin, 'diff', '--name-only', 'HEAD', 'origin/main'])
+  if (incoming === null) return { kind: 'mergedButUnfinished', left: '读不到插件要拉进来的改动' }
+  if (incoming.split('\n').some((path) => path === SCHEMA_FILE || path.includes('migrat'))) {
+    return { kind: 'mergedButUnfinished', left: '插件要拉进来的改动里有 schema，要决策者点头再 pull；pull 之后重跑 merge 收尾' }
   }
-  const failed = await failureElseNull('git', ['-C', plugin, 'pull', '--ff-only'])
+  const failed = await failureElseNull('git', ['-C', plugin, 'pull', '--ff-only', 'origin', 'main'])
   if (failed) return { kind: 'mergedButUnfinished', left: `插件 pull 失败：${failed}` }
   did.push('插件已 pull')
   return null
@@ -214,7 +216,7 @@ async function outcomeOf(r: Run): Promise<Outcome> {
   const pulled = await failureElseNull('git', ['-C', r.root, 'pull', '--ff-only'])
   if (pulled) return { kind: 'mergedButUnfinished', left: `主检出 pull 失败：${pulled}` }
   did.push('主检出已 pull')
-  const pluginHold = await pluginHoldElsePull(pr, did)
+  const pluginHold = await pluginHoldElsePull(did)
   const unclosed = await linkThenClose(r.task, pr, did)
   return pluginHold ?? unclosed ?? handOnElseRetire(r.task, r.root, did)
 }

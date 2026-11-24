@@ -41,9 +41,14 @@ esac
 
 const git = (cwd: string, ...args: string[]) => exec('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args])
 
-async function upstreamCommit(message: string) {
+async function upstreamCommit(message: string, touching?: string) {
   const other = join(tmp, `other-${Math.random()}`)
   await exec('git', ['clone', '-q', join(tmp, 'origin.git'), other])
+  if (touching) {
+    await mkdir(join(other, touching, '..'), { recursive: true })
+    await writeFile(join(other, touching), message)
+    await git(other, 'add', '-A')
+  }
   await git(other, 'commit', '-q', '--allow-empty', '-m', message)
   await git(other, 'push', '-q', 'origin', 'HEAD:main')
 }
@@ -318,22 +323,23 @@ it('leaves a worker alone that still has another open ticket', async () => {
   expect(existsSync(worktree)).toBe(true)
 })
 
-it('merges a schema change but leaves the plugin unpulled and tells the orchestrator', async () => {
+it('merges, but leaves the plugin unpulled and tells the orchestrator while what it would pull carries a schema change, whatever this PR touched', async () => {
   const plugin = join(tmp, 'plugin')
   await exec('git', ['clone', '-q', join(tmp, 'origin.git'), plugin])
   const before = (await git(plugin, 'rev-parse', 'HEAD')).stdout
-  const { id, worktree } = await workerOnItsOwnTicket('M-SCHEMA', 't77', { ...greenCodePr('M-SCHEMA'), files: [{ path: 'board/src/schemas.ts' }] })
+  const { id, worktree } = await workerOnItsOwnTicket('M-SCHEMA', 't77')
+  await upstreamCommit('unapproved schema change', 'board/src/schemas.ts')
   await upstreamCommit('landed M-SCHEMA')
   const r = await mergeAsTheWorker('M-SCHEMA', 't77', worktree, { NAWABAN_PLUGIN_DIR: plugin })
   expect(r.code).toBe(1)
   expect(r.gh).toMatch(/^pr merge/m)
   expect((await git(plugin, 'rev-parse', 'HEAD')).stdout).toBe(before)
-  expect(r.hc).toMatch(new RegExp(`^send ${ORCH} M-SCHEMA PR #5 merge: 已合未收完 — 改了 schema，插件要决策者点头再 pull；pull 之后重跑 merge 收尾$`, 'm'))
-  expect(await lastNote(id)).toBe('merge: 已合未收完 — 改了 schema，插件要决策者点头再 pull；pull 之后重跑 merge 收尾')
+  expect(r.hc).toMatch(new RegExp(`^send ${ORCH} M-SCHEMA PR #5 merge: 已合未收完 — 插件要拉进来的改动里有 schema，要决策者点头再 pull；pull 之后重跑 merge 收尾$`, 'm'))
+  expect(await lastNote(id)).toBe('merge: 已合未收完 — 插件要拉进来的改动里有 schema，要决策者点头再 pull；pull 之后重跑 merge 收尾')
   expect(r.hc).not.toMatch(/^kill/m)
   await git(plugin, 'pull', '-q', '--ff-only')
   const landed = (await git(plugin, 'rev-parse', 'HEAD')).stdout.trim()
-  await writeFile(join(tmp, 'pr-M-SCHEMA.json'), JSON.stringify({ ...greenCodePr('M-SCHEMA'), files: [{ path: 'board/src/schemas.ts' }], state: 'MERGED', mergeCommit: { oid: landed } }))
+  await writeFile(join(tmp, 'pr-M-SCHEMA.json'), JSON.stringify({ ...greenCodePr('M-SCHEMA'), state: 'MERGED', mergeCommit: { oid: landed } }))
   const rerun = await mergeAsTheWorker('M-SCHEMA', 't77', worktree, { NAWABAN_PLUGIN_DIR: plugin })
   expect(rerun.code).toBe(0)
   expect(rerun.hc.trim().split('\n').at(-1)).toBe('kill t77')
