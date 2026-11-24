@@ -204,4 +204,17 @@ describe('detailView facts', () => {
     expect(detailView(detail([], { status: 'done' }), task({ status: 'done', claimed_at: NOW - 3 * 3600, done_at: NOW - 3600 }), NOW).facts.took).toBe('用时 2 小时')
     expect(detailView(detail([]), task({ status: 'open', session: null, claimed_at: null }), NOW).facts.took).toBeNull()
   })
+
+  it('reads past what it does not recognise instead of failing: a null KR, a kind named like a built-in, the same PR number in another repository', () => {
+    const view = detailView(detail([
+      ev('impact', '{"objective":"O","krs":[null,{"name":"K","dir":"="}]}', at(24, 8)),
+      ev('link', '__proto__:https://example.com', at(24, 9)),
+      ev('constructor', 'x', at(24, 9)),
+      ev('link', 'pr:https://github.com/o/a/pull/1 merged abc', at(24, 10)),
+      ev('link', 'pr:https://github.com/o/b/pull/1', at(24, 11)),
+    ]), null, NOW)
+    expect(view.facts.goal).toBe('O / K')
+    expect(view.timeline.total).toBe(0)
+    expect(view.facts.outputs.map((o) => [o.href, o.note])).toEqual([['https://example.com', null], ['https://github.com/o/a/pull/1', '已合并'], ['https://github.com/o/b/pull/1', null]])
+  })
 })

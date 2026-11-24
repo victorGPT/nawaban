@@ -223,14 +223,14 @@ const OUTPUT_OF: Record<string, (link: Link, merged: boolean) => Output> = {
 }
 
 function outputsOf(links: Event[]): Output[] {
-  const mergedPrs = new Set(links.filter((e) => MERGED_MARK.test(e.body)).map((e) => linkLabel(e.body).label))
-  const outputs = links.map((e) => linkLabel(e.body)).map((link) => OUTPUT_OF[link.kind]?.(link, mergedPrs.has(link.label)) ?? { label: link.label, note: null, href: link.href })
+  const mergedPrs = new Set(links.filter((e) => MERGED_MARK.test(e.body)).map((e) => linkLabel(e.body).ref))
+  const outputs = links.map((e) => linkLabel(e.body)).map((link) => (Object.hasOwn(OUTPUT_OF, link.kind) ? OUTPUT_OF[link.kind]!(link, mergedPrs.has(link.ref)) : { label: link.label, note: null, href: link.href }))
   return outputs.filter((o, i) => outputs.findIndex((x) => x.label === o.label && x.href === o.href) === i)
 }
 
 function goalOf(events: Event[]) {
   const impact = dataOf(events.filter((e) => e.kind === 'impact').at(-1)?.body ?? '')
-  const krs = (Array.isArray(impact.krs) ? (impact.krs as { name?: string }[]) : []).map((k) => k.name).filter(Boolean)
+  const krs = (Array.isArray(impact.krs) ? (impact.krs as ({ name?: string } | null)[]) : []).map((k) => k?.name).filter(Boolean)
   return impact.objective && impact.objective !== NO_OBJECTIVE ? [impact.objective, krs.join('、')].filter(Boolean).join(' / ') : null
 }
 
@@ -243,7 +243,7 @@ function tookOf(state: ItemState, boardTask: BoardTask | null, dispatchedAt: num
 
 export function detailView(detail: Detail, boardTask: BoardTask | null, now: number): DetailView {
   const state: ItemState = boardTask ? stateOf(boardTask, now) : detail.status === 'done' ? 'done' : 'todo'
-  const said = oldestFirst(detail.events).map((e) => ROW_OF_EVENT[e.kind]?.(e) ?? null).filter((r): r is Row => r !== null)
+  const said = oldestFirst(detail.events).map((e) => (Object.hasOwn(ROW_OF_EVENT, e.kind) ? ROW_OF_EVENT[e.kind]!(e) : null)).filter((r): r is Row => r !== null)
   const events = oldestFirst(detail.events)
   const dispatches = events.filter((e) => e.kind === 'dispatch')
   const dispatchedAt = dispatches.at(-1)?.at ?? null
