@@ -158,6 +158,9 @@ export async function pollRepo(repo: string, dir: string, reader: Reader, delive
     state.issues[issue.number] = { state: issue.state, title: issue.title, state_reason: issue.state_reason ?? null, reopens }
   }
   try {
+    for (const [number, seen] of Object.entries(state.issues)) {
+      if (seen.state === 'closed' && seen.state_reason === undefined && !issues.has(Number(number))) seen.state_reason = ((await reader.one(`repos/${repo}/issues/${number}`)) as Issue).state_reason ?? null
+    }
     for (const issue of issues.values()) await bringIssueUpToDate(issue)
     for (const comment of [...comments].sort(byUpdated)) {
       const issue = issues.get(numberOf(comment)) ?? ((await reader.one(`repos/${repo}/issues/${numberOf(comment)}`)) as Issue)

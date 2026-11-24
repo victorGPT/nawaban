@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -125,6 +125,22 @@ describe('前缀变成任务状态', () => {
     await team.tasks.block(t.id, '等你：本地的问题', { kind: 'needs_input' })
     await poll(world)
     expect((await theTask('ROUBAO-1731')).task?.blocked?.reason).toBe('等你：本地的问题')
+  })
+})
+
+describe('从只记了开关的旧轮询状态升级', () => {
+  it('关掉的 issue 先补上关单原因再结算，not planned 不会被标成完成', async () => {
+    const world: World = { issues: [issue(1760, 'closed', '2026-11-24T09:00:00Z', { state_reason: 'not_planned' })], comments: [] }
+    await pollRepo(REPO, dir, readerOf(world), deliverAsSignedWebhook((r) => team.fetch(r), url, SECRET))
+    await importDrains()
+    const path = join(dir, 'github-sync', `${encodeURIComponent(REPO)}.json`)
+    const saved = JSON.parse(await readFile(path, 'utf8'))
+    saved.issues['1760'] = { state: 'closed', title: 'issue 1760' }
+    await writeFile(path, JSON.stringify(saved))
+    await settleIssueTasks(team, 'roubao', REPO, [{ number: 1760 }])
+    expect((await theTask('ROUBAO-1760')).task?.state).toBe('ready')
+    await poll(world)
+    expect((await theTask('ROUBAO-1760')).task?.state).toBe('canceled')
   })
 })
 

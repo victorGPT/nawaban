@@ -105,7 +105,8 @@ async function settleRoot(person: Person, root: MessageView, issue: KnownIssue) 
   const reopenedOnGithubSinceTheTaskFinished = issueOpen && FINISHED.has(stateOf(task)) && (root.labels['reopens-settled'] ?? '0') !== reopensSeen
   if (reopenedOnGithubSinceTheTaskFinished) task = await reopenedAsANewTask(person, root, task, key)
   if (issueOpen && (root.labels['reopens-settled'] ?? '0') !== reopensSeen) await person.label(root.id, { set: { 'reopens-settled': reopensSeen } })
-  if (!issueOpen) return finishAsGithubClosedIt(person, task, closedAs ?? root.labels['closed-as'])
+  const whyClosed = closedAs ?? root.labels['closed-as']
+  if (!issueOpen) return issue.state_reason === undefined && whyClosed === undefined ? undefined : finishAsGithubClosedIt(person, task, whyClosed)
   await holdWhileGithubAsks(person, task, pendingGithubAsk((await person.thread(root.id)).replies))
 }
 
