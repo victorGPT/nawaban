@@ -142,7 +142,7 @@ const COMMANDS: Record<string, Command> = {
   },
   dispatch: {
     group: '派',
-    usage: 'dispatch <票>',
+    usage: 'dispatch [<票>]',
     about: '把票派给 worker',
     flags: [
       ['--brief <文本>', '目标和范围，必填'],
