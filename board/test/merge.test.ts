@@ -14,7 +14,7 @@ import { listen, verifier } from '../src/server.ts'
 const exec = promisify(execFile)
 const CLI = join(import.meta.dirname, '../src/cli.ts')
 const SECRET = 'test-secret'
-const HEAD = 'abcdef1234567890abcdef1234567890abcdef12'
+let HEAD = ''
 const ORCH = 'to1'
 let team: ReturnType<typeof board>
 let server: Awaited<ReturnType<typeof listen>>
@@ -65,6 +65,7 @@ beforeAll(async () => {
   await exec('git', ['clone', '-q', join(tmp, 'origin.git'), repo])
   await git(repo, 'commit', '-q', '--allow-empty', '-m', 'init')
   await git(repo, 'push', '-q', '-u', 'origin', 'HEAD:main')
+  HEAD = (await git(repo, 'rev-parse', 'HEAD')).stdout.trim()
 })
 afterAll(() => server.close())
 
@@ -242,6 +243,28 @@ it('merges a green reviewed PR, pulls the main checkout, closes the ticket with 
   expect(existsSync(worktree)).toBe(false)
   expect(r.hc.trim().split('\n').at(-1)).toBe('kill t74')
   expect(r.hc).not.toMatch(/^send/m)
+})
+
+it('retires the worker on a rerun even when its lane gained a next ticket after its worktree was removed', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-GONE', 't77')
+  await note(id, 'lane: gone-lane')
+  const first = await mergeAsTheWorker('M-GONE', 't77', worktree, { HC_KILL_FAIL: '1' })
+  expect(first.code).toBe(1)
+  expect(existsSync(worktree)).toBe(false)
+  const next = await newTask('M-GONE-NEXT')
+  await note(next, 'lane: gone-lane')
+  await writeFile(join(tmp, 'pr-M-GONE.json'), JSON.stringify({ ...greenCodePr('M-GONE'), state: 'MERGED', mergeCommit: { oid: 'f'.repeat(40) } }))
+  const rerun = await mergeAsTheWorker('M-GONE', 't77', repo)
+  expect(rerun.code).toBe(0)
+  expect(rerun.hc.trim().split('\n').at(-1)).toBe('kill t77')
+})
+
+it('refuses when the head is not readable locally, so its workflows can not be skipped unseen', async () => {
+  const { worktree } = await workerOnItsOwnTicket('M-UNSEEN', 't64', { ...greenCodePr('M-UNSEEN'), headRefOid: '1234567890abcdef1234567890abcdef12345678', comments: [{ body: 'Codex review：无挡 1234567890ab' }] })
+  const r = await mergeAsTheWorker('M-UNSEEN', 't64', worktree)
+  expect(r.code).toBe(1)
+  expect(r.stdout).toContain('本地读不到 head')
+  expect(r.gh).not.toMatch(/^pr merge/m)
 })
 
 it('tells the orchestrator when the kill fails after the worktree is gone, and a rerun from the main checkout finishes the retirement', async () => {

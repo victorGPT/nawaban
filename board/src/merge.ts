@@ -79,8 +79,10 @@ const reviewLineNamesHead = (line: string, head: string) =>
 const reviewedAtHead = (pr: PullRequest) => pr.comments.some((c) => c.body.split('\n').some((line) => reviewLineNamesHead(line, pr.headRefOid)))
 
 async function workflowsOfHeadElseNull(pr: PullRequest): Promise<Outcome | null> {
+  await stdoutOrNullOnFailure('git', ['fetch', '-q', 'origin', `pull/${pr.number}/head`])
   const workflows = await stdoutOrNullOnFailure('git', ['ls-tree', '--name-only', pr.headRefOid, '.github/workflows/'])
-  if (!workflows?.trim()) return null
+  if (workflows === null) return { kind: 'refused', why: `本地读不到 head ${pr.headRefOid.slice(0, 7)}，核不了它带不带 workflow：先 git fetch 再跑` }
+  if (!workflows.trim()) return null
   const listed = await stdoutOrNullOnFailure('gh', ['run', 'list', '--commit', pr.headRefOid, '--json', 'name,status,conclusion'])
   const runs: { name: string; status: string; conclusion: string }[] = listed ? JSON.parse(listed) : []
   if (!runs.length) return { kind: 'waiting', on: `仓库有 workflow，head ${pr.headRefOid.slice(0, 7)} 还没有一次 run` }
@@ -177,7 +179,8 @@ async function handOnElseRetire(closed: MessageView, root: string, did: string[]
   const others = await Promise.all((await all({ channel: closed.channel, state: 'open' })).filter((t) => t.id !== closed.id).map(seenOf))
   const stillHolding = others.find((o) => o.terminal === terminal)
   if (stillHolding) return { kind: 'done', did: [...did, `${terminal} 还有 ${stillHolding.task.labels.key ?? stillHolding.task.id}，留着`], thenRetire: null }
-  const next = mine.lane ? others.find((o) => o.lane === mine.lane && o.task.task?.state === 'ready' && !o.terminal) : undefined
+  const workerStillHasItsWorktree = await terminalOf(terminal).then((t) => !!t?.cwd && existsSync(t.cwd))
+  const next = mine.lane && workerStillHasItsWorktree ? others.find((o) => o.lane === mine.lane && o.task.task?.state === 'ready' && !o.terminal) : undefined
   if (next) {
     const key = next.task.labels.key ?? next.task.id
     if ((await dispatch([key, '--to', terminal, '--brief', NEXT_BRIEF, '--accept', NEXT_ACCEPT])) !== 0) return { kind: 'mergedButUnfinished', left: `把 ${key} 交给 ${terminal} 失败` }
