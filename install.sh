@@ -98,7 +98,7 @@ EOF
 }
 
 start_the_board_service() {
-  say "启动 board 服务 $label（launchd，127.0.0.1:$port）"
+  say "启动 board 服务 ${label}（launchd，127.0.0.1:${port}）"
   write_the_launch_agent
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$(id -u)" "$agent"
@@ -119,7 +119,7 @@ open_the_codex_sandbox_to_the_board
 start_the_board_service
 
 echo
-echo "装好了。board 在 $board_dir，网页在 http://127.0.0.1:$port/。"
+echo "装好了。board 在 ${board_dir}，网页在 http://127.0.0.1:${port}/。"
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
   *) echo "把 $bin_dir 加进 PATH（如 echo 'export PATH=\"$bin_dir:\$PATH\"' >> ~/.zshrc），nawaban 命令才找得到。" ;;
