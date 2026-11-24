@@ -3,11 +3,13 @@ import { markdownHtml } from './markdown'
 
 export type Ref = { id: string; title: string; status: string }
 export type Event = { kind: string; body: string; author: string; at: number }
+export type Narrated = { at: number; kind: 'said' | 'edited' | 'tested'; text: string }
 export type Detail = {
   id: string; title: string; body: string; status: string; project: string; session: string | null; created_at: number
   parent: Ref | null; children: Ref[]; blocked_by: Ref[]; dependents: Ref[]
   latest_note: Event | null; decisions: Event[]; links: Event[]; events: Event[]
   pulls?: Record<string, PullState>
+  narration?: Narrated[]
 }
 export type PullState = 'merged' | 'closed' | 'ci_failed' | 'open'
 
@@ -19,6 +21,7 @@ export type Row =
   | ({ kind: 'ask' } & Entry)
   | ({ kind: 'note' } & Entry)
   | ({ kind: 'dispatch' } & Entry)
+  | ({ kind: 'worker'; did: Narrated['kind'] } & Entry)
 export type Day = { key: string; label: string; rows: Row[] }
 export type Step = { word: string; status: 'completed' | 'in_progress' | 'pending' }
 export type Timeline = { forTheOwner: Day[]; everything: Day[]; total: number }
@@ -256,6 +259,8 @@ function tookOf(state: ItemState, boardTask: BoardTask | null, dispatchedAt: num
 export function detailView(detail: Detail, boardTask: BoardTask | null, now: number, github = false): DetailView {
   const state: ItemState = boardTask ? stateOf(boardTask, now, github) : detail.status === 'done' ? 'done' : 'todo'
   const said = oldestFirst(detail.events).map((e) => (Object.hasOwn(ROW_OF_EVENT, e.kind) ? ROW_OF_EVENT[e.kind]!(e) : null)).filter((r): r is Row => r !== null)
+  const workerDid = (detail.narration ?? []).map((n): Row => ({ kind: 'worker', did: n.kind, ...entryOf(n.at, n.text) }))
+  const everything = [...said, ...workerDid].sort((a, b) => a.at - b.at)
   const events = oldestFirst(detail.events)
   const dispatches = events.filter((e) => e.kind === 'dispatch')
   const dispatchedAt = dispatches.at(-1)?.at ?? null
@@ -273,7 +278,7 @@ export function detailView(detail: Detail, boardTask: BoardTask | null, now: num
     waiting: boardTask?.waiting ? firstLine(boardTask.waiting) : null,
     ruling: latestDecision ? { at: latestDecision.at, line: latestDecision.line, full: latestDecision.full, by: latestDecision.by, question: latestDecision.question } : null,
     sections: sectionsOf(detail.body ?? ''),
-    timeline: { forTheOwner: daysOf(said.filter(isForTheOwner), now), everything: daysOf(said, now), total: said.length },
+    timeline: { forTheOwner: daysOf(said.filter(isForTheOwner), now), everything: daysOf(everything, now), total: everything.length },
     facts: {
       stateWord: cancelled ? '取消' : STATE_WORDS[state](!!boardTask?.waiting),
       cancelled,
