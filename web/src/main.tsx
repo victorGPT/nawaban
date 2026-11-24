@@ -394,14 +394,13 @@ const ROLE_WORDS: Record<By, { ruling: string; row: string; tone: string }> = {
   owner: { ruling: '决策者', row: '决策者', tone: 'text-foreground' },
   agent: { ruling: '编排者代定', row: '代定', tone: 'text-subtle-foreground' },
 }
-const STEP_LOOKS: Record<Step['status'], { bar: string; word: string }> = {
-  completed: { bar: 'bg-muted-foreground', word: 'text-subtle-foreground max-md:hidden' },
-  in_progress: { bar: 'bg-foreground', word: 'text-foreground' },
-  pending: { bar: 'bg-border', word: 'text-subtle-foreground max-md:hidden' },
+const STEP_DOTS: Record<Step['status'], string> = {
+  completed: 'size-2 bg-foreground',
+  in_progress: 'size-3 border-2 border-foreground',
+  pending: 'size-2 border border-subtle-foreground',
 }
 const fieldLabel = 'text-xs text-muted-foreground'
 const metaText = 'text-xs text-subtle-foreground tabular-nums'
-const STEPS_HUGGING_THE_RIGHT_EDGE_FROM = 3
 const quietLink = 'underline decoration-subtle-foreground underline-offset-4 outline-none hover:decoration-foreground focus-visible:decoration-foreground'
 const prose = 'space-y-3 text-sm leading-6 text-foreground [overflow-wrap:anywhere] [&_a]:text-foreground [&_a]:underline [&_h3]:text-sm [&_ol]:block [&_ul]:block'
 const rowLine = 'flex w-full min-w-0 items-start gap-2 px-2 py-1.5 text-left text-sm leading-5 max-md:py-3'
@@ -466,7 +465,7 @@ function NowPart(props: { view: DetailView }) {
             </For>
           </p>
         </Show>
-        <Show when={props.view.steps}>{(steps) => <Milestones steps={steps()} />}</Show>
+        <Show when={props.view.steps}>{(steps) => <Milestones steps={steps()} line={props.view.stepLine} leads={!props.view.headline.length} />}</Show>
         <Show when={props.view.ruling}>
           {(ruling) => (
             <div class="flex flex-col gap-1">
@@ -484,18 +483,22 @@ function NowPart(props: { view: DetailView }) {
   )
 }
 
-function Milestones(props: { steps: Step[] }) {
+function Milestones(props: { steps: Step[]; line: string | null; leads: boolean }) {
   return (
-    <ol class="grid grid-cols-6 gap-2">
-      <For each={props.steps}>
-        {(step, i) => (
-          <li aria-current={step.status === 'in_progress' ? 'step' : undefined} class={cn('flex min-w-0 flex-col gap-1.5', i() >= STEPS_HUGGING_THE_RIGHT_EDGE_FROM && 'max-md:items-end')}>
-            <span aria-hidden="true" class={cn('h-1 w-full rounded-full', STEP_LOOKS[step.status].bar)} />
-            <span class={cn('text-xs whitespace-nowrap', STEP_LOOKS[step.status].word)}>{step.word}</span>
-          </li>
-        )}
-      </For>
-    </ol>
+    <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+      <ol class="flex shrink-0 items-center">
+        <For each={props.steps}>
+          {(step, i) => (
+            <li title={step.word} aria-current={step.status === 'in_progress' ? 'step' : undefined} class="flex items-center">
+              <Show when={i() > 0}><span aria-hidden="true" class={cn('h-px w-4', step.status === 'pending' ? 'bg-border' : 'bg-foreground')} /></Show>
+              <span aria-hidden="true" class={cn('rounded-full', STEP_DOTS[step.status])} />
+              <span class="sr-only">{step.word}</span>
+            </li>
+          )}
+        </For>
+      </ol>
+      <Show when={props.line}>{(line) => <span class={props.leads ? cn(cardTitle, 'text-foreground') : 'text-sm text-foreground'}>{line()}</span>}</Show>
+    </div>
   )
 }
 

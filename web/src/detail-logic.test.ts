@@ -87,8 +87,9 @@ describe('detailView now', () => {
     expect(view.steps!.map((s) => s.word + ':' + s.status)).toEqual([
       '开工:completed', '首次改文件:completed', '首次提交:completed', '开 PR:in_progress', 'review:pending', '回报:pending',
     ])
-    expect(view.headline).toEqual(['开 PR'])
-    expect(detailView(detail([]), task({ live: { milestone: 'pr', at: NOW - 360 } }), NOW).headline).toEqual(['开 PR · 6 分钟前'])
+    expect([view.headline, view.stepLine]).toEqual([[], '开 PR'])
+    expect(detailView(detail([]), task({ live: { milestone: 'pr', at: NOW - 360 } }), NOW).stepLine).toBe('开 PR · 6 分钟前')
+    expect(detailView(detail([]), task({ waiting: '行不行', live: { milestone: 'edited', at: NOW - 360 } }), NOW)).toMatchObject({ headline: ['行不行'], stepLine: '首次改文件 · 6 分钟前' })
   })
 
   it('starts at 开工 with no live milestone, and shows no steps for a task off the board', () => {

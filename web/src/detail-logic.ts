@@ -28,6 +28,7 @@ export type DetailView = {
   state: ItemState
   headline: Part[]
   steps: Step[] | null
+  stepLine: string | null
   waiting: string | null
   ruling: Ruling | null
   sections: Section[]
@@ -176,7 +177,7 @@ const joined = (...words: (string | null)[]) => words.filter(Boolean).join(' · 
 
 const HEADLINE_OF: Record<ItemState, (task: BoardTask, seen: { steps: Step[] | null; pr: Link | undefined; now: number }) => Part[]> = {
   todo: () => [],
-  working: (task, { steps, now }) => [joined(steps?.find((s) => s.status === 'in_progress')?.word ?? W.working, quietFor(task, now) && quietFor(task, now) + '前')],
+  working: () => [],
   stopped: (task, { now }) => (task.waiting ? partsOf(task.waiting.trim().split('\n')[0]!) : [joined(W.stopped, quietFor(task, now) && quietFor(task, now) + '没动')]),
   done: (task, { pr }) => [joined(W.done, task.done_at ? stampOf(task.done_at) : null), ...(pr?.href ? [' · ', { label: pr.label, href: pr.href }] : [])],
 }
@@ -192,6 +193,7 @@ export function detailView(detail: Detail, boardTask: BoardTask | null, now: num
     state,
     headline: boardTask ? HEADLINE_OF[state](boardTask, { steps, pr: links.find((l) => l.kind === 'pr'), now }) : state === 'done' ? [W.done] : [],
     steps,
+    stepLine: boardTask && steps ? joined(steps.find((s) => s.status === 'in_progress')!.word, quietFor(boardTask, now) && quietFor(boardTask, now) + '前') : null,
     waiting: boardTask?.waiting ? firstLine(boardTask.waiting) : null,
     ruling: latestDecision ? { at: latestDecision.at, line: latestDecision.line, full: latestDecision.full, by: latestDecision.by, question: latestDecision.question } : null,
     sections: sectionsOf(detail.body ?? ''),
