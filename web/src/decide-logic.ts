@@ -1,6 +1,6 @@
 export type Option = { key: string; text: string; note: string }
 export type Card = { decision: string; kr: string; context: string; options: Option[]; rec: string }
-export type Pending = { at: number; card: Card | null; ask: string | null }
+export type Pending = { at: number; card: Card | null; ask: string | null; brief?: string }
 type HeldTask = { id: string; title: string; status: string; pending?: Pending | null }
 export type DecideBoard = { columns: { key: string; tasks: HeldTask[] }[] }
 export type WebAnswer = { task: string; option: string | null; words: string; at: string }

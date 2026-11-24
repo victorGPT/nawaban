@@ -11,16 +11,16 @@ const working = (id: string, over: Partial<BoardTask> = {}) => task(id, { status
 
 describe('routeOf', () => {
   it('takes the token out and keeps the route beside it', () => {
-    expect(routeOf('#k=abc')).toEqual({ route: { tab: 'tasks', task: null }, token: 'abc', hashWithoutToken: '' })
+    expect(routeOf('#k=abc')).toEqual({ route: { tab: 'home', task: null }, token: 'abc', hashWithoutToken: '' })
     expect(routeOf('#okr&k=abc')).toEqual({ route: { tab: 'okr', task: null }, token: 'abc', hashWithoutToken: '#okr' })
   })
   it('opens a task by its key, even one with # or spaces', () => {
     expect(routeOf(taskHref('#389')).route).toEqual({ tab: 'tasks', task: '#389' })
     expect(routeOf(taskHref('NAWABAN-WEB-06')).route).toEqual({ tab: 'tasks', task: 'NAWABAN-WEB-06' })
   })
-  it('falls back to 任务 on anything it does not know', () => {
-    expect(routeOf('#nope').route.tab).toBe('tasks')
-    expect(routeOf('#task-%E0').route).toEqual({ tab: 'tasks', task: null })
+  it('falls back to 首页 on anything it does not know', () => {
+    expect(routeOf('#nope').route.tab).toBe('home')
+    expect(routeOf('#task-%E0').route).toEqual({ tab: 'home', task: null })
     expect(routeOf('#inbox').route.tab).toBe('inbox')
   })
 })
@@ -46,7 +46,7 @@ describe('taskGroups', () => {
       working('S-2', { parent: 'S', active_at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, progress: { body: '卡在 CI', at: NOW } }),
       working('S-3', { parent: 'S' }),
     ), NOW)
-    expect(g).toEqual({ group: 'stopped', items: [{ key: 'task:S', id: 'S', title: 'S', state: 'stopped', at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, note: '卡在 CI', doing: { head: '【在做】S —— 编排者代定', chain: '[开工] → 首次改文件 → 首次提交 · 2 天没动', stale: true }, spec: { done: 1, total: 3 }, waiting: false, parent: null }] })
+    expect(g).toEqual({ group: 'stopped', items: [{ key: 'task:S', id: 'S', title: 'S', state: 'stopped', at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, note: '卡在 CI', doing: { head: '【在做】S —— 编排者代定', chain: '[开工] → 首次改文件 → 首次提交 · 2 天没动', stale: true }, spec: { done: 1, total: 3 }, waiting: false, parent: null, agent: null }] })
   })
   it('lists a spec done once every ticket is done', () => {
     const groups = taskGroups(boardOf(task('S'), task('S-1', { parent: 'S', status: 'done', done_at: NOW - 9 })), NOW)

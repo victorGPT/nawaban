@@ -11,13 +11,13 @@ export type ObjectiveRow = { name: string; met: number; total: number; standing:
 export type OkrView = { met: number; total: number; measured: string | null; objectives: ObjectiveRow[] }
 export const okrView = (okr: unknown): OkrView | null => panelOkrView(okr, 'zh')
 
-export const TABS = ['decide', 'okr', 'tasks', 'inbox'] as const
+export const TABS = ['home', 'decide', 'okr', 'tasks', 'inbox'] as const
 export type Tab = (typeof TABS)[number]
 export type Route = { tab: Tab; task: string | null }
 
 const TOKEN_PART = 'k='
 const TASK_PART = 'task-'
-const OPENING_TAB: Tab = 'tasks'
+const OPENING_TAB: Tab = 'home'
 
 export function routeOf(hash: string) {
   const parts = hash.replace(/^#/, '').split('&').filter(Boolean)
@@ -42,6 +42,8 @@ export type Progress = { body: string; at: number } | null
 export type Live = { milestone: 'started' | 'edited' | 'committed' | 'pr' | 'review' | 'reported'; at: number } | null
 export type Ruling = { at: number; verdict: string } | null
 export type Doing = { head: string; chain: string | null; stale: boolean }
+export type Harness = 'claude' | 'codex' | 'agy'
+export type Agent = { harness: Harness; model: string | null; worker: string | null }
 export type BoardTask = {
   id: string
   title: string
@@ -58,12 +60,14 @@ export type BoardTask = {
   waiting?: string | null
   pending?: Pending | null
   blocked_by?: string[]
+  agent?: Agent | null
 }
-export type Board = { tracker?: 'github'; columns: { key: string; tasks: BoardTask[] }[]; decisions: unknown[] }
+export type Decision = { task: string; at: number; verdict: string; owner: boolean }
+export type Board = { tracker?: 'github'; columns: { key: string; tasks: BoardTask[] }[]; decisions: Decision[] }
 export type Project = { name: string; open: number; total: number; waiting: number }
 
 export type ItemState = 'done' | 'stopped' | 'working' | 'todo'
-export type Item = { key: string; id: string; title: string; state: ItemState; at: number | null; note: string | null; doing: Doing | null; spec: { done: number; total: number } | null; waiting: boolean; parent: string | null }
+export type Item = { key: string; id: string; title: string; state: ItemState; at: number | null; note: string | null; doing: Doing | null; spec: { done: number; total: number } | null; waiting: boolean; parent: string | null; agent: Agent | null }
 export type Group = 'stopped' | 'working' | 'todo' | 'done'
 
 const HOUR = 3600
@@ -79,7 +83,7 @@ export function stateOf(t: BoardTask, now: number, github = false): ItemState {
   return now - t.active_at > STOPPED_AFTER_SILENT_FOR ? 'stopped' : 'working'
 }
 
-const allOf = (board: Board | null) => (board?.columns ?? []).flatMap((c) => c.tasks ?? [])
+export const allOf = (board: Board | null) => (board?.columns ?? []).flatMap((c) => c.tasks ?? [])
 
 function rootOf(t: BoardTask, byId: Map<string, BoardTask>) {
   const seen = new Set<string>()
@@ -115,6 +119,7 @@ function itemOf(root: BoardTask, tickets: BoardTask[], byId: Map<string, BoardTa
     spec: tickets.length ? { done: states.filter((s) => s === 'done').length, total: tickets.length } : null,
     waiting: state === 'stopped' && !!lead.waiting,
     parent: (root.parent && byId.get(root.parent)?.title) || null,
+    agent: lead.agent ?? null,
     active: Math.max(...[root, ...tickets].map((t) => t.active_at ?? 0)),
   }
 }
@@ -159,7 +164,9 @@ export function cardSignal(item: Item, now: number): string | null {
 
 export const boardTaskOf = (board: Board | null, id: string | null) => allOf(board).find((t) => t.id === id) ?? null
 
-export const waitingOnYouCount = (board: Board | null) => allOf(board).filter((t) => t.status !== 'done' && (t.pending || t.waiting)).length
+export const waitsOnYou = (t: BoardTask) => t.status !== 'done' && !!(t.pending || t.waiting)
+
+export const waitingOnYouCount = (board: Board | null) => allOf(board).filter(waitsOnYou).length
 
 export const summaryOf = (board: Board | null, now: number): string =>
   board ? flowLine({ closed: closedToday(board, now), running: taskGroups(board, now).find((g) => g.group === 'working')?.items.length ?? 0, waiting: waitingOnYouCount(board) }) : ''
