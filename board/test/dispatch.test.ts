@@ -332,6 +332,29 @@ it.each([
   expect((await replies(id)).at(-1)?.text).toBe('回报未送达：完成 PR #7')
 })
 
+it('does not tell its own terminal when that is the orchestrator of another repository', async () => {
+  await fileTerminal('t98', { role: 'orchestrator' })
+  const id = await dispatchedBy('T-ELSEWHERE', 'tgone')
+  const r = await tellAsWorker(['T-ELSEWHERE', '完成 PR #10'], {})
+  expect(r.code).toBe(0)
+  expect(sent(r.hc)).toEqual([])
+  expect((await replies(id)).at(-1)?.text).toBe('回报未送达：完成 PR #10')
+})
+
+it('lists a worker in the main checkout by the ticket it holds, and leaves out a terminal there that holds none', async () => {
+  await mkdir(join(tmp, 'workers'), { recursive: true })
+  for (const [address, name] of [['t95', 'w-main'], ['t94', 'a-shell']]) {
+    await writeFile(join(tmp, 'workers', `${address}.json`), JSON.stringify({ state: 'live', name, cwd: repo, labels: {} }))
+  }
+  const id = await newTask('T-MAIN')
+  await note(id, block('nawaban-dispatch@2', { worker: 'w-main', terminal: 't95', accept: 'a', orchestrator: 'to1', agent: 'claude', model: 'opus' }))
+  const ls = `,{"address":"t95","state":"live","cwd":"${repo}"},{"address":"t94","state":"live","cwd":"${repo}"}`
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('status', ['--project', 'nawaban'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
+  expect(r.code).toBe(0)
+  expect(r.stdout).toContain('- t95 w-main T-MAIN\n')
+  expect(r.stdout).not.toMatch(/^- t94/m)
+})
+
 it('refuses to tell about a ticket that does not exist', async () => {
   const r = await tellAsWorker(['T-NOSUCH', '完成 PR #8'], { HC_ORCH: 'to1' })
   expect(r.code).not.toBe(0)

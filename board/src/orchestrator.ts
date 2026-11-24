@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { text } from 'node:stream/consumers'
 import { parseArgs } from 'node:util'
 import type { board } from '@vercel/board'
-import { mainCheckoutRealPathOf, workersInRepository } from './dispatch.ts'
+import { mainCheckoutRealPathOf, terminalsThatMayBeWorkers } from './dispatch.ts'
 import { seenOf } from './merge.ts'
 import { all, Refused } from './tasks.ts'
 import { boardData, tasksOf } from './views.ts'
@@ -158,10 +158,12 @@ export async function index(argv: string[], team: Team): Promise<number> {
 
 async function liveWorkersText(project?: string): Promise<string> {
   const root = project ? await mainCheckoutRealPathOf(process.cwd()) : null
-  const workers = root ? await workersInRepository(root) : []
-  if (!workers.length) return ''
+  const terminals = root ? await terminalsThatMayBeWorkers(root) : []
+  if (!terminals.length) return ''
   const seen = await Promise.all((await all({ channel: project, state: 'open' })).map(seenOf))
   const keysHeldBy = (terminal: string) => seen.filter((s) => s.terminal === terminal).map((s) => s.task.labels.key ?? `#${s.task.id}`)
+  const workers = terminals.filter((t) => t.inAWorktree || keysHeldBy(t.address).length)
+  if (!workers.length) return ''
   return [`## 活着的 worker ${workers.length}`, ...workers.map((w) => `- ${[w.address, w.name, ...keysHeldBy(w.address)].filter(Boolean).join(' ')}`)].join('\n')
 }
 

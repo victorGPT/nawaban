@@ -117,19 +117,21 @@ async function stillLiveOrchestrator(address: string): Promise<boolean> {
 }
 
 export async function orchestratorToReportTo(root: string | null, task: MessageView | null): Promise<string | null> {
-  const inRepository = root ? await orchestratorFor(root) : null
+  const inRepository = root ? await liveOrchestratorInRepository(root) : null
   if (inRepository || !task) return inRepository
   const recorded = lastDispatchOf((await board().thread(task.id)).replies)?.orchestrator
   return recorded && (await stillLiveOrchestrator(recorded)) ? recorded : null
 }
 
-export async function workersInRepository(root: string): Promise<Terminal[]> {
-  const workers: Terminal[] = []
+export type TerminalThatMayBeAWorker = Terminal & { inAWorktree: boolean }
+
+export async function terminalsThatMayBeWorkers(root: string): Promise<TerminalThatMayBeAWorker[]> {
+  const found: TerminalThatMayBeAWorker[] = []
   for (const t of await liveTerminalsInRepository(root)) {
     const full = await terminalOf(t.address)
-    if (full?.labels?.role !== 'orchestrator' && (await realpath(t.cwd!)) !== root) workers.push({ ...t, ...full })
+    if (full?.labels?.role !== 'orchestrator') found.push({ ...t, ...full, inAWorktree: (await realpath(t.cwd!)) !== root })
   }
-  return workers
+  return found
 }
 
 function parseDispatchArgs(argv: string[]): Args {
