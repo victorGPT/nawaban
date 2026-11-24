@@ -274,7 +274,7 @@ function varianceText(op: string, value: string, goal: string, unit: string) {
 
 const greenUnitOf = (kr: Kr) => (kr.kind === 'committed' ? '' : kr.unit ?? '')
 
-function measuredRow(kr: Kr, got: [string, string] | string | null): { row: string; met: boolean } {
+function measuredRow(kr: Kr, got: [string, string] | string | null): { row: string; met: boolean; read?: boolean } {
   const [op, goal] = target(kr)
   const unit = kr.unit ?? ''
   const want = `${op} ${goal}${unit}`
@@ -284,8 +284,9 @@ function measuredRow(kr: Kr, got: [string, string] | string | null): { row: stri
     `  ${kr.name}  ${shownRoundedHalfUpForDisplayOnly(got[0], unit)} / 目标 ${want} · 偏差 ${varianceText(op, got[0], goal, unit)} · ${rag} · 截至 ${monthDayElseAsWritten(got[1])}`
   const why = kr.max_age_days !== undefined ? whyTooOldByLocalDate(got[1], kr.max_age_days) : ''
   if (why) return { row: `${line('黄')}  ${why}`, met: false }
+  const read = true
   const { green, pointMet, interval } = greenOf(op, goal, greenUnitOf(kr), { value: got[0], source: got[1] })
-  return { row: line(green ? '绿' : pointMet && interval ? `未定（区间 [${interval[0]}, ${interval[1]}]）` : '红'), met: green }
+  return { row: line(green ? '绿' : pointMet && interval ? `未定（区间 [${interval[0]}, ${interval[1]}]）` : '红'), met: green, read }
 }
 
 export async function run(root: string, timeout = MEASURE_READS_RESULTS_NEVER_RUNS_AN_EVAL_TIMEOUT) {
@@ -294,7 +295,7 @@ export async function run(root: string, timeout = MEASURE_READS_RESULTS_NEVER_RU
   const dirty = (await git(root, 'status', '--porcelain', '--', OKR_FILE)) ? '（有未提交改动）' : ''
   const out = [`OKR · 定义 ${OKR_FILE} @ ${head}${dirty}`]
   const readings: Reading[] = []
-  const full = new Map<string, boolean>()
+  const live = new Map<string, { met: boolean; read: boolean }>()
   for (const o of objectives) {
     const rows = []
     let met = 0
@@ -303,13 +304,13 @@ export async function run(root: string, timeout = MEASURE_READS_RESULTS_NEVER_RU
       const kept = await keptReadingOrFailure(root, o, kr, got)
       if (kept) readings.push(kept)
       const r = measuredRow(kr, got)
+      live.set(`${o.name}\0${kr.name}`, { met: r.met, read: r.read === true })
       met += Number(r.met)
       rows.push(r.row)
     }
     out.push(`O ${o.name} · ${met}/${rows.length} 达标`, ...rows)
-    full.set(o.name, rows.length > 0 && met === rows.length)
   }
-  return { text: out.join('\n'), readings, full, commit: head === NOT_COMMITTED ? undefined : head.split(' ')[0] }
+  return { text: out.join('\n'), readings, live, commit: head === NOT_COMMITTED ? undefined : head.split(' ')[0] }
 }
 
 function latestAsOfPerRound(readingsByAsOf: KeptReading[]) {
@@ -758,7 +759,7 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
       if (!project) throw new Refused(`仓库 ${repo} 不在 ${join(dir, 'repos.json')},记不了 resume`)
       await resumeOnceADecisionOnItWasResolved(team, project, await defs(repo), values.resume)
     }
-    const { text, readings, commit } = await run(top, timeout)
+    const { text, readings, live, commit } = await run(top, timeout)
     process.stdout.write(text + '\n')
     if (!project) {
       if (values.accept === undefined) {
@@ -770,7 +771,12 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
     const kept = await keepEachNewReadingOnceNamingTheKrs(team, project, readings, commit)
     const objectives = await defs(repo)
     const before = await load(team, project)
-    const doneNow = judge(objectives, before.rows, before.accepts, before.declared, repo, null).objectives.filter((x) => x.done).map((x) => x.name)
+    const thisRunAgrees = (name: string) =>
+      (objectives.find((y) => y.name === name)?.kr ?? []).every((kr) => {
+        const now = live.get(`${name}\0${kr.name}`)
+        return (kr.wait !== undefined && kr.kind !== 'committed') || (now?.read === true && (kr.kind !== 'committed' || now.met))
+      })
+    const doneNow = judge(objectives, before.rows, before.accepts, before.declared, repo, null).objectives.filter((x) => x.done && thisRunAgrees(x.name)).map((x) => x.name)
     const round = { n: before.rounds.length + 1, kept: kept.length, moved: movedTowardTheirTarget(objectives, before.rows, kept), done: doneNow }
     await team.post(okrChannel(project), block('nawaban-okr-round@1', round))
     if (values.accept !== undefined) {
@@ -779,7 +785,8 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
       if (o && hardStop(o, atThisRound.rounds, later(atThisRound.accepts.get(o.name), atThisRound.resumes.get(o.name)))) {
         throw new Refused(`${o.name} 硬停中,不收 accept:待决策项 resolve 之后先跑 okr --resume ${o.name}(读数新记 ${kept.length} 条)`)
       }
-      const done = new Map(judge(objectives, atThisRound.rows, atThisRound.accepts, atThisRound.declared, repo, null).objectives.map((x) => [x.name, x.done]))
+      const judged = judge(objectives, atThisRound.rows, atThisRound.accepts, atThisRound.declared, repo, null).objectives
+      const done = new Map(judged.map((x) => [x.name, x.done && thisRunAgrees(x.name)]))
       await acceptAfterThisRunsReadingsSoNoneCountsAsAMissSince(team, project, values.accept, done, kept.length)
     }
     process.stdout.write(`第 ${round.n} 轮${round.kept ? '' : '(空转)'} · 读数新记 ${kept.length} 条${values.accept !== undefined ? ` · ✓ accept ${values.accept}` : ''}\n`)
@@ -846,7 +853,7 @@ const later = (a: string | undefined, b: string | undefined) => ((a ?? '') > (b 
 export function hardStop(o: Objective, rounds: OkrRound[], sprintStart: string) {
   const aspirational = new Set((o.kr ?? []).filter(isAspirational).map((k) => k.name))
   const sprint = rounds.filter((r) => r.at > sprintStart)
-  const still = (r: OkrRound) => !r.moved.some((k) => aspirational.has(k))
+  const still = (r: OkrRound) => !r.done.includes(o.name) && !r.moved.some((k) => aspirational.has(k))
   for (let i = 0; i < sprint.length; i++) {
     if (sprint[i]!.done.includes(o.name)) continue
     if (i + 1 >= STILL_ROUNDS_TO_STOP && sprint.slice(i + 1 - STILL_ROUNDS_TO_STOP, i + 1).every(still)) {

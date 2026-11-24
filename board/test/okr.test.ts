@@ -910,6 +910,7 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect(hardStop(o, [round(1, ['C']), round(2, ['A'])], '')).toBeNull()
     expect(hardStop(o, [round(1, [], ['O']), round(2, [], ['O'])], '')).toBeNull()
     expect(hardStop(o, [round(1, []), round(2, []), round(3, [], ['O'])], '')?.why).toMatch(/连续 2 轮/)
+    expect(hardStop(o, [round(1, [], ['O']), round(2, [])], '')).toBeNull()
   })
 
   it('refuses okr in a repository the old CLI keeps, keeping nothing', async () => {
@@ -983,6 +984,15 @@ describe('committed KRs hold a line, aspirational ones score, and an Objective i
   it('scores in exact decimals, even past what a float holds', () => {
     const data = judge(o([{ name: 'K', target: '>= 9007199254740993', baseline: '9007199254740990' }]), [{ ...reading('K', 0, at), value: '9007199254740992' }], new Map(), new Map(), '/r', null)
     expect([data.objectives[0]!.aspirational_score, data.objectives[0]!.done]).toEqual([0.666666666666, false])
+  })
+
+  it('refuses okr --accept when this run reads a committed KR off its line, even with nothing new kept', async () => {
+    const p = await projectOnItsOwnBoardWithItsOwnReposJson('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "C"\nkind = "committed"\ntarget = "<= 0"\nmeasure = "cat c.txt"\n')
+    await writeFile(join(p.root, 'c.txt'), '0 2026-11-24')
+    await nawabanOkr(p)
+    await writeFile(join(p.root, 'c.txt'), '1 unknown')
+    const refused = await nawabanOkr(p, '--accept', 'O')
+    expect([refused.code, refused.err]).toEqual([1, expect.stringContaining('还没收工')])
   })
 
   it('refuses a kind other than committed or aspirational, and a baseline that is no number', async () => {
