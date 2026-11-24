@@ -25,7 +25,7 @@ const WORKER_ARGV = {
 const PROFILE_PREFIX_OF_AGENT = { claude: 'cc', codex: 'cx', agy: 'agy' } as const
 const CLAUDE_CONTEXT_WINDOW_TOKENS = 1_000_000
 const REUSE_WHILE_CONTEXT_SHARE_BELOW = 0.5
-const CLAIM_LEASE_SECONDS = 3600
+const CLAIM_LEASE = '1h'
 export const LANE_NOTE = /^\s*lane:\s*(\S.*?)\s*$/
 type Agent = keyof typeof WORKER_ARGV
 const isAgent = (name: string): name is Agent => Object.hasOwn(WORKER_ARGV, name)
@@ -254,11 +254,11 @@ const workerProfileOf = (t: Terminal) => {
   return agent && session && isAgent(agent) ? sessionProfile(PROFILE_PREFIX_OF_AGENT[agent], session) : null
 }
 
-async function claimForWorkerIfReady(task: MessageView, worker: Terminal): Promise<boolean> {
+async function claimForWorkerKeepingTheTokenWhereItsCliLooks(task: MessageView, worker: Terminal): Promise<boolean> {
   const as = workerProfileOf(worker)
   if (!as) return false
   try {
-    await board().as(as).tasks.claim(task.id, { lease: CLAIM_LEASE_SECONDS })
+    await exec('node', [CLI, 'tasks', 'claim', task.id, '--as', as, '--lease', CLAIM_LEASE, '--json'])
     await board().as(null).label(task.id, { set: { terminal: worker.address } })
     return true
   } catch {
@@ -290,7 +290,7 @@ export async function dispatch(argv: string[]): Promise<number> {
       const worker = seat.reuse
       const wt = await handToRunningWorker(checked, a, worker)
       await recordDispatchAsThisWindow(checked, a, wt, worker.address, worker.name ?? worker.address)
-      const claimed = checked.task ? await claimForWorkerIfReady(checked.task, worker) : false
+      const claimed = checked.task ? await claimForWorkerKeepingTheTokenWhereItsCliLooks(checked.task, worker) : false
       const claim = checked.task ? (claimed ? ' · claimed for it' : ' · it claims when it starts') : ''
       process.stdout.write(`handed ${checked.who} to running hc ${worker.address}${lane} · ${wt.path} · branch ${wt.branch} on its next turn${claim} · reports to ${checked.orch}\n`)
       return 0
