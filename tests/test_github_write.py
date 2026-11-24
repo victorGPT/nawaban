@@ -104,6 +104,46 @@ def test_release_unassigns_and_the_board_shows_the_issue_open_again(gh, monkeypa
     assert task["status"] == "open" and task["session"] is None
 
 
+def test_a_claim_leaves_this_machine_a_note_the_progress_hook_reads_and_the_board_shows_what_it_wrote(gh, monkeypatch, tmp_path):
+    monkeypatch.setenv("NAWABAN_BOARD_DIR", str(tmp_path / "board"))
+    assert gh.nawaban("claim", "#950")[0] == 0
+    claim = json.loads((tmp_path / "board" / "github-claims" / "roubao#950.json").read_text())
+    assert claim["session"] == "selftest-session" and claim["claimedAt"] > 0
+    (tmp_path / "board" / "progress").mkdir()
+    (tmp_path / "board" / "progress" / "roubao#950.json").write_text(json.dumps({"milestone": "pr", "at": 1763200000}))
+    assert gh.nawaban("event", "#950", "--kind", "decision", "--body", "就按 B 做", "--by", "user")[0] == 0
+    issue = {"number": 950, "title": "t", "state": "OPEN", "createdAt": "2026-11-15T00:00:00Z",
+             "updatedAt": "2026-11-15T01:00:00Z", "labels": [], "body": "", "comments": gh.issue["comments"],
+             "assignees": gh.issue["assignees"]}
+    monkeypatch.setattr(cli, "_gh_issues", lambda root: [issue])
+    code, out = gh.nawaban("json", "board")
+    [task] = [t for c in json.loads(out)["columns"] for t in c["tasks"]]
+    assert task["live"] == {"milestone": "pr", "at": 1763200000}
+    assert task["ruling"]["verdict"] == "就按 B 做"
+    assert gh.nawaban("close", "#950", "--done")[0] == 0
+    assert not list((tmp_path / "board").glob("*/roubao#950.json"))
+
+
+def test_milestones_left_here_by_an_earlier_claimant_are_not_shown_for_whoever_holds_it_now(monkeypatch, tmp_path):
+    monkeypatch.setenv("NAWABAN_BOARD_DIR", str(tmp_path / "board"))
+    for folder, body in (("github-claims", {"session": "old-session", "claimedAt": 1}), ("progress", {"milestone": "reported", "at": 1})):
+        (tmp_path / "board" / folder).mkdir(parents=True)
+        (tmp_path / "board" / folder / "roubao#950.json").write_text(json.dumps(body))
+    i = {"number": 950, "title": "t", "state": "OPEN", "createdAt": "2026-11-15T00:00:00Z", "updatedAt": "2026-11-24T00:00:00Z",
+         "labels": [], "body": "", "comments": [], "assignees": [{"login": "new-owner"}]}
+    now_held = cli._issue_task(Path("/repos/roubao"), i, [{"body": "认领：new-session（hc t2）", "createdAt": "2026-11-24T00:00:00Z"}])
+    held_before = cli._issue_task(Path("/repos/roubao"), i, [{"body": "认领：old-session（hc t1）", "createdAt": "2026-11-24T00:00:00Z"}])
+    assert now_held["live"] is None and held_before["live"] == {"milestone": "reported", "at": 1}
+
+
+def test_a_fresh_claim_starts_the_milestones_over(gh, monkeypatch, tmp_path):
+    monkeypatch.setenv("NAWABAN_BOARD_DIR", str(tmp_path / "board"))
+    (tmp_path / "board" / "progress").mkdir(parents=True)
+    (tmp_path / "board" / "progress" / "roubao#950.json").write_text(json.dumps({"milestone": "reported", "at": 1}))
+    assert gh.nawaban("claim", "#950")[0] == 0
+    assert not (tmp_path / "board" / "progress" / "roubao#950.json").exists()
+
+
 @pytest.mark.parametrize("flag,cmd", [("--done", ["issue", "close", "950", "--reason", "completed"]),
                                       ("--cancelled", ["issue", "close", "950", "--reason", "not planned"]),
                                       ("--reopen", ["issue", "reopen", "950"])])

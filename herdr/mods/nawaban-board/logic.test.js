@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { projectFor, cliFor, BOARD_PROJECTS, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, panelView, sinceLabel, decisionDate, WINDOW_WORDS,
   okrView, OKR_WORDS, gapOf, varianceText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, ROWS_SHOWN_PER_GROUP, moreKey, TABS, openingTab, tabBadges,
   CAPTURE_FOLD, captureStoreKey, capturesFrom, addCapture, removeCapture, markHanded, captureView, unhandedCount, localMonthDayTime,
-  stepChain, milestoneChain, doingOf, flowCounts, flowLine } from "./logic.js";
+  stepChain, milestoneChain, doingOf, flowLine } from "./logic.js";
 import { readFileSync } from "node:fs";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
@@ -563,11 +563,36 @@ test("卡住 says who it waits for: the decision-maker's question, or a permissi
 });
 
 test("the top line counts what closed today, what runs, and what waits for you, with no denominator", () => {
-  const board = { columns: [
-    { key: "open", tasks: [{ id: "A", status: "open" }, { id: "W", status: "open", waiting: "定吗" }] },
-    { key: "in_progress", tasks: [{ id: "R", status: "in_progress" }, { id: "Q", status: "in_progress", waiting: "批吗" }] },
-    { key: "done", tasks: [{ id: "D1", status: "done", done_at: NOON - 3600 }, { id: "D0", status: "done", done_at: NOON - 86400 }] }] };
-  assert.equal(flowLine(flowCounts(board, NOON)), "今天关了 1 · 在跑 1 · 等你 2");
+  assert.equal(flowLine({ closed: 1, running: 2, waiting: 3 }), "今天关了 1 · 在跑 2 · 等你 3");
+});
+
+test("on a GitHub board 在跑 is the 进行中 group and 等你 is the 待决 badge, whatever sits stalled or pending elsewhere", () => {
+  const issue = (n, status, x = {}) => ({ id: "#" + n, title: "issue " + n, status, parent: null, created_at: NOON - 9 * 86400, active_at: NOON - 600,
+    url: "https://gh/" + n, terminal: null, session: status === "in_progress" ? "s" + n : null, claimed_at: status === "in_progress" ? NOON - 3600 : null,
+    waiting: null, pending: null, ...x });
+  const pending = { at: NOON - 300, progress: [], card: fullCard };
+  const board = { tracker: "github", columns: [
+    { key: "open", tasks: [issue(1, "open"), issue(2, "open", { pending })] },
+    { key: "in_progress", tasks: [issue(3, "in_progress"), issue(4, "in_progress", { active_at: NOON - 2 * 86400 }), issue(5, "in_progress", { pending })] },
+    { key: "done", tasks: [issue(6, "done", { done_at: NOON - 3600 })] }] };
+  const v = panelView({ agents: [], terminals: [], space: "here", board, now: NOON, lang: "zh" });
+  const decide = v.waiting.length + decisionCardsView(board).cards.length;
+  const working = v.tasks.find((g) => g.group === "working").items.length;
+  assert.deepEqual([decide, working], [2, 2]);
+  assert.equal(v.flow, "今天关了 1 · 在跑 " + working + " · 等你 " + decide);
+});
+
+test("a held GitHub issue shows its milestone, ruling and last move like a board task, and an unclaimed one shows none", () => {
+  const t = { id: "#7", title: "接里程碑", status: "in_progress", parent: null, session: "s7", claimed_at: NOON - 3600, active_at: NOON - 7200,
+    terminal: null, waiting: null, pending: null, url: "https://gh/7",
+    live: { milestone: "pr", at: NOON - 120 }, ruling: { at: at("2026-11-24T09:30:00"), verdict: "就按 B 做" } };
+  const board = { tracker: "github", columns: [{ key: "open", tasks: [{ ...t, id: "#8", status: "open", session: null, live: null, ruling: null }] },
+    { key: "in_progress", tasks: [t] }] };
+  const items = panelView({ agents: [], terminals: [], space: "here", board, now: NOON, lang: "zh" }).tasks.flatMap((g) => g.items);
+  const held = items.find((x) => x.id === "#7");
+  assert.equal(held.doing.head, "【在做】接里程碑 —— 决策者 11-24 09:30 说「就按 B 做」");
+  assert.equal(held.doing.chain, "✓3 步 → [开 PR] → review → 回报 · 2 分钟前还在动");
+  assert.equal(items.find((x) => x.id === "#8").doing, undefined);
 });
 
 test("the panel rereads the board when a task's progress file is written, not for the hook's own scratch files", () => {

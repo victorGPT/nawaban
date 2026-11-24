@@ -147,6 +147,9 @@ async function pluginHoldElsePull(did: string[]): Promise<Outcome | null> {
   const failed = await failureElseNull('git', ['-C', plugin, 'merge', '-q', '--ff-only', 'origin/main'])
   if (failed) return { kind: 'mergedButUnfinished', left: `插件 pull 失败：${failed}` }
   did.push('插件已 pull')
+  const modInstaller = join(plugin, 'herdr', 'install-mod.sh')
+  const unsynced = existsSync(modInstaller) ? await failureElseNull('sh', [modInstaller]) : null
+  if (unsynced) return { kind: 'mergedButUnfinished', left: `Herdr mod 同步失败：${unsynced}` }
   return null
 }
 

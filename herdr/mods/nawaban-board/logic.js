@@ -250,13 +250,7 @@ export function doingOf(t, byId, title, status, now) {
 }
 
 const localMidnightSeconds = (now) => localMidnight(now) / MS_PER_SECOND;
-export function flowCounts(board, now) {
-  const tasks = allTasks(board);
-  const open = tasks.filter((t) => !isDone(t));
-  return { closed: tasks.filter((t) => isDone(t) && (t.done_at ?? 0) >= localMidnightSeconds(now)).length,
-    running: open.filter((t) => t.status === "in_progress" && !isAsking(t)).length,
-    waiting: open.filter(isAsking).length };
-}
+export const closedToday = (board, now) => allTasks(board).filter((t) => isDone(t) && (t.done_at ?? 0) >= localMidnightSeconds(now)).length;
 export const flowLine = ({ closed, running, waiting }) => "今天关了 " + closed + " · 在跑 " + running + " · 等你 " + waiting;
 
 const ISSUE_NAME = /^gh-(\d+)/;
@@ -267,7 +261,8 @@ const isUnclaimedIssue = (t) => !isDone(t) && !isHeld(t) && !t.terminal && !isAs
 function issueTaskItem(c, t) {
   if (isUnclaimedIssue(t)) return { ...issueItem(t, null, c.now), state: "todo", at: null };
   const window = t.terminal ? c.windowAt(t.terminal) : null;
-  return { ...issueItem(t, window?.status, c.now), focus: window ? t.terminal : null };
+  return { ...issueItem(t, window?.status, c.now), focus: window ? t.terminal : null,
+    doing: isHeld(t) && !isDone(t) ? doingOf(t, c.byId, t.title, window?.status, c.now) : null };
 }
 
 const taskItems = (c) => (c.github ? c.tasks.map((t) => issueTaskItem(c, t))
@@ -306,8 +301,12 @@ export function panelView(args) {
   const { waiting: asking } = windowsAndWaits(questionsAskedOnBoard(c));
   const items = taskItems(c);
   const cards = [...asking, ...panelessBlockedCards(c, items)];
-  return { waiting: cards.map((card, i) => ({ key: "card:" + i, ...withoutTask(card) })), tasks: taskGroups(c, items, cards),
-    flow: c.board ? flowLine(flowCounts(c.board, c.now)) : null, otherWaiting: waitingInOtherProjects(c.projects, c.project) };
+  const tasks = taskGroups(c, items, cards);
+  const flow = c.board && flowLine({ closed: closedToday(c.board, c.now),
+    running: tasks.find((g) => g.group === "working")?.items.length ?? 0,
+    waiting: cards.length + decisionCardsView(c.board).cards.length });
+  return { waiting: cards.map((card, i) => ({ key: "card:" + i, ...withoutTask(card) })), tasks,
+    flow: flow || null, otherWaiting: waitingInOtherProjects(c.projects, c.project) };
 }
 
 const openBlockersIn = (open) => (t) => (t.blocked_by ?? []).some((b) => open.some((o) => o.id === b));

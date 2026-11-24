@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs'
+import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs'
 import { mkdir, rename, rm, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { text } from 'node:stream/consumers'
@@ -62,6 +62,27 @@ export function readLive(boardDir: string, taskId: string): Live | null {
 }
 
 export const forgetLive = (boardDir: string, taskId: string) => rm(liveFile(boardDir, taskId), { force: true })
+
+const GITHUB_CLAIMS_FOLDER = 'github-claims'
+const JSON_SUFFIX = '.json'
+
+export function githubIssuesHeldBy(boardDir: string, session: string): Held[] {
+  const folder = join(boardDir, GITHUB_CLAIMS_FOLDER)
+  let names: string[]
+  try {
+    names = readdirSync(folder).filter((name) => name.endsWith(JSON_SUFFIX))
+  } catch {
+    return []
+  }
+  return names.flatMap((name) => {
+    try {
+      const claim = JSON.parse(readFileSync(join(folder, name), 'utf8'))
+      return claim.session === session && typeof claim.claimedAt === 'number' ? [{ id: name.slice(0, -JSON_SUFFIX.length), claimedAt: claim.claimedAt }] : []
+    } catch {
+      return []
+    }
+  })
+}
 
 function tailLines(path: string): string[] {
   const fd = openSync(path, 'r')

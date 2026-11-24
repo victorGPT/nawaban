@@ -48,6 +48,11 @@ EOF
   chmod 755 "$bin_dir/nawaban"
 }
 
+install_the_herdr_mod() {
+  say "把看板面板装进 Herdr（没装 Herdr 就跳过）"
+  sh "$plugin/herdr/install-mod.sh"
+}
+
 open_the_codex_sandbox_to_the_board() {
   command -v codex >/dev/null || return 0
   say "让 Codex 的 workspace-write 沙箱能连本机看板、写认领租约"
@@ -107,6 +112,7 @@ require_prerequisites
 install_dependencies_and_build_the_page
 install_the_claude_code_plugin
 write_the_nawaban_command
+install_the_herdr_mod
 open_the_codex_sandbox_to_the_board
 start_the_board_service
 
