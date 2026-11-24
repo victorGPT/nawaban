@@ -117,6 +117,15 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
       properties: { worker: text, terminal: text, accept: text },
     },
   },
+  'nawaban-dispatch@2': {
+    description: 'A task handed to a worker: who, in which terminal, and what counts as done, with the orchestrator terminal that takes its report and the agent and model it runs when the dispatch knows them.',
+    schema: {
+      type: 'object',
+      required: ['worker', 'terminal', 'accept'],
+      additionalProperties: false,
+      properties: { worker: text, terminal: text, accept: text, orchestrator: text, agent: text, model: text },
+    },
+  },
 } as const
 export const SCHEMAS = VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE
 

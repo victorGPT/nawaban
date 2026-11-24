@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import fixture from '../../herdr/mods/nawaban-board/okr.fixture.json'
-import { boardColumns, DONE_SHOWN_ON_BOARD, krFill, okrReadingOfFailure, okrView, OKR_WORDS, linkOf, pendingCount, projectShown, routeOf, STOPPED_AFTER_SILENT_FOR, summaryOf, taskGroups, taskHref, taskSections, type Board, type BoardTask } from './logic'
+import { boardColumns, DONE_SHOWN_ON_BOARD, krFill, okrReadingOfFailure, okrView, OKR_WORDS, linkOf, projectShown, routeOf, STOPPED_AFTER_SILENT_FOR, summaryOf, waitingOnYouCount, taskGroups, taskHref, taskSections, type Board, type BoardTask } from './logic'
 
 const NOW = 1_800_000_000
 const task = (id: string, over: Partial<BoardTask> = {}): BoardTask => ({
@@ -101,8 +101,8 @@ describe('header', () => {
   it('counts what closed today, what runs and what waits for you, with no denominator', () => {
     const board = boardOf(working('a'), working('q', { waiting: '定吗' }), task('b'), task('p', { pending: { at: NOW } as BoardTask['pending'] }), task('d', { status: 'done', done_at: NOW - 60 }))
     const running = taskGroups(board, NOW).find((g) => g.group === 'working')!.items.length
-    expect([running, pendingCount(board)]).toEqual([1, 1])
-    expect(summaryOf(board, NOW)).toBe('今天关了 1 · 在跑 1 · 等你 1')
+    expect([running, waitingOnYouCount(board)]).toEqual([1, 2])
+    expect(summaryOf(board, NOW)).toBe('今天关了 1 · 在跑 1 · 等你 2')
   })
   it('a held task reads 在做, with the milestone it reached and how lately it moved', () => {
     const board = boardOf(working('a', { title: '接上进展', live: { milestone: 'pr', at: NOW - 120 } }))

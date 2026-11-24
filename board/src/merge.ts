@@ -7,14 +7,13 @@ import { promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
 import { dispatch, LANE_NOTE, mainCheckoutRealPathOf, orchestratorFor, stdoutOrNullOnFailure, terminalOf } from './dispatch.ts'
 import { mergeGate } from './impact.ts'
+import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
 import { all, profile, Refused, resolve, run as taskVerb } from './tasks.ts'
 
 const exec = promisify(execFile)
 const USAGE = 'usage: nawaban merge <PR 号>'
 const PR_FIELDS = 'number,state,url,title,headRefName,headRefOid,files,statusCheckRollup,comments,mergeCommit'
-const PASSING_CHECK_RUN = ['SUCCESS', 'NEUTRAL', 'SKIPPED']
-const PENDING_STATUS = ['PENDING', 'EXPECTED']
 const NO_BLOCKER_REVIEW_LINE = /review[:：]\s*无挡/i
 const SHA_PREFIX_A_REVIEW_NAMES = /\b[0-9a-f]{7,40}\b/gi
 const WORKTREE_BRANCH = /^wt\/(.+)$/
@@ -24,7 +23,6 @@ const NEXT_ACCEPT = '照票上 Acceptance criteria；开 PR 不合并'
 const EXIT_CODE = { waiting: 3, refused: 1, mergedButUnfinished: 1, done: 0 } as const
 const pluginDir = () => process.env.NAWABAN_PLUGIN_DIR ?? join(homedir(), '.nawaban', 'plugin')
 
-type Check = { __typename: 'CheckRun'; name: string; status: string; conclusion: string } | { __typename: 'StatusContext'; context: string; state: string }
 type PullRequest = {
   number: number
   state: string
@@ -62,10 +60,6 @@ async function seenOf(task: MessageView): Promise<Seen> {
   return { task, terminal, lane }
 }
 
-const checkName = (c: Check) => (c.__typename === 'StatusContext' ? c.context : c.name)
-const checkPassed = (c: Check) => (c.__typename === 'StatusContext' ? c.state === 'SUCCESS' : c.status === 'COMPLETED' && PASSING_CHECK_RUN.includes(c.conclusion))
-const checkSucceeded = (c: Check) => (c.__typename === 'StatusContext' ? c.state === 'SUCCESS' : c.conclusion === 'SUCCESS')
-const checkPending = (c: Check) => (c.__typename === 'StatusContext' ? PENDING_STATUS.includes(c.state) : c.status !== 'COMPLETED')
 
 function ciVerdict(checks: Check[]): Outcome | null {
   if (!checks.length) return { kind: 'waiting', on: 'CI 还没有任何 check' }
@@ -162,7 +156,7 @@ async function recordTheWorkerBeforeCloseUnsetsItsLabel(task: MessageView): Prom
   if (!holder) return null
   if (lastDispatchedTerminal((await board().thread(task.id)).replies) === holder) return null
   try {
-    await board().as(profile()).reply(task.id, block('nawaban-dispatch@1', { worker: (await terminalOf(holder))?.name ?? holder, terminal: holder, accept: NEXT_ACCEPT }))
+    await board().as(profile()).reply(task.id, block('nawaban-dispatch@2', { worker: (await terminalOf(holder))?.name ?? holder, terminal: holder, accept: NEXT_ACCEPT }))
     return null
   } catch (error) {
     return { kind: 'mergedButUnfinished', left: `记 worker ${holder} 失败：${failureOf(error)}` }

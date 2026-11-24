@@ -1,9 +1,9 @@
 import {
-  closedToday, doingOf, flowLine, foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WINDOW_WORDS,
+  closedToday, doingOf, flowLine, foldKey, localMonthDayTime, MILESTONE_WORDS, MILESTONES, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WHO_AND_WHEN_ALREADY_SHOWN, WINDOW_WORDS,
 } from '../../herdr/mods/nawaban-board/logic.js'
 import type { Pending } from './decide-logic'
 
-export { foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, sinceLabel, taskSections, WINDOW_WORDS }
+export { foldKey, localMonthDayTime, MILESTONE_WORDS, MILESTONES, OKR_WORDS, okrReadingOfFailure, sinceLabel, taskSections, WHO_AND_WHEN_ALREADY_SHOWN, WINDOW_WORDS }
 
 export type KrStatus = 'met' | 'missed' | 'stale' | 'untested'
 export type KrRow = { name: string; status: KrStatus; value: string; target: string; measured: boolean; gap: string | null; day: string | null }
@@ -48,6 +48,7 @@ export type BoardTask = {
   status: 'open' | 'in_progress' | 'done'
   parent: string | null
   session: string | null
+  terminal?: string | null
   active_at: number
   claimed_at: number | null
   done_at?: number | null
@@ -144,10 +145,12 @@ export function boardColumns(groups: { group: Group; items: Item[] }[], doneShow
   })
 }
 
-export const pendingCount = (board: Board | null) => allOf(board).filter((t) => t.status !== 'done' && t.pending).length
+export const boardTaskOf = (board: Board | null, id: string | null) => allOf(board).find((t) => t.id === id) ?? null
+
+export const waitingOnYouCount = (board: Board | null) => allOf(board).filter((t) => t.status !== 'done' && (t.pending || t.waiting)).length
 
 export const summaryOf = (board: Board | null, now: number): string =>
-  board ? flowLine({ closed: closedToday(board, now), running: taskGroups(board, now).find((g) => g.group === 'working')?.items.length ?? 0, waiting: pendingCount(board) }) : ''
+  board ? flowLine({ closed: closedToday(board, now), running: taskGroups(board, now).find((g) => g.group === 'working')?.items.length ?? 0, waiting: waitingOnYouCount(board) }) : ''
 
 export function projectShown(projects: Project[], picked: string | null) {
   if (picked && projects.some((p) => p.name === picked)) return picked

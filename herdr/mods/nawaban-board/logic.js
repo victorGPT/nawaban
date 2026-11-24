@@ -221,7 +221,7 @@ export function stepChain(steps) {
 }
 
 const QUOTED = /「([^」]+)」/;
-const WHO_AND_WHEN_ALREADY_SHOWN = /^决策者\s*\d{1,2}-\d{1,2}(?:\s+\d{1,2}:\d{2})?\s*[：:，,]?\s*/;
+export const WHO_AND_WHEN_ALREADY_SHOWN = /^决策者\s*\d{1,2}-\d{1,2}(?:\s+\d{1,2}:\d{2})?\s*[：:，,]?\s*/;
 const rulingWords = (verdict) => clip((QUOTED.exec(verdict) ?? [null, verdict.replace(WHO_AND_WHEN_ALREADY_SHOWN, "")])[1], RULING_CHARS);
 const rulingOf = (t, byId) => t.ruling ?? byId.get(t.parent)?.ruling ?? null;
 const rulingLine = (r) => (r ? "决策者 " + decisionDate(r.at) + " " + clockTime(r.at) + " 说「" + rulingWords(r.verdict) + "」" : "编排者代定");
@@ -232,8 +232,8 @@ function stuckOn(t, status) {
   return null;
 }
 
-const MILESTONES = ["started", "edited", "committed", "pr", "review", "reported"];
-const MILESTONE_WORDS = { started: "开工", edited: "首次改文件", committed: "首次提交", pr: "开 PR", review: "review", reported: "回报" };
+export const MILESTONES = ["started", "edited", "committed", "pr", "review", "reported"];
+export const MILESTONE_WORDS = { started: "开工", edited: "首次改文件", committed: "首次提交", pr: "开 PR", review: "review", reported: "回报" };
 export const milestoneChain = (reached) => {
   const at = Math.max(0, MILESTONES.indexOf(reached));
   return stepChain(MILESTONES.map((m, i) => ({ subject: MILESTONE_WORDS[m], status: i < at ? "completed" : i === at ? "in_progress" : "pending" })));

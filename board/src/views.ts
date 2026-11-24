@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { board, BoardEventView, MessageView } from '@vercel/board'
 import { readLive } from './progress.ts'
+import { noPullStates, type PullStateOf } from './pulls.ts'
 import { gapsOfADecisionCard, type DecisionCard } from './schemas.ts'
 import { Refused } from './tasks.ts'
 
@@ -199,7 +200,9 @@ function eventAsTheOldCliWroteIt(r: Reply) {
   return { kind, body: text, author: d.by === 'user' ? 'user' : r.by, at: r.at }
 }
 
-export async function taskDetail(team: Team, ref: string) {
+const PULL_LINK = /^pr:(\S+)/
+
+export async function taskDetail(team: Team, ref: string, pullStateOf: PullStateOf = noPullStates) {
   const [m] = await team.tasks.list({ state: 'all', label: { key: ref } }).then((p) => p.tasks.map((t) => t.message))
   const task = m ?? (await team.thread(ref.replace(/^#/, ''), { limit: 1 }).then((t) => t.message, () => null))
   if (!task?.task) throw new Refused(`任务不存在:${ref}`)
@@ -210,6 +213,8 @@ export async function taskDetail(team: Team, ref: string) {
   const h = (await historiesFromTheFeedSinceTheOldestTask(team, [task], task.channel)).get(task.id)!
   const events = h.replies.map(eventAsTheOldCliWroteIt).reverse()
   const parent = all.find((x) => key(x) === task.labels.parent)
+  const pullUrls = [...new Set(events.flatMap((e) => (e.kind === 'link' ? (PULL_LINK.exec(e.body)?.[1] ?? []) : [])))]
+  const pullStates = await Promise.all(pullUrls.map(pullStateOf))
   return {
     id: key(task),
     title: title(task),
@@ -225,6 +230,7 @@ export async function taskDetail(team: Team, ref: string) {
     latest_note: events.find((e) => e.kind === 'note') ?? null,
     decisions: events.filter((e) => e.kind === 'decision'),
     links: events.filter((e) => e.kind === 'link'),
+    pulls: Object.fromEntries(pullUrls.flatMap((url, i) => (pullStates[i] ? [[url, pullStates[i]]] : []))),
     events,
   }
 }

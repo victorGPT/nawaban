@@ -1,16 +1,16 @@
-import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
-import { render } from '@solidjs/web'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { render, type JSX } from '@solidjs/web'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/solid/tabs'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@ui-sdk/solid/collapsible'
 import { Progress, ProgressIndicator, ProgressTrack } from '@ui-sdk/solid/progress'
 import {
-  boardColumns, foldKey, krFill, linkOf, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
-  WINDOW_WORDS, type Board, type Item, type Project, type Route, type Tab,
+  boardColumns, boardTaskOf, foldKey, krFill, OKR_WORDS, okrReadingOfFailure, okrView, type KrRow, type ObjectiveRow, localMonthDayTime, projectShown, routeOf, sinceLabel, summaryOf, taskGroups, taskHref, taskSections,
+  WINDOW_WORDS, type Board, type BoardTask, type Item, type Project, type Route, type Tab,
 } from './logic'
+import { clockOf, detailView, stampOf, type By, type Timeline as TimelineRows, type Detail, type DetailView, type Entry, type Ref, type Row, type Section, type Step } from './detail-logic'
 import { Inbox } from './inbox'
 import { DecidePage } from './Decide'
-import { markdownHtml } from './markdown'
-import { badge, button, card, cardList, chip, cn, empty, Icon, selectTrigger, sectionHead, type BadgeVariant } from './ui'
+import { badge, button, card, cardList, cardTitle, chip, cn, empty, Icon, selectTrigger, sectionHead } from './ui'
 import type { IconName } from './icons'
 import '@fontsource/geist/400.css'
 import '@fontsource/geist/500.css'
@@ -28,8 +28,6 @@ const W = WINDOW_WORDS.zh
 const O = OKR_WORDS.zh
 const TAB_NAMES: Record<Tab, string> = { decide: W.tabs.decide, okr: W.tabs.okr, tasks: W.tabs.tasks, inbox: '收件箱' }
 const TAB_ICONS: Record<Tab, IconName> = { decide: 'CircleCheck', okr: 'Target', tasks: 'ListTodo', inbox: 'Inbox' }
-const STATUS_NAMES: Record<string, string> = { open: '待办', in_progress: '进行中', done: '已完成', cancelled: '已取消' }
-const STATUS_BADGES: Record<string, BadgeVariant> = { open: 'outline', in_progress: 'progress', done: 'success', cancelled: 'muted' }
 type TaskView = 'board' | 'list'
 const TASK_VIEWS: { view: TaskView; name: string; icon: IconName }[] = [
   { view: 'board', name: '看板', icon: 'SquareKanban' },
@@ -40,14 +38,6 @@ const STATE_ICONS: Record<Item['state'], { icon: IconName; tone: string }> = {
   working: { icon: 'CircleDashed', tone: 'text-status-progress' },
   stopped: { icon: 'CircleMinus', tone: 'text-warning' },
   done: { icon: 'CircleCheck', tone: 'text-status-done' },
-}
-
-type Ref = { id: string; title: string; status: string }
-type Event = { kind: string; body: string; author: string; at: number }
-type Detail = {
-  id: string; title: string; body: string; status: string; project: string; session: string | null; created_at: number
-  parent: Ref | null; children: Ref[]; blocked_by: Ref[]; dependents: Ref[]
-  latest_note: Event | null; decisions: Event[]; links: Event[]; events: Event[]
 }
 
 function routeTakingTheTokenIntoThisTab() {
@@ -233,7 +223,15 @@ function App() {
         <header class="flex h-15.5 shrink-0 items-center gap-2 border-b border-border px-4 max-md:h-auto max-md:flex-wrap max-md:py-3">
           <h1 class="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium">
             <Icon name={TAB_ICONS[route().tab]} class="text-muted-foreground" />
-            {TAB_NAMES[route().tab]}
+            <Show when={route().task} fallback={TAB_NAMES[route().tab]}>
+              {(key) => (
+                <>
+                  <a href="#tasks" class="rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">{TAB_NAMES.tasks}</a>
+                  <Icon name="ChevronDown" class="size-3.5 -rotate-90 text-subtle-foreground" />
+                  <span class="truncate tabular-nums">{key()}</span>
+                </>
+              )}
+            </Show>
           </h1>
           <span class="ml-auto min-w-0 truncate text-muted-foreground max-md:ml-0 max-md:basis-full max-md:whitespace-normal">{summary()}</span>
           <Show when={onTaskList()}>
@@ -287,7 +285,7 @@ function App() {
                     </Show>
                   </Show>
                 }>
-                  {(key) => <TaskDetail key={key()} detail={detail()} error={detailError()} />}
+                  {(key) => <TaskDetail key={key()} detail={detail()} task={boardTaskOf(board(), key())} error={detailError()} />}
                 </Show>
               </TabsPanel>
               <TabsPanel value="inbox" class="outline-none">
@@ -386,110 +384,317 @@ function TaskCard(props: { item: Item }) {
   )
 }
 
-function RefList(props: { label: string; refs: Ref[] }) {
+type Folds = { isOpen: (key: string) => boolean; setOpen: (key: string, open: boolean) => void }
+type RowContext = { waiting: string | null; folds: Folds }
+
+const BODY_FOLD = 'body'
+const ALL_ROWS_FOLD = 'all-rows'
+const CLOSED_STATUSES = new Set(['done', 'cancelled'])
+const ROLE_WORDS: Record<By, { ruling: string; row: string; tone: string }> = {
+  owner: { ruling: '决策者', row: '决策者', tone: 'text-foreground' },
+  agent: { ruling: '编排者代定', row: '代定', tone: 'text-subtle-foreground' },
+}
+const STEP_DOTS: Record<Step['status'], string> = {
+  completed: 'size-2 bg-foreground',
+  in_progress: 'size-3 border-2 border-foreground',
+  pending: 'size-2 border border-subtle-foreground',
+}
+const fieldLabel = 'text-xs text-muted-foreground'
+const metaText = 'text-xs text-subtle-foreground tabular-nums'
+const quietLink = 'underline decoration-subtle-foreground underline-offset-4 outline-none hover:decoration-foreground focus-visible:decoration-foreground'
+const prose = 'space-y-3 text-sm leading-6 text-foreground [overflow-wrap:anywhere] [&_a]:text-foreground [&_a]:underline [&_h3]:text-sm [&_ol]:block [&_ul]:block'
+const rowLine = 'flex w-full min-w-0 items-start gap-2 px-2 py-1.5 text-left text-sm leading-5 max-md:py-3'
+const foldRow = cn(rowLine, 'rounded-lg outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50')
+const markCell = 'flex h-5 w-4 shrink-0 items-center justify-center'
+const oneLine = 'md:truncate max-md:line-clamp-2'
+const wholeText = 'whitespace-pre-wrap [overflow-wrap:anywhere]'
+
+function TaskDetail(props: { key: string; detail: Detail | null; task: BoardTask | null; error: string }) {
+  const [opened, setOpened] = createSignal<Record<string, boolean>>({})
+  const folds: Folds = {
+    isOpen: (key) => !!opened()[props.key + '|' + key],
+    setOpen: (key, open) => setOpened((all) => ({ ...all, [props.key + '|' + key]: open })),
+  }
+  const shown = createMemo(() => (props.detail?.id === props.key ? { detail: props.detail, view: detailView(props.detail, props.task, nowInSeconds()) } : null))
   return (
-    <Show when={props.refs.length}>
-      <div class="flex gap-3 text-sm">
-        <span class="w-10 shrink-0 text-muted-foreground">{props.label}</span>
-        <span class="flex min-w-0 flex-col gap-1">
-          <For each={props.refs}>
-            {(r) => (
-              <a href={taskHref(r.id)} class={cn('truncate hover:underline', r.status === 'done' ? 'text-subtle-foreground' : 'text-foreground')}>
-                <span class="text-subtle-foreground tabular-nums">{r.id}</span> {r.title}
-              </a>
-            )}
-          </For>
-        </span>
-      </div>
+    <Show when={shown()} fallback={<p class={empty}>{props.error || W.loading}</p>}>
+      {(s) => <DetailCard detail={s().detail} view={s().view} task={props.task} folds={folds} />}
     </Show>
   )
 }
 
-function TaskDetail(props: { key: string; detail: Detail | null; error: string }) {
-  const d = () => (props.detail?.id === props.key ? props.detail : null)
+function DetailCard(props: { detail: Detail; view: DetailView; task: BoardTask | null; folds: Folds }) {
+  const look = () => stateLook(props.view)
+  const saysSomethingNow = () => props.view.headline.length || props.view.steps || props.view.ruling || props.view.sections.length
   return (
-    <article class="flex flex-col gap-6">
-      <a href="#tasks" class={cn(button('ghost', 'sm'), 'self-start text-muted-foreground')}>
-        <Icon name="ChevronLeft" />
-        {W.tabs.tasks}
-      </a>
-      <Show when={d()} fallback={<p class={empty}>{props.error || W.loading}</p>}>
-        {(t) => (
-          <>
-            <section class={cn(card, 'px-4')}>
-              <div class="flex flex-col gap-1">
-                <h2 class="text-lg leading-snug font-medium">{t().title}</h2>
-                <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span class="tabular-nums">{t().id}</span>
-                  <span class={badge(STATUS_BADGES[t().status] ?? 'outline')}>{STATUS_NAMES[t().status] ?? t().status}</span>
-                  <Show when={t().session}>{(s) => <span>{s()}</span>}</Show>
-                  <span class="text-subtle-foreground tabular-nums">{when(t().created_at)}</span>
-                </div>
-              </div>
-              <Show when={t().body} fallback={<p class="text-subtle-foreground">没有正文</p>}>
-                <div class="flex flex-col gap-3 border-t border-border pt-4 leading-6 [overflow-wrap:anywhere]" innerHTML={markdownHtml(t().body)} />
-              </Show>
-              <RefList label="上级" refs={t().parent ? [t().parent!] : []} />
-              <RefList label="子票" refs={t().children} />
-              <RefList label="被挡" refs={t().blocked_by} />
-              <RefList label="挡着" refs={t().dependents} />
-            </section>
-            <Part title={W.facts.note} empty="还没有进展" items={t().latest_note ? [t().latest_note!] : []} />
-            <Part title="决策记录" empty="没有决策记录" items={t().decisions} />
-            <section class="flex flex-col gap-2">
-              <h2 class={sectionHead}><span class="font-medium">链接</span></h2>
-              <Show when={t().links.length} fallback={<p class={empty}>没有链接</p>}>
-                <div class={cardList}>
-                  <For each={t().links}>
-                    {(e) => {
-                      const link = linkOf(e.body)
-                      return (
-                        <div class="flex min-w-0 items-center gap-2 px-4 py-2.5">
-                          <span class={badge('outline')}>{link.kind || '链接'}</span>
-                          <Show when={link.href} fallback={<span class="min-w-0 [overflow-wrap:anywhere]">{link.ref}</span>}>
-                            {(href) => <a class="min-w-0 text-primary underline-offset-4 [overflow-wrap:anywhere] hover:underline" href={href()} target="_blank" rel="noreferrer">{link.ref}</a>}
-                          </Show>
-                        </div>
-                      )
-                    }}
-                  </For>
-                </div>
-              </Show>
-            </section>
-            <Part title="事件流" empty="还没有事件" items={t().events} tagged />
-          </>
-        )}
-      </Show>
+    <article class="mx-auto flex w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-card">
+      <header class="border-b border-border px-6 py-5 max-md:px-4">
+        <div class="flex items-start gap-3">
+          <Icon name={look().icon} class={cn('mt-1 size-5', look().tone)} />
+          <h2 class="min-w-0 text-2xl leading-tight font-semibold text-foreground [overflow-wrap:anywhere]">{props.detail.title}</h2>
+        </div>
+      </header>
+      <div class="flex max-md:flex-col">
+        <div class="flex min-w-0 flex-1 flex-col max-md:contents">
+          <Show when={saysSomethingNow()}>
+            <div class="flex flex-col divide-y divide-border max-md:order-1">
+              <NowPart view={props.view} />
+              <BodyPart sections={props.view.sections} folds={props.folds} />
+            </div>
+          </Show>
+          <Timeline timeline={props.view.timeline} waiting={props.view.waiting} folds={props.folds} />
+        </div>
+        <aside class="flex w-72 shrink-0 flex-col divide-y divide-border border-l border-border px-6 max-md:order-2 max-md:w-full max-md:border-t max-md:border-l-0 max-md:px-4">
+          <SideFields view={props.view} />
+        </aside>
+      </div>
     </article>
   )
 }
 
-const KIND_NAMES: Record<string, string> = { note: '进展', decision: '决策', link: '链接', ask: '待决', resolve: '已决', dispatch: '派工' }
-const KIND_BADGES: Record<string, BadgeVariant> = { note: 'secondary', decision: 'success', resolve: 'success', link: 'outline', dispatch: 'progress', ask: 'warning' }
-
-function Part(props: { title: string; empty: string; items: Event[]; tagged?: boolean }) {
+function NowPart(props: { view: DetailView }) {
   return (
-    <section class="flex flex-col gap-2">
-      <h2 class={sectionHead}><span class="font-medium">{props.title}</span></h2>
-      <Show when={props.items.length} fallback={<p class={empty}>{props.empty}</p>}>
-        <div class={cardList}>
-          <For each={props.items}>
-            {(e) => (
-              <div class="flex flex-col gap-1 px-4 py-2.5">
-                <div class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                  <Show when={props.tagged}>
-                    <span class={badge(KIND_BADGES[e.kind] ?? 'secondary')}>{KIND_NAMES[e.kind] ?? e.kind}</span>
-                  </Show>
-                  <span class="truncate">{e.author}</span>
-                  <span class="ml-auto shrink-0 text-subtle-foreground tabular-nums">{when(e.at)}</span>
-                </div>
-                <div class="whitespace-pre-wrap [overflow-wrap:anywhere]">{e.body}</div>
-              </div>
+    <Show when={props.view.headline.length || props.view.steps || props.view.ruling}>
+      <section aria-label="现在" class="flex flex-col gap-4 p-6 max-md:p-4">
+        <Show when={props.view.headline.length}>
+          <p class={cn(cardTitle, 'text-foreground [overflow-wrap:anywhere]')}>
+            <Show when={props.view.waiting}><span class="text-warning">{W.waiting}　</span></Show>
+            <For each={props.view.headline}>
+              {(part) => (typeof part === 'string' ? part : <a class={quietLink} href={part.href} target="_blank" rel="noreferrer">{part.label}</a>)}
+            </For>
+          </p>
+        </Show>
+        <Show when={props.view.steps}>{(steps) => <Milestones steps={steps()} line={props.view.stepLine} leads={!props.view.headline.length} />}</Show>
+        <Show when={props.view.ruling}>
+          {(ruling) => (
+            <div class="flex flex-col gap-1">
+              <p class="truncate text-sm leading-6 text-muted-foreground">{ruling().line}</p>
+              <p class="text-xs text-subtle-foreground [overflow-wrap:anywhere]">
+                <span class={ROLE_WORDS[ruling().by].tone}>{ROLE_WORDS[ruling().by].ruling}</span>
+                <span class="tabular-nums"> · {stampOf(ruling().at)}</span>
+                <Show when={ruling().question}>{(question) => <span> · 问：{question()}</span>}</Show>
+              </p>
+            </div>
+          )}
+        </Show>
+      </section>
+    </Show>
+  )
+}
+
+function Milestones(props: { steps: Step[]; line: string | null; leads: boolean }) {
+  return (
+    <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+      <ol class="flex shrink-0 items-center">
+        <For each={props.steps}>
+          {(step, i) => (
+            <li title={step.word} aria-current={step.status === 'in_progress' ? 'step' : undefined} class="flex items-center">
+              <Show when={i() > 0}><span aria-hidden="true" class={cn('h-px w-4', step.status === 'pending' ? 'bg-border' : 'bg-foreground')} /></Show>
+              <span aria-hidden="true" class={cn('rounded-full', STEP_DOTS[step.status])} />
+              <span class="sr-only">{step.word}</span>
+            </li>
+          )}
+        </For>
+      </ol>
+      <Show when={props.line}>{(line) => <span class={props.leads ? cn(cardTitle, 'text-foreground') : 'text-sm text-foreground'}>{line()}</span>}</Show>
+    </div>
+  )
+}
+
+function BodyPart(props: { sections: Section[]; folds: Folds }) {
+  const [clipped, setClipped] = createSignal(false)
+  const open = () => props.folds.isOpen(BODY_FOLD)
+  const clipping = new ResizeObserver(([seen]) => !open() && seen && setClipped(seen.target.scrollHeight > seen.target.clientHeight))
+  onCleanup(() => clipping.disconnect())
+  const watchClipping = (el: HTMLDivElement) => {
+    clipping.disconnect()
+    clipping.observe(el)
+  }
+  return (
+    <Show when={props.sections.length}>
+      <section aria-label="正文" class="flex flex-col gap-5 p-6 max-md:p-4">
+        <For each={props.sections}>
+          {(section, i) => (
+            <div class="flex flex-col gap-1.5">
+              <Show when={section.label}>{(label) => <h3 class={fieldLabel}>{label()}</h3>}</Show>
+              <Show when={i() === 0} fallback={<div class={prose} innerHTML={section.html} />}>
+                <div ref={watchClipping} class={cn(prose, !open() && 'line-clamp-3')} innerHTML={section.html} />
+                <Show when={open() || clipped()}>
+                  <button type="button" aria-expanded={open() ? 'true' : 'false'} class={cn(button('ghost', 'sm'), '-ml-2.5 self-start text-muted-foreground')} onClick={() => props.folds.setOpen(BODY_FOLD, !open())}>
+                    {open() ? '收起' : '展开'}
+                  </button>
+                </Show>
+              </Show>
+            </div>
+          )}
+        </For>
+      </section>
+    </Show>
+  )
+}
+
+function Timeline(props: { timeline: TimelineRows; waiting: string | null; folds: Folds }) {
+  const everything = () => props.folds.isOpen(ALL_ROWS_FOLD)
+  const shownForTheOwner = () => props.timeline.forTheOwner.reduce((n, day) => n + day.rows.length, 0)
+  const ctx: RowContext = { get waiting() { return props.waiting }, folds: props.folds }
+  return (
+    <Show when={props.timeline.total}>
+      <section aria-label="时间线" class="flex flex-col gap-6 border-t border-border p-6 max-md:order-3 max-md:p-4">
+        <For each={everything() ? props.timeline.everything : props.timeline.forTheOwner}>
+          {(day) => (
+            <div class="-mx-2 flex flex-col gap-1">
+              <h3 class="px-2 text-sm font-medium text-foreground">{day.label}</h3>
+              <ol class="flex flex-col">
+                <For each={day.rows}>{(row) => <li>{rowView(row, ctx)}</li>}</For>
+              </ol>
+            </div>
+          )}
+        </For>
+        <Show when={props.timeline.total > shownForTheOwner()}>
+          <button type="button" aria-expanded={everything() ? 'true' : 'false'} class={cn(button('ghost'), 'w-full text-muted-foreground')} onClick={() => props.folds.setOpen(ALL_ROWS_FOLD, !everything())}>
+            {everything() ? W.less : '显示全部 ' + props.timeline.total + ' 条'}
+          </button>
+        </Show>
+      </section>
+    </Show>
+  )
+}
+
+const Clock = (props: { at: number }) => <span class="w-10 shrink-0 text-right text-xs leading-5 text-subtle-foreground tabular-nums">{clockOf(props.at)}</span>
+const Dot = (props: { class: string }) => <span aria-hidden="true" class={cn('rounded-full', props.class)} />
+const foldOf = (kind: Row['kind'], row: { at: number; line: string }) => kind + ':' + row.at + ':' + row.line
+
+function SayingRow(props: { fold: string; said: Entry; folds: Folds; tone: string; closedTone?: string; mark?: JSX.Element; lead?: string; children?: JSX.Element }) {
+  const open = () => props.folds.isOpen(props.fold)
+  return (
+    <button type="button" aria-expanded={open() ? 'true' : 'false'} class={foldRow} onClick={() => props.folds.setOpen(props.fold, !open())}>
+      <Clock at={props.said.at} />
+      <span class={markCell}>{props.mark}</span>
+      <span class={cn('min-w-0 flex-1', open() ? wholeText : cn(oneLine, props.closedTone), props.tone)}>
+        {props.lead}
+        {open() ? props.said.full : props.said.line}
+      </span>
+      {props.children}
+    </button>
+  )
+}
+
+type RowViews = { [K in Row['kind']]: (row: Extract<Row, { kind: K }>, ctx: RowContext) => JSX.Element }
+const ROW_VIEWS: RowViews = {
+  decision: (row, ctx) => (
+    <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} mark={<Dot class="size-1.5 bg-foreground" />} tone="text-foreground" closedTone={row.by === 'owner' ? 'font-medium' : undefined}>
+      <span class={cn('shrink-0 text-xs leading-5 max-md:hidden', ROLE_WORDS[row.by].tone)}>{ROLE_WORDS[row.by].row}</span>
+    </SayingRow>
+  ),
+  ask: (row, ctx) => (
+    <SayingRow
+      fold={foldOf(row.kind, row)}
+      said={row}
+      folds={ctx.folds}
+      lead={(row.line === ctx.waiting ? W.waiting : '问') + '：'}
+      mark={<Dot class={cn('size-1.5', row.line === ctx.waiting ? 'bg-warning' : 'bg-subtle-foreground')} />}
+      tone={row.line === ctx.waiting ? 'text-foreground' : 'text-muted-foreground'}
+    />
+  ),
+  note: (row, ctx) => <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} tone="text-muted-foreground" />,
+  dispatch: (row, ctx) => <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} mark={<Dot class="size-2 border border-muted-foreground" />} tone="text-muted-foreground" />,
+}
+const rowView = (row: Row, ctx: RowContext) => (ROW_VIEWS[row.kind] as (row: Row, ctx: RowContext) => JSX.Element)(row, ctx)
+
+function Field(props: { label: string; children: JSX.Element }) {
+  return (
+    <div class="flex min-w-0 flex-col gap-1.5">
+      <span class={fieldLabel}>{props.label}</span>
+      {props.children}
+    </div>
+  )
+}
+
+function RefField(props: { label: string; refs: Ref[] }) {
+  return (
+    <Show when={props.refs.length}>
+      <Field label={props.label}>
+        <ul class="flex flex-col gap-2">
+          <For each={props.refs}>
+            {(ref) => (
+              <li>
+                <a href={taskHref(ref.id)} class="group flex min-w-0 flex-col outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+                  <span class={cn('truncate text-sm group-hover:underline', CLOSED_STATUSES.has(ref.status) ? 'text-muted-foreground' : 'text-foreground')}>{ref.title}</span>
+                  <span class={metaText}>{ref.id}</span>
+                </a>
+              </li>
             )}
           </For>
+        </ul>
+      </Field>
+    </Show>
+  )
+}
+
+const CANCELLED_LOOK: { icon: IconName; tone: string } = { icon: 'CircleX', tone: 'text-subtle-foreground' }
+const stateLook = (view: DetailView) => (view.facts.cancelled ? CANCELLED_LOOK : STATE_ICONS[view.state])
+const fieldGroup = 'flex flex-col gap-4 py-5'
+
+function SideFields(props: { view: DetailView }) {
+  const f = () => props.view.facts
+  return (
+    <>
+      <div class={fieldGroup}>
+        <Field label="状态">
+          <span class="flex items-center gap-2 text-sm text-foreground">
+            <Icon name={stateLook(props.view).icon} class={stateLook(props.view).tone} />
+            {f().stateWord}
+          </span>
+        </Field>
+        <Show when={f().holder}>
+          {(holder) => (
+            <Field label="负责">
+              <span class="flex min-w-0 items-baseline gap-2 text-sm text-foreground">
+                <span class="truncate">{[holder().name, holder().runs].filter(Boolean).join(' · ')}</span>
+                <Show when={holder().terminal}>{(terminal) => <span class={metaText}>{terminal()}</span>}</Show>
+              </span>
+            </Field>
+          )}
+        </Show>
+        <Show when={f().dispatchedAt}>{(at) => <Field label="派发"><span class="text-sm text-foreground tabular-nums">{[f().dispatcher, stampOf(at())].filter(Boolean).join(' · ')}</span></Field>}</Show>
+        <Show when={f().lane}>{(lane) => <Field label="泳道"><span class="truncate text-sm text-foreground">{lane()}</span></Field>}</Show>
+      </div>
+      <Show when={f().goal || f().parent || f().children.length}>
+        <div class={fieldGroup}>
+          <Show when={f().goal}>{(goal) => <Field label="目标"><span class="text-sm text-foreground [overflow-wrap:anywhere]">{goal()}</span></Field>}</Show>
+          <RefField label="上级" refs={f().parent ? [f().parent!] : []} />
+          <RefField label="子票" refs={f().children} />
         </div>
       </Show>
-    </section>
+      <Show when={f().blockedBy.length || f().dependents.length}>
+        <div class={fieldGroup}>
+          <RefField label="被挡" refs={f().blockedBy} />
+          <RefField label="挡着" refs={f().dependents} />
+        </div>
+      </Show>
+      <Show when={f().outputs.length}>
+        <div class={fieldGroup}>
+          <Field label="产出">
+            <ul class="flex flex-col gap-1.5">
+              <For each={f().outputs}>
+                {(output) => (
+                  <li class="flex min-w-0 items-baseline gap-2 text-sm text-foreground">
+                    <Show when={output.href} fallback={<span class="truncate">{output.label}</span>}>
+                      {(href) => <a class={cn('truncate', quietLink)} href={href()} target="_blank" rel="noreferrer">{output.label}</a>}
+                    </Show>
+                    <Show when={output.note}>{(note) => <span class={metaText}>{note()}</span>}</Show>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Field>
+        </div>
+      </Show>
+      <p class={cn(metaText, 'py-4')}>
+        建于 {stampOf(f().createdAt)}
+        <Show when={f().took}>{(took) => <> · {took()}</>}</Show>
+      </p>
+    </>
   )
 }
 
