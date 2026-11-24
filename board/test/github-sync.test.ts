@@ -23,7 +23,7 @@ const comment = (id: number, number: number, user: typeof yue, body: string, at:
   html_url: `https://github.com/${REPO}/issues/${number}#issuecomment-${id}`, issue_url: `https://api.github.com/repos/${REPO}/issues/${number}`,
 })
 
-function readerOf(world: { issues: Record<string, unknown>[]; comments: Record<string, unknown>[] }): Reader & { asked: string[] } {
+function readerOf(world: { issues: Record<string, unknown>[]; comments: Record<string, unknown>[]; now?: string }): Reader & { asked: string[] } {
   const asked: string[] = []
   const numberIn = (path: string) => Number(/issues\/(\d+)/.exec(path)![1])
   return {
@@ -41,6 +41,7 @@ function readerOf(world: { issues: Record<string, unknown>[]; comments: Record<s
       if (/issues\/\d+$/.test(path)) return { ...world.issues.find((i) => i.number === numberIn(path)), closed_by: owner }
       return repository
     },
+    now: async () => world.now ?? '2026-11-24T12:00:00.000Z',
   }
 }
 
@@ -107,7 +108,7 @@ describe('只读入站', () => {
     const again = readerOf(w)
     await pollRepo(REPO, dir, again, deliver())
     await settled()
-    expect(again.asked.some((p) => p.includes('since=2026-11-24T08:58:00.000Z'))).toBe(true)
+    expect(again.asked.some((p) => p.includes('since=2026-11-24T11:58:00.000Z'))).toBe(true)
     expect((await team.channel('roubao').messages()).messages.length).toBe(before)
   })
 
@@ -130,25 +131,37 @@ describe('只读入站', () => {
     expect(githubCalls.filter((c) => c.method !== 'GET')).toEqual([])
   })
 
-  it('首次全量时两次查询之间新建的 issue，下一轮能补上', async () => {
+  function racingWorld(openListing: ReturnType<typeof issue>[]) {
     const old = issue(1, 'open', '2026-11-24T10:00:00Z')
-    const createdBetweenTheTwoListings = issue(2, 'open', '2026-11-24T10:01:00Z')
+    const createdDuringTheFirstRound = issue(2, 'open', '2026-11-24T10:01:00Z')
     const closedLater = issue(3, 'closed', '2026-11-24T10:05:00Z')
+    const history = comment(90, 2, yue, '重开前就有的评论', '2026-11-20T09:00:00Z')
     const reader: Reader = {
       list: async (path) => {
+        if (/issues\/2\/comments/.test(path)) return [history]
         if (path.includes('comments')) return []
-        if (path.includes('state=open')) return [old]
+        if (path.includes('state=open')) return openListing
         if (path.includes('state=closed')) return [closedLater]
         const since = Date.parse(/since=([^&]+)/.exec(path)![1]!)
-        return [old, createdBetweenTheTwoListings, closedLater].filter((i) => Date.parse(i.updated_at) > since)
+        return [old, createdDuringTheFirstRound, closedLater].filter((i) => Date.parse(i.updated_at) > since)
       },
       one: async (path) => (path.endsWith('/3') ? { ...closedLater, closed_by: owner } : repository),
+      now: async () => '2026-11-24T10:00:30.000Z',
     }
-    await pollRepo(REPO, dir, reader, deliver(), Date.parse('2026-11-24T10:06:00Z'))
-    await pollRepo(REPO, dir, reader, deliver())
-    await settled()
-    expect((await roots()).map((m) => m.labels.issue).sort()).toEqual([`${REPO}#1`, `${REPO}#2`, `${REPO}#3`])
-  })
+    return { reader, old }
+  }
+
+  for (const [why, open] of [['open 列表有东西', true], ['open 列表为空', false]] as const) {
+    it(`首次全量时新建或重开的 issue，下一轮补上它和它的历史评论（${why}）`, async () => {
+      const { reader, old } = racingWorld([])
+      if (open) reader.list = ((list) => async (path: string) => (path.includes('state=open') ? [old] : list(path)))(reader.list)
+      await pollRepo(REPO, dir, reader, deliver(), Date.parse('2026-11-24T10:06:00Z'))
+      await pollRepo(REPO, dir, reader, deliver())
+      await settled()
+      expect((await roots()).map((m) => m.labels.issue)).toContain(`${REPO}#2`)
+      expect((await repliesOf(`${REPO}#2`)).map((r) => r.text)).toEqual(['重开前就有的评论'])
+    })
+  }
 
   it('一条载荷没交成，游标不动，下一轮从原处重拉', async () => {
     const failing = vi.fn().mockRejectedValue(new Error('board down'))

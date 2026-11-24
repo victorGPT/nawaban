@@ -17,14 +17,15 @@ const RECENTLY_CLOSED_MS = 2 * 24 * 60 * 60_000
 export const NO_GITHUB_USER_HAS_THIS_ID = Number.MAX_SAFE_INTEGER
 const GITHUB_API_HOST = 'api.github.com'
 const READ_METHODS = new Set(['GET', 'HEAD'])
+const GITHUB_DATE_HEADER = /^date:\s*(.+?)\r?$/im
 
 export type SyncConfig = { repos: Record<string, string>; reader: string }
 type User = { id: number; login: string }
 type Issue = { number: number; title: string; state: 'open' | 'closed'; updated_at: string; user: User; closed_by?: User | null; pull_request?: unknown }
 type Comment = { id: number; issue_url: string; created_at: string; updated_at: string; user: User }
 type Seen = { state: Issue['state']; title: string }
-type RepoState = { issuesSince?: string; commentsSince?: string; issues: Record<string, Seen> }
-export type Reader = { list: (path: string) => Promise<unknown[]>; one: (path: string) => Promise<unknown> }
+type RepoState = { since?: string; issues: Record<string, Seen> }
+export type Reader = { list: (path: string) => Promise<unknown[]>; one: (path: string) => Promise<unknown>; now: () => Promise<string> }
 export type Deliver = (event: 'issues' | 'issue_comment', payload: Record<string, unknown>) => Promise<void>
 
 export async function githubSyncConfig(dir: string): Promise<SyncConfig | null> {
@@ -83,6 +84,7 @@ export function ghReader(token: string): Reader {
   return {
     list: async (path) => (JSON.parse(await ghOutput(['api', '--method', 'GET', '--paginate', '--slurp', path], token)) as unknown[][]).flat(),
     one: async (path) => JSON.parse(await ghOutput(['api', '--method', 'GET', path], token)),
+    now: async () => new Date(GITHUB_DATE_HEADER.exec(await ghOutput(['api', '--include', '--method', 'GET', 'rate_limit'], token))![1]!).toISOString(),
   }
 }
 
@@ -115,9 +117,6 @@ async function saveState(path: string, state: RepoState) {
 }
 
 const backedOff = (iso: string) => new Date(Date.parse(iso) - OVERLAP_FOR_GITHUB_WRITE_LAG_MS).toISOString()
-const latest = (stamps: string[], had?: string) => [...stamps, ...(had ? [had] : [])].sort().at(-1)
-const noLaterThanTheEarliestListingSaw = (listings: Issue[][], had?: string) =>
-  listings.map((l) => latest(l.map((i) => i.updated_at))).filter((s) => s !== undefined).sort().at(0) ?? had
 const byUpdated = <T extends { updated_at: string }>(a: T, b: T) => (a.updated_at < b.updated_at ? -1 : a.updated_at > b.updated_at ? 1 : 0)
 const numberOf = (comment: Comment) => Number(comment.issue_url.slice(comment.issue_url.lastIndexOf('/') + 1))
 
@@ -128,45 +127,40 @@ function actionsBringingTheBoardTo(issue: Issue, seen: Seen | undefined): { acti
   return [...retitled, ...moved]
 }
 
-async function everyCommentOf(repo: string, numbers: number[], reader: Reader) {
-  const comments = []
-  for (const n of numbers) comments.push(...(await reader.list(`repos/${repo}/issues/${n}/comments?per_page=100`)))
-  return comments
-}
-
 export async function pollRepo(repo: string, dir: string, reader: Reader, deliver: Deliver, now = Date.now()) {
   const path = stateFile(dir, repo)
   const state = await loadState(path)
-  const firstRun = state.issuesSince === undefined
-  const listings = (firstRun
-    ? [await reader.list(`repos/${repo}/issues?state=open&per_page=100`), await reader.list(`repos/${repo}/issues?state=closed&since=${new Date(now - RECENTLY_CLOSED_MS).toISOString()}&per_page=100`)]
-    : [await reader.list(`repos/${repo}/issues?state=all&since=${backedOff(state.issuesSince!)}&sort=updated&direction=asc&per_page=100`)]) as Issue[][]
-  const listed = listings.flat()
+  const roundStartedOnGithubClock = await reader.now()
+  const listed = (state.since === undefined
+    ? [...(await reader.list(`repos/${repo}/issues?state=open&per_page=100`)), ...(await reader.list(`repos/${repo}/issues?state=closed&since=${new Date(now - RECENTLY_CLOSED_MS).toISOString()}&per_page=100`))]
+    : await reader.list(`repos/${repo}/issues?state=all&since=${backedOff(state.since)}&sort=updated&direction=asc&per_page=100`)) as Issue[]
   const issues = new Map(listed.filter((i) => !i.pull_request).sort(byUpdated).map((i) => [i.number, i]))
   const repository = await reader.one(`repos/${repo}`)
-  const comments = (firstRun ? await everyCommentOf(repo, [...issues.keys()], reader) : await reader.list(`repos/${repo}/issues/comments?since=${backedOff(state.commentsSince!)}&sort=updated&direction=asc&per_page=100`)) as Comment[]
-  const issueOf = async (n: number) => issues.get(n) ?? (await reader.one(`repos/${repo}/issues/${n}`) as Issue)
+  const comments = (state.since === undefined ? [] : await reader.list(`repos/${repo}/issues/comments?since=${backedOff(state.since)}&sort=updated&direction=asc&per_page=100`)) as Comment[]
+  const deliverComment = async (issue: Issue, comment: Comment) => {
+    await deliver('issue_comment', { action: 'created', issue, comment, repository, sender: comment.user })
+    if (comment.updated_at !== comment.created_at) await deliver('issue_comment', { action: 'edited', issue, comment, repository, sender: comment.user, changes: {} })
+  }
   const bringIssueUpToDate = async (issue: Issue) => {
-    const actions = actionsBringingTheBoardTo(issue, state.issues[issue.number])
+    const seen = state.issues[issue.number]
+    const actions = actionsBringingTheBoardTo(issue, seen)
     const closer = actions.some((a) => a.action === 'closed') ? ((await reader.one(`repos/${repo}/issues/${issue.number}`)) as Issue).closed_by : null
     for (const { action, changes } of actions) {
       const sender = (action === 'closed' && closer) || issue.user
       await deliver('issues', { action, issue, repository, sender, ...(changes ? { changes } : {}) })
     }
+    if (!seen) for (const comment of ((await reader.list(`repos/${repo}/issues/${issue.number}/comments?per_page=100`)) as Comment[]).sort(byUpdated)) await deliverComment(issue, comment)
     state.issues[issue.number] = { state: issue.state, title: issue.title }
   }
   try {
     for (const issue of issues.values()) await bringIssueUpToDate(issue)
     for (const comment of [...comments].sort(byUpdated)) {
-      const issue = await issueOf(numberOf(comment))
+      const issue = issues.get(numberOf(comment)) ?? ((await reader.one(`repos/${repo}/issues/${numberOf(comment)}`)) as Issue)
       if (issue.pull_request) continue
-      if (!state.issues[issue.number]) await bringIssueUpToDate(issue)
-      await deliver('issue_comment', { action: 'created', issue, comment, repository, sender: comment.user })
-      if (comment.updated_at !== comment.created_at) await deliver('issue_comment', { action: 'edited', issue, comment, repository, sender: comment.user, changes: {} })
+      if (state.issues[issue.number]) await deliverComment(issue, comment)
+      else await bringIssueUpToDate(issue)
     }
-    const issuesSince = noLaterThanTheEarliestListingSaw(listings, state.issuesSince)
-    state.issuesSince = issuesSince
-    state.commentsSince = firstRun ? issuesSince : latest(comments.map((c) => c.updated_at), state.commentsSince)
+    state.since = roundStartedOnGithubClock
   } finally {
     await saveState(path, state)
   }
