@@ -173,6 +173,19 @@ describe('只读入站', () => {
   })
 })
 
+describe('多个仓库', () => {
+  it('名字拼起来一样的两个仓库各有各的游标，各自做首次全量', async () => {
+    const asked: string[] = []
+    const reader = (repo: string): Reader => ({
+      list: async (path) => (asked.push(`${repo} ${path}`), []),
+      one: async () => ({ ...repository, full_name: repo }),
+      now: async () => '2026-11-24T12:00:00.000Z',
+    })
+    for (const repo of ['acme-tools/service', 'acme/tools-service']) await pollRepo(repo, dir, reader(repo), deliver())
+    expect(asked.filter((p) => p.includes('state=open'))).toHaveLength(2)
+  })
+})
+
 describe('写保护', () => {
   it('拒绝发往 api.github.com 的非 GET 请求，放过读和别的主机', async () => {
     const through = vi.fn(async () => new Response('ok'))

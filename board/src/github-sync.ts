@@ -99,7 +99,7 @@ export function deliverAsSignedWebhook(fetch: (request: Request) => Promise<Resp
   }
 }
 
-const stateFile = (dir: string, repo: string) => join(dir, STATE_FOLDER, `${repo.replace('/', '-')}.json`)
+const stateFile = (dir: string, repo: string) => join(dir, STATE_FOLDER, `${encodeURIComponent(repo)}.json`)
 
 async function loadState(path: string): Promise<RepoState> {
   try {
