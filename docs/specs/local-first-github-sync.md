@@ -8,7 +8,7 @@
 
 roubao 和岳不同共用，票记在 GitHub issue 上。现在决策者这边每次记账（认领、进展、待决、已决、关票）都是一次 `gh issue comment`：要联网，最慢 30 秒超时（`GH_TIMEOUT_SECONDS`），面板、索引、待决提示行读的是 5 分钟缓存。原 T10 设计是「写 GitHub，轮询带回本地，本地只读快照」，延迟和断网问题都还在。
 
-决策者 11-25 定：本地板是主账本，再和 GitHub 打通。展开成三条：
+决策者 11-25 定：本地板是主账本，再和 GitHub 打通。下面三条是按派活时写的那几个词（本地先写、事件流并集合并、只推同事需要的、发件箱）整理的。票上决策记录（事件 1129）的 verdict 写到「按三条原理细化：」就断了，原文要由编排者补：
 
 1. **本地先写。** 记账写进本地板就算成功，不等 GitHub。
 2. **事件流并集合并。** 一张票的历史就是本地事件和 GitHub 事件的并集，按事件 ID 去重，按事件自己的时间排序。不做哪边覆盖哪边。
@@ -60,7 +60,7 @@ GET repos/{o}/{r}/issues/comments?since={commentsSince - 2m}&sort=updated&direct
 | 没有前缀（例如 review 结论） | `gh-comment-<id>` | 普通 reply，不带语义 |
 
 - 每条导入的 reply 都带 label：`at=<created_at>`（事件自己的时间）、`gh.comment=<id>`、`gh.author=<login>`。
-- **已实跑**：同一批评论里，岳不同（`yuebutong`）手写的 `待决：@wuxianzhong-gpt …` 在 #1728 上，而且有不少评论不带前缀（`Fable 5.2（medium）审核结论：…`），所以两种都要导入。
+- **已实跑**：岳不同（`yuebutong`）在 #1728 上手写了 `待决：@wuxianzhong-gpt …`，结尾没有 marker（`gh api …/issues/comments/7133625379`）；同一个 issue 上编排者那条「岳不同：你在 #1728 的两件待决已拆到…」不带前缀（`…/comments/7133680059`）。所以带前缀的和不带前缀的都要导入。
 - 本地发出、推送后又被拉回来的评论，带着本地写入时的 uid。Board 的幂等规则是「同一 handle 的同一个 id 只写一次」（`docs/04-reference/02-board.md:167`），而本地那条不是 `github-sync` 写的，所以拉取器先按 label `uid=<uid>` 查本地。查到了，只在那条上补 `gh.comment=<id>`，再把 `outbox` 置成 `sent`，不新写。
 - **编辑**：评论的 `updated_at` 晚于上次导入，且正文变了，就 `edit` 本地那条。只改 `github-sync` 写的那些；本地发出的以本地为准，GitHub 上改了也不回灌。
 - **删除**：增量端点看不到删除。每天对开着的 issue 全量对账一次（第 5 节同一套代码），本地有、GitHub 上没了的导入评论 `delete`，留墓碑。
@@ -113,7 +113,7 @@ GET repos/{o}/{r}/issues/comments?since={commentsSince - 2m}&sort=updated&direct
 
 | 状态 | 本地 → GitHub | GitHub → 本地 | 并发冲突 |
 | --- | --- | --- | --- |
-| **关票** | 本地 `close` 先过关单锁（roubao 有 `okr.toml`，要先声明 impact），本地任务马上 complete 或 cancel，再推 close | 导入的 issue 变成 closed：`github-sync` 认领 30 秒，然后 complete（`stateReason=completed`）或 cancel（`not_planned`） | 两边都关：先到的生效，后到的什么也不改 |
+| **关票** | 本地 `close` 先过关单锁（roubao 有 `okr.toml`，要先声明 impact），本地任务马上 complete 或 cancel，再推 close | 导入的 issue 变成 closed：`github-sync` 认领 30 秒，然后 complete（`stateReason=completed`）或 cancel（`not_planned`）。常见的是 PR 合并时顺手关掉 issue，这时本地任务可能正被 worker 持有，或者挂着待决，认领不了：先打 label `gh.state=closed`，面板据此显示已关；等持有者交还或待决解除后，下一轮再 complete | 两边都关：先到的生效，后到的什么也不改 |
 | **重开** | 本地不提供 `--reopen`（已定 7）；要重开就在 GitHub 上重开 | 按第 1 节开新线程，`reopened-from=<旧 ID>` | 关和重开的折叠结果以 `at` 最晚的为准 |
 | **认领** | Board 租约加推 `认领：` 和 assignee | 同事的 `认领：` 评论或 assignee：打 label `held-by=gh:<login>`，任务不进 Board 租约 | 本地 claim 遇到 `held-by=gh:*` 一律拒绝，提示「<login> 认领中，先在 #N 上说好」（已定 7 不做 `--take`）。两边同时认领：拉回来后按 `at` 早的算，本地输了就由推送器 release 并推 `交还：`，再记一条进展说明原因 |
 | **交还** | 租约结束（release、block、过期）都推 `交还：` 并 remove assignee | 同事 `交还：` 或去掉 assignee：清掉 `held-by=gh:<login>` | 无 |
@@ -182,7 +182,7 @@ GET repos/{o}/{r}/issues/comments?since={commentsSince - 2m}&sort=updated&direct
 | --- | --- | --- |
 | `github-sync` profile 写的消息，用 `--idempotency-key` 重跑不重复 | 幂等键按 handle 计；profile 一变就会重复写 | -01 |
 | middleware 按 profile 放过导入的消息 | middleware 拿不到 profile 的话，未就绪的卡会被拒，导入就断了 | -01 |
-| `github-sync` 以 owner 身份 block、unblock，以及先认领再 complete | 导入票的 owner 由谁来当 | -01 |
+| `github-sync` 以 owner 身份 block、unblock，以及先认领再 complete | 导入任务的 owner 由谁来当；任务被别人持有或 blocked 时 complete 不了，只能靠 `gh.state=closed` label 过渡 | -01 |
 | 给 reply 打 label，以及用 `--if` 做 compare-and-set | 如果 Board 只许 root 打 label，发件箱就得换个地方存 | -03 |
 | 推送器在 `nawaban serve` 里跑，进程重启后靠 label 续上 | watcher 重启会丢掉待重试的（`docs/01-board/06-watchers.md`），所以不能用 watcher 实现 | -03 |
 | 旧 CLI 在板连不上时降级成直写，评论再被拉回来 | uid 对不上就会多出一条 | -03 |
