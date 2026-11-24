@@ -52,7 +52,7 @@ export async function githubRepos(dir: string): Promise<Record<string, string>> 
   return Object.fromEntries(repos.filter((_, i) => onGithub[i]))
 }
 
-export function githubBoards(cli: OldCli, now = Date.now) {
+export function githubBoards(cli: OldCli, now = () => Date.now()) {
   const reads = new Map<string, { at: number; board: Promise<GithubBoard> }>()
   const latest = new Map<string, GithubBoard>()
   return {

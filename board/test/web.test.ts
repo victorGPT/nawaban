@@ -403,6 +403,14 @@ it('reads a GitHub-tracked repository in repos.json through the old CLI, and ans
     expect((await asPage('#7', { ask: 'c1:0', words: '再答一次' })).status).toBe(409)
     await send('/api/nawaban/board?project=roubao')
     expect(calls.filter((c) => c[1] === 'board'), 'an answer makes the next read fresh').toHaveLength(2)
+    const later = Date.now() + 60_000
+    vi.spyOn(Date, 'now').mockReturnValue(later)
+    try {
+      await send('/api/nawaban/projects')
+    } finally {
+      vi.restoreAllMocks()
+    }
+    expect(calls.filter((c) => c[1] === 'board'), 'projects reads a stale GitHub board again').toHaveLength(3)
   } finally {
     handler = site(team, { dir, webToken: WEB_SECRET, boardToken: SECRET, port, dist })
   }

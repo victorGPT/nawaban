@@ -209,7 +209,7 @@ async function allProjects(team: Team, dir: string, github: Github) {
   const onTheBoard = (await projectsData(team)).projects
   const shown = new Set(onTheBoard.map((p) => p.name))
   const onGithub = Object.entries(await githubRepos(dir)).filter(([name]) => !shown.has(name))
-  for (const [, repo] of onGithub) if (!github.boards.latest(repo)) github.boards.board(repo).catch(() => {})
+  for (const [, repo] of onGithub) github.boards.board(repo).catch(() => {})
   const projects = [...onTheBoard, ...onGithub.map(([name, repo]) => projectOfGithub(name, github.boards.latest(repo)))]
   return { projects: projects.sort((a, b) => (a.name < b.name ? -1 : 1)) }
 }
