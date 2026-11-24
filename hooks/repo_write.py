@@ -8,6 +8,7 @@ import tempfile
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n", ";;", "|&"}
 REDIRECTS = {">", ">>", ">|", "&>", "&>>", ">&"}
 QUOTES = ("'", '"')
+HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
 OPERATORS = sorted({"<<<", "&>>", ">>", "&>", ">&", ">|", "&&", "||", ";;", "|&", "<<", "<", ">", "&", "|", ";", "(", ")", "\n"}, key=len, reverse=True)
 GIT_WRITES = {"commit", "push", "apply", "am", "cherry-pick", "rebase", "revert"}
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
@@ -46,19 +47,20 @@ def closing_quote(s, i):
     return min(j, len(s))
 
 
-def after_heredoc_bodies(s, i, delimiters):
-    for delimiter in delimiters:
-        while i < len(s):
-            end = s.find("\n", i)
-            end = len(s) if end < 0 else end
-            line, i = s[i:end], end + 1
-            if line.strip() == delimiter:
-                break
-    return i
+def without_heredoc_bodies(command):
+    lines, kept, i = command.split("\n"), [], 0
+    while i < len(lines):
+        kept.append(lines[i])
+        for m in HEREDOC_START.finditer(lines[i]):
+            end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(2)), None)
+            if end is not None:
+                i = end
+        i += 1
+    return "\n".join(kept)
 
 
 def shell_tokens(command):
-    s, i, word, heredocs = command.replace("\\\n", " "), 0, None, []
+    s, i, word = without_heredoc_bodies(command).replace("\\\n", " "), 0, None
     while i < len(s):
         operator = next((op for op in OPERATORS if s.startswith(op, i)), None)
         if s[i] in QUOTES:
@@ -72,16 +74,10 @@ def shell_tokens(command):
         elif s[i] in " \t\r" or operator:
             if word is not None:
                 yield False, word
-                if heredocs and heredocs[-1] is None:
-                    heredocs[-1] = word.lstrip("-")
             word = None
-            if operator == "<<":
-                heredocs.append(None)
-            elif operator:
+            if operator:
                 yield True, operator
             i += len(operator or " ")
-            if operator == "\n" and heredocs:
-                i, heredocs = after_heredoc_bodies(s, i, [d for d in heredocs if d]), []
         else:
             word, i = (word or "") + s[i], i + 1
     if word is not None:
