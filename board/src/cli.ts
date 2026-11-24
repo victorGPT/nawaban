@@ -40,7 +40,7 @@ async function runCommand(argv: string[]): Promise<number> {
     index: () => index(rest, board()),
     inbox: () => inbox(rest, board(), DIR),
     web: () => web(),
-    page: () => page(rest, board()),
+    page: () => page(rest, board(), DIR),
     json: () => (rest[0] === 'okr' ? jsonOkr(rest.slice(1), board(), DIR) : json(rest, board(), DIR)),
   }
   if (command !== undefined && Object.hasOwn(nawabanCommands, command)) return nawabanCommands[command]!()
