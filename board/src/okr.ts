@@ -368,7 +368,8 @@ function declarationsSinceLastRoundAndTheirVerdicts(op: string, goal: ExactDecim
   if (times.length < 2) return { pending, verdicts: [], mismatch: [] }
   const [prev, cur] = [rounds.get(times.at(-2)!)!, rounds.get(last)!]
   const gate = noiseGate(unit, prev, cur)
-  const towardBy = towardTargetBy(op, goal, prev, cur)
+  const exactly = { closer: 1, away: -1, flat: 0 }[movementTowardTarget(op, goal, dec(prev.value), dec(cur.value))]
+  const towardBy = gate === 0 ? exactly : towardTargetBy(op, goal, prev, cur)
   const verdicts = new Map<string, { ticket: string; dir: string; declared: Heading; verdict: Verdict }>()
   for (const i of declared) {
     if (!judgedOnlyByItsFirstRound(i, times.at(-2)!, last)) continue

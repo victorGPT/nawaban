@@ -732,3 +732,10 @@ describe('float dust at the edges', () => {
     expect(krOf(judge([{ name: 'O', kr: [{ name: 'K', target: '<= 3', unit: '%' }] }], rows, new Map(), declared, '/r', null), 'K').verdicts).toEqual([{ ticket: 'T', declared: 'toward', verdict: '符合' }])
   })
 })
+
+it('keeps the exact comparison for readings with no n, however small the step', () => {
+  const declared = new Map<string, Declared[]>([['O\0K', [{ ticket: 'T', dir: '=', before: null, after: null, basis: null, declared_at: '1' }]]])
+  const rows: KeptReading[] = ['1', '0.9999999999'].map((value, i) => ({ kr: 'K', value, source: '', as_of: '2026-11-25', measured_at: String(i * 2), def_hash: 'v1' }))
+  const k = krOf(judge([{ name: 'O', kr: [{ name: 'K', target: '>= 2' }] }], rows, new Map(), declared, '/r', null), 'K')
+  expect(k.verdicts).toEqual([{ ticket: 'T', declared: 'hold', verdict: '不符' }])
+})
