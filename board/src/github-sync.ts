@@ -24,7 +24,7 @@ export type SyncConfig = { repos: Record<string, string>; reader: string }
 type User = { id: number; login: string }
 type Issue = { number: number; title: string; state: 'open' | 'closed'; state_reason?: string | null; updated_at: string; user: User; closed_by?: User | null; pull_request?: unknown }
 type Comment = { id: number; issue_url: string; created_at: string; updated_at: string; user: User }
-type Seen = { state: Issue['state']; title: string; state_reason?: string | null }
+type Seen = { state: Issue['state']; title: string; state_reason?: string | null; reopens?: number }
 type RepoState = { since?: string; issues: Record<string, Seen> }
 export type Reader = { list: (path: string) => Promise<unknown[]>; one: (path: string) => Promise<unknown>; now: () => Promise<string> }
 export type Deliver = (event: 'issues' | 'issue_comment', payload: Record<string, unknown>) => Promise<void>
@@ -154,7 +154,8 @@ export async function pollRepo(repo: string, dir: string, reader: Reader, delive
       await deliver('issues', { action, issue, repository, sender, ...(changes ? { changes } : {}) })
     }
     if (!seen) for (const comment of ((await reader.list(`repos/${repo}/issues/${issue.number}/comments?per_page=100`)) as Comment[]).sort(byUpdated)) await deliverComment(issue, comment)
-    state.issues[issue.number] = { state: issue.state, title: issue.title, state_reason: issue.state_reason ?? null }
+    const reopens = (seen?.reopens ?? 0) + (actions.some((a) => a.action === 'reopened') ? 1 : 0)
+    state.issues[issue.number] = { state: issue.state, title: issue.title, state_reason: issue.state_reason ?? null, reopens }
   }
   try {
     for (const issue of issues.values()) await bringIssueUpToDate(issue)
@@ -168,7 +169,7 @@ export async function pollRepo(repo: string, dir: string, reader: Reader, delive
   } finally {
     await saveState(path, state)
   }
-  await settle(Object.entries(state.issues).map(([number, seen]) => ({ number: Number(number), state_reason: seen.state_reason })))
+  await settle(Object.entries(state.issues).map(([number, seen]) => ({ number: Number(number), state_reason: seen.state_reason, reopens: seen.reopens ?? 0 })))
 }
 
 export function pollForever(config: SyncConfig, dir: string, reader: () => Promise<Reader>, deliver: Deliver, settleFor: (repo: string, channel: string) => Settle, log: (line: string) => void) {

@@ -134,6 +134,47 @@ describe('结算出错', () => {
   })
 })
 
+describe('不越权', () => {
+  it('分配给别人的任务，issue 关了也不去认领，不报错', async () => {
+    const world: World = { issues: [issue(1750, 'open', '2026-11-24T10:00:00Z'), issue(1751, 'open', '2026-11-24T10:00:00Z')], comments: [] }
+    await poll(world)
+    await team.tasks.assign((await theTask('ROUBAO-1750')).id, 'board:client+worker')
+    world.issues[0] = issue(1750, 'closed', '2026-11-24T11:00:00Z')
+    await poll(world)
+    expect((await theTask('ROUBAO-1750')).task?.state).toBe('ready')
+  })
+
+  it('别人持有时 issue 按 not planned 关了，不抢先取消，交还后再取消', async () => {
+    const world: World = { issues: [issue(1752, 'open', '2026-11-24T10:00:00Z')], comments: [] }
+    await poll(world)
+    const claim = await team.as('worker').tasks.claim((await theTask('ROUBAO-1752')).id)
+    world.issues[0] = issue(1752, 'closed', '2026-11-24T11:00:00Z', { state_reason: 'not_planned' })
+    await poll(world)
+    expect((await theTask('ROUBAO-1752')).task?.state).toBe('claimed')
+    await claim.release()
+    await poll(world)
+    expect((await theTask('ROUBAO-1752')).task?.state).toBe('canceled')
+  })
+
+  it('本地关掉的任务，GitHub 上 issue 没重开过，不会被当成重开', async () => {
+    const world: World = { issues: [issue(1753, 'open', '2026-11-24T10:00:00Z')], comments: [] }
+    await poll(world)
+    await team.tasks.cancel((await theTask('ROUBAO-1753')).id, '本地作废')
+    await poll(world)
+    expect((await theTask('ROUBAO-1753')).task?.state).toBe('canceled')
+  })
+
+  it('重开中途断了留下两个同 key 的任务，下一轮只留一个', async () => {
+    const world: World = { issues: [issue(1754, 'open', '2026-11-24T10:00:00Z')], comments: [] }
+    await poll(world)
+    const first = await theTask('ROUBAO-1754')
+    await team.tasks.cancel(first.id, '旧的')
+    await team.tasks.create('roubao', { text: '中途断掉留下的新任务', labels: { key: 'ROUBAO-1754', 'issue-root': first.id } })
+    await poll(world)
+    expect((await theTask('ROUBAO-1754')).id).not.toBe(first.id)
+  })
+})
+
 describe('关票和重开', () => {
   it('任务被别人认领时 issue 关了，交还以后下一轮完成', async () => {
     const world: World = { issues: [issue(1732, 'open', '2026-11-24T10:00:00Z')], comments: [] }

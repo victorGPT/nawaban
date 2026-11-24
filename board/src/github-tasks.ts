@@ -1,7 +1,7 @@
 import type { board, MessageView } from '@vercel/board'
 
 type Person = ReturnType<typeof board>
-export type KnownIssue = { number: number; state_reason?: string | null }
+export type KnownIssue = { number: number; state_reason?: string | null; reopens?: number }
 
 export const HELD_FOR_A_GITHUB_ASK = 'GitHub 待决：'
 const CLOSE_LEASE_S = 60
@@ -52,11 +52,11 @@ function pendingGithubAsk(replies: MessageView[]) {
 }
 
 async function finishAsGithubClosedIt(person: Person, task: MessageView, closedAs: string | undefined) {
-  if (FINISHED.has(stateOf(task))) return
-  if (closedAs === 'not_planned') return void (await person.tasks.cancel(task.id, 'GitHub 上按 not planned 关了'))
+  if (FINISHED.has(stateOf(task)) || task.task?.for) return
   const heldByThisSync = task.task?.blocked?.reason.startsWith(HELD_FOR_A_GITHUB_ASK)
   if (heldByThisSync) task = await person.tasks.unblock(task.id)
   if (stateOf(task) !== 'ready') return
+  if (closedAs === 'not_planned') return void (await person.tasks.cancel(task.id, 'GitHub 上按 not planned 关了'))
   const claim = await person.tasks.claim(task.id, { lease: CLOSE_LEASE_S })
   await claim.complete('GitHub 上关了')
 }
@@ -69,12 +69,23 @@ async function holdWhileGithubAsks(person: Person, task: MessageView, ask: strin
   if (ask === null && hold?.kind === 'awaiting_approval' && hold.reason.startsWith(HELD_FOR_A_GITHUB_ASK)) await person.tasks.unblock(task.id)
 }
 
-async function settleRoot(person: Person, root: MessageView, closedAs: string | undefined) {
+async function theOneTaskHoldingTheKey(person: Person, root: MessageView, key: string) {
+  const keyed = await tasksKeyed(person, root.channel, key)
+  const current = unfinishedElseLatest(keyed)
+  for (const stale of keyed) if (stale.id !== current?.id) await person.label(stale.id, { unset: ['key'] })
+  return current ?? (await taskOfRoot(person, root, key))
+}
+
+async function settleRoot(person: Person, root: MessageView, issue: KnownIssue) {
   const key = keyOf(root.channel, issueNumberOf(root))
+  const closedAs = issue.state_reason ?? undefined
   if (closedAs && root.labels['closed-as'] !== closedAs) await person.label(root.id, { set: { 'closed-as': closedAs } })
-  let task = unfinishedElseLatest(await tasksKeyed(person, root.channel, key)) ?? (await taskOfRoot(person, root, key))
+  let task = await theOneTaskHoldingTheKey(person, root, key)
   const issueOpen = root.labels.state !== 'closed'
-  if (issueOpen && FINISHED.has(stateOf(task))) task = await reopenedAsANewTask(person, root, task, key)
+  const reopensSeen = String(issue.reopens ?? 0)
+  const reopenedOnGithubSinceTheTaskFinished = issueOpen && FINISHED.has(stateOf(task)) && (root.labels['reopens-settled'] ?? '0') !== reopensSeen
+  if (reopenedOnGithubSinceTheTaskFinished) task = await reopenedAsANewTask(person, root, task, key)
+  if (issueOpen && (root.labels['reopens-settled'] ?? '0') !== reopensSeen) await person.label(root.id, { set: { 'reopens-settled': reopensSeen } })
   if (!issueOpen) return finishAsGithubClosedIt(person, task, closedAs ?? root.labels['closed-as'])
   await holdWhileGithubAsks(person, task, pendingGithubAsk((await person.thread(root.id)).replies))
 }
@@ -84,7 +95,7 @@ export async function settleIssueTasks(person: Person, channel: string, repo: st
   for (const issue of known) {
     try {
       const root = await nativeRoot(person, channel, `${repo}#${issue.number}`)
-      if (root) await settleRoot(person, root, issue.state_reason ?? undefined)
+      if (root) await settleRoot(person, root, issue)
     } catch (error) {
       failed.push(`#${issue.number}：${(error as Error).message}`)
     }
