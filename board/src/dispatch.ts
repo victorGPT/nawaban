@@ -199,11 +199,13 @@ async function worktreeOffOriginMain(root: string, name: string): Promise<Worktr
   return { path, branch }
 }
 
+const MERGE_LINE = `收尾：验收没说不合并时，PR 的 CI 绿、评论里贴了带 head sha 的「Codex review：无挡…」之后，跑 node ${CLI} merge <PR 号>，它合并、关票、交下一张或收掉你`
+
 const freshWorktreeLine = (wt: Worktree) =>
-  `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改。PR 合并后回报完成，同一泳道的下一张可能接着派到这个终端，worktree 留着，编排者收你时会删）`
+  `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改。同一泳道的下一张可能接着派到这个终端，worktree 留着）。${MERGE_LINE}`
 
 const reusedWorktreeLine = (wt: Worktree) =>
-  `worktree：接着用 ${wt.path}。手上那张做完、回报后再开工：git fetch origin main && git switch -c ${wt.branch} origin/main，只在这个分支上改`
+  `worktree：接着用 ${wt.path}。手上那张做完、回报后再开工：git fetch origin main && git switch -c ${wt.branch} origin/main，只在这个分支上改。${MERGE_LINE}`
 
 function briefReportingTo(c: Checked, a: Args, worktreeLine: string): string {
   const nawaban = `node ${CLI}`
