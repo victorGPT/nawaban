@@ -274,6 +274,11 @@ const printed = (lines: string[]) => {
 
 const shellWord = (word: string) => (SHELL_SAFE_WORD.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`)
 
+function noSuchVerb(word: string) {
+  process.stderr.write([`✗ 没有动词 ${word}`, ...screen(MAIN_SCREEN)].join('\n') + '\n')
+  return MISUSE
+}
+
 async function runCommand(argv: string[]): Promise<number> {
   const [word, ...rest] = argv
   if (word === undefined || word === 'help' || HELP_FLAGS.has(word)) return printed(rest[0] === 'more' ? MORE_HELP : MAIN_HELP)
@@ -282,7 +287,7 @@ async function runCommand(argv: string[]): Promise<number> {
     process.stderr.write(`改用：nawaban ${renamed.map(shellWord).join(' ')}\n`)
     return runCommand(renamed)
   }
-  if (!Object.hasOwn(COMMANDS, word)) return app.run(argv)
+  if (!Object.hasOwn(COMMANDS, word)) return noSuchVerb(word)
   const command = COMMANDS[word]!
   if (!command.helpIsUpstreams && asksForHelp(rest)) return printed(helpOf(command))
   return command.run(rest)

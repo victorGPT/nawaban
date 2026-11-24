@@ -92,6 +92,15 @@ it('runs each everyday verb that needs only the board on a fresh board', EVERY_S
   expect((await succeeds('show', 'C1')).out).toContain('completed')
 })
 
+it('says there is no such verb, lists the ten, and leaves the board alone', async () => {
+  for (const word of ['bogus', 'toString', '--as']) {
+    const r = await nawaban([word, 'x'])
+    expect(r.code).toBe(2)
+    expect(r.err).toContain(`✗ 没有动词 ${word}`)
+    expect(verbsListedIn(r.err)).toEqual(TEN_VERBS)
+  }
+})
+
 it('prints under status what index printed, and points index at status', EVERY_STEP_STARTS_A_NODE, async () => {
   await succeeds('create', 'S1', '--title', '没人动的', '--project', 'p2')
   const status = await succeeds('status', '--project', 'p2')
