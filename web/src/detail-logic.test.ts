@@ -23,7 +23,7 @@ describe('detailView timeline', () => {
     expect(lines(view)).toEqual([
       ['今天', ['decision 用里程碑', 'note 开工']],
       ['昨天', ['decision 上']],
-      ['11/22 周日', ['dispatch 派工 w-1']],
+      ['11/22 周日', ['dispatch 派工 w-1 t1']],
     ])
   })
 
@@ -37,7 +37,7 @@ describe('detailView timeline', () => {
       ev('link', 'pr:https://github.com/o/r/pull/136', at(24, 13)),
     ]), task(), NOW)
     expect(view.timeline.forTheOwner.map((d) => [d.label, d.rows.map((r) => r.kind + ' ' + r.line)])).toEqual([['今天', ['decision 行', 'ask 行不行']]])
-    expect(lines(view)).toEqual([['今天', ['decision 代定的', 'decision 行', 'ask 行不行', 'note 一', 'dispatch 派工 w-1']]])
+    expect(lines(view)).toEqual([['今天', ['decision 代定的', 'decision 行', 'ask 行不行', 'note 一', 'dispatch 派工 w-1 t1']]])
     expect(view.timeline.total).toBe(5)
   })
 
@@ -76,8 +76,15 @@ describe('detailView timeline', () => {
   it('names whoever holds the task by the worker it was dispatched to, with its terminal, never by the session id', () => {
     const dispatched = detailView(detail([ev('dispatch', '{"worker":"w-old"}', at(24, 8)), ev('dispatch', '{"worker":"w-new"}', at(24, 9))]), task({ terminal: 't1j6' }), NOW)
     expect(dispatched.holder).toEqual({ name: 'w-new', terminal: 't1j6' })
+    expect([dispatched.dispatchedAt, detailView(detail([]), task(), NOW).dispatchedAt]).toEqual([at(24, 9), null])
     expect(detailView(detail([]), task({ terminal: 't1j6' }), NOW).holder).toEqual({ name: 't1j6', terminal: null })
     expect(detailView(detail([]), task({ status: 'open', session: null }), NOW).holder).toBeNull()
+    expect(detailView(detail([]), task({ session: 'cc-1234', terminal: null }), NOW).holder).toBeNull()
+  })
+
+  it('opens a dispatch onto what counts as done', () => {
+    const [row] = detailView(detail([ev('dispatch', '{"worker":"w-1","terminal":"t1","accept":"测试全过"}', at(24, 9))]), task(), NOW).timeline.everything[0]!.rows
+    expect(row).toMatchObject({ kind: 'dispatch', line: '派工 w-1 t1', full: '派工 w-1 t1\n验收：测试全过' })
   })
 })
 

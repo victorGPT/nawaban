@@ -598,13 +598,7 @@ const ROW_VIEWS: RowViews = {
     />
   ),
   note: (row, ctx) => <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} tone="text-muted-foreground" />,
-  dispatch: (row) => (
-    <div class={rowLine}>
-      <Clock at={row.at} />
-      <span class={markCell}><Dot class="size-2 border border-muted-foreground" /></span>
-      <span class="min-w-0 truncate text-muted-foreground">{row.line}</span>
-    </div>
-  ),
+  dispatch: (row, ctx) => <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} mark={<Dot class="size-2 border border-muted-foreground" />} tone="text-muted-foreground" />,
 }
 const rowView = (row: Row, ctx: RowContext) => (ROW_VIEWS[row.kind] as (row: Row, ctx: RowContext) => JSX.Element)(row, ctx)
 
@@ -649,6 +643,13 @@ function SideFields(props: { detail: Detail; view: DetailView; task: BoardTask |
           {stateWord()}
         </span>
       </Field>
+      <Show when={props.view.dispatchedAt}>
+        {(at) => (
+          <Field label="派发">
+            <span class="text-sm text-foreground tabular-nums">{stampOf(at())}</span>
+          </Field>
+        )}
+      </Show>
       <Show when={props.view.holder}>
         {(holder) => (
           <Field label="负责">

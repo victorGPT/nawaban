@@ -16,7 +16,7 @@ export type Row =
   | ({ kind: 'decision'; by: By; question: string | null } & Entry)
   | ({ kind: 'ask' } & Entry)
   | ({ kind: 'note' } & Entry)
-  | { kind: 'dispatch'; at: number; line: string }
+  | ({ kind: 'dispatch' } & Entry)
 export type Day = { key: string; label: string; rows: Row[] }
 export type Step = { word: string; status: 'completed' | 'in_progress' | 'pending' }
 export type Timeline = { forTheOwner: Day[]; everything: Day[]; total: number }
@@ -33,6 +33,7 @@ export type DetailView = {
   ruling: Ruling | null
   sections: Section[]
   timeline: Timeline
+  dispatchedAt: number | null
   holder: Holder | null
   links: Link[]
 }
@@ -114,7 +115,10 @@ const ROW_OF_EVENT: Record<string, (e: Event) => Row | null> = {
       : { kind: 'note', ...entryOf(e.at, e.body) },
   ask: (e) => ({ kind: 'ask', ...entryOf(e.at, cardOf(e.body) || e.body) }),
   resolve: (e) => ({ kind: 'decision', by: 'owner', question: null, ...entryOf(e.at, String(dataOf(e.body).words ?? e.body)) }),
-  dispatch: (e) => ({ kind: 'dispatch', at: e.at, line: ['派工', workerOf(e.body)].filter(Boolean).join(' ') }),
+  dispatch: (e) => {
+    const { worker, terminal, accept } = dataOf(e.body)
+    return { kind: 'dispatch', ...entryOf(e.at, [['派工', worker, terminal].filter(Boolean).join(' '), accept && '验收：' + accept].filter(Boolean).join('\n')) }
+  },
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -185,7 +189,8 @@ const HEADLINE_OF: Record<ItemState, (task: BoardTask, seen: { steps: Step[] | n
 export function detailView(detail: Detail, boardTask: BoardTask | null, now: number): DetailView {
   const state: ItemState = boardTask ? stateOf(boardTask, now) : detail.status === 'done' ? 'done' : 'todo'
   const said = oldestFirst(detail.events).map((e) => ROW_OF_EVENT[e.kind]?.(e) ?? null).filter((r): r is Row => r !== null)
-  const lastWorker = oldestFirst(detail.events).filter((e) => e.kind === 'dispatch').map((e) => workerOf(e.body)).filter(Boolean).at(-1)
+  const dispatches = oldestFirst(detail.events).filter((e) => e.kind === 'dispatch')
+  const lastWorker = dispatches.map((e) => workerOf(e.body)).filter(Boolean).at(-1)
   const latestDecision = said.filter((r) => r.kind === 'decision').at(-1)
   const steps = boardTask && HELD.includes(state) ? stepsAt(boardTask.live?.milestone ?? 'started') : null
   const links = detail.links.map((e) => linkLabel(e.body))
@@ -198,7 +203,8 @@ export function detailView(detail: Detail, boardTask: BoardTask | null, now: num
     ruling: latestDecision ? { at: latestDecision.at, line: latestDecision.line, full: latestDecision.full, by: latestDecision.by, question: latestDecision.question } : null,
     sections: sectionsOf(detail.body ?? ''),
     timeline: { forTheOwner: daysOf(said.filter(isForTheOwner), now), everything: daysOf(said, now), total: said.length },
-    holder: boardTask?.session ? { name: lastWorker ?? boardTask.terminal ?? boardTask.session, terminal: lastWorker ? (boardTask.terminal ?? null) : null } : null,
+    dispatchedAt: dispatches.at(-1)?.at ?? null,
+    holder: boardTask?.session && (lastWorker ?? boardTask.terminal) ? { name: (lastWorker ?? boardTask.terminal)!, terminal: lastWorker ? (boardTask.terminal ?? null) : null } : null,
     links,
   }
 }
