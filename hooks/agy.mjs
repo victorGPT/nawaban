@@ -11,6 +11,10 @@ const claudeHooks = (event, keep = () => true) => () =>
   JSON.parse(readFileSync(join(PLUGIN_ROOT, "hooks/hooks.json"), "utf8")).hooks[event]
     .flatMap((group) => group.hooks)
     .filter((h) => keep(h.command));
+const FILE_WRITING_TOOLS = new Set(["write_to_file", "replace_file_content", "multi_replace_file_content"]);
+const asClaudeTool = (call) => FILE_WRITING_TOOLS.has(call?.name)
+  ? { tool_name: "Write", tool_input: { file_path: call.args?.TargetFile ?? "" } }
+  : { tool_name: "Bash", tool_input: { command: call?.args?.CommandLine ?? "" } };
 const isPendingLine = (command) => command.includes(PENDING_LINE);
 
 function lastReply(transcriptPath) {
@@ -32,8 +36,7 @@ function asClaudeInput(event, d) {
     cwd,
     transcript_path: d.transcriptPath,
     prompt: d.lastUserInput ?? "",
-    tool_name: "Bash",
-    tool_input: { command: d.toolCall?.args?.CommandLine ?? "" },
+    ...asClaudeTool(d.toolCall),
     ...(event === "Stop" && { last_assistant_message: lastReply(d.transcriptPath), stop_hook_active: d.executionNum > 0 }),
   };
 }

@@ -110,6 +110,8 @@ The frontier is every open task that no session holds and whose blockers are all
 
 Every claim, takeover, release and close writes a status event by itself.
 
+As the orchestrator you decide, plan and dispatch; you do not change repository files yourself. A PreToolUse hook (`hooks/orchestrator-nocode.sh`, the checks in `hooks/repo_write.py`) refuses, in the terminal labelled `role=orchestrator` (outside Herdr, the declared session), an `Edit`, `Write`, `MultiEdit` or `NotebookEdit` of a file inside a git repository, and a shell command that writes one: `git commit`, `push`, `apply`, `am`, `cherry-pick`, `rebase` or `revert`, `sed -i`, `tee`, `apply_patch`, or a `>`/`>>` redirect into the repository. Files under the board directory, the temporary directory (the scratchpad included) and files the repository ignores stay writable, and `nawaban`, `hc`, `gh pr merge`/`view` and read-only commands run as before; words inside a quoted body or a heredoc are not commands. Hand the change to a worker (`nawaban dispatch`) or a subagent: a subagent's calls carry `agent_id` and pass. On Codex the same hook covers `Bash` and `apply_patch`; on Antigravity `run_command`, `write_to_file`, `replace_file_content` and `multi_replace_file_content` go through `hooks/agy.mjs`. It is a guardrail, not a sandbox: `python -c` writing a file, `cp`, `mv`, `rm`, or a write through a tool the hook does not see goes through, and that is accepted. Degraded rule, where the hooks don't run (untrusted on Codex, an agent without hooks): nothing refuses the write, so dispatch it anyway.
+
 ## Dispatch tasks to Herdr workers
 
     nawaban dispatch <ID> --brief "<goal, scope, what not to touch>" --accept "<checkable done, output to paste>"

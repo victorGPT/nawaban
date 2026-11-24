@@ -88,8 +88,8 @@ def test_a_stop_after_a_continue_is_let_through_though_continuation_active_stays
     assert run(stub_plugin(tmp_path), "Stop", stop) == {}
 
 
-def declared_project(tmp_path):
-    proj = tmp_path / "agyws"; proj.mkdir()
+def declared_project(tmp_path, parent=None):
+    proj = (parent or tmp_path) / "agyws"; proj.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main", str(proj)], check=True)
     board = tmp_path / "board"
     env = {"NAWABAN_CLI": "board", "NAWABAN_BOARD_DIR": str(board), "NAWABAN_BOARD_PORT": "9", "HC_TERMINAL_ID": ""}
@@ -101,6 +101,17 @@ def test_typing_the_declaration_in_agy_records_the_conversation_as_orchestrator(
     answer = run(ROOT, "PreInvocation", recorded("PreInvocation-declare.json", cwd=str(proj)), env)
     assert (board / "orchestrator" / "agyws").read_text() == CONVERSATION
     assert f"已把会话 {CONVERSATION} 记为 agyws 的编排者" in injected(answer)
+
+
+def test_an_agy_file_write_by_the_declared_orchestrator_is_denied_and_a_command_still_runs(tmp_path, outside_tmp):
+    proj, board, env = declared_project(tmp_path, outside_tmp)
+    (board / "orchestrator").mkdir(parents=True); (board / "orchestrator" / "agyws").write_text(CONVERSATION)
+    env = {**env, "TMPDIR": str(tmp_path / "scratch")}
+    call = recorded("PreToolUse.json", cwd=str(proj))
+    write = {**call, "toolCall": {"name": "write_to_file", "args": {"TargetFile": str(proj / "a.py")}}}
+    answer = run(ROOT, "PreToolUse", write, env)
+    assert answer["decision"] == "deny" and "nawaban dispatch" in answer["reason"]
+    assert run(ROOT, "PreToolUse", call, env)["decision"] == "allow"
 
 
 def test_the_ask_guard_sends_back_a_question_asked_without_recording_an_ask(tmp_path):
