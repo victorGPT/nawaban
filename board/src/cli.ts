@@ -10,7 +10,7 @@ import { importOld } from './import.ts'
 import { merge } from './merge.ts'
 import { jsonOkr, okr } from './okr.ts'
 import { inbox, index, page } from './orchestrator.ts'
-import { boardDirAsConfiguredWhenAsked, DIR, PORT, serve, urlFor, web } from './server.ts'
+import { boardDirAsConfiguredWhenAsked, DIR, PORT, serve, urlFor, web, webOverTailnet } from './server.ts'
 import { githubIssuesHeldBy, progress } from './progress.ts'
 import { heldBy, run } from './tasks.ts'
 import { json } from './views.ts'
@@ -42,7 +42,7 @@ async function runCommand(argv: string[]): Promise<number> {
     okr: () => okr(rest, board(), DIR),
     index: () => index(rest, board()),
     inbox: () => inbox(rest, board(), DIR),
-    web: () => web(),
+    web: () => (rest[0] === '--tailnet' ? webOverTailnet() : web()),
     progress: () => progress(async (session) => [...(await heldBy(session)), ...githubIssuesHeldBy(DIR, session)], DIR),
     page: () => page(rest, board(), DIR),
     json: () => (rest[0] === 'okr' ? jsonOkr(rest.slice(1), board(), DIR) : json(rest, board(), DIR)),
