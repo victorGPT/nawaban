@@ -220,6 +220,14 @@ it('refuses to close as done a task that registered KRs and never reported them,
   expect((await close('NAWABAN-R-01', '--kr', 'KR2=83.3% 预计')).code).toBe(0)
 })
 
+it('writes no result for a ticket someone else holds', async () => {
+  const id = await newTask('nawaban', 'NAWABAN-R-03')
+  await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=toward')
+  await team.as('someone-else').tasks.claim(id)
+  expect((await close('NAWABAN-R-03', '--kr', 'KR1=999 实测')).err).toMatch(/is held by/)
+  expect((await team.thread(id)).replies.flatMap((r) => r.blocks).filter((b) => b.schema === 'nawaban-impact-result')).toEqual([])
+})
+
 it('registers as it claims, refusing a wrong name before it claims', async () => {
   const id = await newTask('nawaban', 'NAWABAN-R-02')
   const wrong = await claimRegisteringAsTheCliDoes('NAWABAN-R-02', '--o', 'O1', '--kr', 'KR9=toward')

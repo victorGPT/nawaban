@@ -203,14 +203,15 @@ function resultsOf(specs: string[]) {
   return blockOf('nawaban-impact-result@1', { krs })
 }
 
-async function refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView, json: string[]) {
-  const why = await undeclared(team, task.id, boardDirAsConfiguredWhenAsked())
-  if (why) throw new Refused(why)
+async function refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView, results: string | null, json: string[]) {
   const as = profile()
   const held = live(task)
   if (held && !held.actor.endsWith(`+${as}`)) {
     throw new Refused(`${key(task)} is held by ${profileViaUser(held.actor)} until ${held.until}: let it close it, or wait out its lease`)
   }
+  if (results) await team.reply(task.id, results)
+  const why = await undeclared(team, task.id, boardDirAsConfiguredWhenAsked())
+  if (why) throw new Refused(why)
   if (!held) {
     const code = await cliWhoseClaimsTheRenewHookFinds(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE, ...json])
     if (code !== 0) return code
@@ -260,8 +261,7 @@ const close: Verb = async (argv) => {
   if (values.kr && !values.done) throw new Refused('--kr reports results, and goes only with --done', 2)
   const task = await resolve(ref)
   const team = personOwningEveryTaskTheirProfilesMade()
-  if (values.kr) await team.reply(task.id, resultsOf(values.kr))
-  if (values.done) return refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team, task, values.json ? ['--json'] : [])
+  if (values.done) return refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team, task, values.kr ? resultsOf(values.kr) : null, values.json ? ['--json'] : [])
   return cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team, task, !!values.json)
 }
 

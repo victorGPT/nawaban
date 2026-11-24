@@ -4,10 +4,10 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { block, board } from '@vercel/board'
+import { block, board, type MessageView } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from '../src/schemas.ts'
-import { defHash, judge, jsonOkr, keepEachNewReadingOnce, okr, run, type Declared, type Heading, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
+import { defHash, judge, jsonOkr, load, keepEachNewReadingOnce, okr, run, type Declared, type Heading, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
 
 const OKR_PORTED_FROM_THE_OLD_TEST_OKR_PY = `
 [[objective]]
@@ -791,5 +791,21 @@ describe('what a declaration registered, and when, decides whether it is judged'
   it('judges no declaration registered against a measure no longer current', () => {
     const otherMeasure = decl('#1', 'K', 'toward', '2026-11-11T00:00:00', { def_hash: 'old' })
     expect(krOf(one(otherMeasure), 'K').verdicts).toEqual([])
+  })
+})
+
+describe('reading one ticket’s declarations off the board', () => {
+  const message = (id: number, blocks: { schema: string; version: number; data: unknown }[] = []) =>
+    ({ id: String(id), createdAt: `2026-11-25T00:00:0${id}.000Z`, labels: { key: 'T' }, blocks }) as unknown as MessageView
+  const loaded = async (replies: MessageView[]) => {
+    const root = message(1)
+    const fake = { threads: async ({ channel }: { channel: string }) => ({ threads: channel === 'p' ? [{ message: root }] : [] }), thread: async () => ({ message: root, replies }) }
+    return [...(await load(fake as unknown as Parameters<typeof load>[0], 'p')).declared.values()].flat()
+  }
+
+  it('keeps the first registration when an old ↑↓= declaration comes after it', async () => {
+    const v2 = message(2, [{ schema: 'nawaban-impact', version: 2, data: { objective: 'O', change: 'product', krs: [{ name: 'K', heading: 'toward' }] } }])
+    const v1 = message(3, [{ schema: 'nawaban-impact', version: 1, data: { objective: 'O', krs: [{ name: 'K', dir: '=' }] } }])
+    expect((await loaded([v2, v1])).map((d) => [d.heading, d.late])).toEqual([['toward', false]])
   })
 })

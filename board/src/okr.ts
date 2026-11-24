@@ -595,6 +595,7 @@ function declaredOnOneTicket([root, ...replies]: MessageView[]): Map<string, Dec
     const at = onTheOneClock(m)
     for (const d of blocksOf(m, 'nawaban-impact')) {
       for (const kr of d.krs as { name: string; dir: string; before?: string; after?: string; basis?: string }[]) {
+        if (out.has(`${d.objective}\0${kr.name}`)) continue
         const old = { dir: kr.dir, heading: null, change: 'product' as const, late: true, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, def_hash: null, result_at: null }
         out.set(`${d.objective}\0${kr.name}`, { ticket, ...old, declared_at: at })
       }
