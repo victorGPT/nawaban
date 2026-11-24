@@ -447,9 +447,10 @@ describe("json okr's judgement on rows with their rounds given", () => {
     expect(refused.err).toContain('还没全 ✓')
     expect(await readingsTheBoardKeepsKrValueAsOfSource(p)).toHaveLength(2)
     expect((await nawabanOkr(p, '--accept', '没这个')).code).toBe(1)
-    await define(p.root, [['K', '>= 1', 'measure = "echo 2 2026-11-18"']])
-    expect((await nawabanOkr(p, '--accept', 'O')).code).toBe(0)
-    const { data } = await jokr(p)
+    const met = await projectOnItsOwnBoardWithItsOwnReposJson()
+    await define(met.root, [['K', '>= 1', 'measure = "echo 2 2026-11-18"']])
+    expect((await nawabanOkr(met, '--accept', 'O')).code).toBe(0)
+    const { data } = await jokr(met)
     expect(data.objectives[0].accept_pending).toBe(false)
   })
 
@@ -861,6 +862,9 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect(movingNowStillStopped.code).toBe(HARD_STOP_EXIT)
     const doneNowStillStopped = await measuring(p, 99, 12)
     expect(doneNowStillStopped.code).toBe(HARD_STOP_EXIT)
+    const acceptRefused = await nawabanOkr(p, '--accept', 'O')
+    expect([acceptRefused.code, acceptRefused.err]).toEqual([1, expect.stringContaining('硬停中,不收 accept')])
+    expect((await measuring(p, 99, 12)).code).toBe(HARD_STOP_EXIT)
   })
 
   it('takes --resume only once a decision request on the Objective or its KRs is resolved, and starts a new sprint', async () => {

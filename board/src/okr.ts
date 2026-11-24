@@ -737,7 +737,14 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
     const doneNow = judge(objectives, before.rows, before.accepts, before.declared, repo, null).objectives.filter((x) => x.total > 0 && x.met === x.total).map((x) => x.name)
     const round = { n: before.rounds.length + 1, kept: kept.length, moved: movedTowardTheirTarget(objectives, before.rows, kept), done: doneNow }
     await team.post(okrChannel(project), block('nawaban-okr-round@1', round))
-    if (values.accept !== undefined) await acceptAfterThisRunsReadingsSoNoneCountsAsAMissSince(team, project, values.accept, full, kept.length)
+    if (values.accept !== undefined) {
+      const atThisRound = await load(team, project)
+      const o = objectives.find((x) => x.name === values.accept)
+      if (o && hardStop(o, atThisRound.rounds, later(atThisRound.accepts.get(o.name), atThisRound.resumes.get(o.name)))) {
+        throw new Refused(`${o.name} 硬停中,不收 accept:待决策项 resolve 之后先跑 okr --resume ${o.name}(读数新记 ${kept.length} 条)`)
+      }
+      await acceptAfterThisRunsReadingsSoNoneCountsAsAMissSince(team, project, values.accept, full, kept.length)
+    }
     process.stdout.write(`第 ${round.n} 轮${round.kept ? '' : '(空转)'} · 读数新记 ${kept.length} 条${values.accept !== undefined ? ` · ✓ accept ${values.accept}` : ''}\n`)
     const { rows, accepts, resumes, rounds, declared } = await load(team, project)
     const data = judge(objectives, rows, accepts, declared, repo, null)
