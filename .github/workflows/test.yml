@@ -9,10 +9,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: board/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: node --test herdr/mods/nawaban-board/*.test.js
+      - run: pnpm --dir board install --frozen-lockfile
       - run: uv run --no-project --python 3.12 --with pytest python -m pytest -q tests
   board:
     runs-on: ubuntu-latest
