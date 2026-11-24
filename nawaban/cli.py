@@ -1068,7 +1068,7 @@ def def_hash(root: Path, kr: dict) -> str:
 
 def _repo_files_named_in(root: Path, cmd: str) -> list[str]:
     named = []
-    for word in cmd.split():
+    for word in (w.strip("'\"") for w in cmd.split()):
         p = Path(word)
         inside = not p.is_absolute() and ".." not in p.parts
         if inside and p.suffix in MEASURE_CODE_SUFFIXES and word not in named and (root / word).is_file():
@@ -1212,6 +1212,8 @@ def _kr_view(name: str, kr: dict, kept: list, accepts: dict, declared: list, att
     ok = lambda r: _MEETS_ON_DECIMAL[op](Decimal(r["value"]), g)
     rounds, rs, version = _rounds_and_current_series(kept)
     failure = kept[-1]["source"] if kept and kept[-1]["value"] == FAILED else None
+    if failure is not None and rs and kept[-1]["def_hash"] != rs[-1]["def_hash"]:
+        rs, version = [], version + 1
     missed = _missed_rounds_since_last_met(rs, ok)
     last = rs[-1] if rs else None
     status = "unmeasurable" if failure is not None else _kr_status(kr, last, missed)

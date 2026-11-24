@@ -166,7 +166,7 @@ const sha256 = (data: string | Buffer) => createHash('sha256').update(data)
 
 async function repoFilesNamedIn(root: string, cmd: string) {
   const named: string[] = []
-  for (const word of cmd.split(/\s+/).filter(Boolean)) {
+  for (const word of cmd.split(/\s+/).filter(Boolean).map((w) => w.replace(/^['"]+|['"]+$/g, ''))) {
     const inside = !isAbsolute(word) && !word.split(sep).includes('..')
     if (!inside || !MEASURE_CODE_SUFFIXES.includes(extname(word)) || named.includes(word)) continue
     if (await stat(join(root, word)).then((s) => s.isFile(), () => false)) named.push(word)
@@ -327,8 +327,11 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
       const [op, goalText] = target(kr)
       const goal = dec(goalText)
       const kept = byKr.get(kr.name) ?? []
-      const { rounds, series: rs, version } = roundsAndCurrentSeries(kept)
+      const { rounds, ...current } = roundsAndCurrentSeries(kept)
       const failure = kept.at(-1)?.value === FAILED ? kept.at(-1)!.source : null
+      const failedUnderANewMeasure = failure !== null && current.series.length > 0 && kept.at(-1)!.def_hash !== current.series.at(-1)!.def_hash
+      const rs = failedUnderANewMeasure ? [] : current.series
+      const version = current.version + Number(failedUnderANewMeasure)
       const ok = (r: KeptReading) => meets(op, dec(r.value), goal)
       const missed = missedRoundsSinceLastMet(rs, ok)
       const last = rs.at(-1)

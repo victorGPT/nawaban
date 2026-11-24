@@ -609,3 +609,20 @@ describe('a reading is judged within the series of the measure it was read under
     expect(await defHash(root, kr)).toBe('5383ad5b5354835d')
   })
 })
+
+describe('a measure that changes and fails at once', () => {
+  it('hashes a quoted script and leaves the old series behind', async () => {
+    const root = realpathSync(await mkdtemp(join(tmpdir(), 'nawaban-def-hash-')))
+    await writeFile(join(root, 'm.py'), 'v1')
+    const kr = { name: 'K', target: '>= 1', measure: 'python "m.py"' }
+    const before = await defHash(root, kr)
+    await writeFile(join(root, 'm.py'), 'v2')
+    expect(await defHash(root, kr)).not.toBe(before)
+    const rows: KeptReading[] = [
+      ...['3', '2'].map((value, i) => ({ kr: 'K', value, as_of: '2026-11-17', source: 's', measured_at: `2026-11-25T00:00:0${i}`, def_hash: 'old' })),
+      { kr: 'K', value: '', as_of: '', source: 'exit 1', measured_at: '2026-11-25T00:00:03', def_hash: 'new' },
+    ]
+    const k = judge(objectives([['K', '>= 5']]), rows, new Map(), new Map(), '/r', null).objectives[0]!.krs[0] as Record<string, unknown>
+    expect([k.status, k.series, k.trend, k.missed_rounds, k.history]).toEqual(['unmeasurable', null, null, 0, []])
+  })
+})

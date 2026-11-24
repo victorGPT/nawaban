@@ -596,3 +596,24 @@ def test_def_hash_is_the_one_the_board_cli_computes(tmp_path):
 
 
 DEF_HASH_BOTH_CLIS_AGREE_ON = "5383ad5b5354835d"
+
+
+def test_a_quoted_measure_script_is_hashed(tmp_path):
+    (tmp_path / "m.py").write_text("v1")
+    kr = {"name": "K", "target": ">= 1", "measure": 'python "m.py"'}
+    before = cli.def_hash(tmp_path, kr)
+    (tmp_path / "m.py").write_text("v2")
+    assert cli.def_hash(tmp_path, kr) != before
+
+
+def test_a_new_measure_that_fails_first_leaves_the_old_series_behind(repo, board, capsys):
+    (repo / "e3.ts").write_text("v1")
+    define(repo, [("K", ">= 5", 'measure = "cat k.txt # e3.ts"')])
+    for value in ("3", "2"):
+        (repo / "k.txt").write_text(f"{value} 2026-11-17 e3")
+        assert cli.main(["--db", str(board), "okr"]) == 0
+    (repo / "e3.ts").write_text("v2")
+    (repo / "k.txt").unlink()
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    k = kr_of(jokr(board, capsys)[1], "K")
+    assert (k["status"], k["series"], k["trend"], k["missed_rounds"], k["history"]) == ("unmeasurable", None, None, 0, [])
