@@ -233,7 +233,7 @@ it('hands the next task of a lane to the worker running it, on a new branch it c
   expect((await replies(second)).at(-1)?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { worker: 'first-of-lane', terminal: 't99', accept: 'b done' } }])
   const closedByTheWorker = await exec('node', [CLI, 'close', 'LN-B', '--done'], {
     cwd: worktree,
-    env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, CLAUDE_CODE_SESSION_ID: WORKER_SESSION, HC_TERMINAL_ID: '' },
+    env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, NAWABAN_BOARD_DIR: tmp, CLAUDE_CODE_SESSION_ID: WORKER_SESSION, HC_TERMINAL_ID: '' },
   })
   expect(closedByTheWorker.stdout).toContain('completed')
   expect((await team.thread(second)).message.task?.state).toBe('completed')
