@@ -633,3 +633,21 @@ describe('a measure that changes and fails at once', () => {
     expect([k.status, k.series, k.trend, k.missed_rounds, k.history]).toEqual(['unmeasurable', null, null, 0, []])
   })
 })
+
+describe('inputs a KR declares', () => {
+  it('hash as the old CLI does, dotfiles and missing patterns alike', async () => {
+    const root = realpathSync(await mkdtemp(join(tmpdir(), 'nawaban-inputs-')))
+    for (const [path, text] of [['gold/a.jsonl', 'a'], ['gold/sub/b.jsonl', 'b'], ['gold/.h.jsonl', 'h'], ['gold/.hidden/x.jsonl', 'x'], ['cases.json', 'c']] as const) {
+      await mkdir(join(root, path, '..'), { recursive: true })
+      await writeFile(join(root, path), text)
+    }
+    expect(await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl', 'cases.json', 'missing/*.txt'] })).toBe('a4fbb62be849264b')
+    const before = await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl'] })
+    await writeFile(join(root, 'gold/sub/b.jsonl'), 'b2')
+    expect(await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl'] })).not.toBe(before)
+  })
+
+  it('refuses inputs that are not an array of paths', async () => {
+    await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\ninputs = "gold.jsonl"\n'))).rejects.toThrow(/inputs 要写成非空字符串的数组/)
+  })
+})

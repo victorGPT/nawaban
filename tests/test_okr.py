@@ -632,3 +632,47 @@ def test_a_measure_that_fails_under_another_hash_and_comes_back_starts_over():
             for i, (v, h) in enumerate([("3", "A"), ("2", "A"), ("", "B"), ("1", "A")])]
     k, _ = cli._kr_view("O", {"name": "K", "target": ">= 5"}, kept, {}, [], [])
     assert (k["series"]["version"], k["trend"], k["missed_rounds"], k["history"]) == (3, None, 1, [{"value": 1, "as_of": "2026-11-17"}])
+
+
+def inputs_fixture(root):
+    for path, text in (("gold/a.jsonl", "a"), ("gold/sub/b.jsonl", "b"), ("gold/.h.jsonl", "h"), ("gold/.hidden/x.jsonl", "x"), ("cases.json", "c")):
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(text)
+    return {"name": "K", "target": "<= 3", "inputs": ["gold/**/*.jsonl", "cases.json", "missing/*.txt"]}
+
+
+def test_inputs_hash_as_the_board_cli_does(tmp_path):
+    assert cli.def_hash(tmp_path, inputs_fixture(tmp_path)) == INPUTS_HASH_BOTH_CLIS_AGREE_ON
+
+
+INPUTS_HASH_BOTH_CLIS_AGREE_ON = "a4fbb62be849264b"
+
+
+def test_a_changed_gold_file_starts_a_new_series_and_an_untouched_one_does_not(repo, board, capsys):
+    (repo / "gold").mkdir()
+    (repo / "gold" / "tier.jsonl").write_text("v1")
+    (repo / "k.txt").write_text("2.1 2026-11-17 e3")
+    define(repo, [("K", "<= 3", 'measure = "cat k.txt"\ninputs = ["gold/*.jsonl"]')])
+    for _ in range(2):
+        assert cli.main(["--db", str(board), "okr"]) == 0
+    assert kr_of(jokr(board, capsys)[1], "K")["series"]["version"] == 1 and len(readings(board)) == 1
+    (repo / "gold" / "tier.jsonl").write_text("v2")
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    assert kr_of(jokr(board, capsys)[1], "K")["series"]["version"] == 2 and len(readings(board)) == 2
+
+
+def test_inputs_under_home_are_read_from_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "home" / "proxy").mkdir(parents=True)
+    (tmp_path / "home" / "proxy" / "gold.jsonl").write_text("v1")
+    kr = {"name": "K", "target": "<= 3", "inputs": ["~/proxy/gold.jsonl"]}
+    before = cli.def_hash(tmp_path, kr)
+    (tmp_path / "home" / "proxy" / "gold.jsonl").write_text("v2")
+    assert cli.def_hash(tmp_path, kr) != before
+
+
+@pytest.mark.parametrize("inputs", ['"gold.jsonl"', '[""]', "[1]"])
+def test_inputs_must_be_an_array_of_paths(repo, capsys, inputs):
+    define(repo, [("K", "<= 3", f"inputs = {inputs}")])
+    assert cli.main(["okr"]) != 0
+    assert "inputs 要写成非空字符串的数组" in capsys.readouterr().err

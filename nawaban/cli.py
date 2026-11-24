@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import glob
 import hashlib
 import json
 import os
@@ -976,6 +977,9 @@ def _objectives_hold_kr_tables(objectives) -> bool:
 def _refuse_whole_file_for_a_malformed_kr(o: dict, kr: dict) -> None:
     if not isinstance(kr.get("name"), str) or not kr["name"]:
         raise Refused(f"{OKR_FILE}:{o.get('name')} 下有一条 KR 没写 name")
+    inputs = kr.get("inputs", [])
+    if not isinstance(inputs, list) or not all(isinstance(i, str) and i and "\0" not in i for i in inputs):
+        raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 inputs 要写成非空字符串的数组")
     if not all(isinstance(kr.get(k, ""), str) and "\0" not in kr.get(k, "") for k in ("measure", "unit", "wait")):
         raise Refused(f"{OKR_FILE}:{o.get('name')} / {kr['name']} 的 measure、unit、wait 要写成字符串")
     age = kr.get("max_age_days", 0)
@@ -1054,7 +1058,7 @@ def _kept_reading_or_failure(root: Path, kr: dict, got) -> tuple | None:
 
 FAILED = ""
 DEF_HASH_LENGTH = 16
-KR_FIELDS_IN_DEF_HASH = ("max_age_days", "measure", "name", "target", "unit", "wait")
+KR_FIELDS_IN_DEF_HASH = ("inputs", "max_age_days", "measure", "name", "target", "unit", "wait")
 MEASURE_CODE_SUFFIXES = (".ts", ".mts", ".js", ".mjs", ".cjs", ".py", ".sh")
 _SHELL_SEPARATORS = re.compile(r"[\s'\"`;|&<>()=]+")
 
@@ -1064,7 +1068,16 @@ def def_hash(root: Path, kr: dict) -> str:
     h = hashlib.sha256(entry.encode())
     for name in _repo_files_named_in(root, kr.get("measure", "")):
         h.update(b"\0" + name.encode() + b"\0" + hashlib.sha256((root / name).read_bytes()).hexdigest().encode())
+    for pattern in kr.get("inputs", []):
+        digests = sorted(hashlib.sha256(p.read_bytes()).hexdigest() for p in _input_files(root, pattern))
+        h.update(b"\0" + pattern.encode() + b"\0" + ",".join(digests).encode())
     return h.hexdigest()[:DEF_HASH_LENGTH]
+
+
+def _input_files(root: Path, pattern: str) -> list[Path]:
+    expanded = os.path.expanduser(pattern)
+    full = expanded if os.path.isabs(expanded) else os.path.join(glob.escape(str(root)), expanded)
+    return [Path(p) for p in glob.glob(full, recursive=True) if Path(p).is_file()]
 
 
 def _repo_files_named_in(root: Path, cmd: str) -> list[str]:
