@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
-import { dispatch, LANE_NOTE, mainCheckoutRealPathOf, orchestratorFor, stdoutOrNullOnFailure, terminalOf } from './dispatch.ts'
+import { dispatch, LANE_NOTE, lastDispatchOf, mainCheckoutRealPathOf, orchestratorToReportTo, stdoutOrNullOnFailure, terminalOf } from './dispatch.ts'
 import { mergeGate } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
@@ -49,11 +49,11 @@ async function viewOf(n: string): Promise<PullRequest> {
   return JSON.parse((await exec('gh', ['pr', 'view', n, '--json', PR_FIELDS])).stdout)
 }
 
-const lastDispatchedTerminal = (replies: MessageView[]) => replies.flatMap((r) => r.blocks.filter((b) => b.schema === 'nawaban-dispatch').map((b) => (b.data as { terminal: string }).terminal)).at(-1)
+const lastDispatchedTerminal = (replies: MessageView[]) => lastDispatchOf(replies)?.terminal
 const claimLive = (task: MessageView) => !!task.task?.claim && Date.parse(task.task.claim.until) > Date.now()
 const terminalWhileClaimed = (task: MessageView) => (claimLive(task) ? task.labels.terminal : undefined)
 
-async function seenOf(task: MessageView): Promise<Seen> {
+export async function seenOf(task: MessageView): Promise<Seen> {
   const { replies } = await board().thread(task.id)
   const terminal = terminalWhileClaimed(task) ?? lastDispatchedTerminal(replies) ?? null
   const lane = replies.map((r) => r.text.match(LANE_NOTE)?.[1]).findLast((l) => l !== undefined) ?? null
@@ -242,8 +242,8 @@ async function outcomeOf(r: Run): Promise<Outcome> {
 const noteOf = (o: Exclude<Outcome, { kind: 'waiting' }>, n: string) =>
   o.kind === 'done' ? `merge: 已合 PR #${n}，${o.did.slice(1).join('，')}` : o.kind === 'refused' ? `merge: 拒合 — ${o.why}` : `merge: 已合未收完 — ${o.left}`
 
-async function tellOrchestrator(root: string | null, line: string) {
-  const orch = root ? await orchestratorFor(root) : null
+async function tellOrchestrator(r: Run, line: string) {
+  const orch = await orchestratorToReportTo(r.root, r.task)
   if (!orch) return process.stderr.write(`no live orchestrator to tell: ${line}\n`)
   const failed = await failureElseNull('hc', ['send', orch, line])
   if (failed) process.stderr.write(`hc send ${orch} failed (${failed}): ${line}\n`)
@@ -262,7 +262,7 @@ async function noteElseWhyNot(r: Run, note: string): Promise<string | null> {
 async function unfinished(r: Run, o: Exclude<Outcome, { kind: 'waiting' | 'done' }>): Promise<number> {
   const note = noteOf(o, r.n)
   const unrecorded = await noteElseWhyNot(r, note)
-  await tellOrchestrator(r.root, `${r.task?.labels.key ?? ''} PR #${r.n} ${note}${unrecorded ? `（${unrecorded}）` : ''}`.replace(/\s*\n\s*/g, ' ').trim())
+  await tellOrchestrator(r, `${r.task?.labels.key ?? ''} PR #${r.n} ${note}${unrecorded ? `（${unrecorded}）` : ''}`.replace(/\s*\n\s*/g, ' ').trim())
   return EXIT_CODE[o.kind]
 }
 

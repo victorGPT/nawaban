@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { text } from 'node:stream/consumers'
 import { parseArgs } from 'node:util'
 import type { board } from '@vercel/board'
-import { Refused } from './tasks.ts'
+import { mainCheckoutRealPathOf, terminalsThatMayBeWorkers } from './dispatch.ts'
+import { seenOf } from './merge.ts'
+import { all, Refused } from './tasks.ts'
 import { boardData, tasksOf } from './views.ts'
 import { openInboxItems, pageText, webAnswers, type InboxItem, type WebAnswer } from './page.ts'
 
@@ -144,13 +146,25 @@ const fail = (error: unknown) => {
 export async function index(argv: string[], team: Team): Promise<number> {
   try {
     const { values } = parseArgs({ args: argv, options: { project: { type: 'string' } } })
-    const [data, fromThePage] = await Promise.all([boardData(team, values.project), whatThePageWrote(team, values.project)])
+    const [data, fromThePage, workers] = await Promise.all([boardData(team, values.project), whatThePageWrote(team, values.project), liveWorkersText(values.project)])
     process.stdout.write(indexText(data as Data, values.project ?? '看板') + '\n')
+    if (workers) process.stdout.write('\n' + workers + '\n')
     if (fromThePage) process.stdout.write('\n' + fromThePage + '\n')
     return 0
   } catch (error) {
     return fail(error)
   }
+}
+
+async function liveWorkersText(project?: string): Promise<string> {
+  const root = project ? await mainCheckoutRealPathOf(process.cwd()) : null
+  const terminals = root ? await terminalsThatMayBeWorkers(root) : []
+  if (!terminals.length) return ''
+  const seen = await Promise.all((await all({ channel: project, state: 'open' })).map(seenOf))
+  const keysHeldBy = (terminal: string) => seen.filter((s) => s.terminal === terminal).map((s) => s.task.labels.key ?? `#${s.task.id}`)
+  const workers = terminals.filter((t) => t.inAWorktree || keysHeldBy(t.address).length)
+  if (!workers.length) return ''
+  return [`## 活着的 worker ${workers.length}`, ...workers.map((w) => `- ${[w.address, w.name, ...keysHeldBy(w.address)].filter(Boolean).join(' ')}`)].join('\n')
 }
 
 const answeredSeen = (a: Pick<WebAnswer, 'message'>) => `答 ${a.message}`

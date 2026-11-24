@@ -1471,7 +1471,7 @@ def _worker_brief(a, n: str | None, name: str, wt: Path, branch: str, orch: str,
 def _start_worker_or_remove_its_worktree(root: Path, a, con, name: str, title: str, wt: Path, branch: str,
                                          brief: str) -> str:
     import json
-    r = subprocess.run(["hc", "run", "--bg", "--json", "--name", name, "--cwd", str(wt),
+    r = subprocess.run(["hc", "run", "--bg", "--outlive-parent", "--json", "--name", name, "--cwd", str(wt),
                         *_board_the_worker_must_reach(con), "claude", "-n", title, "--model", a.model, brief],
                        capture_output=True, text=True)
     try:

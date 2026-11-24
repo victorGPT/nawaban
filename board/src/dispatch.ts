@@ -82,10 +82,10 @@ async function thisTerminalIfOrchestrator(): Promise<string | null> {
   return me && (await roleLabelOf(me)) === 'orchestrator' ? me : null
 }
 
-async function liveTerminalsInRepository(root: string): Promise<Terminal[]> {
+export async function liveTerminalsInRepository(root: string): Promise<Terminal[]> {
   let terminals: Terminal[]
   try {
-    terminals = JSON.parse((await stdoutOrNullOnFailure('hc', ['ls', '--json'])) ?? '').terminals
+    terminals = JSON.parse((await stdoutOrNullOnFailure('hc', ['ls', '--json'])) ?? '').terminals ?? []
   } catch {
     return []
   }
@@ -105,6 +105,33 @@ async function liveOrchestratorInRepository(root: string): Promise<string | null
 
 export async function orchestratorFor(root: string): Promise<string | null> {
   return (await thisTerminalIfOrchestrator()) ?? (await liveOrchestratorInRepository(root))
+}
+
+type Dispatched = { terminal: string; orchestrator?: string }
+export const lastDispatchOf = (replies: MessageView[]) =>
+  replies.flatMap((r) => r.blocks.filter((b) => b.schema === 'nawaban-dispatch').map((b) => b.data as Dispatched)).at(-1)
+
+async function stillLiveOrchestrator(address: string): Promise<boolean> {
+  const t = await terminalOf(address)
+  return t?.state === 'live' && t.labels?.role === 'orchestrator'
+}
+
+export async function orchestratorToReportTo(root: string | null, task: MessageView | null): Promise<string | null> {
+  const inRepository = root ? await liveOrchestratorInRepository(root) : null
+  if (inRepository || !task) return inRepository
+  const recorded = lastDispatchOf((await board().thread(task.id)).replies)?.orchestrator
+  return recorded && (await stillLiveOrchestrator(recorded)) ? recorded : null
+}
+
+export type TerminalThatMayBeAWorker = Terminal & { inAWorktree: boolean }
+
+export async function terminalsThatMayBeWorkers(root: string): Promise<TerminalThatMayBeAWorker[]> {
+  const found: TerminalThatMayBeAWorker[] = []
+  for (const t of await liveTerminalsInRepository(root)) {
+    const full = await terminalOf(t.address)
+    if (full?.labels?.role !== 'orchestrator') found.push({ ...t, ...full, inAWorktree: (await realpath(t.cwd!)) !== root })
+  }
+  return found
 }
 
 function parseDispatchArgs(argv: string[]): Args {
@@ -217,14 +244,16 @@ const reusedWorktreeLine = (wt: Worktree) =>
 
 function briefReportingTo(c: Checked, a: Args, worktreeLine: string): string {
   const nawaban = `node ${CLI}`
+  const reportLines = a.ref
+    ? [`  ${nawaban} tell ${a.ref} "完成 PR #<号>"`, `  ${nawaban} tell ${a.ref} "受阻，详情在票上"`]
+    : [`  hc send ${c.orch} "回报：${c.who} 完成 PR #<号>"`, `  hc send ${c.orch} "回报：${c.who} 受阻，详情在票上"`]
   return [
     `任务：${a.ref ? `${a.ref}（${nawaban} show ${a.ref} 看全文；认领、进展、关闭用 ${nawaban} claim|event|close 记）` : c.name}`,
     worktreeLine,
     a.brief,
     `验收：${a.accept}`,
     '完成或受阻：只发一行，照抄其一，PR 号填上；结论、实测输出、卡在哪、要谁做什么都写在票上：',
-    `  hc send ${c.orch} "回报：${c.who} 完成 PR #<号>"`,
-    `  hc send ${c.orch} "回报：${c.who} 受阻，详情在票上"`,
+    ...reportLines,
     '只发这一行：中途进展、阶段结果记在票上的「进展」里，不发给编排者（每条消息都会叫醒它，留在它的上下文里）。',
   ].join('\n')
 }
@@ -234,7 +263,7 @@ const envReachingThisBoardWithoutToken = () => ENV_NAMING_THIS_BOARD_AND_CODEX_C
 async function startWorkerElseRemoveWorktree(c: Checked, a: Args, wt: Worktree, brief: string): Promise<string> {
   const env = envReachingThisBoardWithoutToken()
   try {
-    const run = await exec('hc', ['run', '--bg', '--json', '--name', c.name, '--cwd', wt.path, ...(env.length ? ['env', ...env] : []), ...WORKER_ARGV[a.agent](a.model, brief, c.task ? workerTitle(c.task.text.split('\n')[0]!, a.ref!) : c.name)])
+    const run = await exec('hc', ['run', '--bg', '--outlive-parent', '--json', '--name', c.name, '--cwd', wt.path, ...(env.length ? ['env', ...env] : []), ...WORKER_ARGV[a.agent](a.model, brief, c.task ? workerTitle(c.task.text.split('\n')[0]!, a.ref!) : c.name)])
     const address = JSON.parse(run.stdout).address
     if (!address) throw new Error(run.stdout)
     return address
@@ -310,6 +339,33 @@ export async function dispatch(argv: string[]): Promise<number> {
     if (checked.lane) await stdoutOrNullOnFailure('hc', ['label', address, `lane=${checked.lane}`])
     const passedOver = seat.passedOver.length ? `, passed over ${seat.passedOver.join('; ')}` : ''
     process.stdout.write(`dispatched ${checked.who} → hc ${address}${lane}${passedOver} · ${wt.path} · reports to ${checked.orch}\n`)
+    return 0
+  } catch (error) {
+    process.stderr.write(`error: ${(error as Error).message}\n`)
+    return exitCodeOf(error)
+  }
+}
+
+const TELL_USAGE = 'usage: nawaban tell <票> <一句>'
+
+export async function tell(argv: string[]): Promise<number> {
+  const [ref, ...words] = argv
+  const line = words.join(' ').trim()
+  if (!ref || !line) {
+    process.stderr.write(`error: ${TELL_USAGE}\n`)
+    return 2
+  }
+  try {
+    const task = await resolve(ref)
+    const key = task.labels.key ?? ref
+    const orch = await orchestratorToReportTo(await mainCheckoutRealPathOf(process.cwd()), task)
+    const sent = orch !== null && (await stdoutOrNullOnFailure('hc', ['send', orch, `回报：${key} ${line}`])) !== null
+    if (sent) {
+      process.stdout.write(`回报已发给 ${orch}\n`)
+      return 0
+    }
+    await board().as(profile()).reply(task.id, `回报未送达：${line}`)
+    process.stderr.write(`${orch ? `hc send ${orch} 失败` : '没找到活着的编排者'}，回报记在 ${key} 上\n`)
     return 0
   } catch (error) {
     process.stderr.write(`error: ${(error as Error).message}\n`)

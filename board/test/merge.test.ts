@@ -214,6 +214,16 @@ it('refuses a failed check: exit 1, no merge, one line to the orchestrator, a no
   expect(await lastNote(id)).toBe('merge: 拒合 — CI 没过：test')
 })
 
+it('tells the orchestrator the dispatch recorded when this repository has none, as tell does', async () => {
+  const pr = { ...greenCodePr('M-FAR'), statusCheckRollup: [{ __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }] }
+  const { id, worktree } = await workerOnItsOwnTicket('M-FAR', 't7f', pr)
+  await note(id, block('nawaban-dispatch@2', { worker: 'm-far', terminal: 't7f', accept: 'a', orchestrator: 'tfar', agent: 'claude', model: 'opus' }))
+  await writeFile(join(tmp, 'workers', 'tfar.json'), JSON.stringify({ state: 'live', name: 'far', cwd: tmp, labels: { role: 'orchestrator' } }))
+  const r = await mergeAsTheWorker('M-FAR', 't7f', worktree, { HC_ORCH_CWD: tmp })
+  expect(r.code).toBe(1)
+  expect(r.hc.match(/^send .*$/gm)).toEqual(['send tfar M-FAR PR #5 merge: 拒合 — CI 没过：test'])
+})
+
 it.each([
   { why: 'no review comment', comments: [] as { body: string }[] },
   { why: 'a review of an older head', comments: [{ body: 'Codex review：无挡合并 1234567' }] },

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, expect, it } from 'vitest'
-import { board } from '@vercel/board'
+import { block, board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { workerTitle } from '../src/dispatch.ts'
 import { registerSchemas } from '../src/schemas.ts'
@@ -27,6 +27,7 @@ case "$1" in
   get) if [ -n "$HC_ORCH" ] && [ "$2" = "$HC_ORCH" ]; then echo '{"labels":{"role":"orchestrator"}}'; elif [ -f "$HC_WORKERS/$2.json" ]; then cat "$HC_WORKERS/$2.json"; else echo '{"labels":{}}'; fi ;;
   ls) if [ -n "$HC_ORCH" ]; then echo "{\\"terminals\\":[{\\"address\\":\\"$HC_ORCH\\",\\"state\\":\\"live\\",\\"cwd\\":\\"$HC_ORCH_CWD\\"}$HC_LS_WORKERS]}"; else echo '{"terminals":[]}'; fi ;;
   run) if [ -n "$HC_RUN_FAIL" ]; then echo 'no core' >&2; exit 1; fi; echo '{"address":"t99"}' ;;
+  send) if [ -n "$HC_SEND_FAIL" ]; then echo 'no such terminal' >&2; exit 1; fi ;;
 esac
 `
 
@@ -48,7 +49,9 @@ beforeAll(async () => {
 })
 afterAll(() => server.close())
 
-async function dispatchInTheRepositoryAsWindowAaaa1111(argv: string[], hc: Record<string, string>) {
+const dispatchInTheRepositoryAsWindowAaaa1111 = (argv: string[], hc: Record<string, string>) => nawabanInTheRepositoryAsWindowAaaa1111('dispatch', argv, hc)
+
+async function nawabanInTheRepositoryAsWindowAaaa1111(verb: string, argv: string[], hc: Record<string, string>) {
   const log = join(tmp, `hc-${Math.random()}.log`)
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -62,6 +65,7 @@ async function dispatchInTheRepositoryAsWindowAaaa1111(argv: string[], hc: Recor
     HC_ORCH: '',
     HC_ORCH_CWD: repo,
     HC_RUN_FAIL: '',
+    HC_SEND_FAIL: '',
     HC_WORKERS: join(tmp, 'workers'),
     HC_LS_WORKERS: '',
     CLAUDE_CONFIG_DIR: join(tmp, 'claude'),
@@ -69,7 +73,7 @@ async function dispatchInTheRepositoryAsWindowAaaa1111(argv: string[], hc: Recor
     ...hc,
   }
   for (const thisMachinesBoardSetting of ['NAWABAN_BOARD_DIR', 'NAWABAN_BOARD_PORT']) delete env[thisMachinesBoardSetting]
-  const r = await exec('node', [CLI, 'dispatch', ...argv], { cwd: repo, env }).then(
+  const r = await exec('node', [CLI, verb, ...argv], { cwd: repo, env }).then(
     (ok) => ({ code: 0, ...ok }),
     (error) => ({ code: error.code as number, stdout: error.stdout as string, stderr: error.stderr as string }),
   )
@@ -95,10 +99,11 @@ it('starts the worker in its own worktree, briefed to report to the orchestrator
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
   const run = r.hc.slice(r.hc.indexOf('run --bg'))
+  expect(run).toMatch(/^run --bg --outlive-parent --json --name d-go /)
   expect(run).toContain(`--name d-go --cwd ${join(tmp, 'repo-d-go')} env BOARD_URL=${url} claude -n D-GO D-GO --model opus`)
-  expect(run).toContain('hc send to1 "回报：D-GO 完成 PR #<号>"')
-  expect(run).toContain('hc send to1 "回报：D-GO 受阻，详情在票上"')
-  expect(run).not.toMatch(/回报：D-GO [^"\n]*\|/)
+  expect(run).toContain(`node ${CLI} tell D-GO "完成 PR #<号>"`)
+  expect(run).toContain(`node ${CLI} tell D-GO "受阻，详情在票上"`)
+  expect(run).not.toContain('to1')
   expect((await git(join(tmp, 'repo-d-go'), 'branch', '--show-current')).stdout.trim()).toBe('wt/d-go')
   const [reply] = await replies(id)
   expect(reply?.author).toMatchObject({ kind: 'agent', handle: 'victor/cc-aaaa1111' })
@@ -225,7 +230,7 @@ it('hands the next task of a lane to the worker running it, on a new branch it c
   expect(r.hc).toMatch(/^send t99 \/pstack:poteto-mode 任务：LN-B/m)
   expect(r.hc).toContain(`接着用 ${worktree}`)
   expect(r.hc).toContain('git fetch origin main && git switch -c wt/ln-b origin/main')
-  expect(r.hc).toContain('hc send to1 "回报：LN-B 完成')
+  expect(r.hc).toContain(`node ${CLI} tell LN-B "完成 PR #<号>"`)
   expect(existsSync(join(tmp, 'repo-ln-b'))).toBe(false)
   const b = (await team.thread(second)).message
   expect(b.task?.claim?.actor).toMatch(/\+cc-bbbb2222$/)
@@ -274,4 +279,115 @@ it('refuses --to a terminal outside this repository, and starts nothing', async 
   expect(r.code).toBe(1)
   expect(r.stderr).toContain('--to tnowhere is no live terminal in this repository')
   expect(r.hc).not.toMatch(/^(run|send)/m)
+})
+
+const dispatchedBy = async (key: string, orchestrator: string) => {
+  const id = await newTask(key)
+  await note(id, block('nawaban-dispatch@2', { worker: key.toLowerCase(), terminal: 't98', accept: 'a', orchestrator, agent: 'claude', model: 'opus' }))
+  return id
+}
+
+async function fileTerminal(address: string, labels: Record<string, string>, state = 'live') {
+  await mkdir(join(tmp, 'workers'), { recursive: true })
+  await writeFile(join(tmp, 'workers', `${address}.json`), JSON.stringify({ state, name: address, cwd: tmp, labels }))
+}
+
+const tellAsWorker = (argv: string[], hc: Record<string, string>) => nawabanInTheRepositoryAsWindowAaaa1111('tell', argv, { HC_TERMINAL_ID: 't98', ...hc })
+const sent = (hc: string) => hc.match(/^send .*$/gm) ?? []
+
+it('tells the live orchestrator of this repository', async () => {
+  const id = await dispatchedBy('T-HERE', 'tgone')
+  const r = await tellAsWorker(['T-HERE', '完成 PR #5'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(0)
+  expect(sent(r.hc)).toEqual(['send to1 回报：T-HERE 完成 PR #5'])
+  expect((await replies(id)).map((m) => m.text)).not.toContainEqual(expect.stringContaining('回报未送达'))
+})
+
+it('tells the new orchestrator of this repository, not the one the dispatch recorded', async () => {
+  await fileTerminal('tolda', { role: 'orchestrator' })
+  await dispatchedBy('T-SWAP', 'tolda')
+  const r = await tellAsWorker(['T-SWAP', '受阻，详情在票上'], { HC_ORCH: 'tnewb' })
+  expect(r.code).toBe(0)
+  expect(sent(r.hc)).toEqual(['send tnewb 回报：T-SWAP 受阻，详情在票上'])
+})
+
+it('tells the orchestrator the dispatch recorded when this repository has none but it lives on, still labelled', async () => {
+  await fileTerminal('toutside', { role: 'orchestrator' })
+  await dispatchedBy('T-REC', 'toutside')
+  const r = await tellAsWorker(['T-REC', '完成 PR #6'], {})
+  expect(r.code).toBe(0)
+  expect(sent(r.hc)).toEqual(['send toutside 回报：T-REC 完成 PR #6'])
+})
+
+it.each([
+  { why: 'the recorded orchestrator is no orchestrator any more', key: 'T-UNLABELLED', recorded: 'tdemoted', filed: { labels: {} as Record<string, string>, state: 'live' }, hc: {} as Record<string, string>, says: '没找到活着的编排者' },
+  { why: 'the recorded orchestrator is gone', key: 'T-GONE', recorded: 'tclosed', filed: { labels: { role: 'orchestrator' }, state: 'finished' }, hc: {}, says: '没找到活着的编排者' },
+  { why: 'hc send fails', key: 'T-SENDFAIL', recorded: 'tgone', filed: null, hc: { HC_ORCH: 'to1', HC_SEND_FAIL: '1' }, says: 'hc send to1 失败' },
+])('notes the report on the ticket and exits 0 when $why', async ({ key, recorded, filed, hc, says }) => {
+  if (filed) await fileTerminal(recorded, filed.labels, filed.state)
+  const id = await dispatchedBy(key, recorded)
+  const r = await tellAsWorker([key, '完成 PR #7'], hc)
+  expect(r.code).toBe(0)
+  expect(r.stderr).toContain(says)
+  expect((await replies(id)).at(-1)?.text).toBe('回报未送达：完成 PR #7')
+})
+
+it('does not tell its own terminal when that is the orchestrator of another repository', async () => {
+  await fileTerminal('t98', { role: 'orchestrator' })
+  const id = await dispatchedBy('T-ELSEWHERE', 'tgone')
+  const r = await tellAsWorker(['T-ELSEWHERE', '完成 PR #10'], {})
+  expect(r.code).toBe(0)
+  expect(sent(r.hc)).toEqual([])
+  expect((await replies(id)).at(-1)?.text).toBe('回报未送达：完成 PR #10')
+})
+
+it('lists a worker in the main checkout by the ticket it holds, and leaves out a terminal there that holds none', async () => {
+  await mkdir(join(tmp, 'workers'), { recursive: true })
+  for (const [address, name] of [['t95', 'w-main'], ['t94', 'a-shell']]) {
+    await writeFile(join(tmp, 'workers', `${address}.json`), JSON.stringify({ state: 'live', name, cwd: repo, labels: {} }))
+  }
+  const id = await newTask('T-MAIN')
+  await note(id, block('nawaban-dispatch@2', { worker: 'w-main', terminal: 't95', accept: 'a', orchestrator: 'to1', agent: 'claude', model: 'opus' }))
+  const ls = `,{"address":"t95","state":"live","cwd":"${repo}"},{"address":"t94","state":"live","cwd":"${repo}"}`
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('status', ['--project', 'nawaban'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
+  expect(r.code).toBe(0)
+  expect(r.stdout).toContain('- t95 w-main T-MAIN\n')
+  expect(r.stdout).not.toMatch(/^- t94/m)
+})
+
+it('refuses to tell about a ticket that does not exist', async () => {
+  const r = await tellAsWorker(['T-NOSUCH', '完成 PR #8'], { HC_ORCH: 'to1' })
+  expect(r.code).not.toBe(0)
+  expect(r.stderr).toContain('no task T-NOSUCH')
+  expect(sent(r.hc)).toEqual([])
+})
+
+it('shows an undelivered report as the progress of the ticket in status', async () => {
+  const id = await dispatchedBy('T-SEEN', 'tgone')
+  await team.as('cc-aaaa1111').tasks.claim(id, { lease: 3600 })
+  expect((await tellAsWorker(['T-SEEN', '完成 PR #9'], {})).code).toBe(0)
+  const status = await nawabanInTheRepositoryAsWindowAaaa1111('status', ['--project', 'nawaban'], {})
+  expect(status.stdout).toContain('进展 0 分钟前：回报未送达：完成 PR #9')
+})
+
+it('lists the live workers of this repository with the tickets they hold in status, and leaves the orchestrator out', async () => {
+  const worktree = join(tmp, 'repo-w-status')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'wt/w-status', worktree, 'main')
+  await mkdir(join(tmp, 'workers'), { recursive: true })
+  for (const [address, name] of [['t97', 'w-status'], ['t96', 'w-idle']]) {
+    await writeFile(join(tmp, 'workers', `${address}.json`), JSON.stringify({ state: 'live', name, cwd: worktree, labels: {} }))
+  }
+  const id = await newTask('T-HELD')
+  await note(id, block('nawaban-dispatch@2', { worker: 'w-status', terminal: 't97', accept: 'a', orchestrator: 'to1', agent: 'claude', model: 'opus' }))
+  const ls = `,{"address":"t97","state":"live","cwd":"${worktree}"},{"address":"t96","state":"live","cwd":"${worktree}"}`
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('status', ['--project', 'nawaban'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
+  expect(r.code).toBe(0)
+  expect(r.stdout).toContain('## 活着的 worker 2\n- t97 w-status T-HELD\n- t96 w-idle\n')
+  expect(r.stdout).not.toMatch(/^- to1/m)
+})
+
+it('prints no worker section in status when no worker lives in this repository', async () => {
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('status', ['--project', 'nawaban'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(0)
+  expect(r.stdout).not.toContain('活着的 worker')
 })
