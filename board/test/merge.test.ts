@@ -340,6 +340,30 @@ it('hands the next ready task of the lane to a worker that took its ticket witho
   expect(existsSync(worktree)).toBe(true)
 })
 
+it('finishes retiring a worker that took its ticket without a dispatch on a rerun after the close unset its terminal label', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-SELFK', 't7b', greenCodePr('M-SELFK'), 'claimedInItsTerminal')
+  const first = await mergeAsTheWorker('M-SELFK', 't7b', worktree, { HC_KILL_FAIL: '1' })
+  expect(first.code).toBe(1)
+  expect(await stateOf(id)).toBe('completed')
+  await writeFile(join(tmp, 'pr-M-SELFK.json'), JSON.stringify({ ...greenCodePr('M-SELFK'), state: 'MERGED', mergeCommit: { oid: 'f'.repeat(40) } }))
+  const rerun = await mergeAsTheWorker('M-SELFK', 't7b', repo)
+  expect(rerun.code).toBe(0)
+  expect(rerun.hc.trim().split('\n').at(-1)).toBe('kill t7b')
+})
+
+it('reads a terminal label left by a lapsed claim as no holder, so the ready ticket is handed on rather than kept for it', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-STALE', 't7c', greenCodePr('M-STALE'), 'claimedInItsTerminal')
+  await note(id, 'lane: stale-lane')
+  const next = await newTask('M-STALE-NEXT')
+  await note(next, 'lane: stale-lane')
+  await team.as(null).label(next, { set: { terminal: 't7c' } })
+  const r = await mergeAsTheWorker('M-STALE', 't7c', worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.hc).not.toMatch(/^kill/m)
+  expect(r.hc).toMatch(/^send t7c \/pstack:poteto-mode 任务：M-STALE-NEXT/m)
+})
+
 it('leaves a worker alone that still has another open ticket', async () => {
   const { id, worktree } = await workerOnItsOwnTicket('M-BUSY', 't76')
   await dispatchedTo(await newTask('M-BUSY-OTHER'), 't76')
