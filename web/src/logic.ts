@@ -1,5 +1,5 @@
 import {
-  doingOf, flowCounts, flowLine, foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WINDOW_WORDS,
+  closedToday, doingOf, flowLine, foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WINDOW_WORDS,
 } from '../../herdr/mods/nawaban-board/logic.js'
 import type { Pending } from './decide-logic'
 
@@ -144,9 +144,10 @@ export function boardColumns(groups: { group: Group; items: Item[] }[], doneShow
   })
 }
 
-export const summaryOf = (board: Board | null, now: number): string => (board ? flowLine(flowCounts(board, now)) : '')
-
 export const pendingCount = (board: Board | null) => allOf(board).filter((t) => t.status !== 'done' && t.pending).length
+
+export const summaryOf = (board: Board | null, now: number): string =>
+  board ? flowLine({ closed: closedToday(board, now), running: taskGroups(board, now).find((g) => g.group === 'working')?.items.length ?? 0, waiting: pendingCount(board) }) : ''
 
 export function projectShown(projects: Project[], picked: string | null) {
   if (picked && projects.some((p) => p.name === picked)) return picked

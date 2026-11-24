@@ -250,7 +250,7 @@ export function doingOf(t, byId, title, status, now) {
 }
 
 const localMidnightSeconds = (now) => localMidnight(now) / MS_PER_SECOND;
-const closedToday = (board, now) => allTasks(board).filter((t) => isDone(t) && (t.done_at ?? 0) >= localMidnightSeconds(now)).length;
+export const closedToday = (board, now) => allTasks(board).filter((t) => isDone(t) && (t.done_at ?? 0) >= localMidnightSeconds(now)).length;
 export const flowLine = ({ closed, running, waiting }) => "今天关了 " + closed + " · 在跑 " + running + " · 等你 " + waiting;
 
 const ISSUE_NAME = /^gh-(\d+)/;
