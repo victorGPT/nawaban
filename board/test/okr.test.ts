@@ -917,6 +917,16 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect(hardStop(o, [round('2026-11-05', 2), round('2026-11-07', 3, 0)], '', failingAgain)).toBeNull()
   })
 
+  it('keeps a stop once it fired, though a later series starts', () => {
+    const o: Objective = { name: 'O', kr: [{ name: 'K', target: '>= 100', measure: 'cat k.txt' }] }
+    const row = (d: string, h: string): KeptReading => ({ kr: 'K', value: '1', as_of: d, source: d, measured_at: d, def_hash: h })
+    const round = (d: string) => ({ at: d, n: 1, kept: 1, moved: [], done: [] })
+    const rows = [row('2026-11-01', 'a'), row('2026-11-02', 'a')]
+    const rounds = ['2026-11-01', '2026-11-02', '2026-11-03'].map(round)
+    expect(hardStop(o, rounds, '', rows)?.at).toBe('2026-11-03')
+    expect(hardStop(o, [...rounds, round('2026-11-04')], '', [...rows, row('2026-11-04', 'b')])?.at).toBe('2026-11-03')
+  })
+
   it('counts no committed KR as moving, and stops no Objective done as the round ran, but stays stopped once it was', () => {
     const o: Objective = { name: 'O', kr: [{ name: 'C', target: '>= 1', kind: 'committed' }, { name: 'A', target: '>= 1' }] }
     const round = (n: number, moved: string[], done: string[] = []) => ({ at: `2026-11-1${n}`, n, kept: 1, moved, done })

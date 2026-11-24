@@ -855,10 +855,10 @@ const FIRST_READINGS_JUDGE_NO_MOVE = 2
 export function hardStop(o: Objective, rounds: OkrRound[], sprintStart: string, rows: KeptReading[]) {
   const aspirational = (o.kr ?? []).filter(isAspirational).map((k) => k.name)
   const measured = (o.kr ?? []).filter((k) => k.measure).map((k) => k.name)
-  const series = new Map(aspirational.map((k) => [k, currentSeriesOf(rows, k)]))
   const keptBy = (kr: string, at: string) => rows.filter((r) => r.kr === kr && r.measured_at <= at).sort((a, b) => order(a.measured_at, b.measured_at)).at(-1)
   const unmeasurableIdle = (r: OkrRound) => r.kept === 0 && measured.length > 0 && measured.every((k) => keptBy(k, r.at)?.value === FAILED)
-  const judgeable = (r: OkrRound) => aspirational.filter((k) => series.get(k)!.filter((x) => x.measured_at <= r.at).length >= FIRST_READINGS_JUDGE_NO_MOVE)
+  const asOfTheRound = (r: OkrRound) => rows.filter((x) => x.measured_at <= r.at)
+  const judgeable = (r: OkrRound) => aspirational.filter((k) => currentSeriesOf(asOfTheRound(r), k).length >= FIRST_READINGS_JUDGE_NO_MOVE)
   const still = (r: OkrRound) => !r.done.includes(o.name) && judgeable(r).length > 0 && !r.moved.some((k) => aspirational.includes(k))
   const sprint = rounds.filter((r) => r.at > sprintStart)
   const counted = sprint.filter((r) => !unmeasurableIdle(r))
