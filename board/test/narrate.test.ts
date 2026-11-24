@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { narrationOf, type Hold } from '../src/narrate.ts'
+import { taskDetail } from '../src/views.ts'
 
 const T0 = Date.parse('2026-11-24T15:00:00Z') / 1000
 const SESSION = 'aaaa1111-2222-4333-8444-555566667777'
@@ -108,4 +109,13 @@ it('names an edited file from the checkout the session started in, wherever the 
   const fromASubfolder = { ...edited(20, 'src/main.tsx'), cwd: '/repo/web' }
   await claudeTranscript(edited(10, '/repo/web/src/logic.ts'), fromASubfolder, edited(30, '/tmp/scratch/shot.mjs'), said(40, '截图'), edited(50, '/tmp/scratch/page.html'))
   expect(rows(await narrationOf([held(0, null)], T0 + 100))).toEqual(['10 edited web/src/logic.ts, web/src/main.tsx', '40 said 截图'])
+})
+
+it('stops at the moment the task is put on hold for the owner, since a hold ends the claim with no release', async () => {
+  await claudeTranscript(said(105, '还拿着'), said(120, '挂起后在做别的票'))
+  const message = { id: '1', channel: 'nawaban', createdAt: iso(0), text: 'A', labels: { key: 'A' }, blocks: [], task: { state: 'blocked', needs: [], blocked: { kind: 'needs_input', reason: '等你' } } }
+  const feed = [['task.claimed', 100], ['task.blocked', 110]].map(([type, s]) => ({ type, createdAt: iso(s as number), payload: { id: '1', by: { actor: `victor+${WORKER}` } } }))
+  const team = { tasks: { list: async () => ({ tasks: [{ message }] }) }, poll: async ({ after }: { after: string }) => ({ cursor: 'end', events: after === 'end' ? [] : feed }) }
+  const detail = await taskDetail(team as unknown as Parameters<typeof taskDetail>[0], 'A')
+  expect(rows(detail.narration)).toEqual(['105 said 还拿着'])
 })

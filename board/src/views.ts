@@ -18,7 +18,7 @@ const DECISIONS_SHOWN_WITHIN_OPEN_OR_CLOSED = 48 * HOUR
 const NOTES_CARRIED_BY_A_PENDING_DECISION = 3
 const PAGE = 50
 const HOLDS_THE_DECISION_MAKER_ANSWERS = new Set(['needs_input', 'awaiting_approval'])
-const EVENTS_THAT_END_A_CLAIM = new Set(['task.claimed', 'task.released', 'task.completed', 'task.canceled', 'task.failed', 'task.expired'])
+const EVENTS_THAT_END_A_CLAIM = new Set(['task.claimed', 'task.released', 'task.blocked', 'task.completed', 'task.canceled', 'task.failed', 'task.expired'])
 
 const secs = (iso: string) => Math.floor(Date.parse(iso) / 1000)
 const key = (m: MessageView) => m.labels.key ?? `#${m.id}`
