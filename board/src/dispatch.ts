@@ -17,8 +17,9 @@ const WORKER_NAME = /^[a-z0-9_-]{1,32}$/
 const PARSE_ARGS_MISTAKES = ['ERR_PARSE_ARGS_UNKNOWN_OPTION', 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE']
 const CLOSED_STATES = ['completed', 'canceled', 'failed']
 const ENV_NAMING_THIS_BOARD_AND_CODEX_CONFIG_NOT_THE_BOARD_TOKEN = ['NAWABAN_BOARD_DIR', 'NAWABAN_BOARD_PORT', 'BOARD_URL', 'CODEX_HOME']
+const CLAUDE_MODEL_WHEN_NONE_IS_NAMED = 'opus'
 const WORKER_ARGV = {
-  claude: (model: string | undefined, brief: string) => ['claude', '--model', model ?? 'opus', `/pstack:poteto-mode ${brief}`],
+  claude: (model: string | undefined, brief: string) => ['claude', '--model', model ?? CLAUDE_MODEL_WHEN_NONE_IS_NAMED, `/pstack:poteto-mode ${brief}`],
   codex: (model: string | undefined, brief: string) => ['codex', ...(model ? ['-m', model] : []), brief],
   agy: (model: string | undefined, brief: string) => ['agy', ...(model ? ['--model', model] : []), '-i', brief],
 }
@@ -267,11 +268,12 @@ async function claimForWorkerKeepingTheTokenWhereItsCliLooks(task: MessageView, 
 }
 
 async function recordDispatchAsThisWindow(c: Checked, a: Args, wt: Worktree, address: string, worker = c.name) {
-  const value = { worker, terminal: address, accept: a.accept }
-  const why = checkValue(SCHEMAS['nawaban-dispatch@1'].schema, value)
+  const model = a.model ?? (a.agent === 'claude' ? CLAUDE_MODEL_WHEN_NONE_IS_NAMED : undefined)
+  const value = { worker, terminal: address, accept: a.accept, orchestrator: c.orch, agent: a.agent, ...(model ? { model } : {}) }
+  const why = checkValue(SCHEMAS['nawaban-dispatch@2'].schema, value)
   try {
     if (why) throw new Error(why)
-    if (c.task) await board().as(c.as).reply(c.task.id, block('nawaban-dispatch@1', value))
+    if (c.task) await board().as(c.as).reply(c.task.id, block('nawaban-dispatch@2', value))
   } catch (error) {
     throw new Refused(`dispatched to hc ${address} (${wt.path}), but recording it on ${a.ref} failed: ${(error as Error).message}`)
   }

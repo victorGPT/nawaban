@@ -22,13 +22,14 @@ export type Row =
 export type Day = { key: string; label: string; rows: Row[] }
 export type Step = { word: string; status: 'completed' | 'in_progress' | 'pending' }
 export type Timeline = { forTheOwner: Day[]; everything: Day[]; total: number }
-export type Holder = { name: string; terminal: string | null }
+export type Holder = { name: string; runs: string | null; terminal: string | null }
 export type Output = { label: string; note: string | null; href: string | null }
 export type Facts = {
   stateWord: string
   cancelled: boolean
   holder: Holder | null
   dispatchedAt: number | null
+  dispatcher: string | null
   lane: string | null
   goal: string | null
   parent: Ref | null
@@ -92,7 +93,13 @@ const dataOf = (body: string): Record<string, unknown> => {
     return {}
   }
 }
-const workerOf = (body: string) => String(dataOf(body).worker ?? '')
+const wordOf = (value: unknown) => (typeof value === 'string' && value ? value : null)
+const CLAUDE_GOES_BY_ITS_MODEL = 'claude'
+function dispatchOf(body: string) {
+  const { worker, orchestrator, agent, model } = dataOf(body)
+  const runs = [wordOf(agent) === CLAUDE_GOES_BY_ITS_MODEL && wordOf(model) ? null : wordOf(agent), wordOf(model)].filter(Boolean).join(' ')
+  return { worker: wordOf(worker), orchestrator: wordOf(orchestrator), runs: runs || null }
+}
 
 type CardOption = { choice?: string; tradeoff?: string }
 function cardOf(body: string) {
@@ -253,7 +260,8 @@ export function detailView(detail: Detail, boardTask: BoardTask | null, now: num
   const dispatches = events.filter((e) => e.kind === 'dispatch')
   const dispatchedAt = dispatches.at(-1)?.at ?? null
   const cancelled = detail.status === 'cancelled'
-  const lastWorker = dispatches.map((e) => workerOf(e.body)).filter(Boolean).at(-1)
+  const lastDispatch = dispatches.length ? dispatchOf(dispatches.at(-1)!.body) : null
+  const lastWorker = dispatches.map((e) => dispatchOf(e.body).worker).filter(Boolean).at(-1)
   const latestDecision = said.filter((r) => r.kind === 'decision').at(-1)
   const steps = boardTask && HELD.includes(state) ? stepsAt(boardTask.live?.milestone ?? 'started') : null
   const links = detail.links.map((e) => linkLabel(e.body))
@@ -269,8 +277,9 @@ export function detailView(detail: Detail, boardTask: BoardTask | null, now: num
     facts: {
       stateWord: cancelled ? '取消' : STATE_WORDS[state](!!boardTask?.waiting),
       cancelled,
-      holder: boardTask?.session && (lastWorker ?? boardTask.terminal) ? { name: (lastWorker ?? boardTask.terminal)!, terminal: lastWorker ? (boardTask.terminal ?? null) : null } : null,
+      holder: boardTask?.session && (lastWorker ?? boardTask.terminal) ? { name: (lastWorker ?? boardTask.terminal)!, runs: lastWorker && lastWorker === lastDispatch?.worker ? lastDispatch.runs : null, terminal: lastWorker ? (boardTask.terminal ?? null) : null } : null,
       dispatchedAt,
+      dispatcher: lastDispatch?.orchestrator ?? null,
       lane: events.map((e) => (e.kind === 'note' ? LANE_NOTE.exec(e.body.trim())?.[1]?.trim() : null)).filter(Boolean).at(-1) ?? null,
       goal: goalOf(events),
       parent: detail.parent,

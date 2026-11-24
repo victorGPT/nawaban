@@ -75,9 +75,9 @@ describe('detailView timeline', () => {
 
   it('names whoever holds the task by the worker it was dispatched to, with its terminal, never by the session id', () => {
     const dispatched = detailView(detail([ev('dispatch', '{"worker":"w-old"}', at(24, 8)), ev('dispatch', '{"worker":"w-new"}', at(24, 9))]), task({ terminal: 't1j6' }), NOW)
-    expect(dispatched.facts.holder).toEqual({ name: 'w-new', terminal: 't1j6' })
+    expect(dispatched.facts.holder).toEqual({ name: 'w-new', runs: null, terminal: 't1j6' })
     expect([dispatched.facts.dispatchedAt, detailView(detail([]), task(), NOW).facts.dispatchedAt]).toEqual([at(24, 9), null])
-    expect(detailView(detail([]), task({ terminal: 't1j6' }), NOW).facts.holder).toEqual({ name: 't1j6', terminal: null })
+    expect(detailView(detail([]), task({ terminal: 't1j6' }), NOW).facts.holder).toEqual({ name: 't1j6', runs: null, terminal: null })
     expect(detailView(detail([]), task({ status: 'open', session: null }), NOW).facts.holder).toBeNull()
     expect(detailView(detail([]), task({ session: 'cc-1234', terminal: null }), NOW).facts.holder).toBeNull()
   })
@@ -223,5 +223,13 @@ describe('detailView facts', () => {
     const pulls = { 'https://github.com/o/r/pull/1': 'open', 'https://github.com/o/r/pull/3': 'ci_failed', 'https://github.com/o/r/pull/4': 'closed', constructor: 'open' } as Detail['pulls']
     expect(detailView(detail(links, { pulls }), null, NOW).facts.outputs.map((o) => o.note)).toEqual(['开着', '已合并', 'CI 红', '已关闭'])
     expect(detailView(detail(links), null, NOW).facts.outputs.map((o) => o.note)).toEqual([null, '已合并', null, null])
+  })
+
+  it('names who dispatched it and what the worker runs once the dispatch records them, and neither for a dispatch that did not', () => {
+    const dispatched = (more: object) => detailView(detail([ev('dispatch', JSON.stringify({ worker: 'w', terminal: 't1j6', accept: 'a', ...more }), at(24, 9))]), task({ terminal: 't1j6' }), NOW).facts
+    expect(dispatched({ orchestrator: 't19p', agent: 'claude', model: 'fable' })).toMatchObject({ dispatcher: 't19p', holder: { name: 'w', runs: 'fable', terminal: 't1j6' } })
+    expect(dispatched({ orchestrator: 't19p', agent: 'codex', model: 'gpt-5.5' }).holder?.runs).toBe('codex gpt-5.5')
+    expect(dispatched({ agent: 'codex' }).holder?.runs).toBe('codex')
+    expect(dispatched({ orchestrator: 7, agent: null })).toMatchObject({ dispatcher: null, holder: { name: 'w', runs: null } })
   })
 })

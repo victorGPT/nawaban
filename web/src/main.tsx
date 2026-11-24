@@ -650,13 +650,13 @@ function SideFields(props: { view: DetailView }) {
           {(holder) => (
             <Field label="负责">
               <span class="flex min-w-0 items-baseline gap-2 text-sm text-foreground">
-                <span class="truncate">{holder().name}</span>
+                <span class="truncate">{[holder().name, holder().runs].filter(Boolean).join(' · ')}</span>
                 <Show when={holder().terminal}>{(terminal) => <span class={metaText}>{terminal()}</span>}</Show>
               </span>
             </Field>
           )}
         </Show>
-        <Show when={f().dispatchedAt}>{(at) => <Field label="派发"><span class="text-sm text-foreground tabular-nums">{stampOf(at())}</span></Field>}</Show>
+        <Show when={f().dispatchedAt}>{(at) => <Field label="派发"><span class="text-sm text-foreground tabular-nums">{[f().dispatcher, stampOf(at())].filter(Boolean).join(' · ')}</span></Field>}</Show>
         <Show when={f().lane}>{(lane) => <Field label="泳道"><span class="truncate text-sm text-foreground">{lane()}</span></Field>}</Show>
       </div>
       <Show when={f().goal || f().parent || f().children.length}>

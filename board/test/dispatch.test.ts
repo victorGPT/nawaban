@@ -101,7 +101,7 @@ it('starts the worker in its own worktree, briefed to report to the orchestrator
   expect((await git(join(tmp, 'repo-d-go'), 'branch', '--show-current')).stdout.trim()).toBe('wt/d-go')
   const [reply] = await replies(id)
   expect(reply?.author).toMatchObject({ kind: 'agent', handle: 'victor/cc-aaaa1111' })
-  expect(reply?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { worker: 'd-go', terminal: 't99', accept: 'it is done' } }])
+  expect(reply?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { worker: 'd-go', terminal: 't99', accept: 'it is done', orchestrator: 'to1', agent: 'claude', model: 'opus' } }])
 })
 
 it('removes the worktree and records nothing when hc run fails', async () => {

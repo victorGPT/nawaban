@@ -156,7 +156,7 @@ async function recordTheWorkerBeforeCloseUnsetsItsLabel(task: MessageView): Prom
   if (!holder) return null
   if (lastDispatchedTerminal((await board().thread(task.id)).replies) === holder) return null
   try {
-    await board().as(profile()).reply(task.id, block('nawaban-dispatch@1', { worker: (await terminalOf(holder))?.name ?? holder, terminal: holder, accept: NEXT_ACCEPT }))
+    await board().as(profile()).reply(task.id, block('nawaban-dispatch@2', { worker: (await terminalOf(holder))?.name ?? holder, terminal: holder, accept: NEXT_ACCEPT }))
     return null
   } catch (error) {
     return { kind: 'mergedButUnfinished', left: `记 worker ${holder} 失败：${failureOf(error)}` }
