@@ -124,6 +124,18 @@ def test_a_claim_leaves_this_machine_a_note_the_progress_hook_reads_and_the_boar
     assert not list((tmp_path / "board").glob("*/roubao#950.json"))
 
 
+def test_milestones_left_here_by_an_earlier_claimant_are_not_shown_for_whoever_holds_it_now(monkeypatch, tmp_path):
+    monkeypatch.setenv("NAWABAN_BOARD_DIR", str(tmp_path / "board"))
+    for folder, body in (("github-claims", {"session": "old-session", "claimedAt": 1}), ("progress", {"milestone": "reported", "at": 1})):
+        (tmp_path / "board" / folder).mkdir(parents=True)
+        (tmp_path / "board" / folder / "roubao#950.json").write_text(json.dumps(body))
+    i = {"number": 950, "title": "t", "state": "OPEN", "createdAt": "2026-11-15T00:00:00Z", "updatedAt": "2026-11-24T00:00:00Z",
+         "labels": [], "body": "", "comments": [], "assignees": [{"login": "new-owner"}]}
+    now_held = cli._issue_task(Path("/repos/roubao"), i, [{"body": "认领：new-session（hc t2）", "createdAt": "2026-11-24T00:00:00Z"}])
+    held_before = cli._issue_task(Path("/repos/roubao"), i, [{"body": "认领：old-session（hc t1）", "createdAt": "2026-11-24T00:00:00Z"}])
+    assert now_held["live"] is None and held_before["live"] == {"milestone": "reported", "at": 1}
+
+
 def test_a_fresh_claim_starts_the_milestones_over(gh, monkeypatch, tmp_path):
     monkeypatch.setenv("NAWABAN_BOARD_DIR", str(tmp_path / "board"))
     (tmp_path / "board" / "progress").mkdir(parents=True)

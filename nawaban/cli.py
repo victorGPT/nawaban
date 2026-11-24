@@ -1554,11 +1554,14 @@ def _forget_the_claim_here(root: Path, n: str) -> None:
         _issue_file(folder, root, n).unlink(missing_ok=True)
 
 
-def _live_of(root: Path, n: int) -> dict | None:
+def _live_of(root: Path, n: int, claimant: str) -> dict | None:
     import json
     try:
+        claim = json.loads(_issue_file("github-claims", root, str(n)).read_text())
         live = json.loads(_issue_file("progress", root, str(n)).read_text())
     except (OSError, ValueError):
+        return None
+    if not isinstance(claim, dict) or claim.get("session") != claimant.split("（", 1)[0].strip():
         return None
     ok = isinstance(live, dict) and live.get("milestone") in MILESTONES and isinstance(live.get("at"), (int, float))
     return {"milestone": live["milestone"], "at": live["at"]} if ok else None
@@ -1795,7 +1798,7 @@ def _issue_task(root: Path, i: dict, cs: list[dict], ruling: dict | None = None)
         task["decision"] = {"at": decisions[-1][1], "verdict": _verdict(decisions[-1][0])} if decisions else None
         task["pending"] = _issue_pending(i)
         task["ruling"] = {"at": ruling["at"], "verdict": ruling["verdict"]} if ruling else None
-        task["live"] = _live_of(root, i["number"]) if status == "in_progress" else None
+        task["live"] = _live_of(root, i["number"], claimant) if status == "in_progress" else None
     return task
 
 
