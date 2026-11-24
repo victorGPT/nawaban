@@ -193,7 +193,7 @@ export function stillOpenLine(answers: Pick<WebAnswer, 'task'>[], items: Pick<In
 async function whatThisSessionHasNotSeen(team: Team, project: string, dir: string, session: string) {
   const [answers, items] = await Promise.all([webAnswers(team, project), openInboxItems(team, project)])
   const file = join(dir, 'page', `shown-${session.replace(/[^\w-]/g, '_')}.json`)
-  const shownLast = await readFile(file, 'utf8').then((s) => JSON.parse(s) as unknown, () => null)
+  const shownLast = await readFile(file, 'utf8').then((s) => JSON.parse(s) as unknown).catch(() => null)
   const shown = new Set(Array.isArray(shownLast) ? shownLast : [])
   const fresh = (seen: string) => !shown.has(seen)
   const text = [

@@ -264,6 +264,9 @@ it('gives the orchestrator what the web page wrote in full once per session, the
   expect(afterNew).toContain(`- ${second.id} 加暗色主题`)
   expect(afterNew).not.toContain(longWords)
 
+  await writeFile(join(tmp, 'board', 'page', `shown-${S}.json`), '{')
+  expect(await prompt(S)).toContain(longWords)
+
   const S2 = 'bbbb2222-0000-0000-0000-000000000000'
   await hook('orchestrator-declare.sh', { session_id: S2, cwd: repo, prompt: '/nawaban:orchestrator' }, noHerdr)
   expect(await prompt(S2)).toContain(longWords)
