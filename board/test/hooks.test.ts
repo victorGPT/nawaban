@@ -276,48 +276,46 @@ it('keeps a worker running while its terminal holds a claimed task, and lets it 
   expect([released.code, released.out]).toEqual([0, ''])
 })
 
-it('writes what a worker is on to its own task, from its step list or its last words, at most once in five minutes, and forgets it on close', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
-  const progressOf = async (id: string) => {
+it('moves a worker\'s task only forward along its milestones and stamps when it last moved, at most once in five minutes, and forgets it on close', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const liveOf = async (id: string, until: (live: { milestone: string; at: number }) => boolean = () => true) => {
     for (let tries = 0; tries < 100; tries++) {
       try {
-        return JSON.parse(await readFile(join(tmp, 'board/progress', `${id}.json`), 'utf8'))
-      } catch {
-        await new Promise((r) => setTimeout(r, 100))
-      }
+        const live = JSON.parse(await readFile(join(tmp, 'board/progress', `${id}.json`), 'utf8'))
+        if (until(live)) return live
+      } catch {}
+      await new Promise((r) => setTimeout(r, 100))
     }
     return null
   }
   await writeFile(join(tmp, 'board/token'), SECRET)
   const transcript = join(tmp, 'transcript.jsonl')
-  const said = (words: string) =>
-    writeFile(transcript, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: `读完票了。${words}` }] } }) + '\n')
+  const called = (input: unknown) => writeFile(transcript, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input }] } }) + '\n')
   const afterATool = { session_id: SESSION, cwd: repo, transcript_path: transcript, hook_event_name: 'PostToolUse' }
+  const stamp = join(tmp, 'board/progress', `.session-${SESSION}`)
+  const gapPassed = () => utimes(stamp, Date.now() / 1000 - 6 * 60, Date.now() / 1000 - 6 * 60)
   await nawaban('create', 'LP1', '--title', '接上进展', '--project', 'proj')
   await nawaban('claim', 'LP1')
   const id = await idOf('LP1')
-  await said('正在写钩子的测试')
-  expect((await hook('progress.sh', afterATool)).out).toBe('')
-  expect(await progressOf(id)).toMatchObject({ steps: null, summary: '正在写钩子的测试' })
 
-  await said('测试过了，开 PR')
+  await called({ command: 'git commit -m x' })
+  expect((await hook('progress.sh', afterATool)).out).toBe('')
+  const first = await liveOf(id)
+  expect(first.milestone).toBe('committed')
+
+  await called({ command: 'gh pr create --fill' })
   await hook('progress.sh', afterATool)
   await new Promise((r) => setTimeout(r, 1500))
-  expect((await progressOf(id)).summary).toBe('正在写钩子的测试')
+  expect((await liveOf(id)).milestone).toBe('committed')
 
-  const stamp = join(tmp, 'board/progress', `.session-${SESSION}`)
-  const sixMinutesAgo = Date.now() / 1000 - 6 * 60
-  await utimes(stamp, sixMinutesAgo, sixMinutesAgo)
-  await mkdir(join(tmp, '.claude/tasks', SESSION), { recursive: true })
-  const step = (n: number, subject: string, status: string) => writeFile(join(tmp, '.claude/tasks', SESSION, `${n}.json`), JSON.stringify({ id: String(n), subject, status }))
-  await step(1, '写钩子', 'completed')
-  await step(2, '跑测试', 'in_progress')
+  await gapPassed()
+  await called({ command: 'ls' })
   await hook('progress.sh', afterATool)
-  for (let tries = 0; tries < 100 && !(await progressOf(id)).steps; tries++) await new Promise((r) => setTimeout(r, 100))
-  expect(await progressOf(id)).toMatchObject({ steps: [{ subject: '写钩子', status: 'completed' }, { subject: '跑测试', status: 'in_progress' }], summary: '测试过了，开 PR' })
+  const later = await liveOf(id, (live) => live.at > first.at || live.milestone !== 'committed')
+  expect(later?.milestone ?? 'not rewritten').toBe('committed')
 
   const board = JSON.parse(await nawaban('json', 'board', '--project', 'proj'))
   const row = board.columns.flatMap((c: { tasks: { id: string }[] }) => c.tasks).find((t: { id: string }) => t.id === 'LP1')
-  expect(row.live.summary).toBe('测试过了，开 PR')
+  expect(row.live.milestone).toBe('committed')
 
   await nawaban('close', 'LP1', '--cancelled')
   expect(await readFile(join(tmp, 'board/progress', `${id}.json`)).catch(() => 'gone')).toBe('gone')

@@ -224,7 +224,7 @@ test("a waiting window's question is its card's main line; a held task row reads
   const row = (key) => view.selectableByKey.get(key);
   assert.equal(row("card:0").title, "放行吗？");
   assert.ok(["task:GONE", "task:CUR", "task:GH"].every((k) => row(k).title.startsWith("【在做】") && row(k).title.endsWith("编排者代定")));
-  assert.equal(row("task:CUR").why, "verify：测试通过 · 10 分钟前更新");
+  assert.match(row("task:CUR").why, /^\[开工\] → 首次改文件 → 首次提交 · /);
   assert.deepEqual(["task:TODO", "task:DONE"].map((k) => row(k).why), [null, null]);
   stored.clear();
 });

@@ -1,35 +1,47 @@
+import { execFileSync } from 'node:child_process'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
-import { lastSentence, lastWords } from '../src/progress.ts'
+import { milestoneOfCheckout, milestoneOfTranscript } from '../src/progress.ts'
 
 const transcriptOf = async (...steps: unknown[]) => {
   const path = join(await mkdtemp(join(tmpdir(), 'nawaban-progress-')), 't.jsonl')
   await writeFile(path, steps.map((s) => JSON.stringify(s)).join('\n') + '\n')
   return path
 }
+const claudeCall = (name: string, input: unknown) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', name, input }] } })
+const BRIEF_NAMING_THE_REPORT = { type: 'user', message: { content: '完成后 hc send t19p "回报：X 完成 | …"，再 gh pr create' } }
 
-it('reads the last words of a Claude Code, a Codex and an Antigravity transcript alike', async () => {
-  const claude = await transcriptOf(
-    { type: 'assistant', message: { content: [{ type: 'text', text: '先读票。' }] } },
-    { type: 'user', message: { content: [{ type: 'tool_result', content: 'ok' }] } },
-  )
-  const codex = await transcriptOf({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '补测试。' }] } })
-  const agy = await transcriptOf({ type: 'PLANNER_RESPONSE', content: '改面板。' }, { type: 'RUN_COMMAND', content: 'ls' })
-  expect([await lastWords(claude), await lastWords(codex), await lastWords(agy)]).toEqual(['先读票。', '补测试。', '改面板。'])
+it('takes the furthest milestone a Claude Code session reached, from its tool calls and never from the brief it was given', async () => {
+  expect(milestoneOfTranscript(await transcriptOf(BRIEF_NAMING_THE_REPORT, claudeCall('Read', { file_path: 'a.ts' })))).toBe('started')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Edit', { file_path: 'a.ts' }), claudeCall('Read', { file_path: 'b.ts' })))).toBe('edited')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('REPL', { code: "await edit('a.ts', 'x', 'y')" })))).toBe('edited')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: 'git commit -m x && gh pr create --fill' }), claudeCall('Read', {})))).toBe('pr')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: 'gh pr checks 9' })))).toBe('review')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: 'git -C /tmp/x commit -qm x' })))).toBe('committed')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: 'hc send t19p "回报：X 完成 | ok | PR"' })))).toBe('reported')
 })
 
-it('falls back to what the last tool call said it does, when a turn writes no text', async () => {
-  const quiet = await transcriptOf({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'REPL', input: { code: '…', description: 'Run the board tests' } }] } })
-  expect(lastWords(quiet)).toBe('Run the board tests')
-  expect(lastWords(undefined)).toBeNull()
-  expect(lastWords('/nowhere/at/all.jsonl')).toBeNull()
+it('reads Codex and Antigravity tool calls the same way', async () => {
+  const codex = await transcriptOf({ type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"git commit -m x"}' } })
+  const agy = await transcriptOf({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: { CommandLine: 'gh pr create --fill' } }] }, { type: 'USER_INPUT', content: 'hc send t1 "回报：…"' })
+  expect([milestoneOfTranscript(codex), milestoneOfTranscript(agy)]).toEqual(['committed', 'pr'])
+  expect(milestoneOfTranscript(undefined)).toBe('started')
+  expect(milestoneOfTranscript('/nowhere/at/all.jsonl')).toBe('started')
 })
 
-it('keeps the last sentence, plain and short', () => {
-  expect(lastSentence('**改完了**。下一步跑 `pnpm check`！')).toBe('下一步跑 pnpm check！')
-  expect(lastSentence('one\n\n```sh\nrm -rf x\n```')).toBe('one')
-  expect([...lastSentence('长'.repeat(200))!].length).toBe(81)
-  expect(lastSentence('')).toBeNull()
+it('reads the checkout: changed files, then commits past origin/main', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nawaban-checkout-'))
+  const git = (...args: string[]) => execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args])
+  git('init', '-q', '-b', 'main')
+  git('commit', '-q', '--allow-empty', '-m', 'base')
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+  expect(await milestoneOfCheckout(dir)).toBe('started')
+  await writeFile(join(dir, 'a.txt'), 'x')
+  expect(await milestoneOfCheckout(dir)).toBe('edited')
+  git('add', '.')
+  git('commit', '-q', '-m', 'x')
+  expect(await milestoneOfCheckout(dir)).toBe('committed')
+  expect(await milestoneOfCheckout(join(dir, 'missing'))).toBe('started')
 })

@@ -130,10 +130,10 @@ The lease file was written under `$HOME/.config/board/claims/`. Two more runs wi
 
 ### 中途进展（NAWABAN-LIVE-PROGRESS）
 
-- A worker's progress is written by `hooks/progress.sh` on PostToolUse, not Stop: a dispatched worker often runs its whole brief as one turn, so Stop would fire once, at the end. All three agents have PostToolUse (the table above), and Antigravity reaches it through `hooks/agy.mjs`, so no agent falls back to Stop. The hook writes at most once in five minutes per session, and only to a task that session holds.
-- It overwrites `<board dir>/progress/<task id>.json` (step list, last sentence, time) instead of posting an event, so a long run does not bury real notes. `close` and `claim --release` delete it.
+- A worker does nothing for its progress. `hooks/progress.sh` runs in its session on PostToolUse, not Stop: a dispatched worker often runs its whole brief as one turn, so Stop would fire once, at the end. All three agents have PostToolUse (the table above), and Antigravity reaches it through `hooks/agy.mjs`, so no agent falls back to Stop. The hook writes at most once in five minutes per session, and only to a task that session holds.
+- What it writes is a milestone that only moves forward, 开工 → 首次改文件 → 首次提交 → 开 PR → review → 回报, plus when the session last moved. The milestone is the furthest one found in the session's tool calls (Claude Code `tool_use`, Codex `response_item` `*_call`, Antigravity `PLANNER_RESPONSE.tool_calls`; never the prompt, which names `hc send` and `gh pr create` itself) and in the checkout (`git status`, commits past `origin/main`, `gh pr view`). A phase read off each tool call jumped back and forth (edit, read, edit), which is why only milestones are kept; a long stretch of editing then shows only "N 分钟前还在动" and the Herdr state.
+- It overwrites `<board dir>/progress/<task id>.json` instead of posting an event, so a long run does not bury real notes. `close` and `claim --release` delete it.
 - Codex trusts plugin hooks by hash, so after this change the owner trusts `hooks/hooks.json` again in `/hooks`.
-- The step list is Claude Code's Task list (`~/.claude/tasks/<session id>/`). A Claude Code session in Code Mode (`CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1`) has no TaskCreate (here, 11-24), and Codex and Antigravity have no such list, so those rows show the last sentence instead.
 
 ### 派活
 

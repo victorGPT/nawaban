@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { projectFor, cliFor, BOARD_PROJECTS, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, panelView, sinceLabel, decisionDate, WINDOW_WORDS,
   okrView, OKR_WORDS, gapOf, varianceText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, ROWS_SHOWN_PER_GROUP, moreKey, TABS, openingTab, tabBadges,
   CAPTURE_FOLD, captureStoreKey, capturesFrom, addCapture, removeCapture, markHanded, captureView, unhandedCount, localMonthDayTime,
-  stepChain, doingOf, flowCounts, flowLine } from "./logic.js";
+  stepChain, milestoneChain, doingOf, flowCounts, flowLine } from "./logic.js";
 import { readFileSync } from "node:fs";
 
 test("a folder's project is its repository's main checkout name, when the board has that project", () => {
@@ -520,6 +520,12 @@ test("收件箱 storage is per project, folded 已交 by default, and anything u
 const at = (iso) => Date.parse(iso) / 1000;
 const NOON = at("2026-11-24T12:00:00");
 
+test("milestones only move forward along one chain, and a task the hook never saw sits at 开工", () => {
+  assert.equal(milestoneChain("reported"), "✓5 步 → [回报]");
+  assert.equal(milestoneChain(undefined), "[开工] → 首次改文件 → 首次提交");
+  assert.equal(doingOf({ id: "T", parent: null, active_at: NOON - 120 }, new Map(), "X", "working", NOON).chain, "[开工] → 首次改文件 → 首次提交 · 2 分钟前还在动");
+});
+
 test("a step chain folds what is done, brackets the step in hand, and shows at most two after it", () => {
   const s = (subject, status) => ({ subject, status });
   assert.equal(stepChain([s("装插件", "completed"), s("记账实测", "completed"), s("钩子适配", "in_progress"), s("开 PR", "pending"), s("收尾", "pending"), s("复盘", "pending")]),
@@ -531,10 +537,10 @@ test("a step chain folds what is done, brackets the step in hand, and shows at m
 test("在做 names who ruled and when, from the task or its parent, and the line under it says how fresh it is", () => {
   const parent = { id: "SPEC", ruling: { at: at("2026-11-24T04:41:00"), verdict: "决策者 11-24「拆吧」，照 artifact 做" } };
   const byId = new Map([["SPEC", parent]]);
-  const t = { id: "T1", parent: "SPEC", claimed_at: NOON - 3600, live: { steps: null, summary: "钩子写好了，正在跑测试", at: NOON - 180 } };
+  const t = { id: "T1", parent: "SPEC", claimed_at: NOON - 3600, live: { milestone: "committed", at: NOON - 180 } };
   const d = doingOf(t, byId, "Codex 也能当编排者", "working", NOON);
   assert.match(d.head, /^【在做】Codex 也能当编排者 —— 决策者 11-24 \d\d:41 说「拆吧」$/);
-  assert.equal(d.chain, "钩子写好了，正在跑测试 · 3 分钟前更新");
+  assert.equal(d.chain, "✓2 步 → [首次提交] → 开 PR → review · 3 分钟前还在动");
   assert.equal(d.stale, false);
   assert.equal(doingOf({ ...t, parent: null }, new Map(), "X", "working", NOON).head, "【在做】X —— 编排者代定");
   const long = { ...t, ruling: { at: NOON, verdict: "这是一段远远超过十二个字的决定原文内容" } };
@@ -542,8 +548,8 @@ test("在做 names who ruled and when, from the task or its parent, and the line
 });
 
 test("a row goes grey with how long it sat only when Herdr isn't working and nothing changed for 30 minutes", () => {
-  const t = { id: "T", parent: null, claimed_at: NOON - 7200, live: { steps: null, summary: "跑测试", at: NOON - 45 * 60 } };
-  assert.deepEqual(doingOf(t, new Map(), "X", "idle", NOON), { head: "【在做】X —— 编排者代定", chain: "跑测试 · 45 分钟没动", stale: true });
+  const t = { id: "T", parent: null, claimed_at: NOON - 7200, live: { milestone: "edited", at: NOON - 45 * 60 } };
+  assert.deepEqual(doingOf(t, new Map(), "X", "idle", NOON), { head: "【在做】X —— 编排者代定", chain: "✓1 步 → [首次改文件] → 首次提交 → 开 PR · 45 分钟没动", stale: true });
   assert.equal(doingOf(t, new Map(), "X", "working", NOON).stale, false);
   assert.equal(doingOf({ ...t, live: { ...t.live, at: NOON - 60 } }, new Map(), "X", "idle", NOON).stale, false);
 });

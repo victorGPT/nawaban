@@ -230,16 +230,21 @@ function stuckOn(t, status) {
   return null;
 }
 
+const MILESTONES = ["started", "edited", "committed", "pr", "review", "reported"];
+const MILESTONE_WORDS = { started: "开工", edited: "首次改文件", committed: "首次提交", pr: "开 PR", review: "review", reported: "回报" };
+export const milestoneChain = (reached) => {
+  const at = Math.max(0, MILESTONES.indexOf(reached));
+  return stepChain(MILESTONES.map((m, i) => ({ subject: MILESTONE_WORDS[m], status: i < at ? "completed" : i === at ? "in_progress" : "pending" })));
+};
+
 export function doingOf(t, byId, title, status, now) {
   const stuck = stuckOn(t, status);
   const head = stuck ? "【卡住】" + title + " —— " + stuck : "【在做】" + title + " —— " + rulingLine(rulingOf(t, byId));
-  const live = t.live?.steps || t.live?.summary ? t.live : null;
-  const step = live ? (live.steps ? stepChain(live.steps) : live.summary) : t.progress?.body ? oneLine(t.progress.body) : null;
-  const updated = live?.at ?? t.progress?.at ?? t.claimed_at ?? null;
-  const quiet = updated == null ? 0 : now - updated;
+  const moved = t.live?.at ?? t.active_at ?? null;
+  const quiet = moved == null ? 0 : now - moved;
   const stale = !stuck && status !== "working" && quiet > STALE_AFTER;
-  const when = updated == null ? null : stale ? Math.floor(quiet / MINUTE) + " 分钟没动" : span(quiet, "zh", true) + (quiet < MINUTE ? "更新" : "前更新");
-  return { head, chain: [step, when].filter(Boolean).join(" · ") || null, stale };
+  const when = moved == null ? null : stale ? span(quiet, "zh", true) + "没动" : quiet < MINUTE ? "刚刚还在动" : span(quiet, "zh", true) + "前还在动";
+  return { head, chain: [milestoneChain(t.live?.milestone ?? "started"), when].filter(Boolean).join(" · "), stale };
 }
 
 const localMidnightSeconds = (now) => localMidnight(now) / MS_PER_SECOND;

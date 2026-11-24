@@ -39,7 +39,7 @@ const decodeOrNull = (s: string) => {
 export const taskHref = (key: string) => '#' + TASK_PART + encodeURIComponent(key)
 
 export type Progress = { body: string; at: number } | null
-export type Live = { steps: { subject: string; status: string }[] | null; summary: string | null; at: number } | null
+export type Live = { milestone: 'started' | 'edited' | 'committed' | 'pr' | 'review' | 'reported'; at: number } | null
 export type Ruling = { at: number; verdict: string } | null
 export type Doing = { head: string; chain: string | null; stale: boolean }
 export type BoardTask = {
