@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { extname, isAbsolute, join, sep } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
@@ -10,7 +10,7 @@ import { OKR_FILE, projectOf } from './impact.ts'
 import { Refused } from './tasks.ts'
 
 type Team = ReturnType<typeof board>
-export type Kr = { name: string; target: string; unit?: string; measure?: string; wait?: string; max_age_days?: number; inputs?: string[] }
+export type Kr = { name: string; target: string; kind?: string; unit?: string; measure?: string; wait?: string; max_age_days?: number; inputs?: string[] }
 export type Objective = { name: string; kr?: Kr[] }
 export type KeptReading = { kr: string; value: string; as_of: string; source: string; measured_at: Round; def_hash: string }
 export type Heading = 'toward' | 'away' | 'hold'
@@ -28,6 +28,7 @@ export type Declared = {
   declared_at: string
   result_at: string | null
 }
+export type OkrRound = { at: string; n: number; kept: number; moved: string[]; done: string[] }
 export type Reading = { objective: string; kr: string; value: string; as_of: string; source: string; def_hash?: string }
 type Round = string
 type Movement = 'closer' | 'away' | 'flat'
@@ -42,6 +43,9 @@ const MISSED_ROUNDS_TO_FLAG = 5
 const ROUNDS_WITHOUT_PROGRESS_TO_FLAG = 2
 const READINGS_SHOWN = 3
 const DAY_MS = 86_400_000
+const STILL_ROUNDS_TO_STOP = 2
+const SPRINT_ROUNDS_TO_STOP = 5
+export const HARD_STOP_EXIT = 3
 const THREADS_PAGE = 500
 const ID_HASH_LENGTH = 32
 const BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT = 20
@@ -378,6 +382,16 @@ function verdictBetween(op: string, goal: ExactDecimalAsTheOldClisDecimal, unit:
   return verdictOf(heading, gate === 0 ? exactly : towardTargetBy(op, goal, prev, cur), gate)
 }
 
+function judgedOnce(op: string, goal: ExactDecimalAsTheOldClisDecimal, unit: string, readings: KeptReading[], i: Declared) {
+  if (!judgedAtAll(i) || i.heading === null || i.result_at === null || (i.def_hash !== null && i.def_hash !== readings[0]?.def_hash)) return null
+  const rounds = latestAsOfPerRound(readings)
+  const times = [...rounds.keys()].sort()
+  const registeredAgainst = times.findLast((t) => t <= i.declared_at)
+  const by = times.find((t) => t > i.result_at!)
+  if (registeredAgainst === undefined || by === undefined) return null
+  return { by, heading: i.heading, verdict: verdictBetween(op, goal, unit, i.heading, rounds.get(registeredAgainst)!, rounds.get(by)!) }
+}
+
 function declarationsSinceLastRoundAndTheirVerdicts(op: string, goal: ExactDecimalAsTheOldClisDecimal, unit: string, readings: KeptReading[], declared: Declared[]) {
   const rounds = latestAsOfPerRound(readings)
   const times = [...rounds.keys()].sort()
@@ -386,16 +400,11 @@ function declarationsSinceLastRoundAndTheirVerdicts(op: string, goal: ExactDecim
   const pending = declared
     .filter((i) => (i.heading !== null && i.result_at === null) || resultOrDeclaredAt(i) >= last)
     .map((i) => ({ ticket: i.ticket, declared: headingOf(i), change: i.change, late: i.late, before: i.before, after: i.after, basis: i.basis, at: withoutTieBreak(i.declared_at) }))
-  const series = readings[0]?.def_hash
   const verdicts = new Map<string, { ticket: string; dir: string; declared: Heading; verdict: Verdict }>()
   for (const i of declared) {
-    if (!judgedAtAll(i) || i.result_at === null || (i.def_hash !== null && i.def_hash !== series)) continue
-    const registeredAgainst = times.findLast((t) => t <= i.declared_at)
-    const firstRoundAfterTheResult = times.find((t) => t > i.result_at!)
-    if (registeredAgainst === undefined || firstRoundAfterTheResult !== last) continue
-    const heading = headingOf(i)
-    const verdict = verdictBetween(op, goal, unit, heading, rounds.get(registeredAgainst)!, rounds.get(last)!)
-    verdicts.set(i.ticket, { ticket: i.ticket, dir: i.dir ?? heading, declared: heading, verdict })
+    const judged = judgedOnce(op, goal, unit, readings, i)
+    if (judged?.by !== last) continue
+    verdicts.set(i.ticket, { ticket: i.ticket, dir: i.dir ?? judged.heading, declared: judged.heading, verdict: judged.verdict })
   }
   const all = [...verdicts.values()]
   return {
@@ -566,21 +575,26 @@ async function wholeThreadsRootFirst(team: Team, channel: string, text?: string)
 export async function load(team: Team, project: string) {
   const rows: KeptReading[] = []
   const latestAccept = new Map<string, string>()
+  const latestResume = new Map<string, string>()
+  const rounds: OkrRound[] = []
+  const latestPer = (map: Map<string, string>, m: MessageView, o: string) => {
+    if (onTheOneClock(m) > (map.get(o) ?? '')) map.set(o, onTheOneClock(m))
+  }
   for (const thread of await wholeThreadsRootFirst(team, okrChannel(project))) {
     for (const m of thread) {
       rows.push(...keptOf(m))
-      for (const d of blocksOf(m, 'nawaban-okr-accept')) {
-        const o = d.objective as string
-        if (onTheOneClock(m) > (latestAccept.get(o) ?? '')) latestAccept.set(o, onTheOneClock(m))
-      }
+      for (const d of blocksOf(m, 'nawaban-okr-accept')) latestPer(latestAccept, m, d.objective as string)
+      for (const d of blocksOf(m, 'nawaban-okr-resume')) latestPer(latestResume, m, d.objective as string)
+      for (const d of blocksOf(m, 'nawaban-okr-round')) rounds.push({ at: onTheOneClock(m), n: d.n as number, kept: d.kept as number, moved: d.moved as string[], done: (d.done as string[]) ?? [] })
     }
   }
+  rounds.sort((a, b) => order(a.at, b.at))
   const declared = new Map<string, Declared[]>()
   for (const thread of await wholeThreadsRootFirst(team, project, 'nawaban-impact')) {
     for (const [k, d] of declaredOnOneTicket(thread)) declared.set(k, [...(declared.get(k) ?? []), d])
   }
   for (const list of declared.values()) list.sort((a, b) => order(a.declared_at, b.declared_at))
-  return { rows, accepts: latestAccept, declared }
+  return { rows, accepts: latestAccept, resumes: latestResume, rounds, declared }
 }
 
 function declaredOnOneTicket([root, ...replies]: MessageView[]): Map<string, Declared> {
@@ -647,16 +661,20 @@ async function latestKept(team: Team, clientId: string) {
 }
 
 export async function keepEachNewReadingOnce(team: Team, project: string, readings: Reading[], commit?: string) {
-  let n = 0
+  return (await keepEachNewReadingOnceNamingTheKrs(team, project, readings, commit)).length
+}
+
+async function keepEachNewReadingOnceNamingTheKrs(team: Team, project: string, readings: Reading[], commit?: string) {
+  const kept: string[] = []
   for (const r of readings) {
     const thread = key(project, r.kr)
     const def_hash = r.def_hash ?? ''
     const latest = await latestKept(team, thread)
     if (latest && sameReading(latest, { ...r, def_hash, measured_at: '' })) continue
     await keepAs(team, project, r, key(project, r.kr, latest?.id ?? '', r.value, r.as_of, r.source, def_hash), commit)
-    n += Number(r.value !== FAILED)
+    if (r.value !== FAILED) kept.push(r.kr)
   }
-  return n
+  return kept
 }
 
 export async function keepAs(team: Team, project: string, r: Reading, id: string, commit?: string) {
@@ -693,14 +711,19 @@ const exitCodeOfRefusalOrBoardError = (error: unknown) => {
 
 export async function okr(argv: string[], team: Team, dir: string, { cwd = process.cwd(), timeout = MEASURE_READS_RESULTS_NEVER_RUNS_AN_EVAL_TIMEOUT } = {}): Promise<number> {
   try {
-    const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { accept: { type: 'string' } } })
-    if (positionals.length) throw new Refused('usage: nawaban okr [--accept <O>]', 2)
+    const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { accept: { type: 'string' }, resume: { type: 'string' } } })
+    if (positionals.length) throw new Refused('usage: nawaban okr [--accept <O>] [--resume <O>]', 2)
     const top = await git(cwd, 'rev-parse', '--show-toplevel')
     if (!top) throw new Refused('okr 要在 git 仓库里跑')
-    const { text, readings, full, commit } = await run(top, timeout)
-    process.stdout.write(text + '\n')
+    if (await keptByTheOldCli(top)) throw new Refused('这个仓库还在旧 CLI 记账(hooks/route.mjs 说 old):板 CLI 的 okr 会另记一本面板不读的账,改用旧 CLI 跑 okr')
     const repo = (await mainCheckout(top))!
     const project = await projectOf(dir, repo)
+    if (values.resume !== undefined) {
+      if (!project) throw new Refused(`仓库 ${repo} 不在 ${join(dir, 'repos.json')},记不了 resume`)
+      await resumeOnceADecisionOnItWasResolved(team, project, await defs(repo), values.resume)
+    }
+    const { text, readings, full, commit } = await run(top, timeout)
+    process.stdout.write(text + '\n')
     if (!project) {
       if (values.accept === undefined) {
         process.stderr.write(`(仓库 ${repo} 不在 ${join(dir, 'repos.json')},读数没记)\n`)
@@ -708,16 +731,52 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
       }
       throw new Refused(`仓库 ${repo} 不在 ${join(dir, 'repos.json')},记不了 accept`)
     }
-    const keptEvenIfTheAcceptIsRefused = await keepEachNewReadingOnce(team, project, readings, commit)
-    if (values.accept !== undefined) await acceptAfterThisRunsReadingsSoNoneCountsAsAMissSince(team, project, values.accept, full, keptEvenIfTheAcceptIsRefused)
-    process.stdout.write(`读数新记 ${keptEvenIfTheAcceptIsRefused} 条${values.accept !== undefined ? ` · ✓ accept ${values.accept}` : ''}\n`)
-    const { rows, accepts, declared } = await load(team, project)
-    const lines = impactText(judge(await defs(repo), rows, accepts, declared, repo, null))
+    const kept = await keepEachNewReadingOnceNamingTheKrs(team, project, readings, commit)
+    const objectives = await defs(repo)
+    const before = await load(team, project)
+    const doneNow = judge(objectives, before.rows, before.accepts, before.declared, repo, null).objectives.filter((x) => x.total > 0 && x.met === x.total).map((x) => x.name)
+    const round = { n: before.rounds.length + 1, kept: kept.length, moved: movedTowardTheirTarget(objectives, before.rows, kept), done: doneNow }
+    await team.post(okrChannel(project), block('nawaban-okr-round@1', round))
+    if (values.accept !== undefined) {
+      const atThisRound = await load(team, project)
+      const o = objectives.find((x) => x.name === values.accept)
+      if (o && hardStop(o, atThisRound.rounds, later(atThisRound.accepts.get(o.name), atThisRound.resumes.get(o.name)))) {
+        throw new Refused(`${o.name} 硬停中,不收 accept:待决策项 resolve 之后先跑 okr --resume ${o.name}(读数新记 ${kept.length} 条)`)
+      }
+      await acceptAfterThisRunsReadingsSoNoneCountsAsAMissSince(team, project, values.accept, full, kept.length)
+    }
+    process.stdout.write(`第 ${round.n} 轮${round.kept ? '' : '(空转)'} · 读数新记 ${kept.length} 条${values.accept !== undefined ? ` · ✓ accept ${values.accept}` : ''}\n`)
+    const { rows, accepts, resumes, rounds, declared } = await load(team, project)
+    const data = judge(objectives, rows, accepts, declared, repo, null)
+    const lines = impactText(data)
     if (lines) process.stdout.write(lines + '\n')
-    return 0
+    let stopped = false
+    for (const o of objectives) {
+      const start = later(accepts.get(o.name), resumes.get(o.name))
+      const stop = hardStop(o, rounds, start)
+      if (!stop) continue
+      const draft = join(dir, 'okr-stop', `${project}-${o.name}.md`)
+      await mkdir(join(dir, 'okr-stop'), { recursive: true })
+      await writeFile(draft, decisionDraft(o, stop, start, rows, declared))
+      process.stdout.write(`硬停：${o.name}(${stop.why})· 待决策项草稿 ${draft},补上「建议」后用 event --kind ask 发;决策者 resolve 之后跑 okr --resume ${o.name}\n`)
+      stopped = true
+    }
+    return stopped ? HARD_STOP_EXIT : 0
   } catch (error) {
     return exitCodeOfRefusalOrBoardError(error)
   }
+}
+
+async function resumeOnceADecisionOnItWasResolved(team: Team, project: string, objectives: Objective[], name: string) {
+  const o = objectives.find((x) => x.name === name)
+  if (!o) throw new Refused(`没有这个 O:${name}`)
+  const { accepts, resumes, rounds } = await load(team, project)
+  const stop = hardStop(o, rounds, later(accepts.get(name), resumes.get(name)))
+  if (!stop) throw new Refused(`${name} 没在硬停,不用 --resume`)
+  if (!(await resolvedDecisionOn(team, project, o, stop.at))) {
+    throw new Refused(`${name} 硬停之后还没有 resolve 过的待决策项(挂在这个 O 或它的 KR 上),--resume 不收`)
+  }
+  await team.post(okrChannel(project), block('nawaban-okr-resume@1', { objective: name }))
 }
 
 export async function okrData(team: Team, dir: string, inRepo: string) {
@@ -742,4 +801,95 @@ export async function jsonOkr(argv: string[], team: Team, dir: string, cwd = pro
   }
   process.stdout.write(JSON.stringify(out) + '\n')
   return 0
+}
+
+const isAspirational = (kr: Kr) => kr.kind !== 'committed'
+const later = (a: string | undefined, b: string | undefined) => ((a ?? '') > (b ?? '') ? a ?? '' : b ?? '')
+
+export function hardStop(o: Objective, rounds: OkrRound[], sprintStart: string) {
+  const aspirational = new Set((o.kr ?? []).filter(isAspirational).map((k) => k.name))
+  const sprint = rounds.filter((r) => r.at > sprintStart)
+  const still = (r: OkrRound) => !r.moved.some((k) => aspirational.has(k))
+  for (let i = 0; i < sprint.length; i++) {
+    if (sprint[i]!.done.includes(o.name)) continue
+    if (i + 1 >= STILL_ROUNDS_TO_STOP && sprint.slice(i + 1 - STILL_ROUNDS_TO_STOP, i + 1).every(still)) {
+      return { why: `连续 ${STILL_ROUNDS_TO_STOP} 轮没有进取型 KR 往目标动`, sprint, at: sprint[i]!.at }
+    }
+    if (i + 1 >= SPRINT_ROUNDS_TO_STOP) return { why: `冲刺满 ${SPRINT_ROUNDS_TO_STOP} 轮还没收工`, sprint, at: sprint[i]!.at }
+  }
+  return null
+}
+
+function currentSeriesOf(rows: KeptReading[], kr: string) {
+  return roundsAndCurrentSeries(rows.filter((r) => r.kr === kr).sort((a, b) => order(a.measured_at, b.measured_at))).series
+}
+
+function movedTowardTheirTarget(objectives: Objective[], rows: KeptReading[], kept: string[]) {
+  return objectives.flatMap((o) =>
+    (o.kr ?? []).flatMap((kr) => {
+      if (!kept.includes(kr.name)) return []
+      const rs = currentSeriesOf(rows, kr.name)
+      if (rs.length < 2) return []
+      const [op, goalText] = target(kr)
+      return verdictBetween(op, dec(goalText), kr.unit ?? '', 'toward', rs.at(-2)!, rs.at(-1)!) === '符合' ? [kr.name] : []
+    }),
+  )
+}
+
+export function decisionDraft(o: Objective, stop: NonNullable<ReturnType<typeof hardStop>>, sprintStart: string, rows: KeptReading[], declared: Map<string, Declared[]>) {
+  const still = (o.kr ?? []).filter((kr) => isAspirational(kr) && !stop.sprint.some((r) => r.moved.includes(kr.name))).map((kr) => kr.name)
+  const since = withoutTieBreak(stop.sprint[0]?.at ?? sprintStart).slice(0, 10)
+  const tried = (o.kr ?? []).flatMap((kr) => {
+    const [op, goalText] = target(kr)
+    const rs = currentSeriesOf(rows, kr.name)
+    return (declared.get(`${o.name}\0${kr.name}`) ?? [])
+      .filter((i) => i.declared_at > sprintStart)
+      .map((i) => {
+        const judged = judgedOnce(op, dec(goalText), kr.unit ?? '', rs, i)
+        const why = i.late ? '事后，不判' : i.change !== 'product' ? '改尺子，不判' : judged ? judged.verdict : '还没判'
+        return `  - ${i.ticket} ${kr.name} ${HEADING_WORDS[i.heading ?? 'hold']}：${why}`
+      })
+  })
+  const readings = (o.kr ?? []).map((kr) => {
+    const rs = currentSeriesOf(rows, kr.name)
+    const inSprint = rs.filter((r) => r.measured_at > sprintStart)
+    return `  - ${kr.name}（目标 ${kr.target}）：${inSprint.map((r) => `${r.value}（${r.as_of}）`).join(' → ') || '没有读数'}`
+  })
+  return [
+    `决策事项：${o.name} 下一步怎么走`,
+    `关联 KR：${(still.length ? still : (o.kr ?? []).map((k) => k.name)).join('、')}`,
+    `背景：硬停，${stop.why}。这个冲刺自 ${since} 起 ${stop.sprint.length} 轮（${stop.sprint.map((r) => `第 ${r.n} 轮${r.kept ? '' : '空转'}`).join('、')}）。`,
+    '  冲刺内声明过的票：',
+    ...(tried.length ? tried : ['  - 没有']),
+    '  各 KR 的读数：',
+    ...readings,
+    '备选方案：',
+    `- 换打法继续 ｜ 再开一个冲刺，${still.join('、') || '这些 KR'} 换一种做法；前两轮的做法没让它们动 ｜ 双向门`,
+    '- 降目标（只有你能定） ｜ 改 okr.toml 的 target，O 更容易收工，标准跟着降 ｜ 双向门',
+    '- 改量法或数据集（只有你能定） ｜ 开新序列，分数从 0 重算，前后读数不能直接比 ｜ 双向门',
+    '建议：',
+    '',
+  ].join('\n')
+}
+
+async function resolvedDecisionOn(team: Team, project: string, o: Objective, since: string) {
+  const names = new Set([o.name, ...(o.kr ?? []).map((k) => k.name)])
+  for (const thread of await wholeThreadsRootFirst(team, project, 'nawaban-ask')) {
+    let askedOnIt = false
+    for (const m of thread) {
+      const asks = blocksOf(m, 'nawaban-ask')
+      if (asks.length) askedOnIt = asks.some((d) => String(d.kr).split(KR_LIST_SEPARATOR).some((k) => names.has(k.trim())))
+      else if (askedOnIt && onTheOneClock(m) > since && blocksOf(m, 'nawaban-resolve').length) return true
+    }
+  }
+  return false
+}
+
+const KR_LIST_SEPARATOR = /[、,，]/
+
+const ROUTE = join(import.meta.dirname, '../../hooks/route.mjs')
+
+async function keptByTheOldCli(top: string) {
+  const { stdout } = await promisify(execFile)(process.execPath, [ROUTE, top])
+  return stdout.trim() === 'old'
 }

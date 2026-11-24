@@ -1,13 +1,13 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { block, board, type MessageView } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
-import { registerSchemas } from '../src/schemas.ts'
-import { defHash, judge, jsonOkr, load, keepEachNewReadingOnce, okr, run, type Declared, type Heading, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
+import { gapsOfADecisionCard, registerSchemas } from '../src/schemas.ts'
+import { defHash, hardStop, HARD_STOP_EXIT, judge, jsonOkr, load, keepEachNewReadingOnce, okr, run, type Declared, type Heading, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
 
 const OKR_PORTED_FROM_THE_OLD_TEST_OKR_PY = `
 [[objective]]
@@ -447,9 +447,10 @@ describe("json okr's judgement on rows with their rounds given", () => {
     expect(refused.err).toContain('还没全 ✓')
     expect(await readingsTheBoardKeepsKrValueAsOfSource(p)).toHaveLength(2)
     expect((await nawabanOkr(p, '--accept', '没这个')).code).toBe(1)
-    await define(p.root, [['K', '>= 1', 'measure = "echo 2 2026-11-18"']])
-    expect((await nawabanOkr(p, '--accept', 'O')).code).toBe(0)
-    const { data } = await jokr(p)
+    const met = await projectOnItsOwnBoardWithItsOwnReposJson()
+    await define(met.root, [['K', '>= 1', 'measure = "echo 2 2026-11-18"']])
+    expect((await nawabanOkr(met, '--accept', 'O')).code).toBe(0)
+    const { data } = await jokr(met)
     expect(data.objectives[0].accept_pending).toBe(false)
   })
 
@@ -546,7 +547,8 @@ describe('declarations against readings', () => {
     await declareTicketMovesKrOfO(p, '#8', 'J', 'away')
     await writeFile(join(p.root, 'k.txt'), '79 2026-11-11')
     const { code, out } = await nawabanOkr(p)
-    expect(code).toBe(0)
+    const neitherKMovingAwayNorJUnmeasuredMovedTwoRoundsRunning = HARD_STOP_EXIT
+    expect(code).toBe(neitherKMovingAwayNorJUnmeasuredMovedTwoRoundsRunning)
     expect(out).toContain('O O · 声明 向目标 0 背离 1 不变 0')
     expect(out).toContain('预期不符 K：#7 声明 向目标')
   })
@@ -813,5 +815,108 @@ describe('reading one ticket’s declarations off the board', () => {
     const v2 = message(2, [{ schema: 'nawaban-impact', version: 2, data: { objective: 'O', change: 'product', krs: [{ name: 'K', heading: 'toward' }] } }])
     const v1 = message(3, [{ schema: 'nawaban-impact', version: 1, data: { objective: 'O', krs: [{ name: 'K', dir: '=' }] } }])
     expect((await loaded([v2, v1])).map((d) => [d.heading, d.late])).toEqual([['toward', false]])
+  })
+})
+
+describe('a round is one okr, and an Objective stops hard when its sprint stalls', () => {
+  const measuring = async (p: Project, value: number, day: number) => {
+    await writeFile(join(p.root, 'k.txt'), `${value} 2026-11-${day}`)
+    return nawabanOkr(p)
+  }
+  const kOnly = async () => {
+    const p = await projectOnItsOwnBoardWithItsOwnReposJson()
+    await define(p.root, [['K', '>= 95', 'measure = "cat k.txt"']])
+    return p
+  }
+  const draftOf = (p: Project) => readFile(join(p.dir, 'okr-stop', `${p.name}-O.md`), 'utf8')
+  const cardOf = (draft: string) => {
+    const after = (label: string) => draft.split('\n').find((l) => l.startsWith(label))!.slice(label.length)
+    const lines = draft.split('\n')
+    const [context, options] = [lines.slice(lines.findIndex((l) => l.startsWith('背景：')), lines.indexOf('备选方案：')).join('\n').slice('背景：'.length), lines.slice(lines.indexOf('备选方案：') + 1, lines.findIndex((l) => l.startsWith('建议：')))]
+    const door = { 单向门: 'one-way', 双向门: 'two-way' } as const
+    return {
+      decision: after('决策事项：'),
+      kr: after('关联 KR：'),
+      context,
+      options: options.map((l) => l.slice(2).split('｜').map((s) => s.trim())).map(([choice, tradeoff, d]) => ({ choice, tradeoff, door: door[d as keyof typeof door] })),
+      recommendation: after('建议：'),
+    }
+  }
+
+  it('records each okr as a round and an idle one as kept 0', async () => {
+    const p = await kOnly()
+    expect((await measuring(p, 80, 10)).out).toContain('第 1 轮 · 读数新记 1 条')
+    expect((await measuring(p, 80, 10)).out).toContain('第 2 轮(空转) · 读数新记 0 条')
+  })
+
+  it('stops hard after two rounds with no aspirational KR moving, idle ones included, and drafts a decision request ready once recommended', async () => {
+    const p = await kOnly()
+    expect((await measuring(p, 80, 10)).code).toBe(0)
+    const idle = await measuring(p, 80, 10)
+    expect([idle.code, idle.out]).toEqual([HARD_STOP_EXIT, expect.stringContaining('硬停：O(连续 2 轮没有进取型 KR 往目标动)')])
+    const card = cardOf(await draftOf(p))
+    expect([card.decision, card.kr, card.options.length]).toEqual(['O 下一步怎么走', 'K', 3])
+    expect(gapsOfADecisionCard(card)).toEqual(['建议 (--rec)'])
+    expect(gapsOfADecisionCard({ ...card, recommendation: '换打法继续，先查 K 为什么不动' })).toEqual([])
+    const movingNowStillStopped = await measuring(p, 90, 11)
+    expect(movingNowStillStopped.code).toBe(HARD_STOP_EXIT)
+    const doneNowStillStopped = await measuring(p, 99, 12)
+    expect(doneNowStillStopped.code).toBe(HARD_STOP_EXIT)
+    const acceptRefused = await nawabanOkr(p, '--accept', 'O')
+    expect([acceptRefused.code, acceptRefused.err]).toEqual([1, expect.stringContaining('硬停中,不收 accept')])
+    expect((await measuring(p, 99, 12)).code).toBe(HARD_STOP_EXIT)
+  })
+
+  it('takes --resume only once a decision request on the Objective or its KRs is resolved after the stop, and starts a new sprint', async () => {
+    const p = await kOnly()
+    const option = (choice: string) => ({ choice, tradeoff: 'x', door: 'two-way' })
+    const before = (await team.tasks.create(p.name, { text: 'before', labels: { key: 'BEFORE-1' } })).task
+    await team.reply(before.id, block('nawaban-ask@1', { decision: 'K 怎么办', kr: 'K', context: 'x', options: [option('a'), option('b')], recommendation: 'a' }))
+    await team.reply(before.id, block('nawaban-resolve@1', { words: '硬停之前答的' }))
+    await measuring(p, 80, 10)
+    const notStopped = await nawabanOkr(p, '--resume', 'O')
+    expect([notStopped.code, notStopped.err]).toEqual([1, expect.stringContaining('没在硬停')])
+    await measuring(p, 80, 10)
+    const refused = await nawabanOkr(p, '--resume', 'O')
+    expect([refused.code, refused.err]).toEqual([1, expect.stringContaining('没有 resolve 过的待决策项')])
+    const { task } = await team.tasks.create(p.name, { text: 'stop', labels: { key: 'STOP-1' } })
+    const earlier = (await team.tasks.create(p.name, { text: 'earlier', labels: { key: 'EARLIER-1' } })).task
+    await team.reply(earlier.id, block('nawaban-ask@1', { decision: 'K 怎么办', kr: 'K', context: 'x', options: [option('a'), option('b')], recommendation: 'a' }))
+    await team.reply(earlier.id, block('nawaban-ask@1', { decision: '另一件', kr: '别的 O', context: 'x', options: [option('a'), option('b')], recommendation: 'a' }))
+    await team.reply(earlier.id, block('nawaban-resolve@1', { words: '只答了另一件' }))
+    expect((await nawabanOkr(p, '--resume', 'O')).code).toBe(1)
+    await team.reply(task.id, block('nawaban-ask@1', { decision: 'O 下一步怎么走', kr: 'J、K', context: '硬停', options: [option('a'), option('b')], recommendation: 'a' }))
+    expect((await nawabanOkr(p, '--resume', 'O')).code).toBe(1)
+    await team.reply(task.id, block('nawaban-resolve@1', { words: '换打法' }))
+    const other = (await team.tasks.create(p.name, { text: 'other', labels: { key: 'OTHER-1' } })).task
+    await team.reply(other.id, block('nawaban-ask@1', { decision: '别的', kr: '别的 O', context: 'x', options: [option('a'), option('b')], recommendation: 'a' }))
+    await team.reply(other.id, block('nawaban-resolve@1', { words: '好' }))
+    expect((await nawabanOkr(p, '--resume', 'O')).code).toBe(0)
+    expect((await measuring(p, 85, 12)).code).toBe(0)
+  })
+
+  it('stops hard when the sprint reaches five rounds without the Objective done, however much it moved', async () => {
+    const p = await kOnly()
+    const codes = []
+    for (const [value, day] of [[80, 10], [82, 11], [84, 12], [86, 13], [88, 14]]) codes.push((await measuring(p, value!, day!)).code)
+    expect(codes).toEqual([0, 0, 0, 0, HARD_STOP_EXIT])
+    expect(await draftOf(p)).toContain('冲刺满 5 轮还没收工')
+  })
+
+  it('counts no committed KR as moving, and stops no Objective done as the round ran, but stays stopped once it was', () => {
+    const o: Objective = { name: 'O', kr: [{ name: 'C', target: '>= 1', kind: 'committed' }, { name: 'A', target: '>= 1' }] }
+    const round = (n: number, moved: string[], done: string[] = []) => ({ at: `2026-11-1${n}`, n, kept: 1, moved, done })
+    expect(hardStop(o, [round(1, ['C']), round(2, ['C'])], '')?.why).toMatch(/连续 2 轮/)
+    expect(hardStop(o, [round(1, ['C']), round(2, ['A'])], '')).toBeNull()
+    expect(hardStop(o, [round(1, [], ['O']), round(2, [], ['O'])], '')).toBeNull()
+    expect(hardStop(o, [round(1, []), round(2, []), round(3, [], ['O'])], '')?.why).toMatch(/连续 2 轮/)
+  })
+
+  it('refuses okr in a repository the old CLI keeps, keeping nothing', async () => {
+    const p = await kOnly()
+    await writeFile(join(p.root, 'docs/agents/issue-tracker.md'), '# GitHub Issues\n')
+    const refused = await measuring(p, 80, 10)
+    expect([refused.code, refused.err]).toEqual([1, expect.stringContaining('改用旧 CLI')])
+    expect((await jokr(p)).data.objectives[0].krs[0].value).toBeNull()
   })
 })
