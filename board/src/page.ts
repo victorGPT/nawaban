@@ -1,5 +1,5 @@
 import { block, BoardError, type board, type MessageView } from '@vercel/board'
-import { currentGithubAsk, HELD_FOR_A_GITHUB_ASK } from './github-tasks.ts'
+import { currentGithubAsk, githubRepliesOf, HELD_FOR_A_GITHUB_ASK } from './github-tasks.ts'
 import { Refused } from './tasks.ts'
 import { tasksOf } from './views.ts'
 
@@ -34,13 +34,14 @@ export const inboxItemText = (words: string) => `${summaryLineThatOpensNoFence(w
 const startsOrEndsAHold = (m: MessageView) =>
   !!firstBlock(m, 'nawaban-ask') || !!firstBlock(m, 'nawaban-resolve') || (m.blocks.length === 0 && NOTE_THAT_RAISES_OR_ENDS_A_HOLD_FOR_A_PERSON.test(m.text))
 
-export function answerToTheCurrentHold(root: MessageView, replies: MessageView[]): WebAnswer | null {
+export function answerToTheCurrentHold(root: MessageView, replies: MessageView[], githubReplies = replies): WebAnswer | null {
   const hold = root.task?.blocked?.kind ?? ''
   if (!HOLDS_THE_DECISION_MAKER_ANSWERS.has(hold)) return null
-  const githubAsk = root.task?.blocked?.reason.startsWith(HELD_FOR_A_GITHUB_ASK) ? currentGithubAsk(replies) : null
+  const heldForAGithubAsk = root.task?.blocked?.reason.startsWith(HELD_FOR_A_GITHUB_ASK) ?? false
+  const githubAsk = heldForAGithubAsk ? currentGithubAsk(githubReplies) : null
   const asked = replies.findLastIndex(startsOrEndsAHold)
-  const answer = githubAsk
-    ? replies.findLast((m) => firstBlock(m, 'nawaban-web-answer') && m.labels[ANSWERS_LABEL] === githubAsk.id)
+  const answer = heldForAGithubAsk
+    ? githubAsk && replies.findLast((m) => firstBlock(m, 'nawaban-web-answer') && m.labels[ANSWERS_LABEL] === githubAsk.id)
     : replies.slice(asked + 1).findLast((m) => firstBlock(m, 'nawaban-web-answer'))
   if (!answer) return null
   const d = firstBlock(answer, 'nawaban-web-answer')!
@@ -58,8 +59,11 @@ export function answerToTheCurrentHold(root: MessageView, replies: MessageView[]
 
 export async function webAnswers(team: Team, project?: string): Promise<WebAnswer[]> {
   const held = (await tasksOf(team, project, 'blocked')).filter((m) => HOLDS_THE_DECISION_MAKER_ANSWERS.has(m.task?.blocked?.kind ?? ''))
-  const threads = await Promise.all(held.map((m) => team.thread(m.id)))
-  return threads.flatMap(({ message, replies }) => answerToTheCurrentHold(message, replies) ?? [])
+  const threads = await Promise.all(held.map(async (m) => {
+    const { message, replies } = await team.thread(m.id)
+    return { message, replies, githubReplies: await githubRepliesOf(team, message, replies) }
+  }))
+  return threads.flatMap(({ message, replies, githubReplies }) => answerToTheCurrentHold(message, replies, githubReplies) ?? [])
 }
 
 async function inboxRoots(team: Team, project: string, label?: Record<string, string>) {

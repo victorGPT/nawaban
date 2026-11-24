@@ -65,6 +65,11 @@ export const githubAskIn = (m: MessageView) => {
   return said && said !== 'ruling' ? said.ask : null
 }
 
+export async function githubRepliesOf(person: Person, task: MessageView, own: MessageView[]) {
+  const root = task.labels['issue-root']
+  return root ? (await person.thread(root)).replies : own
+}
+
 export function currentGithubAsk(replies: MessageView[]): MessageView | null {
   const inGithubOrder = replies.filter((r) => r.from === 'github' && !r.deleted).sort((a, b) => Number(a.origin?.message) - Number(b.origin?.message) || (a.createdAt < b.createdAt ? -1 : 1))
   let pending: MessageView | null = null

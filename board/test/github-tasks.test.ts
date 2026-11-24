@@ -7,7 +7,7 @@ import { local } from '@vercel/board/backend-local'
 import { deliverAsSignedWebhook, importOnlySync, pollRepo, type Reader } from '../src/github-sync.ts'
 import { HELD_FOR_A_GITHUB_ASK, settleIssueTasks } from '../src/github-tasks.ts'
 import { site, verifier } from '../src/server.ts'
-import { webAnswers } from '../src/page.ts'
+import { answerToTheCurrentHold, webAnswers } from '../src/page.ts'
 import { registerSchemas } from '../src/schemas.ts'
 import { boardData } from '../src/views.ts'
 
@@ -220,6 +220,25 @@ describe('网页的决策卡和答复轮次', () => {
     await poll(world)
     expect((await pendingOf('ROUBAO-1794')).card?.decision).toBe('A 件')
     expect(await webAnswers(team, 'roubao')).toEqual([])
+  })
+
+  it('唯一那条 GitHub 待决删了、挂起还没解除时，没有答复算数', () => {
+    const task = { id: '3', text: 't', labels: { key: 'ROUBAO-1' }, task: { blocked: { kind: 'awaiting_approval', reason: `${HELD_FOR_A_GITHUB_ASK}问题` } } } as unknown as MessageView
+    const ask = { id: '2', from: 'github', origin: { message: '100' }, deleted: true, text: '待决：问题', labels: {}, blocks: [], createdAt: '2026-11-24T10:00:00Z' } as unknown as MessageView
+    const answer = { id: '4', labels: { answers: '2' }, createdAt: '2026-11-24T10:01:00Z', blocks: [{ schema: 'nawaban-web-answer', version: 1, data: { words: '旧答复' } }] } as unknown as MessageView
+    expect(answerToTheCurrentHold(task, [ask, answer])).toBeNull()
+  })
+
+  it('GitHub 上重开的 issue，新任务也能显示和回答原线程里的待决', async () => {
+    await registerSchemas(team)
+    const world: World = { issues: [issue(1795, 'closed', '2026-11-24T09:00:00Z')], comments: [comment(1795, fullAsk('重开后的问题'), '2026-11-24T08:00:00Z')] }
+    await poll(world)
+    world.issues[0] = issue(1795, 'open', '2026-11-24T11:00:00Z')
+    await poll(world)
+    const pending = await pendingOf('ROUBAO-1795')
+    expect(pending.card?.decision).toBe('重开后的问题')
+    expect((await answerOn('ROUBAO-1795', pending.ask, '选 A')).status).toBe(201)
+    expect((await webAnswers(team, 'roubao')).map((a) => [a.task, a.words])).toEqual([['ROUBAO-1795', '选 A']])
   })
 
   it('上一轮的网页答复不算到 GitHub 上新提的待决头上', async () => {
