@@ -74,7 +74,7 @@ const verbsListedIn = (help: string) => [...help.matchAll(/^ {2}(\S+)/gm)].map((
 const hintedCommand = (err: string) => /^改用：nawaban (.+)$/m.exec(err)?.[1]
 const wholeHintedCommand = (err: string) => /^改用：nawaban ([\s\S]+)\n$/.exec(err)?.[1]
 
-it('fits the help on one screen and lists the ten everyday verbs', async () => {
+it('fits the help on one screen and lists the ten everyday verbs', EVERY_STEP_STARTS_A_NODE, async () => {
   const { out } = await succeeds('--help')
   const lines = out.trimEnd().split('\n')
   expect(lines.length).toBeLessThanOrEqual(HELP_LINES_AT_MOST)
