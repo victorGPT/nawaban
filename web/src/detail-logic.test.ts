@@ -217,4 +217,11 @@ describe('detailView facts', () => {
     expect(view.timeline.total).toBe(0)
     expect(view.facts.outputs.map((o) => [o.href, o.note])).toEqual([['https://example.com', null], ['https://github.com/o/a/pull/1', '已合并'], ['https://github.com/o/b/pull/1', null]])
   })
+
+  it('says what GitHub says of a pull request, over the merged record the task keeps', () => {
+    const links = [ev('link', 'pr:https://github.com/o/r/pull/1', at(24, 9)), ev('link', 'pr:https://github.com/o/r/pull/2 merged abc', at(24, 10)), ev('link', 'pr:https://github.com/o/r/pull/3', at(24, 11)), ev('link', 'pr:https://github.com/o/r/pull/4', at(24, 12))]
+    const pulls = { 'https://github.com/o/r/pull/1': 'open', 'https://github.com/o/r/pull/3': 'ci_failed', 'https://github.com/o/r/pull/4': 'closed', constructor: 'open' } as Detail['pulls']
+    expect(detailView(detail(links, { pulls }), null, NOW).facts.outputs.map((o) => o.note)).toEqual(['开着', '已合并', 'CI 红', '已关闭'])
+    expect(detailView(detail(links), null, NOW).facts.outputs.map((o) => o.note)).toEqual([null, '已合并', null, null])
+  })
 })

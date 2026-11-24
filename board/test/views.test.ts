@@ -10,7 +10,8 @@ import { listen, verifier } from '../src/server.ts'
 import { registerSchemas } from '../src/schemas.ts'
 import { event } from '../src/events.ts'
 import { run } from '../src/tasks.ts'
-import { json } from '../src/views.ts'
+import { json, taskDetail } from '../src/views.ts'
+import { pullStateFromGitHub, pullStateOfAView } from '../src/pulls.ts'
 
 const PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS = new URL('../../herdr/mods/nawaban-board/logic.js', import.meta.url).href
 const { panelView, decisionCardsView } = await import(PANELS_OWN_LOGIC_SO_THE_CONTRACT_IS_WHAT_IT_DRAWS)
@@ -146,12 +147,36 @@ it('counts each project with what waits in it, and finds its db', async () => {
 
 it('prints a task with its parent, blockers, notes, decisions and events', async () => {
   const t = await read('task', 'S-02')
-  expect(Object.keys(t).sort()).toEqual(['id', 'title', 'body', 'status', 'project', 'session', 'created_at', 'parent', 'children', 'blocked_by', 'dependents', 'latest_note', 'decisions', 'links', 'events'].sort())
+  expect(Object.keys(t).sort()).toEqual(['id', 'title', 'body', 'status', 'project', 'session', 'created_at', 'parent', 'children', 'blocked_by', 'dependents', 'latest_note', 'decisions', 'links', 'pulls', 'events'].sort())
   expect(t).toMatchObject({ id: 'S-02', status: 'in_progress', session: 'cc-aaaa1111', parent: { id: 'S', status: 'open' }, blocked_by: [{ id: 'S-01', status: 'done' }], latest_note: { kind: 'note', body: 'verify：测试通过' } })
   expect((await read('task', 'S-02')).decisions[0].body).toBe('决定：先只读\n第二行\n背景：先迁哪个\n否决方案：全迁')
   expect((await read('task', 'S')).children.map((c: { id: string }) => c.id)).toEqual(['S-01', 'S-02'])
   const missing = await nawaban(ORCHESTRATOR_WINDOW_IN_T1, '', 'json', 'task', 'NOPE')
   expect([missing.code, JSON.parse(missing.out).error]).toEqual([1, '任务不存在:NOPE'])
+})
+
+it('says of each pull request a task links what its reader says, once per address, and nothing where the reader has no answer', async () => {
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'PULLS', '--title', '带 PR 的票', '--project', 'nawaban')
+  for (const body of ['pr:https://github.com/o/r/pull/7', 'pr:https://github.com/o/r/pull/7 merged abc1234', 'pr:https://github.com/o/r/pull/8', 'commit:abc1234']) {
+    await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'event', 'PULLS', '--kind', 'link', '--body', body)
+  }
+  const asked: string[] = []
+  const detail = await taskDetail(team, 'PULLS', async (url) => (asked.push(url), url.endsWith('/7') ? 'merged' : null))
+  expect(asked.sort()).toEqual(['https://github.com/o/r/pull/7', 'https://github.com/o/r/pull/8'])
+  expect(detail.pulls).toEqual({ 'https://github.com/o/r/pull/7': 'merged' })
+  expect((await read('task', 'PULLS')).pulls).toEqual({})
+})
+
+it('reads a pull request as merged, closed, failing its checks or open, and never hands gh anything but a GitHub pull request address', async () => {
+  const run = (conclusion: string, status = 'COMPLETED') => ({ __typename: 'CheckRun' as const, name: 'ci', status, conclusion })
+  expect([
+    pullStateOfAView({ state: 'MERGED', statusCheckRollup: [run('FAILURE')] }),
+    pullStateOfAView({ state: 'CLOSED' }),
+    pullStateOfAView({ state: 'OPEN', statusCheckRollup: [run('SUCCESS'), run('FAILURE')] }),
+    pullStateOfAView({ state: 'OPEN', statusCheckRollup: [run('SUCCESS'), run('', 'IN_PROGRESS')] }),
+    pullStateOfAView({ state: 'OPEN', statusCheckRollup: null }),
+  ]).toEqual(['merged', 'closed', 'ci_failed', 'open', 'open'])
+  expect(await Promise.all(['--web', 'https://example.com/o/r/pull/1', 'https://github.com/o/r/pull/1 --web', 'https://github.com/o/r/issues/1'].map(pullStateFromGitHub))).toEqual([null, null, null, null])
 })
 
 it('reads past a long stretch of other projects\' events', async () => {

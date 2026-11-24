@@ -7,7 +7,9 @@ export type Detail = {
   id: string; title: string; body: string; status: string; project: string; session: string | null; created_at: number
   parent: Ref | null; children: Ref[]; blocked_by: Ref[]; dependents: Ref[]
   latest_note: Event | null; decisions: Event[]; links: Event[]; events: Event[]
+  pulls?: Record<string, PullState>
 }
+export type PullState = 'merged' | 'closed' | 'ci_failed' | 'open'
 
 export type By = 'owner' | 'agent'
 export type Entry = { at: number; line: string; full: string }
@@ -215,16 +217,19 @@ const STATE_WORDS: Record<ItemState, (waiting: boolean) => string> = {
   done: () => '完成',
 }
 
-const OUTPUT_OF: Record<string, (link: Link, merged: boolean) => Output> = {
-  pr: (link, merged) => ({ label: link.label, note: merged ? '已合并' : null, href: link.href }),
+const PULL_WORDS: Record<PullState, string> = { merged: '已合并', closed: '已关闭', ci_failed: 'CI 红', open: '开着' }
+
+const OUTPUT_OF: Record<string, (link: Link, pull: PullState | null) => Output> = {
+  pr: (link, pull) => ({ label: link.label, note: pull ? PULL_WORDS[pull] : null, href: link.href }),
   artifact: (link) => ({ label: '设计稿', note: null, href: link.href }),
   adr: (link) => ({ label: 'ADR ' + (ADR_NUMBER.exec(link.ref)?.[0] ?? link.ref), note: null, href: link.href }),
   commit: (link) => ({ label: '提交 ' + link.label, note: null, href: link.href }),
 }
 
-function outputsOf(links: Event[]): Output[] {
+function outputsOf(links: Event[], pulls: Record<string, PullState>): Output[] {
   const mergedPrs = new Set(links.filter((e) => MERGED_MARK.test(e.body)).map((e) => linkLabel(e.body).ref))
-  const outputs = links.map((e) => linkLabel(e.body)).map((link) => (Object.hasOwn(OUTPUT_OF, link.kind) ? OUTPUT_OF[link.kind]!(link, mergedPrs.has(link.ref)) : { label: link.label, note: null, href: link.href }))
+  const pullOf = (ref: string) => (Object.hasOwn(pulls, ref) ? pulls[ref]! : mergedPrs.has(ref) ? 'merged' : null)
+  const outputs = links.map((e) => linkLabel(e.body)).map((link) => (Object.hasOwn(OUTPUT_OF, link.kind) ? OUTPUT_OF[link.kind]!(link, pullOf(link.ref)) : { label: link.label, note: null, href: link.href }))
   return outputs.filter((o, i) => outputs.findIndex((x) => x.label === o.label && x.href === o.href) === i)
 }
 
@@ -272,7 +277,7 @@ export function detailView(detail: Detail, boardTask: BoardTask | null, now: num
       children: detail.children,
       blockedBy: detail.blocked_by.filter((r) => !CLOSED.has(r.status)),
       dependents: detail.dependents,
-      outputs: outputsOf(events.filter((e) => e.kind === 'link')),
+      outputs: outputsOf(events.filter((e) => e.kind === 'link'), detail.pulls ?? {}),
       createdAt: detail.created_at,
       took: tookOf(state, boardTask, dispatchedAt, now),
     },

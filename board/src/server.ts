@@ -13,6 +13,7 @@ import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { okrData } from './okr.ts'
 import { isLiveFileName, progressDir } from './progress.ts'
+import { noPullStates, pullStateFromGitHub, type PullStateOf } from './pulls.ts'
 import { Refused } from './tasks.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
 import { answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, webAnswers, webAnswerText } from './page.ts'
@@ -195,7 +196,7 @@ function changes(team: Team, dir: string, signal: AbortSignal) {
   )
 }
 
-async function view(team: Team, dir: string, path: string, query: URLSearchParams, signal: AbortSignal) {
+async function view(team: Team, dir: string, pullStateOf: PullStateOf, path: string, query: URLSearchParams, signal: AbortSignal) {
   const [what, ...rest] = path.split('/')
   if (what === 'board' && !rest.length) return Response.json(await boardData(team, query.get('project') || undefined, dir))
   if (what === 'projects' && !rest.length) return Response.json(await projectsData(team))
@@ -214,7 +215,7 @@ async function view(team: Team, dir: string, path: string, query: URLSearchParam
   }
   if (what === 'task' && rest.length === 1 && rest[0]) {
     try {
-      return Response.json(await taskDetail(team, decodeURIComponent(rest[0])))
+      return Response.json(await taskDetail(team, decodeURIComponent(rest[0]), pullStateOf))
     } catch (error) {
       if (error instanceof URIError) return refuse(400, 'bad task key')
       if (error instanceof Refused) return refuse(404, error.message)
@@ -309,7 +310,7 @@ async function builtFile(pathname: string, dist: string) {
 
 export function site(
   team: Team,
-  { dir, webToken, boardToken, port, dist = BUILT_PAGE, tailnet }: { dir: string; webToken: string; boardToken: string; port: number; dist?: string; tailnet?: string },
+  { dir, webToken, boardToken, port, dist = BUILT_PAGE, tailnet, pullStateOf = noPullStates }: { dir: string; webToken: string; boardToken: string; port: number; dist?: string; tailnet?: string; pullStateOf?: PullStateOf },
 ) {
   const want = Buffer.from(webToken)
   const asThisPerson = (body: unknown) =>
@@ -325,7 +326,7 @@ export function site(
     if (!isApi) return READS.has(request.method) ? builtFile(pathname, dist) : refuse(405, 'read-only')
     const path = pathname.slice(API.length)
     try {
-      return await (READS.has(request.method) ? view(team, dir, path, searchParams, request.signal) : write(team, asThisPerson, path, searchParams, request))
+      return await (READS.has(request.method) ? view(team, dir, pullStateOf, path, searchParams, request.signal) : write(team, asThisPerson, path, searchParams, request))
     } catch (error) {
       if (error instanceof Refused) return refuse(400, error.message)
       throw error
@@ -365,7 +366,7 @@ export async function serve(dir = DIR, port = PORT) {
   const tailnet = await tailnetHost(dir)
   const team = board({ backend: local({ dir }), authenticate: verifier(await token(dir)), url, middleware: [impactNames(dir)] })
   await registerSchemas(team)
-  const server = await listen(site(team, { dir, webToken: await token(dir, WEB_TOKEN), boardToken: await token(dir), port, tailnet }), port)
+  const server = await listen(site(team, { dir, webToken: await token(dir, WEB_TOKEN), boardToken: await token(dir), port, tailnet, pullStateOf: pullStateFromGitHub }), port)
   const tailnetPage = tailnet ? ` and https://${tailnet}/ through tailscale serve` : ''
   console.log(`serving the board at ${url} and its page at http://127.0.0.1:${port}/${tailnetPage}, its log in ${dir.replace(homedir(), '~')}`)
   return server
