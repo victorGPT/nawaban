@@ -925,6 +925,12 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect(hardStop(o, rounds, '', rows)).toBeNull()
   })
 
+  it('still stops an Objective with no reading at all after five rounds', () => {
+    const o: Objective = { name: 'O', kr: [{ name: 'K', target: '>= 100' }] }
+    const rounds = [1, 2, 3, 4, 5].map((n) => ({ at: `2026-11-0${n}T12`, n, kept: 0, moved: [], done: [] }))
+    expect(hardStop(o, rounds, '', [])?.why).toMatch(/冲刺满 5 轮/)
+  })
+
   it('starts an Objective’s sprint at its own first reading, not at the project’s first round', () => {
     const o: Objective = { name: 'NEW', kr: [{ name: 'K', target: '>= 100', measure: 'cat k.txt' }] }
     const rounds = [1, 2, 3, 4, 5].map((n) => ({ at: `2026-11-0${n}`, n, kept: 1, moved: [], done: ['OLD'] }))
