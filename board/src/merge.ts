@@ -186,6 +186,8 @@ async function handOnElseRetire(closed: MessageView, root: string, did: string[]
     if ((await dispatch([key, '--to', terminal, '--brief', NEXT_BRIEF, '--accept', NEXT_ACCEPT])) !== 0) return { kind: 'mergedButUnfinished', left: `把 ${key} 交给 ${terminal} 失败` }
     return { kind: 'done', did: [...did, `下一张 ${key} 交给 ${terminal}`], thenRetire: null }
   }
+  const worker = await terminalOf(terminal)
+  if (worker?.state !== 'live') return { kind: 'done', did: [...did, `worker ${terminal} 已不在`], thenRetire: null }
   const retirable = await retirableElseWhyNot(terminal, root)
   if (typeof retirable === 'string') return { kind: 'mergedButUnfinished', left: retirable }
   return { kind: 'done', did: [...did, `收 worker ${terminal}`], thenRetire: retirable }
