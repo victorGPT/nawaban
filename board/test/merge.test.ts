@@ -27,13 +27,15 @@ printf '%s\\n' "$*" >> "$HC_LOG"
 case "$1" in
   get) if [ "$2" = "$HC_ORCH" ]; then echo '{"labels":{"role":"orchestrator"}}'; elif [ -f "$HC_WORKERS/$2.json" ]; then cat "$HC_WORKERS/$2.json"; else echo '{"labels":{}}'; fi ;;
   ls) echo "{\\"terminals\\":[{\\"address\\":\\"$HC_ORCH\\",\\"state\\":\\"live\\",\\"cwd\\":\\"$HC_ORCH_CWD\\"}]}" ;;
+  kill) if [ -n "$HC_KILL_FAIL" ]; then echo 'no such terminal' >&2; exit 1; fi ;;
 esac
 `
 
 const GH_STAND_IN_ANSWERING_PR_VIEW_FROM_GH_PR_AND_LOGGING_MERGES = `#!/bin/sh
 printf '%s\\n' "$*" >> "$GH_LOG"
-case "$2" in
-  view) cat "$GH_PR" ;;
+case "$1 $2" in
+  "pr view") cat "$GH_PR" ;;
+  "run list") if [ -n "$GH_RUNS" ]; then printf '%s' "$GH_RUNS"; else echo '[]'; fi ;;
 esac
 `
 
@@ -85,12 +87,16 @@ const replies = async (id: string) => (await team.thread(id)).replies
 const newTask = async (key: string) => (await team.as(null).tasks.create('nawaban', { id: key, text: key, labels: { key } })).task.id
 const dispatchedTo = (id: string, terminal: string) => note(id, block('nawaban-dispatch@1', { worker: 'w', terminal, accept: 'a' }))
 
+const boardCliAsSession = (session: string, cwd: string, ...argv: string[]) =>
+  exec('node', [CLI, ...argv], { cwd, env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, CLAUDE_CODE_SESSION_ID: session, HC_TERMINAL_ID: '' } })
+
 async function workerOnItsOwnTicket(key: string, terminal: string, pr: Pr = greenCodePr(key)) {
   const id = await newTask(key)
   const worktree = join(tmp, `repo-${key.toLowerCase()}`)
   await git(repo, 'worktree', 'add', '-q', '-b', `wt/${key.toLowerCase()}`, worktree, 'main')
   await writeFile(join(tmp, 'workers', `${terminal}.json`), JSON.stringify({ state: 'live', name: key.toLowerCase(), cwd: worktree, labels: {} }))
   await dispatchedTo(id, terminal)
+  await boardCliAsSession('aaaa1111-0000', worktree, 'claim', key)
   await writeFile(join(tmp, `pr-${key}.json`), JSON.stringify(pr))
   return { id, worktree }
 }
@@ -152,6 +158,42 @@ it('waits while the only checks were skipped, so a workflow not yet registered n
   expect(r.gh).not.toMatch(/^pr merge/m)
 })
 
+it('waits while the head carries workflows that have not run on it yet, however green its other checks', async () => {
+  const { worktree } = await workerOnItsOwnTicket('M-NORUN', 't67')
+  await mkdir(join(worktree, '.github', 'workflows'), { recursive: true })
+  await writeFile(join(worktree, '.github', 'workflows', 'ci.yml'), 'on: pull_request\n')
+  await git(worktree, 'add', '-A')
+  await git(worktree, 'commit', '-q', '-m', 'ci')
+  const head = (await git(worktree, 'rev-parse', 'HEAD')).stdout.trim()
+  const pr = { ...greenCodePr('M-NORUN'), headRefOid: head, comments: [{ body: `Codex review：无挡合并 ${head.slice(0, 7)}` }] }
+  await writeFile(join(tmp, 'pr-M-NORUN.json'), JSON.stringify(pr))
+  const none = await mergeAsTheWorker('M-NORUN', 't67', worktree)
+  expect(none.code).toBe(3)
+  expect(none.gh).not.toMatch(/^pr merge/m)
+  const running = await mergeAsTheWorker('M-NORUN', 't67', worktree, { GH_RUNS: JSON.stringify([{ name: 'ci', status: 'in_progress', conclusion: '' }]) })
+  expect(running.code).toBe(3)
+  expect(running.stdout).toContain('CI 还在跑：ci')
+})
+
+it('refuses a ticket the merging session does not hold, before anything changes', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-THEIRS', 't66')
+  await boardCliAsSession('aaaa1111-0000', worktree, 'claim', 'M-THEIRS', '--release')
+  await boardCliAsSession('other000-0000', worktree, 'claim', 'M-THEIRS')
+  expect(id).toBeTruthy()
+  const r = await mergeAsTheWorker('M-THEIRS', 't66', worktree)
+  expect(r.code).toBe(1)
+  expect(r.stdout).toContain('不在 cc-aaaa1111 手里')
+  expect(r.gh).not.toMatch(/^pr merge/m)
+})
+
+it('refuses a review whose verdict line names another head, even when the comment names this one elsewhere', async () => {
+  const pr = greenCodePr('M-SPLIT')
+  const { worktree } = await workerOnItsOwnTicket('M-SPLIT', 't65', { ...pr, comments: [{ body: `Codex review：无挡 0000000\n新 head ${pr.headRefOid} 还没 review` }] })
+  const r = await mergeAsTheWorker('M-SPLIT', 't65', worktree)
+  expect(r.code).toBe(1)
+  expect(r.gh).not.toMatch(/^pr merge/m)
+})
+
 it('refuses a failed check: exit 1, no merge, one line to the orchestrator, a note on the ticket', async () => {
   const pr = { ...greenCodePr('M-RED'), statusCheckRollup: [{ __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }] }
   const { id, worktree } = await workerOnItsOwnTicket('M-RED', 't71', pr)
@@ -200,6 +242,20 @@ it('merges a green reviewed PR, pulls the main checkout, closes the ticket with 
   expect(existsSync(worktree)).toBe(false)
   expect(r.hc.trim().split('\n').at(-1)).toBe('kill t74')
   expect(r.hc).not.toMatch(/^send/m)
+})
+
+it('tells the orchestrator when the kill fails after the worktree is gone, and a rerun from the main checkout finishes the retirement', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-KILL', 't76')
+  const first = await mergeAsTheWorker('M-KILL', 't76', worktree, { HC_KILL_FAIL: '1' })
+  expect(first.code).toBe(1)
+  expect(await stateOf(id)).toBe('completed')
+  expect(existsSync(worktree)).toBe(false)
+  expect(first.hc).toMatch(new RegExp(`^send ${ORCH} M-KILL PR #5 merge: 已合未收完 — hc kill t76 失败`, 'm'))
+  await writeFile(join(tmp, 'pr-M-KILL.json'), JSON.stringify({ ...greenCodePr('M-KILL'), state: 'MERGED', mergeCommit: { oid: 'f'.repeat(40) } }))
+  const rerun = await mergeAsTheWorker('M-KILL', 't76', repo)
+  expect(rerun.code).toBe(0)
+  expect(rerun.gh.match(/^pr merge/gm)).toHaveLength(1)
+  expect(rerun.hc.trim().split('\n').at(-1)).toBe('kill t76')
 })
 
 it('hands the next ready task of the lane to the worker instead of retiring it', async () => {

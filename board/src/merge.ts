@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -14,7 +15,7 @@ const USAGE = 'usage: nawaban merge <PR 号>'
 const PR_FIELDS = 'number,state,url,title,headRefName,headRefOid,files,statusCheckRollup,comments,mergeCommit'
 const PASSING_CHECK_RUN = ['SUCCESS', 'NEUTRAL', 'SKIPPED']
 const PENDING_STATUS = ['PENDING', 'EXPECTED']
-const NO_BLOCKER_REVIEW_LINE = /^[^\n]*review[:：]\s*无挡/im
+const NO_BLOCKER_REVIEW_LINE = /review[:：]\s*无挡/i
 const SHA_PREFIX_A_REVIEW_NAMES = /\b[0-9a-f]{7,40}\b/gi
 const WORKTREE_BRANCH = /^wt\/(.+)$/
 const SCHEMA_FILE = 'board/src/schemas.ts'
@@ -40,7 +41,7 @@ type Outcome =
   | { kind: 'waiting'; on: string }
   | { kind: 'refused'; why: string }
   | { kind: 'mergedButUnfinished'; left: string }
-  | { kind: 'done'; did: string[]; thenKill: string | null }
+  | { kind: 'done'; did: string[]; thenRetire: Retirable | null }
 type Run = { n: string; task: MessageView | null; root: string | null }
 type Seen = { task: MessageView; terminal: string | null; lane: string | null }
 
@@ -73,12 +74,34 @@ function ciVerdict(checks: Check[]): Outcome | null {
 }
 
 const onlyDocs = (pr: PullRequest) => pr.files.length > 0 && pr.files.every((f) => f.path.endsWith('.md'))
-const reviewedAtHead = (pr: PullRequest) =>
-  pr.comments.some((c) => NO_BLOCKER_REVIEW_LINE.test(c.body) && (c.body.match(SHA_PREFIX_A_REVIEW_NAMES) ?? []).some((sha) => pr.headRefOid.startsWith(sha.toLowerCase())))
+const reviewLineNamesHead = (line: string, head: string) =>
+  NO_BLOCKER_REVIEW_LINE.test(line) && (line.match(SHA_PREFIX_A_REVIEW_NAMES) ?? []).some((sha) => head.startsWith(sha.toLowerCase()))
+const reviewedAtHead = (pr: PullRequest) => pr.comments.some((c) => c.body.split('\n').some((line) => reviewLineNamesHead(line, pr.headRefOid)))
 
-async function gateBeforeTheIrreversibleMerge(pr: PullRequest): Promise<Outcome | null> {
+async function workflowsOfHeadElseNull(pr: PullRequest): Promise<Outcome | null> {
+  const workflows = await stdoutOrNullOnFailure('git', ['ls-tree', '--name-only', pr.headRefOid, '.github/workflows/'])
+  if (!workflows?.trim()) return null
+  const listed = await stdoutOrNullOnFailure('gh', ['run', 'list', '--commit', pr.headRefOid, '--json', 'name,status,conclusion'])
+  const runs: { name: string; status: string; conclusion: string }[] = listed ? JSON.parse(listed) : []
+  if (!runs.length) return { kind: 'waiting', on: `仓库有 workflow，head ${pr.headRefOid.slice(0, 7)} 还没有一次 run` }
+  const failed = runs.filter((r) => r.status === 'completed' && r.conclusion !== 'success' && r.conclusion !== 'skipped')
+  if (failed.length) return { kind: 'refused', why: `CI 没过：${failed.map((r) => r.name).join('、')}` }
+  const running = runs.filter((r) => r.status !== 'completed')
+  return running.length ? { kind: 'waiting', on: `CI 还在跑：${running.map((r) => r.name).join('、')}` } : null
+}
+
+function heldByThisSession(task: MessageView): string | null {
+  const claim = task.task?.claim
+  const me = profile()
+  const live = claim && Date.parse(claim.until) > Date.now()
+  return live && claim.actor.endsWith(`+${me}`) ? null : `${task.labels.key ?? task.id} 不在 ${me} 手里：持票的 worker 才能合并（先 claim）`
+}
+
+async function gateBeforeTheIrreversibleMerge(pr: PullRequest, task: MessageView): Promise<Outcome | null> {
+  const notMine = heldByThisSession(task)
+  if (notMine) return { kind: 'refused', why: notMine }
   if (pr.state !== 'OPEN') return { kind: 'refused', why: `PR #${pr.number} 是 ${pr.state}，不是 OPEN` }
-  const ci = ciVerdict(pr.statusCheckRollup)
+  const ci = ciVerdict(pr.statusCheckRollup) ?? (await workflowsOfHeadElseNull(pr))
   if (ci) return ci
   if (!onlyDocs(pr) && !reviewedAtHead(pr)) {
     return { kind: 'refused', why: `没有对 head ${pr.headRefOid.slice(0, 7)} 的 review 无挡结论：PR 评论里贴一条顶格「Codex review：无挡合并」并写上这个 sha` }
@@ -133,34 +156,36 @@ async function linkThenClose(task: MessageView, pr: PullRequest, did: string[]):
   return null
 }
 
-async function removeWorktreeElseWhyNot(terminal: string, root: string): Promise<string | null> {
+type Retirable = { terminal: string; worktree: string | null }
+
+async function retirableElseWhyNot(terminal: string, root: string): Promise<Retirable | string> {
   const t = await terminalOf(terminal)
   if (t?.state !== 'live' || !t.cwd) return `worker ${terminal} 不是在跑的终端`
-  if ((await mainCheckoutRealPathOf(t.cwd)) !== root) return `worker ${terminal} 不在本仓库`
   if (t.labels?.role === 'orchestrator') return `${terminal} 是编排者，不收`
+  if (!existsSync(t.cwd)) return { terminal, worktree: null }
+  if ((await mainCheckoutRealPathOf(t.cwd)) !== root) return `worker ${terminal} 不在本仓库`
   if ((await realpath(t.cwd)) === root) return `${terminal} 的 cwd 是主检出，不删`
   const status = await stdoutOrNullOnFailure('git', ['-C', t.cwd, 'status', '--porcelain'])
   if (status === null || status.trim()) return `${t.cwd} 有没提交的改动，worktree 留着`
-  const failed = await failureElseNull('git', ['-C', root, 'worktree', 'remove', t.cwd])
-  return failed ? `worktree remove ${t.cwd} 失败：${failed}` : null
+  return { terminal, worktree: t.cwd }
 }
 
 async function handOnElseRetire(closed: MessageView, root: string, did: string[]): Promise<Outcome> {
   const mine = await seenOf(closed)
   const terminal = mine.terminal
-  if (!terminal) return { kind: 'done', did, thenKill: null }
+  if (!terminal) return { kind: 'done', did, thenRetire: null }
   const others = await Promise.all((await all({ channel: closed.channel, state: 'open' })).filter((t) => t.id !== closed.id).map(seenOf))
   const stillHolding = others.find((o) => o.terminal === terminal)
-  if (stillHolding) return { kind: 'done', did: [...did, `${terminal} 还有 ${stillHolding.task.labels.key ?? stillHolding.task.id}，留着`], thenKill: null }
+  if (stillHolding) return { kind: 'done', did: [...did, `${terminal} 还有 ${stillHolding.task.labels.key ?? stillHolding.task.id}，留着`], thenRetire: null }
   const next = mine.lane ? others.find((o) => o.lane === mine.lane && o.task.task?.state === 'ready' && !o.terminal) : undefined
   if (next) {
     const key = next.task.labels.key ?? next.task.id
     if ((await dispatch([key, '--to', terminal, '--brief', NEXT_BRIEF, '--accept', NEXT_ACCEPT])) !== 0) return { kind: 'mergedButUnfinished', left: `把 ${key} 交给 ${terminal} 失败` }
-    return { kind: 'done', did: [...did, `下一张 ${key} 交给 ${terminal}`], thenKill: null }
+    return { kind: 'done', did: [...did, `下一张 ${key} 交给 ${terminal}`], thenRetire: null }
   }
-  const why = await removeWorktreeElseWhyNot(terminal, root)
-  if (why) return { kind: 'mergedButUnfinished', left: why }
-  return { kind: 'done', did: [...did, `收 worker ${terminal}`], thenKill: terminal }
+  const retirable = await retirableElseWhyNot(terminal, root)
+  if (typeof retirable === 'string') return { kind: 'mergedButUnfinished', left: retirable }
+  return { kind: 'done', did: [...did, `收 worker ${terminal}`], thenRetire: retirable }
 }
 
 async function outcomeOf(r: Run): Promise<Outcome> {
@@ -171,7 +196,7 @@ async function outcomeOf(r: Run): Promise<Outcome> {
   if (!r.root) return { kind: 'refused', why: '在本仓库的 worktree 里跑 merge' }
   const alreadyMerged = pr.state === 'MERGED' && !!pr.mergeCommit
   if (!alreadyMerged) {
-    const gate = await gateBeforeTheIrreversibleMerge(pr)
+    const gate = await gateBeforeTheIrreversibleMerge(pr, r.task)
     if (gate) return gate
     const failed = await mergeElseWhyNot(pr)
     if (failed) return { kind: 'refused', why: failed }
@@ -195,26 +220,37 @@ async function tellOrchestrator(root: string | null, line: string) {
   if (failed) process.stderr.write(`hc send ${orch} failed (${failed}): ${line}\n`)
 }
 
+async function noteElseWhyNot(r: Run, note: string): Promise<string | null> {
+  process.stdout.write(note + '\n')
+  try {
+    if (r.task) await board().as(profile()).reply(r.task.id, note)
+    return null
+  } catch (error) {
+    return `票上记不下：${failureOf(error)}`
+  }
+}
+
+async function unfinished(r: Run, o: Exclude<Outcome, { kind: 'waiting' | 'done' }>): Promise<number> {
+  const note = noteOf(o, r.n)
+  const unrecorded = await noteElseWhyNot(r, note)
+  await tellOrchestrator(r.root, `${r.task?.labels.key ?? ''} PR #${r.n} ${note}${unrecorded ? `（${unrecorded}）` : ''}`.replace(/\s*\n\s*/g, ' ').trim())
+  return EXIT_CODE[o.kind]
+}
+
 async function report(o: Outcome, r: Run): Promise<number> {
   if (o.kind === 'waiting') {
     process.stdout.write(`PR #${r.n} 等着：${o.on}\n`)
     return EXIT_CODE.waiting
   }
-  const note = noteOf(o, r.n)
-  try {
-    if (r.task) await board().as(profile()).reply(r.task.id, note)
-  } catch (error) {
-    process.stderr.write(`note on the task failed: ${failureOf(error)}\n`)
-  }
-  process.stdout.write(note + '\n')
-  if (o.kind !== 'done') {
-    await tellOrchestrator(r.root, `${r.task?.labels.key ?? ''} PR #${r.n} ${note}`.replace(/\s*\n\s*/g, ' ').trim())
-    return EXIT_CODE[o.kind]
-  }
-  if (!o.thenKill) return EXIT_CODE.done
-  const failed = await failureElseNull('hc', ['kill', o.thenKill])
-  if (failed) process.stderr.write(`hc kill ${o.thenKill} failed: ${failed}\n`)
-  return failed ? 1 : EXIT_CODE.done
+  if (o.kind !== 'done') return unfinished(r, o)
+  const unrecorded = await noteElseWhyNot(r, noteOf(o, r.n))
+  if (unrecorded) return unfinished(r, { kind: 'mergedButUnfinished', left: `${unrecorded}，worker 没收` })
+  if (!o.thenRetire) return EXIT_CODE.done
+  const { terminal, worktree } = o.thenRetire
+  const notRemoved = worktree && (await failureElseNull('git', ['-C', r.root!, 'worktree', 'remove', worktree]))
+  if (notRemoved) return unfinished(r, { kind: 'mergedButUnfinished', left: `worktree remove ${worktree} 失败：${notRemoved}` })
+  const notKilled = await failureElseNull('hc', ['kill', terminal])
+  return notKilled ? unfinished(r, { kind: 'mergedButUnfinished', left: `hc kill ${terminal} 失败：${notKilled}，重跑 merge 会再收` }) : EXIT_CODE.done
 }
 
 export async function merge(argv: string[]): Promise<number> {
