@@ -1,0 +1,262 @@
+import { execFile } from 'node:child_process'
+import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
+import type { AddressInfo } from 'node:net'
+import { afterAll, beforeAll, expect, it } from 'vitest'
+import { block, board } from '@vercel/board'
+import { local } from '@vercel/board/backend-local'
+import { registerSchemas } from '../src/schemas.ts'
+import { listen, verifier } from '../src/server.ts'
+
+const exec = promisify(execFile)
+const CLI = join(import.meta.dirname, '../src/cli.ts')
+const SECRET = 'test-secret'
+const HEAD = 'abcdef1234567890abcdef1234567890abcdef12'
+const ORCH = 'to1'
+let team: ReturnType<typeof board>
+let server: Awaited<ReturnType<typeof listen>>
+let url = ''
+let tmp = ''
+let repo = ''
+
+const HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_AND_ANY_WORKER_FILED_IN_HC_WORKERS = `#!/bin/sh
+printf '%s\\n' "$*" >> "$HC_LOG"
+case "$1" in
+  get) if [ "$2" = "$HC_ORCH" ]; then echo '{"labels":{"role":"orchestrator"}}'; elif [ -f "$HC_WORKERS/$2.json" ]; then cat "$HC_WORKERS/$2.json"; else echo '{"labels":{}}'; fi ;;
+  ls) echo "{\\"terminals\\":[{\\"address\\":\\"$HC_ORCH\\",\\"state\\":\\"live\\",\\"cwd\\":\\"$HC_ORCH_CWD\\"}]}" ;;
+esac
+`
+
+const GH_STAND_IN_ANSWERING_PR_VIEW_FROM_GH_PR_AND_LOGGING_MERGES = `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_LOG"
+case "$2" in
+  view) cat "$GH_PR" ;;
+esac
+`
+
+const git = (cwd: string, ...args: string[]) => exec('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args])
+
+async function upstreamCommit(message: string) {
+  const other = join(tmp, `other-${Math.random()}`)
+  await exec('git', ['clone', '-q', join(tmp, 'origin.git'), other])
+  await git(other, 'commit', '-q', '--allow-empty', '-m', message)
+  await git(other, 'push', '-q', 'origin', 'HEAD:main')
+}
+
+beforeAll(async () => {
+  server = await listen((request) => team.fetch(request), 0)
+  url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/board`
+  team = board({ backend: local({ memory: true }), authenticate: verifier(SECRET, 'victor'), url })
+  await registerSchemas(team)
+  tmp = await realpath(await mkdtemp(join(tmpdir(), 'nawaban-merge-')))
+  for (const [name, script] of [['hc', HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_AND_ANY_WORKER_FILED_IN_HC_WORKERS], ['gh', GH_STAND_IN_ANSWERING_PR_VIEW_FROM_GH_PR_AND_LOGGING_MERGES]] as const) {
+    await writeFile(join(tmp, name), script)
+    await chmod(join(tmp, name), 0o755)
+  }
+  await mkdir(join(tmp, 'workers'))
+  await mkdir(join(tmp, 'board'))
+  await exec('git', ['init', '-q', '--bare', '-b', 'main', join(tmp, 'origin.git')])
+  repo = join(tmp, 'repo')
+  await exec('git', ['clone', '-q', join(tmp, 'origin.git'), repo])
+  await git(repo, 'commit', '-q', '--allow-empty', '-m', 'init')
+  await git(repo, 'push', '-q', '-u', 'origin', 'HEAD:main')
+})
+afterAll(() => server.close())
+
+type Pr = Record<string, unknown>
+const greenCodePr = (key: string): Pr => ({
+  number: 5,
+  state: 'OPEN',
+  url: `https://github.com/o/r/pull/${key}`,
+  title: key,
+  headRefName: `wt/${key.toLowerCase()}`,
+  headRefOid: HEAD,
+  files: [{ path: 'board/src/merge.ts' }],
+  statusCheckRollup: [{ __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }, { __typename: 'StatusContext', context: 'ci/x', state: 'SUCCESS' }],
+  comments: [{ body: `看过了\nCodex review：无挡合并（${HEAD.slice(0, 7)}）` }],
+  mergeCommit: null,
+})
+
+const note = (id: string, text: string) => team.as('cc-orch0000').reply(id, text)
+const replies = async (id: string) => (await team.thread(id)).replies
+const newTask = async (key: string) => (await team.as(null).tasks.create('nawaban', { id: key, text: key, labels: { key } })).task.id
+const dispatchedTo = (id: string, terminal: string) => note(id, block('nawaban-dispatch@1', { worker: 'w', terminal, accept: 'a' }))
+
+async function workerOnItsOwnTicket(key: string, terminal: string, pr: Pr = greenCodePr(key)) {
+  const id = await newTask(key)
+  const worktree = join(tmp, `repo-${key.toLowerCase()}`)
+  await git(repo, 'worktree', 'add', '-q', '-b', `wt/${key.toLowerCase()}`, worktree, 'main')
+  await writeFile(join(tmp, 'workers', `${terminal}.json`), JSON.stringify({ state: 'live', name: key.toLowerCase(), cwd: worktree, labels: {} }))
+  await dispatchedTo(id, terminal)
+  await writeFile(join(tmp, `pr-${key}.json`), JSON.stringify(pr))
+  return { id, worktree }
+}
+
+async function mergeAsTheWorker(key: string, terminal: string, worktree: string, extra: Record<string, string> = {}) {
+  const hcLog = join(tmp, `hc-${key}.log`)
+  const ghLog = join(tmp, `gh-${key}.log`)
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PATH: `${tmp}:${process.env.PATH}`,
+    BOARD_URL: url,
+    BOARD_TOKEN: SECRET,
+    XDG_CONFIG_HOME: tmp,
+    NAWABAN_BOARD_DIR: join(tmp, 'board'),
+    NAWABAN_PLUGIN_DIR: join(tmp, 'no-plugin'),
+    CLAUDE_CODE_SESSION_ID: 'aaaa1111-0000',
+    HC_TERMINAL_ID: terminal,
+    HC_LOG: hcLog,
+    HC_ORCH: ORCH,
+    HC_ORCH_CWD: repo,
+    HC_WORKERS: join(tmp, 'workers'),
+    GH_PR: join(tmp, `pr-${key}.json`),
+    GH_LOG: ghLog,
+    ...extra,
+  }
+  delete env.NAWABAN_BOARD_PORT
+  const r = await exec('node', [CLI, 'merge', '5'], { cwd: worktree, env }).then(
+    (ok) => ({ code: 0, ...ok }),
+    (error) => ({ code: error.code as number, stdout: error.stdout as string, stderr: error.stderr as string }),
+  )
+  const read = async (f: string) => (existsSync(f) ? await readFile(f, 'utf8') : '')
+  return { ...r, hc: await read(hcLog), gh: await read(ghLog) }
+}
+
+const lastNote = async (id: string) => (await replies(id)).at(-1)?.text ?? ''
+const stateOf = async (id: string) => (await team.thread(id)).message.task?.state
+
+it('waits on a check still running: exit 3, no merge, no one told', async () => {
+  const pr = { ...greenCodePr('M-WAIT'), statusCheckRollup: [{ __typename: 'CheckRun', name: 'test', status: 'IN_PROGRESS', conclusion: '' }] }
+  const { id, worktree } = await workerOnItsOwnTicket('M-WAIT', 't70', pr)
+  const r = await mergeAsTheWorker('M-WAIT', 't70', worktree)
+  expect(r.code).toBe(3)
+  expect(r.stdout).toContain('CI 还在跑：test')
+  expect(r.gh).not.toMatch(/^pr merge/m)
+  expect(r.hc).not.toMatch(/^send/m)
+  expect(await stateOf(id)).not.toBe('completed')
+})
+
+it('waits while CI has no checks yet', async () => {
+  const { worktree } = await workerOnItsOwnTicket('M-EMPTY', 't69', { ...greenCodePr('M-EMPTY'), statusCheckRollup: [] })
+  expect((await mergeAsTheWorker('M-EMPTY', 't69', worktree)).code).toBe(3)
+})
+
+it('refuses a failed check: exit 1, no merge, one line to the orchestrator, a note on the ticket', async () => {
+  const pr = { ...greenCodePr('M-RED'), statusCheckRollup: [{ __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }] }
+  const { id, worktree } = await workerOnItsOwnTicket('M-RED', 't71', pr)
+  const r = await mergeAsTheWorker('M-RED', 't71', worktree)
+  expect(r.code).toBe(1)
+  expect(r.gh).not.toMatch(/^pr merge/m)
+  expect(r.hc.match(/^send .*$/gm)).toEqual([`send ${ORCH} M-RED PR #5 merge: 拒合 — CI 没过：test`])
+  expect(await lastNote(id)).toBe('merge: 拒合 — CI 没过：test')
+})
+
+it.each([
+  { why: 'no review comment', comments: [] as { body: string }[] },
+  { why: 'a review of an older head', comments: [{ body: 'Codex review：无挡合并 1234567' }] },
+  { why: 'a sha with no verdict line', comments: [{ body: `有挡 ${HEAD}` }] },
+])('refuses a code PR with $why', async ({ why, comments }) => {
+  const key = `M-RV${why.length}`
+  const { id, worktree } = await workerOnItsOwnTicket(key, `t72${why.length}`, { ...greenCodePr(key), comments })
+  const r = await mergeAsTheWorker(key, `t72${why.length}`, worktree)
+  expect(r.code).toBe(1)
+  expect(r.gh).not.toMatch(/^pr merge/m)
+  expect(await lastNote(id)).toContain(`merge: 拒合 — 没有对 head ${HEAD.slice(0, 7)} 的 review 无挡结论`)
+})
+
+it('merges a docs-only PR with no review', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-DOCS', 't73', { ...greenCodePr('M-DOCS'), comments: [], files: [{ path: 'docs/a.md' }, { path: 'README.md' }] })
+  const r = await mergeAsTheWorker('M-DOCS', 't73', worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.gh).toContain(`pr merge 5 --squash --match-head-commit ${HEAD}`)
+  expect(await stateOf(id)).toBe('completed')
+})
+
+it('merges a green reviewed PR, pulls the main checkout, closes the ticket with its link, and retires the worker last', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-GO', 't74')
+  await upstreamCommit('landed M-GO')
+  const r = await mergeAsTheWorker('M-GO', 't74', worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.gh).toContain(`pr merge 5 --squash --match-head-commit ${HEAD}`)
+  expect(r.gh).not.toContain('--delete-branch')
+  expect((await git(repo, 'log', '-1', '--format=%s')).stdout.trim()).toBe('landed M-GO')
+  expect(await stateOf(id)).toBe('completed')
+  const all = await replies(id)
+  expect(all.some((x) => x.blocks.some((b) => b.schema === 'nawaban-link' && (b.data as { ref: string }).ref === 'https://github.com/o/r/pull/M-GO'))).toBe(true)
+  expect(all.at(-1)?.text).toMatch(/^merge: 已合 PR #5，.*收 worker t74/)
+  expect(existsSync(worktree)).toBe(false)
+  expect(r.hc.trim().split('\n').at(-1)).toBe('kill t74')
+  expect(r.hc).not.toMatch(/^send/m)
+})
+
+it('hands the next ready task of the lane to the worker instead of retiring it', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-LN', 't75')
+  await note(id, 'lane: merge-lane')
+  const next = await newTask('M-LN-NEXT')
+  await note(next, 'lane: merge-lane')
+  const r = await mergeAsTheWorker('M-LN', 't75', worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(await stateOf(id)).toBe('completed')
+  expect(r.hc).not.toMatch(/^kill/m)
+  expect(r.hc).toMatch(/^send t75 \/pstack:poteto-mode 任务：M-LN-NEXT/m)
+  expect((await replies(next)).at(-1)?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { terminal: 't75' } }])
+  expect(existsSync(worktree)).toBe(true)
+})
+
+it('leaves a worker alone that still has another open ticket', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-BUSY', 't76')
+  await dispatchedTo(await newTask('M-BUSY-OTHER'), 't76')
+  const r = await mergeAsTheWorker('M-BUSY', 't76', worktree)
+  expect(r.code).toBe(0)
+  expect(await stateOf(id)).toBe('completed')
+  expect(r.hc).not.toMatch(/^(kill|send)/m)
+  expect(existsSync(worktree)).toBe(true)
+})
+
+it('merges a schema change but leaves the plugin unpulled and tells the orchestrator', async () => {
+  const plugin = join(tmp, 'plugin')
+  await exec('git', ['clone', '-q', join(tmp, 'origin.git'), plugin])
+  const before = (await git(plugin, 'rev-parse', 'HEAD')).stdout
+  const { id, worktree } = await workerOnItsOwnTicket('M-SCHEMA', 't77', { ...greenCodePr('M-SCHEMA'), files: [{ path: 'board/src/schemas.ts' }] })
+  await upstreamCommit('landed M-SCHEMA')
+  const r = await mergeAsTheWorker('M-SCHEMA', 't77', worktree, { NAWABAN_PLUGIN_DIR: plugin })
+  expect(r.code).toBe(1)
+  expect(r.gh).toMatch(/^pr merge/m)
+  expect((await git(plugin, 'rev-parse', 'HEAD')).stdout).toBe(before)
+  expect(r.hc).toMatch(new RegExp(`^send ${ORCH} M-SCHEMA PR #5 merge: 已合未收完 — 改了 schema，插件要决策者点头再 pull$`, 'm'))
+  expect(await lastNote(id)).toBe('merge: 已合未收完 — 改了 schema，插件要决策者点头再 pull')
+  expect(r.hc).not.toMatch(/^kill/m)
+})
+
+it('pulls the plugin when it tracks this repository and the PR touches no schema', async () => {
+  const plugin = join(tmp, 'plugin-ok')
+  await exec('git', ['clone', '-q', join(tmp, 'origin.git'), plugin])
+  const { worktree } = await workerOnItsOwnTicket('M-PLUG', 't79')
+  await upstreamCommit('landed M-PLUG')
+  const r = await mergeAsTheWorker('M-PLUG', 't79', worktree, { NAWABAN_PLUGIN_DIR: plugin })
+  expect(r.code).toBe(0)
+  expect((await git(plugin, 'log', '-1', '--format=%s')).stdout.trim()).toBe('landed M-PLUG')
+})
+
+it('picks up after a merged PR on a rerun without merging again', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-AGAIN', 't78', { ...greenCodePr('M-AGAIN'), state: 'MERGED', mergeCommit: { oid: 'f00' }, statusCheckRollup: [] })
+  const r = await mergeAsTheWorker('M-AGAIN', 't78', worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.gh).not.toMatch(/^pr merge/m)
+  expect(await stateOf(id)).toBe('completed')
+})
+
+it('refuses a branch that names no ticket', async () => {
+  const { worktree } = await workerOnItsOwnTicket('M-LOST', 't80', { ...greenCodePr('M-LOST'), headRefName: 'feature/x' })
+  const r = await mergeAsTheWorker('M-LOST', 't80', worktree)
+  expect(r.code).toBe(1)
+  expect(r.gh).not.toMatch(/^pr merge/m)
+  expect(r.hc).toMatch(/^send to1 .*拒合 — 分支 feature\/x 找不到票/m)
+})
