@@ -137,7 +137,11 @@ async function pluginHoldElsePull(pr: PullRequest, did: string[]): Promise<Outco
   const plugin = pluginDir()
   const ours = await originOf(process.cwd())
   if (!ours || ours !== (await originOf(plugin))) return null
-  if (pr.files.some((f) => f.path === SCHEMA_FILE || f.path.includes('migrat'))) return { kind: 'mergedButUnfinished', left: '改了 schema，插件要决策者点头再 pull' }
+  if (pr.files.some((f) => f.path === SCHEMA_FILE || f.path.includes('migrat'))) {
+    const pulledByTheOwner = !!pr.mergeCommit && (await stdoutOrNullOnFailure('git', ['-C', plugin, 'merge-base', '--is-ancestor', pr.mergeCommit.oid, 'HEAD'])) !== null
+    if (pulledByTheOwner) return null
+    return { kind: 'mergedButUnfinished', left: '改了 schema，插件要决策者点头再 pull；pull 之后重跑 merge 收尾' }
+  }
   const failed = await failureElseNull('git', ['-C', plugin, 'pull', '--ff-only'])
   if (failed) return { kind: 'mergedButUnfinished', left: `插件 pull 失败：${failed}` }
   did.push('插件已 pull')

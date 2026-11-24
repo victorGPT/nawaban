@@ -328,9 +328,15 @@ it('merges a schema change but leaves the plugin unpulled and tells the orchestr
   expect(r.code).toBe(1)
   expect(r.gh).toMatch(/^pr merge/m)
   expect((await git(plugin, 'rev-parse', 'HEAD')).stdout).toBe(before)
-  expect(r.hc).toMatch(new RegExp(`^send ${ORCH} M-SCHEMA PR #5 merge: 已合未收完 — 改了 schema，插件要决策者点头再 pull$`, 'm'))
-  expect(await lastNote(id)).toBe('merge: 已合未收完 — 改了 schema，插件要决策者点头再 pull')
+  expect(r.hc).toMatch(new RegExp(`^send ${ORCH} M-SCHEMA PR #5 merge: 已合未收完 — 改了 schema，插件要决策者点头再 pull；pull 之后重跑 merge 收尾$`, 'm'))
+  expect(await lastNote(id)).toBe('merge: 已合未收完 — 改了 schema，插件要决策者点头再 pull；pull 之后重跑 merge 收尾')
   expect(r.hc).not.toMatch(/^kill/m)
+  await git(plugin, 'pull', '-q', '--ff-only')
+  const landed = (await git(plugin, 'rev-parse', 'HEAD')).stdout.trim()
+  await writeFile(join(tmp, 'pr-M-SCHEMA.json'), JSON.stringify({ ...greenCodePr('M-SCHEMA'), files: [{ path: 'board/src/schemas.ts' }], state: 'MERGED', mergeCommit: { oid: landed } }))
+  const rerun = await mergeAsTheWorker('M-SCHEMA', 't77', worktree, { NAWABAN_PLUGIN_DIR: plugin })
+  expect(rerun.code).toBe(0)
+  expect(rerun.hc.trim().split('\n').at(-1)).toBe('kill t77')
 })
 
 it('pulls the plugin when it tracks this repository and the PR touches no schema', async () => {
