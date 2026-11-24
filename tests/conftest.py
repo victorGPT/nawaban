@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import shutil
 import tempfile
 
 import pytest
@@ -36,6 +37,15 @@ _isolate(_bootstrap, Path(_home.name))
 def isolated_runtime(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture
+def outside_tmp():
+    parent = ROOT / ".pytest-repos"
+    parent.mkdir(exist_ok=True)
+    d = Path(tempfile.mkdtemp(dir=parent))
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
 
 
 def pytest_unconfigure(config):
