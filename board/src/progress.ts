@@ -46,7 +46,9 @@ const SHELL_IN_A_SCRIPT = /\$`([^`]*)`/g
 
 export const progressDir = (boardDir: string) => join(boardDir, PROGRESS_FOLDER)
 export const liveFile = (boardDir: string, taskId: string) => join(progressDir(boardDir), `${taskId}.json`)
-const sessionStamp = (boardDir: string, session: string) => join(progressDir(boardDir), `.session-${session}`)
+const STAMP_FOLDER = 'progress-stamps'
+const sessionStamp = (boardDir: string, session: string) => join(boardDir, STAMP_FOLDER, session)
+export const isLiveFileName = (name: string) => /^\d+\.json$/.test(name)
 const rank = (m: Milestone) => MILESTONES.indexOf(m)
 const furthest = (ms: Milestone[]) => ms.reduce((a, b) => (rank(b) > rank(a) ? b : a), 'started' as Milestone)
 
@@ -162,6 +164,7 @@ export async function recordProgress(input: HookInput, held: Held[], boardDir: s
   const session = input.session_id
   if (!session) return []
   await mkdir(progressDir(boardDir), { recursive: true })
+  await mkdir(join(boardDir, STAMP_FOLDER), { recursive: true })
   const stamp = sessionStamp(boardDir, session)
   await writeFile(stamp, '')
   const stampedSoTheHookWaitsItsGap = held.length ? now : now - WRITE_EVERY_SECONDS + LOOKS_AGAIN_AFTER_SECONDS

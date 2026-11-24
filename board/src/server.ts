@@ -12,7 +12,7 @@ import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { okrData } from './okr.ts'
-import { progressDir } from './progress.ts'
+import { isLiveFileName, progressDir } from './progress.ts'
 import { Refused } from './tasks.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
 import { answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, webAnswers, webAnswerText } from './page.ts'
@@ -127,7 +127,7 @@ function writesOnlyFromThePagesOwnOriginElseRefusal(request: Request) {
 
 async function eachProgressWrite(dir: string, signal: AbortSignal, changed: () => void) {
   await mkdir(progressDir(dir), { recursive: true })
-  for await (const _ of watch(progressDir(dir), { signal })) changed()
+  for await (const { filename } of watch(progressDir(dir), { signal })) if (filename && isLiveFileName(filename)) changed()
 }
 
 function changes(team: Team, dir: string, signal: AbortSignal) {

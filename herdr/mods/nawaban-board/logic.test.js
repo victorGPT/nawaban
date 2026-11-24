@@ -545,6 +545,8 @@ test("在做 names who ruled and when, from the task or its parent, and the line
   assert.equal(doingOf({ ...t, parent: null }, new Map(), "X", "working", NOON).head, "【在做】X —— 编排者代定");
   const long = { ...t, ruling: { at: NOON, verdict: "这是一段远远超过十二个字的决定原文内容" } };
   assert.match(doingOf(long, byId, "X", "working", NOON).head, /说「这是一段远远超过十二个字…」$/);
+  const prefixed = { ...t, ruling: { at: NOON, verdict: "决策者 11-24：worker 只负责给编排者回报" } };
+  assert.match(doingOf(prefixed, byId, "X", "working", NOON).head, /说「worker 只负责给编…」$/);
 });
 
 test("a row goes grey with how long it sat only when Herdr isn't working and nothing changed for 30 minutes", () => {
@@ -566,4 +568,10 @@ test("the top line counts what closed today, what runs, and what waits for you, 
     { key: "in_progress", tasks: [{ id: "R", status: "in_progress" }, { id: "Q", status: "in_progress", waiting: "批吗" }] },
     { key: "done", tasks: [{ id: "D1", status: "done", done_at: NOON - 3600 }, { id: "D0", status: "done", done_at: NOON - 86400 }] }] };
   assert.equal(flowLine(flowCounts(board, NOON)), "今天关了 1 · 在跑 1 · 等你 2");
+});
+
+test("the panel rereads the board when a task's progress file is written, not for the hook's own scratch files", () => {
+  const db = "/b/local.db";
+  assert.equal(boardChanged(["/b/progress/695.json"], db), true);
+  assert.deepEqual(["/b/progress/695.json.4242", "/b/progress/.session-x", "/b/progress-stamps/x"].map((p) => boardChanged([p], db)), [false, false, false]);
 });

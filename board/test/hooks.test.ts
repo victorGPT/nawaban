@@ -291,7 +291,7 @@ it('moves a worker\'s task only forward along its milestones and stamps when it 
   const transcript = join(tmp, 'transcript.jsonl')
   const called = (input: unknown) => writeFile(transcript, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input }] } }) + '\n')
   const afterATool = { session_id: SESSION, cwd: repo, transcript_path: transcript, hook_event_name: 'PostToolUse' }
-  const stamp = join(tmp, 'board/progress', `.session-${SESSION}`)
+  const stamp = join(tmp, 'board/progress-stamps', SESSION)
   const gapPassed = () => utimes(stamp, Date.now() / 1000 - 6 * 60, Date.now() / 1000 - 6 * 60)
   await nawaban('create', 'LP1', '--title', '接上进展', '--project', 'proj')
   await nawaban('claim', 'LP1')
