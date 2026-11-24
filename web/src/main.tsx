@@ -596,7 +596,7 @@ const ROW_VIEWS: RowViews = {
       fold={foldOf(row.kind, row)}
       said={row}
       folds={ctx.folds}
-      lead={W.waiting + '：'}
+      lead={(row.line === ctx.waiting ? W.waiting : '问') + '：'}
       mark={<Dot class={cn('size-1.5', row.line === ctx.waiting ? 'bg-warning' : 'bg-subtle-foreground')} />}
       tone={row.line === ctx.waiting ? 'text-foreground' : 'text-muted-foreground'}
     />
