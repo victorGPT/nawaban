@@ -956,6 +956,12 @@ describe('committed KRs hold a line, aspirational ones score, and an Objective i
     expect(data.attention.find((a) => a.kind === 'accept')?.text).toBe('O 承诺型全过、进取型均分 0.80，待你验收（nawaban okr --accept）')
   })
 
+  it('judges done on the unrounded score, rounding only what it prints', () => {
+    const data = judge(o([{ name: 'K', target: '>= 100', baseline: '0' }]), [reading('K', 69.6, at)], new Map(), new Map(), '/r', null)
+    expect([data.objectives[0]!.aspirational_score, data.objectives[0]!.done]).toEqual([0.696, false])
+    expect(standingText(data)).toBe('O O · 进取均分 0.70 · 未收工(进取均分要 ≥ 0.7)')
+  })
+
   it('refuses a kind other than committed or aspirational, and a baseline that is no number', async () => {
     await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nkind = "output"\n'))).rejects.toThrow(/kind 只能写 committed 或 aspirational/)
     await expect(run(await repo('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nbaseline = 3\n'))).rejects.toThrow(/baseline 要写成数字字符串/)

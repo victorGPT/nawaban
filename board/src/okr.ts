@@ -539,7 +539,7 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
     const met = krs.filter((k) => k.status === 'met').length
     const committed = krs.filter((k) => k.kind === 'committed')
     const scored = krs.filter((k) => k.kind === 'aspirational' && k.wait === null).map((k) => k.score!)
-    const aspirationalScore = scored.length ? Number((scored.reduce((a, b) => a + b, 0) / scored.length).toFixed(SCORE_PLACES)) : null
+    const aspirationalScore = scored.length ? toNinePlaces(scored.reduce((a, b) => a + b, 0) / scored.length) : null
     const done = committed.length + scored.length > 0 && committed.every((k) => k.status === 'met') && (aspirationalScore === null || aspirationalScore >= ASPIRATIONAL_DONE_SCORE)
     const pending = done && (!accepts.has(name) || missedSinceAccept)
     const scoreText = aspirationalScore === null ? '' : `、进取型均分 ${aspirationalScore.toFixed(SCORE_PLACES)}`
@@ -937,7 +937,7 @@ function scoreOf(op: string, goal: ExactDecimalAsTheOldClisDecimal, status: stri
   }
   const d0 = distance(baseline?.trim() ?? series[0]!.value)
   if (d0 === 0) return 0
-  return Number(Math.min(1, Math.max(0, (d0 - distance(series.at(-1)!.value)) / d0)).toFixed(SCORE_PLACES))
+  return toNinePlaces(Math.min(1, Math.max(0, (d0 - distance(series.at(-1)!.value)) / d0)))
 }
 
 export function standingText(data: ReturnType<typeof judge>) {
