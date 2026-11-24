@@ -46,7 +46,9 @@ def test_the_orchestrator_cannot_write_the_repository_from_the_shell(tmp_path):
     for cmd in ("git commit -m x", "cd sub && git -C . commit -am x", "git -c a=b push origin HEAD", "git apply p.diff",
                 "echo x > src/a.py", "echo x >> README.md", "cat > src/b.py <<'EOF'\nprint(1)\nEOF", "sed -i '' s/1/2/ src/a.py",
                 "sed -i.bak s/1/2/ src/a.py", "echo y | tee src/c.py", "apply_patch <<'EOF'\n*** Begin Patch\nEOF",
-                "FOO=1 git commit -m x", "cd src && echo x > ../README.md", "echo x >& README.md"):
+                "FOO=1 git commit -m x", "cd src && echo x > ../README.md", "echo x >& README.md",
+                "(cd /tmp); echo x > README.md", "hc send t1 'example <<EOF'\ngit commit -m x", "cat <<< hi\ngit commit -m x",
+                "apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: /tmp/plan.md\n*** Move to: README.md\n*** End Patch\nEOF"):
         assert refused(call("Bash", {"command": cmd})), cmd
 
 
@@ -55,7 +57,7 @@ def test_the_orchestrator_keeps_its_own_commands(tmp_path):
     for cmd in ("gh pr merge 12 --squash", "gh pr view 12", "hc send t1 '回报：完成'", "git status", "git log -1", "git pull --ff-only",
                 "node board/src/cli.ts event 9 --kind note --body '下一步：git commit，再 sed -i 改 a.py > src/a.py'",
                 "nawaban dispatch X --body \"$(cat <<'EOF'\ngit commit -m x\necho x > src/a.py\nEOF\n)\"",
-                "ls 2>/dev/null >&2", "echo x > /dev/null", f"echo x > {scratch}/o.txt", "rg 'sed -i' src", "cat src/a.py | head",
+                "ls 2>/dev/null >&2", "echo x > /dev/null", f"echo x > {scratch}/o.txt", "rg 'sed -i' src", "cat src/a.py | head", "gh pr view 12 # > README.md",
                 "hc send t1 '>'", "rg '>' src", "node cli.ts event 9 --body=\"a > src/a.py\"", f"cd {scratch} && echo x > plan.md",
                 f"apply_patch <<'EOF'\n*** Begin Patch\n*** Add File: {scratch}/n.md\n+x\n*** End Patch\nEOF"):
         r = call("Bash", {"command": cmd})

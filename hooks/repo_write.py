@@ -8,11 +8,10 @@ import tempfile
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n", ";;", "|&"}
 REDIRECTS = {">", ">>", ">|", "&>", "&>>", ">&"}
 QUOTES = ("'", '"')
-OPERATORS = sorted({"&>>", ">>", "&>", ">&", ">|", "&&", "||", ";;", "|&", "<<", "<", ">", "&", "|", ";", "(", ")", "\n"}, key=len, reverse=True)
+OPERATORS = sorted({"<<<", "&>>", ">>", "&>", ">&", ">|", "&&", "||", ";;", "|&", "<<", "<", ">", "&", "|", ";", "(", ")", "\n"}, key=len, reverse=True)
 GIT_WRITES = {"commit", "push", "apply", "am", "cherry-pick", "rebase", "revert"}
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
-HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
-PATCHED_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.M)
+PATCHED_FILE = re.compile(r"^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$", re.M)
 FILE_TOOLS = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
 
 
@@ -40,18 +39,6 @@ def is_repository_file(path, cwd):
     return ignored.returncode != 0
 
 
-def without_heredoc_bodies(command):
-    lines, kept, ends = command.split("\n"), [], []
-    for line in lines:
-        if ends:
-            if line.strip() == ends[0]:
-                ends.pop(0)
-            continue
-        kept.append(line)
-        ends += [m.group(2) for m in HEREDOC_START.finditer(line)]
-    return "\n".join(kept)
-
-
 def closing_quote(s, i):
     j = i + 1
     while j < len(s) and s[j] != s[i]:
@@ -59,8 +46,19 @@ def closing_quote(s, i):
     return min(j, len(s))
 
 
+def after_heredoc_bodies(s, i, delimiters):
+    for delimiter in delimiters:
+        while i < len(s):
+            end = s.find("\n", i)
+            end = len(s) if end < 0 else end
+            line, i = s[i:end], end + 1
+            if line.strip() == delimiter:
+                break
+    return i
+
+
 def shell_tokens(command):
-    s, i, word = without_heredoc_bodies(command).replace("\\\n", " "), 0, None
+    s, i, word, heredocs = command.replace("\\\n", " "), 0, None, []
     while i < len(s):
         operator = next((op for op in OPERATORS if s.startswith(op, i)), None)
         if s[i] in QUOTES:
@@ -68,32 +66,48 @@ def shell_tokens(command):
             word, i = (word or "") + s[i + 1:j], j + 1
         elif s[i] == "\\":
             word, i = (word or "") + s[i + 1:i + 2], i + 2
+        elif s[i] == "#" and word is None:
+            end = s.find("\n", i)
+            i = len(s) if end < 0 else end
         elif s[i] in " \t\r" or operator:
             if word is not None:
                 yield False, word
+                if heredocs and heredocs[-1] is None:
+                    heredocs[-1] = word.lstrip("-")
             word = None
-            if operator:
+            if operator == "<<":
+                heredocs.append(None)
+            elif operator:
                 yield True, operator
             i += len(operator or " ")
+            if operator == "\n" and heredocs:
+                i, heredocs = after_heredoc_bodies(s, i, [d for d in heredocs if d]), []
         else:
             word, i = (word or "") + s[i], i + 1
     if word is not None:
         yield False, word
 
 
-def simple_commands(command):
-    words, targets = [], []
+def simple_commands(command, cwd):
+    words, targets, outer = [], [], []
     tokens = shell_tokens(command)
     for is_operator, token in tokens:
         if not is_operator:
             words.append(token)
-        elif token in REDIRECTS:
+            continue
+        if token in REDIRECTS:
             target = next(tokens, (True, ""))[1]
             if target and not target.isdigit() and target != "-":
                 targets.append(target)
-        elif token in SEPARATORS:
-            yield words, targets
-            words, targets = [], []
+            continue
+        if token not in SEPARATORS:
+            continue
+        yield words, targets
+        words, targets = [], []
+        if token == "(":
+            outer.append(cwd[0])
+        elif token == ")" and outer:
+            cwd[0] = outer.pop()
     yield words, targets
 
 
@@ -111,28 +125,29 @@ def git_write(args, cwd):
     return f"git {args[0]}" if args and args[0] in GIT_WRITES else None
 
 
-def shell_write(command, cwd):
-    for words, targets in simple_commands(command):
+def shell_write(command, start):
+    cwd = [start]
+    for words, targets in simple_commands(command, cwd):
         for target in targets:
-            if target != "/dev/null" and is_repository_file(target, cwd):
+            if target != "/dev/null" and is_repository_file(target, cwd[0]):
                 return f"重定向写进 {target}"
         words = without_prefixes(words)
         if not words:
             continue
         name, args = os.path.basename(words[0]), words[1:]
         if name == "cd":
-            cwd = os.path.join(cwd, os.path.expanduser(args[0] if args else "~"))
+            cwd[0] = os.path.join(cwd[0], os.path.expanduser(args[0] if args else "~"))
             continue
-        if name == "git" and git_write(args, cwd):
-            return git_write(args, cwd)
+        if name == "git" and git_write(args, cwd[0]):
+            return git_write(args, cwd[0])
         if name == "apply_patch":
             patched = [p.strip() for p in PATCHED_FILE.findall(command)] or ["."]
-            if any(is_repository_file(p, cwd) for p in patched):
+            if any(is_repository_file(p, cwd[0]) for p in patched):
                 return "apply_patch"
         in_place = name == "sed" and any(a == "--in-place" or re.match(r"^-[a-zA-Z]*i", a) for a in args)
         if in_place or name == "tee":
             for a in args:
-                if not a.startswith("-") and (name == "tee" or os.path.isfile(os.path.join(cwd, a))) and is_repository_file(a, cwd):
+                if not a.startswith("-") and (name == "tee" or os.path.isfile(os.path.join(cwd[0], a))) and is_repository_file(a, cwd[0]):
                     return f"{name} 写 {a}"
     return None
 
