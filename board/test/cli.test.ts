@@ -18,6 +18,7 @@ const HELP_LINES_AT_MOST = 24
 const HELP_COLUMNS_AT_MOST = 80
 const TEN_VERBS = ['status', 'show', 'list', 'okr', 'create', 'claim', 'event', 'close', 'dispatch', 'merge']
 const EVERY_STEP_STARTS_A_NODE = { timeout: 60_000 }
+const MINUTES_A_ONE_HOUR_RENEWAL_ADDS_PAST_A_TEN_MINUTE_LEASE = 40
 let team: ReturnType<typeof board>
 let server: Awaited<ReturnType<typeof listen>>
 let env: Record<string, string> = {}
@@ -137,4 +138,15 @@ it("runs an upstream verb typed bare, and names the board form that runs it too"
   expect([viaBoard.out, viaBoard.err]).toEqual([expect.stringContaining('读它'), ''])
   const quoted = await succeeds('reply', id, '两个 词')
   expect(hintedCommand(quoted.err)).toBe(`board reply ${id} '两个 词'`)
+})
+
+it('renews through hook renew a claim made through board, as dispatch makes it for a worker', EVERY_STEP_STARTS_A_NODE, async () => {
+  await succeeds('create', 'W1', '--title', '替 worker 认领', '--project', 'p4')
+  const id = (await team.tasks.list({ state: 'all', label: { key: 'W1' } })).tasks[0]!.message.id
+  const until = async () => Date.parse((await team.thread(id, { limit: 1 })).message.task!.claim!.until)
+  await succeeds('board', 'tasks', 'claim', id, '--as', 'cc-aaaa1111', '--lease', '10m', '--json')
+  const claimedUntil = await until()
+  const renewed = await nawaban(['hook', 'renew', '--session', SESSION])
+  expect([renewed.code, renewed.err]).toEqual([0, ''])
+  expect((await until()) - claimedUntil).toBeGreaterThan(MINUTES_A_ONE_HOUR_RENEWAL_ADDS_PAST_A_TEN_MINUTE_LEASE * 60_000)
 })
