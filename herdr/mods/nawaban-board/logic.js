@@ -232,8 +232,8 @@ function stuckOn(t, status) {
   return null;
 }
 
-const MILESTONES = ["started", "edited", "committed", "pr", "review", "reported"];
-const MILESTONE_WORDS = { started: "开工", edited: "首次改文件", committed: "首次提交", pr: "开 PR", review: "review", reported: "回报" };
+export const MILESTONES = ["started", "edited", "committed", "pr", "review", "reported"];
+export const MILESTONE_WORDS = { started: "开工", edited: "首次改文件", committed: "首次提交", pr: "开 PR", review: "review", reported: "回报" };
 export const milestoneChain = (reached) => {
   const at = Math.max(0, MILESTONES.indexOf(reached));
   return stepChain(MILESTONES.map((m, i) => ({ subject: MILESTONE_WORDS[m], status: i < at ? "completed" : i === at ? "in_progress" : "pending" })));

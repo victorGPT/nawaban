@@ -1,9 +1,9 @@
 import {
-  closedToday, doingOf, flowLine, foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WINDOW_WORDS,
+  closedToday, doingOf, flowLine, foldKey, localMonthDayTime, MILESTONE_WORDS, MILESTONES, OKR_WORDS, okrReadingOfFailure, okrView as panelOkrView, sinceLabel, taskSections, WINDOW_WORDS,
 } from '../../herdr/mods/nawaban-board/logic.js'
 import type { Pending } from './decide-logic'
 
-export { foldKey, localMonthDayTime, OKR_WORDS, okrReadingOfFailure, sinceLabel, taskSections, WINDOW_WORDS }
+export { foldKey, localMonthDayTime, MILESTONE_WORDS, MILESTONES, OKR_WORDS, okrReadingOfFailure, sinceLabel, taskSections, WINDOW_WORDS }
 
 export type KrStatus = 'met' | 'missed' | 'stale' | 'untested'
 export type KrRow = { name: string; status: KrStatus; value: string; target: string; measured: boolean; gap: string | null; day: string | null }
@@ -48,6 +48,7 @@ export type BoardTask = {
   status: 'open' | 'in_progress' | 'done'
   parent: string | null
   session: string | null
+  terminal?: string | null
   active_at: number
   claimed_at: number | null
   done_at?: number | null
@@ -143,6 +144,8 @@ export function boardColumns(groups: { group: Group; items: Item[] }[], doneShow
     return { group, count: items.length, items: shown, more: capped ? { hidden: ordered.length - shown.length } : null }
   })
 }
+
+export const boardTaskOf = (board: Board | null, id: string | null) => allOf(board).find((t) => t.id === id) ?? null
 
 export const pendingCount = (board: Board | null) => allOf(board).filter((t) => t.status !== 'done' && t.pending).length
 
