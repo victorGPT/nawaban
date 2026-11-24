@@ -396,13 +396,14 @@ const ROLE_WORDS: Record<By, { ruling: string; row: string; tone: string }> = {
   agent: { ruling: '编排者代定', row: '代定', tone: 'text-subtle-foreground' },
 }
 const STEP_LOOKS: Record<Step['status'], { bar: string; word: string }> = {
-  completed: { bar: 'bg-foreground', word: 'text-subtle-foreground' },
+  completed: { bar: 'bg-muted-foreground', word: 'text-subtle-foreground max-md:hidden' },
   in_progress: { bar: 'bg-foreground', word: 'text-foreground' },
-  pending: { bar: 'bg-border', word: 'text-subtle-foreground' },
+  pending: { bar: 'bg-border', word: 'text-subtle-foreground max-md:hidden' },
 }
 const fieldLabel = 'text-xs text-muted-foreground'
 const metaText = 'text-xs text-subtle-foreground tabular-nums'
-const quietLink = 'underline decoration-border underline-offset-4 outline-none hover:decoration-foreground focus-visible:decoration-foreground'
+const STEPS_HUGGING_THE_RIGHT_EDGE_FROM = 3
+const quietLink = 'underline decoration-subtle-foreground underline-offset-4 outline-none hover:decoration-foreground focus-visible:decoration-foreground'
 const prose = 'space-y-3 text-sm leading-6 text-foreground [overflow-wrap:anywhere] [&_a]:text-foreground [&_a]:underline [&_h3]:text-sm [&_ol]:block [&_ul]:block'
 const rowLine = 'flex w-full min-w-0 items-start gap-2 px-2 py-1.5 text-left text-sm leading-5 max-md:py-3'
 const foldRow = cn(rowLine, 'rounded-lg outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50')
@@ -439,7 +440,7 @@ function DetailCard(props: { detail: Detail; view: DetailView; task: BoardTask |
       <div class="flex max-md:flex-col">
         <div class="flex min-w-0 flex-1 flex-col max-md:contents">
           <Show when={saysSomethingNow()}>
-            <div class="flex flex-col gap-6 p-6 max-md:order-1 max-md:p-4">
+            <div class="flex flex-col divide-y divide-border max-md:order-1">
               <NowPart view={props.view} />
               <BodyPart sections={props.view.sections} folds={props.folds} />
             </div>
@@ -457,7 +458,7 @@ function DetailCard(props: { detail: Detail; view: DetailView; task: BoardTask |
 function NowPart(props: { view: DetailView }) {
   return (
     <Show when={props.view.headline.length || props.view.steps || props.view.ruling}>
-      <section aria-label="现在" class="flex flex-col gap-4">
+      <section aria-label="现在" class="flex flex-col gap-4 p-6 max-md:p-4">
         <Show when={props.view.headline.length}>
           <p class={cn(cardTitle, 'text-foreground [overflow-wrap:anywhere]')}>
             <Show when={props.view.waiting}><span class="text-warning">{W.waiting}　</span></Show>
@@ -470,11 +471,11 @@ function NowPart(props: { view: DetailView }) {
         <Show when={props.view.ruling}>
           {(ruling) => (
             <div class="flex flex-col gap-1">
-              <p class="line-clamp-2 text-sm leading-6 text-foreground [overflow-wrap:anywhere]">{ruling().line}</p>
+              <p class="truncate text-sm leading-6 text-muted-foreground">{ruling().line}</p>
               <p class="text-xs text-subtle-foreground [overflow-wrap:anywhere]">
                 <span class={ROLE_WORDS[ruling().by].tone}>{ROLE_WORDS[ruling().by].ruling}</span>
                 <span class="tabular-nums"> · {stampOf(ruling().at)}</span>
-                <Show when={ruling().question}>{(question) => <span> · {question()}</span>}</Show>
+                <Show when={ruling().question}>{(question) => <span> · 问：{question()}</span>}</Show>
               </p>
             </div>
           )}
@@ -488,10 +489,10 @@ function Milestones(props: { steps: Step[] }) {
   return (
     <ol class="grid grid-cols-6 gap-2">
       <For each={props.steps}>
-        {(step) => (
-          <li aria-current={step.status === 'in_progress' ? 'step' : undefined} class="flex min-w-0 flex-col gap-1.5">
+        {(step, i) => (
+          <li aria-current={step.status === 'in_progress' ? 'step' : undefined} class={cn('flex min-w-0 flex-col gap-1.5', i() >= STEPS_HUGGING_THE_RIGHT_EDGE_FROM && 'max-md:items-end')}>
             <span aria-hidden="true" class={cn('h-1 w-full rounded-full', STEP_LOOKS[step.status].bar)} />
-            <span class={cn('truncate text-xs max-md:sr-only', STEP_LOOKS[step.status].word)}>{step.word}</span>
+            <span class={cn('text-xs whitespace-nowrap', STEP_LOOKS[step.status].word)}>{step.word}</span>
           </li>
         )}
       </For>
@@ -510,7 +511,7 @@ function BodyPart(props: { sections: Section[]; folds: Folds }) {
   }
   return (
     <Show when={props.sections.length}>
-      <section aria-label="正文" class="flex flex-col gap-5">
+      <section aria-label="正文" class="flex flex-col gap-5 p-6 max-md:p-4">
         <For each={props.sections}>
           {(section, i) => (
             <div class="flex flex-col gap-1.5">
@@ -541,7 +542,7 @@ function Timeline(props: { days: Day[]; waiting: string | null; folds: Folds }) 
         <For each={all() ? props.days : capped().days}>
           {(day) => (
             <div class="-mx-2 flex flex-col gap-1">
-              <h3 class="px-2 text-xs text-muted-foreground">{day.label}</h3>
+              <h3 class="px-2 text-sm font-medium text-foreground">{day.label}</h3>
               <ol class="flex flex-col">
                 <For each={day.rows}>{(row) => <li>{rowView(row, ctx)}</li>}</For>
               </ol>
@@ -562,13 +563,13 @@ const Clock = (props: { at: number }) => <span class="w-10 shrink-0 text-right t
 const Dot = (props: { class: string }) => <span aria-hidden="true" class={cn('rounded-full', props.class)} />
 const foldOf = (kind: Row['kind'], row: { at: number; line: string }) => kind + ':' + row.at + ':' + row.line
 
-function SayingRow(props: { fold: string; said: Entry; folds: Folds; tone: string; mark?: JSX.Element; lead?: string; children?: JSX.Element }) {
+function SayingRow(props: { fold: string; said: Entry; folds: Folds; tone: string; closedTone?: string; mark?: JSX.Element; lead?: string; children?: JSX.Element }) {
   const open = () => props.folds.isOpen(props.fold)
   return (
     <button type="button" aria-expanded={open() ? 'true' : 'false'} class={foldRow} onClick={() => props.folds.setOpen(props.fold, !open())}>
       <Clock at={props.said.at} />
       <span class={markCell}>{props.mark}</span>
-      <span class={cn('min-w-0 flex-1', props.tone, open() ? wholeText : oneLine)}>
+      <span class={cn('min-w-0 flex-1', open() ? wholeText : cn(oneLine, props.closedTone), props.tone)}>
         {props.lead}
         {open() ? props.said.full : props.said.line}
       </span>
@@ -586,7 +587,7 @@ const MILESTONE_MARKS: Record<Extract<Row, { kind: 'milestone' }>['mark'], () =>
 type RowViews = { [K in Row['kind']]: (row: Extract<Row, { kind: K }>, ctx: RowContext) => JSX.Element }
 const ROW_VIEWS: RowViews = {
   decision: (row, ctx) => (
-    <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} mark={<Dot class="size-1.5 bg-foreground" />} tone={cn('text-foreground', row.by === 'owner' && 'font-medium')}>
+    <SayingRow fold={foldOf(row.kind, row)} said={row} folds={ctx.folds} mark={<Dot class="size-1.5 bg-foreground" />} tone="text-foreground" closedTone={row.by === 'owner' ? 'font-medium' : undefined}>
       <span class={cn('shrink-0 text-xs leading-5 max-md:hidden', ROLE_WORDS[row.by].tone)}>{ROLE_WORDS[row.by].row}</span>
     </SayingRow>
   ),

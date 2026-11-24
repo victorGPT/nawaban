@@ -53,7 +53,12 @@ const W = WINDOW_WORDS.zh
 const byOf = (e: Event): By => (e.author === OWNER_AUTHOR ? 'owner' : 'agent')
 const placeOf = (url: string) => (PR_NUMBER.exec(url) ? 'PR #' + PR_NUMBER.exec(url)![1] : url.replace(/^https?:\/\//, '').split('/')[0]!)
 const withPlacesForUrls = (text: string) => text.replace(URL, placeOf)
-const firstLine = (text: string) => withPlacesForUrls(text.trim().split('\n')[0]!.trim())
+const OPENS_WHAT_FOLLOWS = /[：:]$/
+const DECISION_FIELD = /^(?:背景|否决方案)：/
+function firstLine(text: string) {
+  const [first = '', ...rest] = text.trim().split('\n').map((l) => l.trim()).filter((l) => l && !DECISION_FIELD.test(l))
+  return withPlacesForUrls(OPENS_WHAT_FOLLOWS.test(first) && rest.length ? first + rest[0] : first)
+}
 const entryOf = (at: number, text: string): Entry => {
   const full = text.trim().replace(SAYING_PREFIX, '')
   return { at, line: firstLine(full), full }
@@ -87,8 +92,8 @@ function partsOf(text: string): Part[] {
 
 const ROW_OF_EVENT: Record<string, (e: Event) => Row | null> = {
   decision: (e) => {
-    const said = entryOf(e.at, e.body)
-    return { kind: 'decision', by: byOf(e), question: questionOf(e.body), ...said, line: byOf(e) === 'owner' ? said.line.replace(WHO_AND_WHEN_ALREADY_SHOWN, '') : said.line }
+    const told = byOf(e) === 'owner' ? e.body.replace(SAYING_PREFIX, '').replace(WHO_AND_WHEN_ALREADY_SHOWN, '') : e.body
+    return { kind: 'decision', by: byOf(e), question: questionOf(e.body), ...entryOf(e.at, told) }
   },
   note: (e) =>
     BOOKKEEPING_NOTE.test(e.body)

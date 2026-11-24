@@ -155,3 +155,16 @@ describe('detailView one-liners', () => {
     expect(lines(view)).toEqual([['今天', ['note 一']]])
   })
 })
+
+describe('detailView first lines', () => {
+  it('carries on into the next line when the first only opens what follows', () => {
+    const view = detailView(detail([ev('decision', '决定：模拟后修正：\n\n里程碑只往前走\n背景：怎么改', at(24, 9))]), task(), NOW)
+    expect(lines(view)).toEqual([['今天', ['decision 模拟后修正：里程碑只往前走']]])
+    expect(lines(detailView(detail([ev('decision', '决定：格式：\n背景：写什么', at(24, 9))]), task(), NOW))).toEqual([['今天', ['decision 格式：']]])
+  })
+
+  it('opens the decision-maker\'s row onto the same words it showed closed', () => {
+    const [row] = detailView(detail([ev('decision', '决定：决策者 11-24：只收完成回报\n背景：发给谁', at(24, 9), 'user')]), task(), NOW).days[0]!.rows
+    expect(row).toMatchObject({ line: '只收完成回报', full: '只收完成回报\n背景：发给谁' })
+  })
+})
