@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
+import { userInfo } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
@@ -9,14 +10,17 @@ const OLD_CLI = fileURLToPath(new URL('../../nawaban/cli.py', import.meta.url))
 const ISSUE_TRACKER = 'docs/agents/issue-tracker.md'
 const OUTPUT_MAX_BYTES = 64 * 1024 * 1024
 const BOARD_FRESH_FOR_MS = 30_000
-const MARKS_OF_AN_AGENT_SESSION = ['HC_TERMINAL_ID', 'CLAUDE_CODE_SESSION_ID']
+const MARKS_OF_AN_AGENT_SESSION = ['HC_TERMINAL_ID', 'CLAUDE_CODE_SESSION_ID', 'CODEX_THREAD_ID', 'ANTIGRAVITY_CONVERSATION_ID']
 export const ISSUE_KEY = /^#\d+$/
 
 export type OldCli = (repo: string, args: string[]) => Promise<string>
 type GithubTask = { status: string; pending?: unknown; waiting?: unknown }
 export type GithubBoard = { columns: { key: string; tasks: GithubTask[] }[] }
 
-const theDecisionMakerAtAShell = () => Object.fromEntries(Object.entries(process.env).filter(([name]) => !MARKS_OF_AN_AGENT_SESSION.includes(name)))
+export const theWebTokenHolderAtAShell = (user = userInfo().username) => ({
+  ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !MARKS_OF_AN_AGENT_SESSION.includes(name))),
+  NAWABAN_OWNER: user,
+})
 
 const refusalIn = (stdout: string, stderr: string) => {
   try {
@@ -28,7 +32,7 @@ const refusalIn = (stdout: string, stderr: string) => {
 
 export const oldCli: OldCli = (repo, args) =>
   new Promise((done, fail) =>
-    execFile('python3', [OLD_CLI, ...args], { cwd: repo, env: theDecisionMakerAtAShell(), maxBuffer: OUTPUT_MAX_BYTES }, (error, stdout, stderr) =>
+    execFile('python3', [OLD_CLI, ...args], { cwd: repo, env: theWebTokenHolderAtAShell(), maxBuffer: OUTPUT_MAX_BYTES }, (error, stdout, stderr) =>
       error ? fail(error.code === 'ENOENT' ? error : new Refused(refusalIn(stdout, stderr))) : done(stdout),
     ),
   )

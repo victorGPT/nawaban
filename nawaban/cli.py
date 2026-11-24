@@ -1600,6 +1600,11 @@ def _prefixed(comments: list[dict], word: str) -> list[tuple[str, int]]:
     return out
 
 
+def _ask_of(c: dict, line: int, brief: str) -> str:
+    import hashlib
+    return f"{c['createdAt']}:{line}:{hashlib.sha256(brief.encode()).hexdigest()[:12]}"
+
+
 def _issue_pending(i: dict) -> dict | None:
     i = {**i, "comments": [_canonical(c) for c in i["comments"]]}
     found = _latest_unresolved_ask_line(i)
@@ -1609,7 +1614,7 @@ def _issue_pending(i: dict) -> dict | None:
     lines = c["body"].splitlines()
     notes = _prefixed([{**x, "body": "\n".join(lines[:k])} if x is c else x for x in i["comments"]], "进展")
     brief, at = "\n".join(lines[k:]), _at(c["createdAt"])
-    return {"brief": brief, "at": at, "ask": f"{c['createdAt']}:{k}",
+    return {"brief": brief, "at": at, "ask": _ask_of(c, k, brief),
             "progress": [{"body": b, "at": t} for b, t in notes[-PENDING_NOTES:]],
             "card": _decision_card(brief), "talk": _talk_in_a_window(brief),
             "ruled_after": _owner_ruled_since([b for b, t in notes if t > at], _owner_names())}

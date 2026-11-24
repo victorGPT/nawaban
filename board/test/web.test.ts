@@ -15,6 +15,7 @@ import { registerSchemas } from '../src/schemas.ts'
 import { run } from '../src/tasks.ts'
 import { event } from '../src/events.ts'
 import { boardData, taskDetail } from '../src/views.ts'
+import { theWebTokenHolderAtAShell } from '../src/github.ts'
 
 const SECRET = 'board-secret'
 const WEB_SECRET = 'web-secret'
@@ -404,5 +405,21 @@ it('reads a GitHub-tracked repository in repos.json through the old CLI, and ans
     expect(calls.filter((c) => c[1] === 'board'), 'an answer makes the next read fresh').toHaveLength(2)
   } finally {
     handler = site(team, { dir, webToken: WEB_SECRET, boardToken: SECRET, port, dist })
+  }
+})
+
+it('runs the old CLI as the token holder at a shell, so it may record an 已决 under a name', () => {
+  vi.stubEnv('CLAUDE_CODE_SESSION_ID', 'aaaa1111-0000-0000-0000-000000000000')
+  vi.stubEnv('HC_TERMINAL_ID', 't1')
+  vi.stubEnv('CODEX_THREAD_ID', 'codex-1')
+  try {
+    const said = execFileSync('python3', ['-c', 'from nawaban.cli import identity, _orchestrator_here; print(identity(), _orchestrator_here())'], {
+      cwd: join(import.meta.dirname, '..', '..'),
+      env: theWebTokenHolderAtAShell('victor'),
+      encoding: 'utf8',
+    })
+    expect(said.trim()).toBe('victor True')
+  } finally {
+    vi.unstubAllEnvs()
   }
 })

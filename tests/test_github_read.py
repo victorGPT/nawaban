@@ -87,7 +87,9 @@ def test_an_issue_reads_as_the_task_detail_the_page_draws(monkeypatch, capsys):
 def test_an_open_ask_names_its_card_so_an_answer_to_an_older_one_is_refused(monkeypatch, capsys):
     _, first = detail(monkeypatch, capsys, issue([marked("ask", "定 A")]))
     _, second = detail(monkeypatch, capsys, issue([marked("ask", "定 A"), "进展：x", marked("ask", "改问 B")]))
+    _, edited = detail(monkeypatch, capsys, issue([marked("ask", "定 B")]))
     assert first["pending"]["ask"] and second["pending"]["ask"] != first["pending"]["ask"]
+    assert edited["pending"]["ask"] != first["pending"]["ask"], "a card edited in place is another card"
 
 
 def test_a_key_that_is_not_an_issue_number_is_refused(monkeypatch, capsys):

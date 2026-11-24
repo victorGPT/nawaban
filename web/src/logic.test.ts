@@ -55,6 +55,9 @@ describe('taskGroups', () => {
   it('lists every issue of a GitHub board on its own, as the panel does', () => {
     const github: Board = { ...boardOf(task('#1'), working('#2', { parent: '#1' })), tracker: 'github' }
     expect(taskGroups(github, NOW).map((g) => [g.group, g.items.map((x) => x.id)])).toEqual([['working', ['#2']], ['todo', ['#1']]])
+    const claimedByATerminalOnly = task('#3', { terminal: 't1' })
+    expect(taskGroups({ ...boardOf(claimedByATerminalOnly), tracker: 'github' }, NOW)[0]!.group).toBe('working')
+    expect(taskGroups(boardOf(claimedByATerminalOnly), NOW)[0]!.group).toBe('todo')
   })
   it('lists a ticket whose parent is not on the board on its own', () => {
     expect(taskGroups(boardOf(task('X', { parent: 'GONE' })), NOW)[0]!.items[0]!.id).toBe('X')

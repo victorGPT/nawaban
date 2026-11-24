@@ -3,6 +3,7 @@
 import json
 import subprocess
 from pathlib import Path
+from unittest.mock import ANY
 
 import pytest
 
@@ -235,14 +236,14 @@ def test_a_pending_decision_is_a_待决_line_anywhere_in_a_comment(board, monkey
     assert out["tasks"]["#1"]["pending"] == {
         "brief": "**待决**：上线 A 还是 B\n【推荐】A\n【选项】A / B", "at": ts("2026-11-07T01:00:00Z"),
         "progress": [{"body": "测完了。", "at": ts("2026-11-07T01:00:00Z")}],  # what comes before the 待决 line is a 进展
-        "card": None, "talk": None, "ruled_after": False, "ask": "2026-11-07T01:00:00Z:2"}
+        "card": None, "talk": None, "ruled_after": False, "ask": ANY}
 
 
 def test_a_pending_decision_in_the_body_is_raised_when_the_issue_was(board, monkeypatch, capsys):
     body = "背景。\n需要你定：要不要拆"
     out = _board(monkeypatch, capsys, [_issue(1, body, created="2026-11-06T00:00:00Z")])
     assert out["tasks"]["#1"]["pending"] == {"brief": "需要你定：要不要拆", "at": ts("2026-11-06T00:00:00Z"), "progress": [],
-                                             "card": None, "talk": None, "ruled_after": False, "ask": "2026-11-06T00:00:00Z:1"}
+                                             "card": None, "talk": None, "ruled_after": False, "ask": ANY}
 
 
 def test_already_resolved_ends_a_pending_decision_and_决定_does_not(board, monkeypatch, capsys):

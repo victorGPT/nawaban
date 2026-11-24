@@ -253,8 +253,8 @@ function tookOf(state: ItemState, boardTask: BoardTask | null, dispatchedAt: num
   return HELD.includes(state) ? '开工至今 ' + sinceLabel({ state: 'working', at: started }, now, 'zh') : null
 }
 
-export function detailView(detail: Detail, boardTask: BoardTask | null, now: number): DetailView {
-  const state: ItemState = boardTask ? stateOf(boardTask, now) : detail.status === 'done' ? 'done' : 'todo'
+export function detailView(detail: Detail, boardTask: BoardTask | null, now: number, github = false): DetailView {
+  const state: ItemState = boardTask ? stateOf(boardTask, now, github) : detail.status === 'done' ? 'done' : 'todo'
   const said = oldestFirst(detail.events).map((e) => (Object.hasOwn(ROW_OF_EVENT, e.kind) ? ROW_OF_EVENT[e.kind]!(e) : null)).filter((r): r is Row => r !== null)
   const events = oldestFirst(detail.events)
   const dispatches = events.filter((e) => e.kind === 'dispatch')
