@@ -7,6 +7,7 @@ import { dispatch } from './dispatch.ts'
 import { event } from './events.ts'
 import { guard } from './guard.ts'
 import { importOld } from './import.ts'
+import { merge } from './merge.ts'
 import { jsonOkr, okr } from './okr.ts'
 import { inbox, index, page } from './orchestrator.ts'
 import { boardDirAsConfiguredWhenAsked, DIR, PORT, serve, urlFor, web } from './server.ts'
@@ -34,6 +35,7 @@ async function runCommand(argv: string[]): Promise<number> {
   const nawabanCommands: Record<string, () => Promise<number>> = {
     event: () => event(rest, (args) => app.run(args), board()),
     dispatch: () => dispatch(rest),
+    merge: () => merge(rest),
     import: () => importOld(rest, board().as(null), boardDirAsConfiguredWhenAsked()),
     guard: () => guard(board(), DIR),
     okr: () => okr(rest, board(), DIR),

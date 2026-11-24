@@ -51,7 +51,7 @@ const profileViaUser = (actor: string) => {
 }
 const state = (m: MessageView) => (m.task?.state === 'claimed' && !live(m) ? 'ready' : m.task?.state ?? 'not a task')
 
-async function all(query: Parameters<ReturnType<typeof board>['tasks']['list']>[0]) {
+export async function all(query: Parameters<ReturnType<typeof board>['tasks']['list']>[0]) {
   const team = personOwningEveryTaskTheirProfilesMade()
   const out: MessageView[] = []
   for (let after: string | undefined; ; ) {
