@@ -221,6 +221,7 @@ def test_dispatch_starts_a_worker_in_a_fresh_worktree_and_records_it_on_the_tick
     wt = gh.repo.parent / "roubao-w-950"
     assert (wt / ".git").exists()
     run = next(c for c in gh if c[:2] == ["hc", "run"])
+    assert "--outlive-parent" in run
     assert run[run.index("--cwd") + 1] == str(wt)
     assert run[run.index("-n") + 1] == "【api】主模型窗口按实测调大 #950"
     brief = run[-1]
