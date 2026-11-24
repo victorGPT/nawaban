@@ -213,7 +213,7 @@ export type DecisionCard = {
 export function gapsOfADecisionCard(c: DecisionCard): string[] {
   const options = c.options ?? []
   return [
-    ...(saysNothing(c.decision) ? ['决策事项 (--body)'] : []),
+    ...(saysNothing(c.decision) ? ['决策事项 (正文)'] : []),
     ...(blank(c.kr) ? ['关联 KR (--kr)'] : []),
     ...(saysNothing(c.context) ? ['背景 (--context)'] : []),
     ...(options.length < MIN_DECISION_OPTIONS ? [`备选方案 (--option，至少 ${MIN_DECISION_OPTIONS} 条)`] : []),

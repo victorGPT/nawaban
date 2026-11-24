@@ -98,7 +98,7 @@ export function impactNames(dir: string): Middleware {
 }
 
 export const howToDeclare = (ref: string) =>
-  `  nawaban event ${ref} --kind impact --o "<O 名>" --kr "${IMPACT_FORMAT}" [--change measure|gold](--kr 可重复;纯基础设施写 --o 无;认领时就登记:nawaban claim ${ref} --o … --kr …)`
+  `  nawaban event ${ref} impact --o "<O 名>" --kr "${IMPACT_FORMAT}" [--change measure|gold](--kr 可重复;纯基础设施写 --o 无;认领时就登记:nawaban claim ${ref} --o … --kr …)`
 
 async function hasImpactReply(team: Team, id: string) {
   const { replies } = await team.thread(id)

@@ -5,6 +5,7 @@ import { board } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
 import { dispatch } from './dispatch.ts'
 import { claimRegistering, event } from './events.ts'
+import { pointAt } from './hint.ts'
 import { guard } from './guard.ts'
 import { importOld } from './import.ts'
 import { merge } from './merge.ts'
@@ -17,7 +18,7 @@ import { json } from './views.ts'
 
 type Group = '看' | '写' | '派' | '少用' | '本机服务' | '上游'
 type Run = (rest: string[]) => Promise<number>
-type Command = { group: Group; usage: string; about: string; flags?: [flag: string, about: string][]; helpIsUpstreams?: true; run: Run }
+type Command = { group: Group; usage: string; args?: string; about: string; flags?: [flag: string, about: string][]; helpIsUpstreams?: true; run: Run }
 
 const MISUSE = 2
 const GAP_BEFORE_ABOUT = 2
@@ -25,7 +26,6 @@ const MAIN_SCREEN: Group[] = ['看', '写', '派']
 const MORE_SCREEN: Group[] = ['少用', '本机服务', '上游']
 const HELP_FLAGS = new Set(['--help', '-h'])
 const DOUBLE_WIDTH = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u
-const SHELL_SAFE_WORD = /^[\w@%+=:,./-]+$/
 const UPSTREAM_VERBS = ['whoami', 'grants', 'channels', 'schemas', 'actors', 'read', 'post', 'reply', 'schedule', 'schedules', 'edit', 'delete', 'react', 'label', 'typing', 'sync', 'sources', 'download', 'conformance', 'tasks', 'hooks', 'tail', 'wait']
 
 function tokenOfServedBoardElseLetItsOwn401Answer(): string | undefined {
@@ -92,10 +92,11 @@ const COMMANDS: Record<string, Command> = {
   create: {
     group: '写',
     usage: 'create <票>',
+    args: '--title <标题> [正文]',
     about: '建票',
     flags: [
       ['--title <标题>', '必填'],
-      ['--body <正文>', '正文'],
+      ['-', '正文从标准输入读'],
       ['--body-file <文件>', '正文从文件读'],
       ['--parent <票>', '挂在这张票下，项目随它'],
       ['--project <项目>', '没有 --parent 时必填'],
@@ -119,20 +120,22 @@ const COMMANDS: Record<string, Command> = {
   },
   event: {
     group: '写',
-    usage: 'event <票>',
-    about: '记事件：--kind note|decision|link|impact|ask|resolve',
+    usage: 'event <票> <类>',
+    args: '[正文] [参数]',
+    about: '记事件：note decision link impact ask resolve',
     flags: [
-      ['--kind <类>', '必填：note decision link impact ask resolve'],
-      ['--body <正文>', 'impact 以外都要'],
-      ['--by user', '决策者定的，只用于 decision'],
-      ['--kr <KR>', 'decision、ask 挂的 KR'],
-      ['--kr "<KR>=toward|away|hold"', 'impact 的 KR 和方向，可重复'],
-      ['--o <O>', 'impact 的 O，纯基础设施写 无'],
-      ['--change product|measure|gold', 'impact 改的是产品、量法还是金标，默认 product'],
-      ['--context <背景>', 'ask 的背景'],
-      ['--option <方案｜代价｜门>', 'ask 的选项，至少两次'],
-      ['--rec <建议>', 'ask 的建议'],
+      ['note <正文>', '进展同步：已完成：… / 下一步：… / 卡点：…'],
+      ['decision <正文>', '决策记录：决定：… 背景：… 否决方案：…'],
+      ['', '--by user 是决策者定的；--kr <O / KR> 是代定且挂 KR'],
+      ['link <前缀:地址>', '前缀是 pr、commit、artifact、adr'],
+      ['impact', 'KR 影响声明：--o <O> --kr "<KR>=toward|away|hold"…'],
+      ['', '--change product|measure|gold，默认 product'],
+      ['', '纯基础设施写 --o 无'],
+      ['ask <决策事项>', '上升一件待决：--kr、--context、--option（至少两次）、--rec'],
+      ['', '--option 写 方案｜代价｜单向门 或 双向门'],
+      ['resolve <正文>', '已决，解除 ask 留下的挂起'],
       ['--as <身份>', '用这个身份记'],
+      ['-', '正文写 - 从标准输入读'],
     ],
     run: (rest) => event(rest, (args) => app.run(args), board()),
   },
@@ -271,7 +274,7 @@ const MAIN_HELP = [
 ]
 const MORE_HELP = screen(MORE_SCREEN)
 
-const helpOf = (c: Command) => [`用法：nawaban ${c.usage}`, c.about, ...aligned(c.flags ?? [])]
+const helpOf = (c: Command) => [`用法：nawaban ${[c.usage, c.args].filter(Boolean).join(' ')}`, c.about, ...aligned(c.flags ?? [])]
 
 const asksForHelp = (rest: string[]) => HELP_FLAGS.has(rest[0] ?? '') || (HELP_FLAGS.has(rest.at(-1) ?? '') && !(rest.at(-2) ?? '').startsWith('-'))
 
@@ -279,8 +282,6 @@ const printed = (lines: string[]) => {
   process.stdout.write(lines.join('\n') + '\n')
   return 0
 }
-
-const shellWord = (word: string) => (SHELL_SAFE_WORD.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`)
 
 function noSuchVerb(word: string) {
   process.stderr.write([`✗ 没有动词 ${word}`, ...screen(MAIN_SCREEN)].join('\n') + '\n')
@@ -292,7 +293,7 @@ async function runCommand(argv: string[]): Promise<number> {
   if (word === undefined || word === 'help' || HELP_FLAGS.has(word)) return printed(rest[0] === 'more' ? MORE_HELP : MAIN_HELP)
   if (Object.hasOwn(RENAMED, word)) {
     const renamed = [...RENAMED[word]!, ...rest]
-    process.stderr.write(`改用：nawaban ${renamed.map(shellWord).join(' ')}\n`)
+    pointAt(renamed)
     return runCommand(renamed)
   }
   if (!Object.hasOwn(COMMANDS, word)) return noSuchVerb(word)

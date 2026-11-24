@@ -67,9 +67,9 @@ it('finds a task by its key, as the old CLI and the other verbs name it', async 
 
 it('records a note, a decision, and a link as replies, the last two as blocks', async () => {
   const id = await newTask()
-  expect((await nawaban('event', id, '--kind', 'note', '--body', 'halfway')).code).toBe(0)
-  expect((await nawaban('event', id, '--kind', 'decision', '--question', 'which db?', '--verdict', 'sqlite', '--rejected', 'pg - too big', '--by', 'user')).code).toBe(0)
-  expect((await nawaban('event', id, '--kind', 'link', '--body', 'pr:https://github.com/acme/web/pull/1')).code).toBe(0)
+  expect((await nawaban('event', id, 'note', 'halfway')).code).toBe(0)
+  expect((await nawaban('event', id, 'decision', '决定：sqlite\n背景：which db?\n否决方案：pg - too big', '--by', 'user')).code).toBe(0)
+  expect((await nawaban('event', id, 'link', 'pr:https://github.com/acme/web/pull/1')).code).toBe(0)
   expect((await taskWithEachReplysBlocks(id)).replies).toEqual(['halfway', 'nawaban-decision@1', 'nawaban-link@1'])
   const { replies } = await team.thread(id)
   expect(replies[1]!.blocks[0]!.data).toEqual({ question: 'which db?', verdict: 'sqlite', rejected: ['pg - too big'], by: 'user' })
@@ -194,7 +194,7 @@ it("holds the board's own writers to the card, not only nawaban event", async ()
 })
 
 it('says an unknown task is unknown, as a refusal', async () => {
-  const resolve = await nawaban('event', '9999', '--kind', 'resolve', '--body', 'yes')
+  const resolve = await nawaban('event', '9999', 'resolve', 'yes')
   expect(resolve.code).toBe(1)
   expect(resolve.err).toMatch(/^error: no task 9999/)
 })

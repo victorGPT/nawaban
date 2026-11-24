@@ -46,6 +46,47 @@ def test_an_ask_recorded_this_turn_lets_it_through(tmp_path):
     assert _hook(tmp_path, QUESTION, _transcript(tmp_path, board)) is None
 
 
+def test_an_ask_in_the_board_grammar_lets_it_through(tmp_path):
+    for cmd in ("nawaban event X-1 ask 定 A 还是 B --kr K --context c --option A --option B --rec A",
+                "nawaban event '#7' ask '定 A 还是 B' --kr K", 'nawaban event "#7" ask x',
+                json.dumps("nawaban event '#7' ask x"), "await $`nawaban ${['event', '#7', 'ask', 'x']}`"):
+        assert _hook(tmp_path, QUESTION, _transcript(tmp_path, "ls", cmd)) is None, cmd
+
+
+def test_an_ask_with_flags_before_its_kind_lets_it_through(tmp_path):
+    for cmd in ("nawaban event X --as cc-12345678 ask ship? --kr K --context c --option A --option B --rec A",
+                "nawaban event X --kr=K ask x", "cd repo && nawaban event X ask x; ls",
+                "nawaban event X --kind note --body 'triage: needs-info — 等你：ship?'\nnawaban event Y --kind note --body done",
+                "nawaban event X ask x\nnawaban event Y note done",
+                "nawaban event X note \\\n  'triage: needs-info — 等你：ship?'",
+                "nawaban event X note - <<'EOF'\ntriage: needs-info — 等你：ship?\nEOF"):
+        assert _hook(tmp_path, QUESTION, _transcript(tmp_path, cmd)) is None, cmd
+
+
+def test_quoting_an_ask_inside_another_event_is_not_recording(tmp_path):
+    for cmd in ("nawaban event X note '示例：nawaban event X ask x'",
+                "nawaban event X-1 decision '决定：先问 nawaban event X-2 ask 再说'", "echo event; nawaban show ask"):
+        assert _hook(tmp_path, QUESTION, _transcript(tmp_path, cmd))["decision"] == "block", cmd
+
+
+def test_whatever_main_read_as_recorded_still_is(tmp_path):
+    spread_over_lines = "await $`nawaban ${[\n  \"event\", \"X\",\n  \"note\", \"triage: needs-info — 等你：ship?\"\n]}`"
+    two_commands = "nawaban event X --kind note --body 'triage: needs-info — 等你：ship?'\nnawaban event Y --kind note --body done"
+    for cmd in (spread_over_lines, two_commands):
+        assert _hook(tmp_path, QUESTION, _transcript(tmp_path, cmd)) is None, cmd
+
+
+def test_the_old_grammar_still_lets_it_through(tmp_path):
+    assert _hook(tmp_path, QUESTION, _transcript(tmp_path, "ls", ASK)) is None
+
+
+def test_neither_grammar_recorded_is_sent_back_with_the_board_remedy(tmp_path):
+    for cmd in ("nawaban event X-1 note '下一步：ask 决策者'", "nawaban event X-1 note ask"):
+        out = _hook(tmp_path, QUESTION, _transcript(tmp_path, "ls", cmd))
+        assert out["decision"] == "block", cmd
+    assert "nawaban event <ID> note 'triage: needs-info — 等你：<问题>'" in out["reason"]
+
+
 def test_searching_for_the_words_is_not_recording(tmp_path):
     assert _hook(tmp_path, QUESTION, _transcript(tmp_path, 'rg "triage: needs-info" skills'))["decision"] == "block"
 

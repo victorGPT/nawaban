@@ -86,7 +86,7 @@ it('prints the board in the shape the panel reads, and the panel draws the 等�
     expect(s01).toBe('S-01')
     await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'close', 'S-01', '--done')
     await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'claim', 'S-02')
-    expect((await nawaban(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'event', await id('S-02'), '--kind', 'decision', '--question', '先迁哪个', '--verdict', '先只读\n第二行', '--rejected', '全迁')).code).toBe(0)
+    expect((await nawaban(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'event', await id('S-02'), 'decision', '决定：先只读\n背景：先迁哪个\n否决方案：全迁\n影响：第二行')).code).toBe(0)
     expect((await nawaban(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'event', await id('S-02'), '--kind', 'note', '--body', 'verify：测试通过')).code).toBe(0)
   }
   const qWorkerAsksTheDecisionMakerAndTheHoldEndsItsClaim = async () => {
@@ -123,7 +123,7 @@ it('prints the board in the shape the panel reads, and the panel draws the 等�
   expect(byId['P'].pending.card).toEqual({ decision: '发不发', kr: 'K', context: '事实', rec: '发',
     options: [{ key: '第 1 项', text: '发', note: '快｜two-way' }, { key: '第 2 项', text: '不发', note: '稳｜two-way' }] })
   expect(byId['D']).toMatchObject({ status: 'open', session: null, terminal: null, leader: 'cc-aaaa1111', claimed_at: null })
-  expect(data.decisions).toEqual([expect.objectContaining({ task: 'S-02', verdict: '先只读\n第二行', owner: false })])
+  expect(data.decisions).toEqual([expect.objectContaining({ task: 'S-02', verdict: '先只读\n影响：第二行', owner: false })])
 
   const now = Math.floor(Date.now() / 1000)
   const agent = (address: string, status: string, tab_name: string) => ({ address, status, tab_name, title: 'claude', space: 'here', seq: 1 })
@@ -149,7 +149,7 @@ it('prints a task with its parent, blockers, notes, decisions and events', async
   const t = await read('task', 'S-02')
   expect(Object.keys(t).sort()).toEqual(['id', 'title', 'body', 'status', 'project', 'session', 'created_at', 'parent', 'children', 'blocked_by', 'dependents', 'latest_note', 'decisions', 'links', 'pulls', 'events', 'narration'].sort())
   expect(t).toMatchObject({ id: 'S-02', status: 'in_progress', session: 'cc-aaaa1111', parent: { id: 'S', status: 'open' }, blocked_by: [{ id: 'S-01', status: 'done' }], latest_note: { kind: 'note', body: 'verify：测试通过' }, narration: [] })
-  expect((await read('task', 'S-02')).decisions[0].body).toBe('决定：先只读\n第二行\n背景：先迁哪个\n否决方案：全迁')
+  expect((await read('task', 'S-02')).decisions[0].body).toBe('决定：先只读\n影响：第二行\n背景：先迁哪个\n否决方案：全迁')
   expect((await read('task', 'S')).children.map((c: { id: string }) => c.id)).toEqual(['S-01', 'S-02'])
   const missing = await nawaban(ORCHESTRATOR_WINDOW_IN_T1, '', 'json', 'task', 'NOPE')
   expect([missing.code, JSON.parse(missing.out).error]).toEqual([1, '任务不存在:NOPE'])
