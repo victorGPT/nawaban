@@ -66,20 +66,20 @@ describe('detailView timeline', () => {
       ev('link', 'artifact:https://claude.ai/artifact/X', at(24, 11)),
     ]), task(), NOW)
     expect(view.timeline.total).toBe(0)
-    expect(view.links.map(({ label, href }) => ({ label, href }))).toEqual([
-      { label: 'PR #136', href: 'https://github.com/o/r/pull/136' },
-      { label: 'd33f79c', href: null },
-      { label: 'artifact', href: 'https://claude.ai/artifact/X' },
+    expect(view.facts.outputs).toEqual([
+      { label: 'PR #136', note: null, href: 'https://github.com/o/r/pull/136' },
+      { label: '提交 d33f79c', note: null, href: null },
+      { label: '设计稿', note: null, href: 'https://claude.ai/artifact/X' },
     ])
   })
 
   it('names whoever holds the task by the worker it was dispatched to, with its terminal, never by the session id', () => {
     const dispatched = detailView(detail([ev('dispatch', '{"worker":"w-old"}', at(24, 8)), ev('dispatch', '{"worker":"w-new"}', at(24, 9))]), task({ terminal: 't1j6' }), NOW)
-    expect(dispatched.holder).toEqual({ name: 'w-new', terminal: 't1j6' })
-    expect([dispatched.dispatchedAt, detailView(detail([]), task(), NOW).dispatchedAt]).toEqual([at(24, 9), null])
-    expect(detailView(detail([]), task({ terminal: 't1j6' }), NOW).holder).toEqual({ name: 't1j6', terminal: null })
-    expect(detailView(detail([]), task({ status: 'open', session: null }), NOW).holder).toBeNull()
-    expect(detailView(detail([]), task({ session: 'cc-1234', terminal: null }), NOW).holder).toBeNull()
+    expect(dispatched.facts.holder).toEqual({ name: 'w-new', terminal: 't1j6' })
+    expect([dispatched.facts.dispatchedAt, detailView(detail([]), task(), NOW).facts.dispatchedAt]).toEqual([at(24, 9), null])
+    expect(detailView(detail([]), task({ terminal: 't1j6' }), NOW).facts.holder).toEqual({ name: 't1j6', terminal: null })
+    expect(detailView(detail([]), task({ status: 'open', session: null }), NOW).facts.holder).toBeNull()
+    expect(detailView(detail([]), task({ session: 'cc-1234', terminal: null }), NOW).facts.holder).toBeNull()
   })
 
   it('opens a dispatch onto what counts as done', () => {
@@ -175,5 +175,33 @@ describe('detailView decision cards', () => {
     expect(lines(view)).toEqual([['今天', ['decision 就 A', 'ask 用 A 还是 B']]])
     expect(view.timeline.everything[0]!.rows[1]).toMatchObject({ full: '用 A 还是 B\n两种都能做\nA｜快\nB｜稳\n建议：A' })
     expect(view.ruling).toMatchObject({ line: '就 A', by: 'owner' })
+  })
+})
+
+describe('detailView facts', () => {
+  it('says one word for the state, 等你 over 卡住 when it waits for the decision-maker, 取消 for a cancelled task', () => {
+    const word = (over: Partial<BoardTask>, status = 'in_progress') => detailView(detail([], { status }), task(over), NOW).facts.stateWord
+    expect([word({}), word({ waiting: '行不行' }), word({ active_at: NOW - 30 * 3600 }), word({ status: 'done', done_at: NOW }), word({ status: 'open', session: null })]).toEqual(['进行中', '等你', '卡住', '完成', '待办'])
+    expect(detailView(detail([], { status: 'cancelled' }), null, NOW).facts).toMatchObject({ stateWord: '取消', cancelled: true })
+  })
+
+  it('reads the lane, the goal it serves, and only the blockers still open', () => {
+    const impact = JSON.stringify({ objective: '决策者少被打断', krs: [{ name: '回报一行', dir: '=' }, { name: '等你准确', dir: '↑', before: '0', after: '1', basis: '预计' }] })
+    const facts = detailView(detail([ev('note', 'lane: design', at(24, 8)), ev('impact', impact, at(24, 9))], {
+      blocked_by: [{ id: 'A', title: 'a', status: 'done' }, { id: 'B', title: 'b', status: 'open' }],
+    }), task(), NOW).facts
+    expect(facts).toMatchObject({ lane: 'design', goal: '决策者少被打断 / 回报一行、等你准确', blockedBy: [{ id: 'B' }] })
+    expect(detailView(detail([ev('impact', JSON.stringify({ objective: '无', krs: [] }), at(24, 9))]), task(), NOW).facts.goal).toBeNull()
+  })
+
+  it('marks a pull request merged once the task records it, and lists it once', () => {
+    const facts = detailView(detail([ev('link', 'pr:https://github.com/o/r/pull/124', at(24, 9)), ev('link', 'pr:https://github.com/o/r/pull/124 merged 61175c7', at(24, 10)), ev('link', 'adr:docs/adr/0003-web-page.md', at(24, 11))]), task(), NOW).facts
+    expect(facts.outputs).toEqual([{ label: 'PR #124', note: '已合并', href: 'https://github.com/o/r/pull/124' }, { label: 'ADR 0003', note: null, href: null }])
+  })
+
+  it('says how long a held task has been going and how long a finished one took', () => {
+    expect(detailView(detail([]), task({ claimed_at: NOW - 2 * 3600 }), NOW).facts.took).toBe('开工至今 2 小时')
+    expect(detailView(detail([], { status: 'done' }), task({ status: 'done', claimed_at: NOW - 3 * 3600, done_at: NOW - 3600 }), NOW).facts.took).toBe('用时 2 小时')
+    expect(detailView(detail([]), task({ status: 'open', session: null, claimed_at: null }), NOW).facts.took).toBeNull()
   })
 })

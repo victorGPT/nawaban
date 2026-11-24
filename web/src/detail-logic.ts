@@ -21,9 +21,25 @@ export type Day = { key: string; label: string; rows: Row[] }
 export type Step = { word: string; status: 'completed' | 'in_progress' | 'pending' }
 export type Timeline = { forTheOwner: Day[]; everything: Day[]; total: number }
 export type Holder = { name: string; terminal: string | null }
+export type Output = { label: string; note: string | null; href: string | null }
+export type Facts = {
+  stateWord: string
+  cancelled: boolean
+  holder: Holder | null
+  dispatchedAt: number | null
+  lane: string | null
+  goal: string | null
+  parent: Ref | null
+  children: Ref[]
+  blockedBy: Ref[]
+  dependents: Ref[]
+  outputs: Output[]
+  createdAt: number
+  took: string | null
+}
 export type Section = { label: string | null; html: string }
 export type Part = string | { label: string; href: string }
-export type Link = { kind: string; label: string; href: string | null }
+export type Link = { kind: string; ref: string; label: string; href: string | null }
 export type DetailView = {
   state: ItemState
   headline: Part[]
@@ -33,9 +49,7 @@ export type DetailView = {
   ruling: Ruling | null
   sections: Section[]
   timeline: Timeline
-  dispatchedAt: number | null
-  holder: Holder | null
-  links: Link[]
+  facts: Facts
 }
 
 const OWNER_AUTHOR = 'user'
@@ -86,10 +100,12 @@ function cardOf(body: string) {
 }
 
 function linkLabel(body: string): Link {
-  const { kind, ref, href } = linkOf(body)
-  if (kind === 'pr') return { kind, label: 'PR' + (PR_NUMBER.exec(ref) ? ' #' + PR_NUMBER.exec(ref)![1] : ''), href }
-  if (kind === 'commit') return { kind, label: ref.slice(0, SHORT_SHA), href }
-  return { kind, label: kind || ref, href }
+  const { kind, ref: said } = linkOf(body)
+  const ref = said.trim().split(/\s+/)[0]!
+  const href = linkOf(kind + ':' + ref).href
+  if (kind === 'pr') return { kind, ref, label: 'PR' + (PR_NUMBER.exec(ref) ? ' #' + PR_NUMBER.exec(ref)![1] : ''), href }
+  if (kind === 'commit') return { kind, ref, label: ref.slice(0, SHORT_SHA), href }
+  return { kind, ref, label: kind || ref, href }
 }
 
 function partsOf(text: string): Part[] {
@@ -186,10 +202,52 @@ const HEADLINE_OF: Record<ItemState, (task: BoardTask, seen: { steps: Step[] | n
   done: (task, { pr }) => [joined(W.done, task.done_at ? stampOf(task.done_at) : null), ...(pr?.href ? [' · ', { label: pr.label, href: pr.href }] : [])],
 }
 
+const LANE_NOTE = /^lane:\s*(\S.*)$/
+const MERGED_MARK = /\smerged\b/
+const ADR_NUMBER = /\d{3,}/
+const NO_OBJECTIVE = '无'
+const CLOSED = new Set(['done', 'cancelled'])
+
+const STATE_WORDS: Record<ItemState, (waiting: boolean) => string> = {
+  todo: () => W.todo,
+  working: () => W.pushing,
+  stopped: (waiting) => (waiting ? W.waiting : '卡住'),
+  done: () => '完成',
+}
+
+const OUTPUT_OF: Record<string, (link: Link, merged: boolean) => Output> = {
+  pr: (link, merged) => ({ label: link.label, note: merged ? '已合并' : null, href: link.href }),
+  artifact: (link) => ({ label: '设计稿', note: null, href: link.href }),
+  adr: (link) => ({ label: 'ADR ' + (ADR_NUMBER.exec(link.ref)?.[0] ?? link.ref), note: null, href: link.href }),
+  commit: (link) => ({ label: '提交 ' + link.label, note: null, href: link.href }),
+}
+
+function outputsOf(links: Event[]): Output[] {
+  const mergedPrs = new Set(links.filter((e) => MERGED_MARK.test(e.body)).map((e) => linkLabel(e.body).label))
+  const outputs = links.map((e) => linkLabel(e.body)).map((link) => OUTPUT_OF[link.kind]?.(link, mergedPrs.has(link.label)) ?? { label: link.label, note: null, href: link.href })
+  return outputs.filter((o, i) => outputs.findIndex((x) => x.label === o.label && x.href === o.href) === i)
+}
+
+function goalOf(events: Event[]) {
+  const impact = dataOf(events.filter((e) => e.kind === 'impact').at(-1)?.body ?? '')
+  const krs = (Array.isArray(impact.krs) ? (impact.krs as { name?: string }[]) : []).map((k) => k.name).filter(Boolean)
+  return impact.objective && impact.objective !== NO_OBJECTIVE ? [impact.objective, krs.join('、')].filter(Boolean).join(' / ') : null
+}
+
+function tookOf(state: ItemState, boardTask: BoardTask | null, dispatchedAt: number | null, now: number) {
+  const started = boardTask?.claimed_at ?? dispatchedAt
+  if (!boardTask || started == null) return null
+  if (state === 'done') return boardTask.done_at ? '用时 ' + sinceLabel({ state: 'working', at: started }, boardTask.done_at, 'zh') : null
+  return HELD.includes(state) ? '开工至今 ' + sinceLabel({ state: 'working', at: started }, now, 'zh') : null
+}
+
 export function detailView(detail: Detail, boardTask: BoardTask | null, now: number): DetailView {
   const state: ItemState = boardTask ? stateOf(boardTask, now) : detail.status === 'done' ? 'done' : 'todo'
   const said = oldestFirst(detail.events).map((e) => ROW_OF_EVENT[e.kind]?.(e) ?? null).filter((r): r is Row => r !== null)
-  const dispatches = oldestFirst(detail.events).filter((e) => e.kind === 'dispatch')
+  const events = oldestFirst(detail.events)
+  const dispatches = events.filter((e) => e.kind === 'dispatch')
+  const dispatchedAt = dispatches.at(-1)?.at ?? null
+  const cancelled = detail.status === 'cancelled'
   const lastWorker = dispatches.map((e) => workerOf(e.body)).filter(Boolean).at(-1)
   const latestDecision = said.filter((r) => r.kind === 'decision').at(-1)
   const steps = boardTask && HELD.includes(state) ? stepsAt(boardTask.live?.milestone ?? 'started') : null
@@ -203,8 +261,20 @@ export function detailView(detail: Detail, boardTask: BoardTask | null, now: num
     ruling: latestDecision ? { at: latestDecision.at, line: latestDecision.line, full: latestDecision.full, by: latestDecision.by, question: latestDecision.question } : null,
     sections: sectionsOf(detail.body ?? ''),
     timeline: { forTheOwner: daysOf(said.filter(isForTheOwner), now), everything: daysOf(said, now), total: said.length },
-    dispatchedAt: dispatches.at(-1)?.at ?? null,
-    holder: boardTask?.session && (lastWorker ?? boardTask.terminal) ? { name: (lastWorker ?? boardTask.terminal)!, terminal: lastWorker ? (boardTask.terminal ?? null) : null } : null,
-    links,
+    facts: {
+      stateWord: cancelled ? '取消' : STATE_WORDS[state](!!boardTask?.waiting),
+      cancelled,
+      holder: boardTask?.session && (lastWorker ?? boardTask.terminal) ? { name: (lastWorker ?? boardTask.terminal)!, terminal: lastWorker ? (boardTask.terminal ?? null) : null } : null,
+      dispatchedAt,
+      lane: events.map((e) => (e.kind === 'note' ? LANE_NOTE.exec(e.body.trim())?.[1]?.trim() : null)).filter(Boolean).at(-1) ?? null,
+      goal: goalOf(events),
+      parent: detail.parent,
+      children: detail.children,
+      blockedBy: detail.blocked_by.filter((r) => !CLOSED.has(r.status)),
+      dependents: detail.dependents,
+      outputs: outputsOf(events.filter((e) => e.kind === 'link')),
+      createdAt: detail.created_at,
+      took: tookOf(state, boardTask, dispatchedAt, now),
+    },
   }
 }

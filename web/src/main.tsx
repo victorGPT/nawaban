@@ -424,16 +424,15 @@ function TaskDetail(props: { key: string; detail: Detail | null; task: BoardTask
 }
 
 function DetailCard(props: { detail: Detail; view: DetailView; task: BoardTask | null; folds: Folds }) {
-  const look = () => STATE_ICONS[props.view.state]
+  const look = () => stateLook(props.view)
   const saysSomethingNow = () => props.view.headline.length || props.view.steps || props.view.ruling || props.view.sections.length
   return (
     <article class="mx-auto flex w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-card">
-      <header class="flex flex-col gap-2 border-b border-border px-6 py-5 max-md:px-4">
+      <header class="border-b border-border px-6 py-5 max-md:px-4">
         <div class="flex items-start gap-3">
           <Icon name={look().icon} class={cn('mt-1 size-5', look().tone)} />
           <h2 class="min-w-0 text-2xl leading-tight font-semibold text-foreground [overflow-wrap:anywhere]">{props.detail.title}</h2>
         </div>
-        <p class={cn(metaText, 'pl-8')}>建于 {stampOf(props.detail.created_at)}</p>
       </header>
       <div class="flex max-md:flex-col">
         <div class="flex min-w-0 flex-1 flex-col max-md:contents">
@@ -445,8 +444,8 @@ function DetailCard(props: { detail: Detail; view: DetailView; task: BoardTask |
           </Show>
           <Timeline timeline={props.view.timeline} waiting={props.view.waiting} folds={props.folds} />
         </div>
-        <aside class="flex w-72 shrink-0 flex-col gap-4 border-l border-border p-6 max-md:order-2 max-md:w-full max-md:border-t max-md:border-l-0 max-md:p-4">
-          <SideFields detail={props.detail} view={props.view} task={props.task} />
+        <aside class="flex w-72 shrink-0 flex-col divide-y divide-border border-l border-border px-6 max-md:order-2 max-md:w-full max-md:border-t max-md:border-l-0 max-md:px-4">
+          <SideFields view={props.view} />
         </aside>
       </div>
     </article>
@@ -632,53 +631,69 @@ function RefField(props: { label: string; refs: Ref[] }) {
   )
 }
 
-function SideFields(props: { detail: Detail; view: DetailView; task: BoardTask | null }) {
-  const look = () => STATE_ICONS[props.view.state]
-  const stateWord = () => (props.view.state === 'stopped' && props.view.waiting ? W.waiting : W.groups[props.view.state])
+const CANCELLED_LOOK: { icon: IconName; tone: string } = { icon: 'CircleX', tone: 'text-subtle-foreground' }
+const stateLook = (view: DetailView) => (view.facts.cancelled ? CANCELLED_LOOK : STATE_ICONS[view.state])
+const fieldGroup = 'flex flex-col gap-4 py-5'
+
+function SideFields(props: { view: DetailView }) {
+  const f = () => props.view.facts
   return (
     <>
-      <Field label="状态">
-        <span class="flex items-center gap-2 text-sm text-foreground">
-          <Icon name={look().icon} class={look().tone} />
-          {stateWord()}
-        </span>
-      </Field>
-      <Show when={props.view.dispatchedAt}>
-        {(at) => (
-          <Field label="派发">
-            <span class="text-sm text-foreground tabular-nums">{stampOf(at())}</span>
-          </Field>
-        )}
-      </Show>
-      <Show when={props.view.holder}>
-        {(holder) => (
-          <Field label="负责">
-            <span class="flex min-w-0 items-baseline gap-2 text-sm text-foreground">
-              <span class="truncate">{holder().name}</span>
-              <Show when={holder().terminal}>{(terminal) => <span class={metaText}>{terminal()}</span>}</Show>
-            </span>
-          </Field>
-        )}
-      </Show>
-      <RefField label="上级" refs={props.detail.parent ? [props.detail.parent] : []} />
-      <RefField label="子票" refs={props.detail.children} />
-      <RefField label="被挡" refs={props.detail.blocked_by} />
-      <RefField label="挡着" refs={props.detail.dependents} />
-      <Show when={props.view.links.length}>
-        <Field label="链接">
-          <ul class="flex flex-col gap-1.5">
-            <For each={props.view.links}>
-              {(link) => (
-                <li class="flex min-w-0 text-sm text-foreground">
-                  <Show when={link.href} fallback={<span class="truncate">{link.label}</span>}>
-                    {(href) => <a class={cn('truncate', quietLink)} href={href()} target="_blank" rel="noreferrer">{link.label}</a>}
-                  </Show>
-                </li>
-              )}
-            </For>
-          </ul>
+      <div class={fieldGroup}>
+        <Field label="状态">
+          <span class="flex items-center gap-2 text-sm text-foreground">
+            <Icon name={stateLook(props.view).icon} class={stateLook(props.view).tone} />
+            {f().stateWord}
+          </span>
         </Field>
+        <Show when={f().holder}>
+          {(holder) => (
+            <Field label="负责">
+              <span class="flex min-w-0 items-baseline gap-2 text-sm text-foreground">
+                <span class="truncate">{holder().name}</span>
+                <Show when={holder().terminal}>{(terminal) => <span class={metaText}>{terminal()}</span>}</Show>
+              </span>
+            </Field>
+          )}
+        </Show>
+        <Show when={f().dispatchedAt}>{(at) => <Field label="派发"><span class="text-sm text-foreground tabular-nums">{stampOf(at())}</span></Field>}</Show>
+        <Show when={f().lane}>{(lane) => <Field label="泳道"><span class="truncate text-sm text-foreground">{lane()}</span></Field>}</Show>
+      </div>
+      <Show when={f().goal || f().parent || f().children.length}>
+        <div class={fieldGroup}>
+          <Show when={f().goal}>{(goal) => <Field label="目标"><span class="text-sm text-foreground [overflow-wrap:anywhere]">{goal()}</span></Field>}</Show>
+          <RefField label="上级" refs={f().parent ? [f().parent!] : []} />
+          <RefField label="子票" refs={f().children} />
+        </div>
       </Show>
+      <Show when={f().blockedBy.length || f().dependents.length}>
+        <div class={fieldGroup}>
+          <RefField label="被挡" refs={f().blockedBy} />
+          <RefField label="挡着" refs={f().dependents} />
+        </div>
+      </Show>
+      <Show when={f().outputs.length}>
+        <div class={fieldGroup}>
+          <Field label="产出">
+            <ul class="flex flex-col gap-1.5">
+              <For each={f().outputs}>
+                {(output) => (
+                  <li class="flex min-w-0 items-baseline gap-2 text-sm text-foreground">
+                    <Show when={output.href} fallback={<span class="truncate">{output.label}</span>}>
+                      {(href) => <a class={cn('truncate', quietLink)} href={href()} target="_blank" rel="noreferrer">{output.label}</a>}
+                    </Show>
+                    <Show when={output.note}>{(note) => <span class={metaText}>{note()}</span>}</Show>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Field>
+        </div>
+      </Show>
+      <p class={cn(metaText, 'py-4')}>
+        建于 {stampOf(f().createdAt)}
+        <Show when={f().took}>{(took) => <> · {took()}</>}</Show>
+      </p>
     </>
   )
 }
