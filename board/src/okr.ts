@@ -545,7 +545,8 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
     const aspirationalScore = scored.length ? shown({ num: sum.num, den: sum.den * BigInt(scored.length) }) : null
     const bar = fractionOf(ASPIRATIONAL_DONE_SCORE)
     const reachesTheBar = sum.num * bar.den >= bar.num * BigInt(scored.length) * sum.den
-    const done = committed.length + scored.length > 0 && committed.every((k) => k.status === 'met') && reachesTheBar
+    const everyCountedKrReads = krs.filter((k) => k.kind === 'committed' || k.wait === null).every((k) => !UNSCORED_STATUSES.has(k.status))
+    const done = committed.length + scored.length > 0 && committed.every((k) => k.status === 'met') && everyCountedKrReads && reachesTheBar
     const pending = done && (!accepts.has(name) || missedSinceAccept)
     const scoreText = aspirationalScore === null ? '' : `、进取型均分 ${aspirationalScore.toFixed(SCORE_PLACES)}`
     if (pending) out.attention.push({ kind: 'accept', objective: name, kr: null, text: `${name} 承诺型全过${scoreText}，待你验收（nawaban okr --accept）` })

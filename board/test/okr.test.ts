@@ -962,6 +962,12 @@ describe('committed KRs hold a line, aspirational ones score, and an Objective i
     expect(standingText(data)).toBe('O O · 进取均分 0.70 · 未收工(进取均分要 ≥ 0.7)')
   })
 
+  it('keeps an Objective from done while any counted KR cannot be read, however high the rest score', () => {
+    const krs: Kr[] = ['A', 'B', 'C', 'D'].map((name) => ({ name, target: '>= 100' }))
+    const data = judge(o(krs), ['A', 'B', 'C'].map((k) => reading(k, 100, at)), new Map(), new Map(), '/r', null)
+    expect([data.objectives[0]!.aspirational_score, data.objectives[0]!.done]).toEqual([0.75, false])
+  })
+
   it('averages exact fractions, so two thirds and eleven fifteenths are done', () => {
     const krs: Kr[] = [{ name: 'A', target: '>= 3', baseline: '0' }, { name: 'B', target: '>= 15', baseline: '0' }]
     const data = judge(o(krs), [{ ...reading('A', 2, at) }, reading('B', 11, at)], new Map(), new Map(), '/r', null)
