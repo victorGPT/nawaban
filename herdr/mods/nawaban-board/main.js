@@ -262,7 +262,7 @@ export default class NawabanBoard extends View {
     this.placeShown = key;
     cx.spawn(async (cx) => {
       try {
-        const git = await this.gitOf(at), via = await this.cliOf(at), repo = repoRootOf(git);
+        const git = await this.gitOf(at), via = await this.cliOf(at, true), repo = repoRootOf(git);
         const projects = await nawaban(["json", "projects"], at, undefined, via);
         if (!this.projectOfPlace.has(key)) await this.learnPlace(at, git, projects, via);
         this.db = this.boardFileOfPlace.get(key);
@@ -328,16 +328,17 @@ export default class NawabanBoard extends View {
     return this.gitDirOfPlace.get(at.key);
   }
 
-  cliOf(at) {
+  cliOf(at, reads = false) {
     if (at.on) return "old";
-    if (!this.cliOfPlace.has(at.key)) {
-      const routed = exec("node", [ROUTE(), at.cwd], { cwd: at.cwd }).then((r) => (r.code === 0 ? r.stdout : null), () => null);
-      this.cliOfPlace.set(at.key, routed.then((out) => {
-        if (out === null) this.cliOfPlace.delete(at.key);
+    const key = (reads ? "reads|" : "") + at.key;
+    if (!this.cliOfPlace.has(key)) {
+      const routed = exec("node", [ROUTE(), at.cwd, ...(reads ? ["--reads"] : [])], { cwd: at.cwd }).then((r) => (r.code === 0 ? r.stdout : null), () => null);
+      this.cliOfPlace.set(key, routed.then((out) => {
+        if (out === null) this.cliOfPlace.delete(key);
         return ROUTED_TO_BOARD.test(out ?? "") ? "board" : "old";
       }));
     }
-    return this.cliOfPlace.get(at.key);
+    return this.cliOfPlace.get(key);
   }
 
   watch(db, cx) {
@@ -412,6 +413,7 @@ export default class NawabanBoard extends View {
   statusNote(v, windows, w) {
     if (this.error) return w.error + ": " + this.error;
     if (!this.board) return w.loading;
+    if (this.board.syncNote) return this.board.syncNote;
     const nothingToShow = !v.waiting.length && !v.tasks.length && !windows.length;
     return nothingToShow ? w.none : null;
   }

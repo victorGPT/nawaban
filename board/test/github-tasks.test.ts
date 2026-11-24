@@ -6,7 +6,10 @@ import { board, type MessageView } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { deliverAsSignedWebhook, importOnlySync, pollRepo, type Reader } from '../src/github-sync.ts'
 import { HELD_FOR_A_GITHUB_ASK, settleIssueTasks } from '../src/github-tasks.ts'
-import { verifier } from '../src/server.ts'
+import { site, verifier } from '../src/server.ts'
+import { answerToTheCurrentHold, webAnswers } from '../src/page.ts'
+import { registerSchemas } from '../src/schemas.ts'
+import { boardData } from '../src/views.ts'
 
 const REPO = 'acme/roubao'
 const SECRET = 'webhook-secret'
@@ -141,6 +144,113 @@ describe('从只记了开关的旧轮询状态升级', () => {
     expect((await theTask('ROUBAO-1760')).task?.state).toBe('ready')
     await poll(world)
     expect((await theTask('ROUBAO-1760')).task?.state).toBe('canceled')
+  })
+})
+
+describe('读的一侧', () => {
+  it('从 GitHub 导入的评论只有「进展：」算进展，去掉前缀和 marker', async () => {
+    await poll({
+      issues: [issue(1770, 'open', '2026-11-24T10:00:00Z')],
+      comments: [
+        comment(1770, '进展：做完了，下一步：合并\n\n<!-- nawaban {"v":1,"kind":"note","body":"做完了，下一步：合并"} -->', '2026-11-24T10:01:00Z', owner),
+        comment(1770, '没前缀的评论', '2026-11-24T10:02:00Z'),
+        comment(1770, '决定：选 B', '2026-11-24T10:03:00Z', owner),
+      ],
+    })
+    const { columns } = await boardData(team, 'roubao')
+    const row = columns.flatMap((c) => c.tasks as { id: string; progress?: { body: string } }[]).find((t) => t.id === 'ROUBAO-1770')!
+    expect(row.progress?.body).toBe('做完了，下一步：合并')
+  })
+})
+
+describe('网页答 GitHub 来的待决', () => {
+  it('看板 JSON 给出这条待决的 ID，网页按它答，答复记在板上、挂起不动、不写 GitHub', async () => {
+    await registerSchemas(team)
+    await poll({ issues: [issue(1780, 'open', '2026-11-24T10:00:00Z')], comments: [comment(1780, '待决：直达 X 上不上？', '2026-11-24T10:01:00Z')] })
+    const row = (await boardData(team, 'roubao')).columns.flatMap((c) => c.tasks as { id: string; pending?: { ask: string | null; brief: string } }[]).find((t) => t.id === 'ROUBAO-1780')!
+    expect(row.pending?.brief).toBe('直达 X 上不上？')
+    expect(row.pending?.ask).toBeTruthy()
+    const handler = site(team, { dir, webToken: 'web', boardToken: 'board-secret', port: 4999, dist: dir })
+    const answered = await handler(new Request('http://127.0.0.1:4999/api/nawaban/answer/ROUBAO-1780?project=roubao', {
+      method: 'POST',
+      headers: { host: '127.0.0.1:4999', authorization: 'Bearer web', origin: 'http://127.0.0.1:4999', 'content-type': 'application/json' },
+      body: JSON.stringify({ ask: row.pending!.ask, words: '先不上' }),
+    }))
+    expect(answered.status, await answered.clone().text()).toBe(201)
+    expect((await theTask('ROUBAO-1780')).task?.blocked?.kind).toBe('awaiting_approval')
+    expect((await webAnswers(team, 'roubao')).map((a) => [a.task, a.words])).toEqual([['ROUBAO-1780', '先不上']])
+  })
+})
+
+describe('网页的决策卡和答复轮次', () => {
+  const fullAsk = (what: string) => [`待决：决策事项：${what}`, '关联 KR：O1 肉包 MVP', '背景：分享面板要加渠道', '备选方案：', '- A：上｜多一个域名风险｜双向门', '- B：不上｜少一个渠道｜双向门', '建议：B，风险小'].join('\n')
+  const answerOn = async (key: string, ask: string, words: string) =>
+    site(team, { dir, webToken: 'web', boardToken: 'board-secret', port: 4999, dist: dir })(new Request(`http://127.0.0.1:4999/api/nawaban/answer/${key}?project=roubao`, {
+      method: 'POST',
+      headers: { host: '127.0.0.1:4999', authorization: 'Bearer web', origin: 'http://127.0.0.1:4999', 'content-type': 'application/json' },
+      body: JSON.stringify({ ask, words }),
+    }))
+  const pendingOf = async (key: string) =>
+    (await boardData(team, 'roubao')).columns.flatMap((c) => c.tasks as { id: string; pending?: { ask: string; card: { decision: string; options: unknown[] } | null } }[]).find((t) => t.id === key)!.pending!
+
+  it('GitHub 上写全了的待决在网页上是一张完整的决策卡，缺项的不是', async () => {
+    await poll({ issues: [issue(1790, 'open', '2026-11-24T10:00:00Z'), issue(1791, 'open', '2026-11-24T10:00:00Z')], comments: [comment(1790, fullAsk('直达 X 上不上'), '2026-11-24T10:01:00Z'), comment(1791, '待决：直达 X 上不上？', '2026-11-24T10:01:00Z')] })
+    expect((await pendingOf('ROUBAO-1790')).card).toMatchObject({ decision: '直达 X 上不上', options: [{ key: 'A', text: '上' }, { key: 'B', text: '不上' }] })
+    expect((await pendingOf('ROUBAO-1791')).card).toBeNull()
+  })
+
+  it('当前那张卡按 GitHub 上的先后定，不按导入的先后', async () => {
+    const older = { ...comment(1793, fullAsk('旧问题'), '2026-11-24T10:01:00Z'), updated_at: '2026-11-24T11:00:00Z' }
+    const newer = comment(1793, fullAsk('新问题'), '2026-11-24T10:02:00Z')
+    await poll({ issues: [issue(1793, 'open', '2026-11-24T10:00:00Z')], comments: [older, newer] })
+    expect((await pendingOf('ROUBAO-1793')).card?.decision).toBe('新问题')
+  })
+
+  it('网页答的那条待决在 GitHub 上被删了，答复不会挪到前一件待决头上', async () => {
+    await registerSchemas(team)
+    const a = comment(1794, fullAsk('A 件'), '2026-11-24T10:01:00Z')
+    const b = comment(1794, fullAsk('B 件'), '2026-11-24T10:02:00Z')
+    const world: World = { issues: [issue(1794, 'open', '2026-11-24T10:00:00Z')], comments: [a, b] }
+    await poll(world)
+    expect((await pendingOf('ROUBAO-1794')).card?.decision).toBe('B 件')
+    expect((await answerOn('ROUBAO-1794', (await pendingOf('ROUBAO-1794')).ask, '答 B')).status).toBe(201)
+    world.comments = [a]
+    await pollRepo(REPO, dir, { ...readerOf(world), now: async () => '2026-11-25T13:00:00.000Z' }, deliverAsSignedWebhook((r) => team.fetch(r), url, SECRET))
+    await importDrains()
+    await poll(world)
+    expect((await pendingOf('ROUBAO-1794')).card?.decision).toBe('A 件')
+    expect(await webAnswers(team, 'roubao')).toEqual([])
+  })
+
+  it('唯一那条 GitHub 待决删了、挂起还没解除时，没有答复算数', () => {
+    const task = { id: '3', text: 't', labels: { key: 'ROUBAO-1' }, task: { blocked: { kind: 'awaiting_approval', reason: `${HELD_FOR_A_GITHUB_ASK}问题` } } } as unknown as MessageView
+    const ask = { id: '2', from: 'github', origin: { message: '100' }, deleted: true, text: '待决：问题', labels: {}, blocks: [], createdAt: '2026-11-24T10:00:00Z' } as unknown as MessageView
+    const answer = { id: '4', labels: { answers: '2' }, createdAt: '2026-11-24T10:01:00Z', blocks: [{ schema: 'nawaban-web-answer', version: 1, data: { words: '旧答复' } }] } as unknown as MessageView
+    expect(answerToTheCurrentHold(task, [ask, answer])).toBeNull()
+  })
+
+  it('GitHub 上重开的 issue，新任务也能显示和回答原线程里的待决', async () => {
+    await registerSchemas(team)
+    const world: World = { issues: [issue(1795, 'closed', '2026-11-24T09:00:00Z')], comments: [comment(1795, fullAsk('重开后的问题'), '2026-11-24T08:00:00Z')] }
+    await poll(world)
+    world.issues[0] = issue(1795, 'open', '2026-11-24T11:00:00Z')
+    await poll(world)
+    const pending = await pendingOf('ROUBAO-1795')
+    expect(pending.card?.decision).toBe('重开后的问题')
+    expect((await answerOn('ROUBAO-1795', pending.ask, '选 A')).status).toBe(201)
+    expect((await webAnswers(team, 'roubao')).map((a) => [a.task, a.words])).toEqual([['ROUBAO-1795', '选 A']])
+  })
+
+  it('上一轮的网页答复不算到 GitHub 上新提的待决头上', async () => {
+    await registerSchemas(team)
+    const world: World = { issues: [issue(1792, 'open', '2026-11-24T10:00:00Z')], comments: [comment(1792, fullAsk('第一件'), '2026-11-24T10:01:00Z')] }
+    await poll(world)
+    expect((await answerOn('ROUBAO-1792', (await pendingOf('ROUBAO-1792')).ask, '选 B')).status).toBe(201)
+    expect(await webAnswers(team, 'roubao')).toHaveLength(1)
+    world.comments.push(comment(1792, '已决：选 B', '2026-11-24T10:05:00Z', owner), comment(1792, fullAsk('第二件'), '2026-11-24T10:06:00Z'))
+    await poll(world)
+    expect((await pendingOf('ROUBAO-1792')).card?.decision).toBe('第二件')
+    expect(await webAnswers(team, 'roubao')).toEqual([])
   })
 })
 

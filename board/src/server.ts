@@ -12,14 +12,14 @@ import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { githubBoards, githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type OldCli } from './github.ts'
-import { settleIssueTasks, type KnownIssue } from './github-tasks.ts'
+import { currentGithubAsk, githubRepliesOf, HELD_FOR_A_GITHUB_ASK, settleIssueTasks, type KnownIssue } from './github-tasks.ts'
 import { deliverAsSignedWebhook, ghReader, githubSyncConfig, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
 import { okrData } from './okr.ts'
 import { isLiveFileName, progressDir } from './progress.ts'
 import { noPullStates, pullStateFromGitHub, type PullStateOf } from './pulls.ts'
 import { Refused } from './tasks.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
-import { answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, webAnswers, webAnswerText } from './page.ts'
+import { ANSWERS_LABEL, answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, webAnswers, webAnswerText } from './page.ts'
 
 const DEFAULT_PORT = 4100
 const TOKEN_BYTES = 32
@@ -202,8 +202,8 @@ function changes(team: Team, dir: string, signal: AbortSignal, githubWrote: Even
   )
 }
 
-async function githubRepoOf(dir: string, project: string | null) {
-  const repos = project ? await githubRepos(dir) : {}
+async function githubRepoOf(dir: string, project: string | null, evenWhenSyncedToTheBoard = false) {
+  const repos = project ? await githubRepos(dir, { evenWhenSyncedToTheBoard }) : {}
   return project && Object.hasOwn(repos, project) ? repos[project]! : null
 }
 
@@ -244,7 +244,8 @@ async function githubView(github: Github, repo: string, what: string | undefined
 
 async function view(team: Team, dir: string, pullStateOf: PullStateOf, github: Github, path: string, query: URLSearchParams, signal: AbortSignal) {
   const [what, ...rest] = path.split('/')
-  const repo = await githubRepoOf(dir, query.get('project'))
+  const okrStaysOnGithubUntilItsReadingsMove = what === 'okr'
+  const repo = await githubRepoOf(dir, query.get('project'), okrStaysOnGithubUntilItsReadingsMove)
   const onGithub = repo && (await githubView(github, repo, what, rest))
   if (onGithub) return onGithub
   if (what === 'board' && !rest.length) return Response.json(await boardData(team, query.get('project') || undefined, dir))
@@ -318,13 +319,15 @@ async function answer(team: Team, asThisPerson: (body: unknown) => Promise<Respo
   const [task] = await team.tasks.list({ state: 'blocked', label: { key: ref } }).then((p) => p.tasks.map((t) => t.message))
   if (task?.task?.blocked?.kind !== 'awaiting_approval') return refuse(409, `${ref} 没有在等决策者答复`)
   const { replies } = await team.thread(task.id)
-  const current = replies.findLast((m) => !m.deleted && m.blocks.some((b) => b.schema === 'nawaban-ask'))
+  const githubReplies = await githubRepliesOf(team, task, replies)
+  const current = task.task.blocked.reason.startsWith(HELD_FOR_A_GITHUB_ASK) ? currentGithubAsk(githubReplies) : replies.findLast((m) => !m.deleted && m.blocks.some((b) => b.schema === 'nawaban-ask'))
   if (current?.id !== said.ask) return theCardChanged(ref)
-  const posted = await asThisPerson({ re: task.id, after: replies.at(-1)!.id, text: webAnswerText(said.answer) })
+  const boundToTheGithubAskItAnswers = current && current.from === 'github' ? { labels: { [ANSWERS_LABEL]: current.id } } : {}
+  const posted = await asThisPerson({ re: task.id, after: (replies.at(-1) ?? task).id, text: webAnswerText(said.answer), ...boundToTheGithubAskItAnswers })
   if (posted.status === 409) return theCardChanged(ref)
   if (!posted.ok) return refuse(502, `看板没收下答复：${posted.status}`)
   const written = await team.thread(task.id)
-  return Response.json(answerToTheCurrentHold(written.message, written.replies), { status: 201 })
+  return Response.json(answerToTheCurrentHold(written.message, written.replies, await githubRepliesOf(team, written.message, written.replies)), { status: 201 })
 }
 
 async function answerOnGithub(github: Github, repo: string, segment: string, request: Request) {

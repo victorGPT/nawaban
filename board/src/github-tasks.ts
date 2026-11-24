@@ -51,7 +51,7 @@ function markerOf(text: string): { kind?: unknown; body?: unknown } | null {
   }
 }
 
-function askOrRulingIn(text: string): { ask: string } | 'ruling' | null {
+export function askOrRulingIn(text: string): { ask: string } | 'ruling' | null {
   const marker = markerOf(text)
   if (marker && typeof marker.body === 'string') return marker.kind === 'ask' ? { ask: marker.body } : marker.kind === 'resolve' ? 'ruling' : null
   const visible = text.replace(TRAILING_NAWABAN_MARKER, '')
@@ -59,15 +59,31 @@ function askOrRulingIn(text: string): { ask: string } | 'ruling' | null {
   return RULING.test(visible) ? 'ruling' : null
 }
 
-function pendingGithubAsk(replies: MessageView[]) {
+export const githubAskIn = (m: MessageView) => {
+  if (m.from !== 'github' || m.deleted) return null
+  const said = askOrRulingIn(m.text)
+  return said && said !== 'ruling' ? said.ask : null
+}
+
+export async function githubRepliesOf(person: Person, task: MessageView, own: MessageView[]) {
+  const root = task.labels['issue-root']
+  return root ? (await person.thread(root)).replies : own
+}
+
+export function currentGithubAsk(replies: MessageView[]): MessageView | null {
   const inGithubOrder = replies.filter((r) => r.from === 'github' && !r.deleted).sort((a, b) => Number(a.origin?.message) - Number(b.origin?.message) || (a.createdAt < b.createdAt ? -1 : 1))
-  let pending: string | null = null
+  let pending: MessageView | null = null
   for (const r of inGithubOrder) {
     const said = askOrRulingIn(r.text)
     if (said === 'ruling') pending = null
-    else if (said) pending = said.ask
+    else if (said) pending = r
   }
   return pending
+}
+
+const pendingGithubAsk = (replies: MessageView[]) => {
+  const asked = currentGithubAsk(replies)
+  return asked ? githubAskIn(asked) : null
 }
 
 async function finishAsGithubClosedIt(person: Person, task: MessageView, closedAs: string | undefined) {

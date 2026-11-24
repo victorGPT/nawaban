@@ -1,4 +1,7 @@
 import { realpath } from 'node:fs/promises'
+import { currentGithubAsk, githubAskIn, githubRepliesOf, HELD_FOR_A_GITHUB_ASK } from './github-tasks.ts'
+import { cardFromAGithubAsk } from './github-card.ts'
+import { syncStalledNote } from './github-sync-status.ts'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { board, BoardEventView, MessageView } from '@vercel/board'
@@ -47,6 +50,7 @@ async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: Message
   const out = new Map<string, History>(tasks.map((t) => [t.id, { replies: [], holds: [], done: null, active: secs(t.createdAt) }]))
   if (!tasks.length) return out
   const seen = new Set<string>()
+  const replyOf = new Map<string, { h: History; reply: Reply }>()
   let after = tasks.reduce((a, t) => (Number(t.id) < Number(a) ? t.id : a), tasks[0]!.id)
   for (;;) {
     const { events, cursor } = await team.poll({ channel, after })
@@ -54,7 +58,10 @@ async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: Message
     if (feedEndsWhereTheCursorStaysNotAtAnEmptyPage) return out
     after = cursor
     for (const e of events as BoardEventView[]) {
-      const p = e.payload as { id?: string; by?: { actor: string } }
+      const p = e.payload as { id?: string; by?: { actor: string }; text?: string }
+      const changed = p.id ? replyOf.get(p.id) : undefined
+      if (changed && e.type === 'message.edited') changed.reply.message = { ...changed.reply.message, text: p.text ?? changed.reply.message.text }
+      if (changed && e.type === 'message.deleted') changed.h.replies = changed.h.replies.filter((r) => r !== changed.reply)
       const at = secs(e.createdAt)
       const m = e.message
       const thread = e.type === 'message.posted' ? m?.re : p.id
@@ -63,7 +70,9 @@ async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: Message
       h.active = Math.max(h.active, at)
       if (e.type === 'message.posted' && m && !m.deleted && !seen.has(m.id)) {
         seen.add(m.id)
-        h.replies.push({ message: m, at, by: windowProfileElseName(p.by?.actor ?? '') })
+        const reply = { message: m, at, by: windowProfileElseName(p.by?.actor ?? '') }
+        h.replies.push(reply)
+        replyOf.set(m.id, { h, reply })
       }
       const held = h.holds.at(-1)
       if (EVENTS_THAT_END_A_CLAIM.has(e.type) && held?.to === null) held.to = Date.parse(e.createdAt) / 1000
@@ -87,10 +96,14 @@ function completeCardElseNull(ask: DecisionCard | undefined) {
 const orchestratorAsTheGlossaryDefinesIt = (latestDispatch: Reply | undefined, holder: string | null, lastClaimer: string | null) =>
   latestDispatch?.by ?? holder ?? lastClaimer
 
-const isNote = (r: Reply) => r.message.blocks.length === 0
-const progress = (r: Reply | undefined) => (r ? { body: r.message.text, at: r.at } : null)
+const GITHUB_PROGRESS_PREFIX = /^\s*(?:#{1,6}\s*)?\**进展\**\s*(?:[（(][^）)\n]*[）)])?\**\s*[：:]\**\s*/
+const TRAILING_NAWABAN_MARKER = /\n*<!-- nawaban \{[^\n]*\} -->\s*$/
+const fromGithub = (r: Reply) => r.message.from === 'github'
+const visibleOnGithub = (r: Reply) => r.message.text.replace(TRAILING_NAWABAN_MARKER, '')
+const isNote = (r: Reply) => r.message.blocks.length === 0 && (!fromGithub(r) || GITHUB_PROGRESS_PREFIX.test(visibleOnGithub(r)))
+const progress = (r: Reply | undefined) => (r ? { body: fromGithub(r) ? visibleOnGithub(r).replace(GITHUB_PROGRESS_PREFIX, '') : r.message.text, at: r.at } : null)
 
-function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: string | null) {
+function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: string | null, githubReplies: MessageView[] = h.replies.map((r) => r.message)) {
   const t = m.task!
   const claim = live(t)
   const ask = t.blocked && HOLDS_THE_DECISION_MAKER_ANSWERS.has(t.blocked.kind ?? '') ? t.blocked : null
@@ -104,6 +117,9 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: st
   const decision = latest('nawaban-decision')
   const ruling = h.replies.findLast((r) => data(r.message, 'nawaban-decision')?.by === 'user')
   const card = latest('nawaban-ask')
+  const heldForAGithubAsk = t.blocked?.reason.startsWith(HELD_FOR_A_GITHUB_ASK) ?? false
+  const githubAsk = heldForAGithubAsk ? currentGithubAsk(githubReplies) : null
+  const asked = githubAsk ? { message: githubAsk, at: secs(githubAsk.createdAt) } : card
   const open = (t.needs ?? []).filter((id) => byId.get(id)?.task?.state !== 'completed')
   const out = {
     id: key(m),
@@ -131,11 +147,11 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: st
     pending:
       t.blocked?.kind === 'awaiting_approval'
         ? {
-            brief: String(card ? data(card.message, 'nawaban-ask')!.decision : t.blocked.reason),
-            at: card?.at ?? h.active,
+            brief: String(asked && githubAskIn(asked.message) !== null ? githubAskIn(asked.message) : card ? data(card.message, 'nawaban-ask')!.decision : t.blocked.reason),
+            at: asked?.at ?? h.active,
             progress: notes.slice(-NOTES_CARRIED_BY_A_PENDING_DECISION).map(progress),
-            card: completeCardElseNull(card && data(card.message, 'nawaban-ask')),
-            ask: card?.message.id ?? null,
+            card: asked && githubAskIn(asked.message) !== null ? cardFromAGithubAsk(githubAskIn(asked.message)!) : completeCardElseNull(card && data(card.message, 'nawaban-ask')),
+            ask: asked?.message.id ?? null,
           }
         : null,
   }
@@ -154,12 +170,13 @@ export async function boardData(team: Team, project?: string, dir: string | null
   const tasks = (await tasksOf(team, project)).filter((m) => m.task && m.task.state !== 'canceled' && m.task.state !== 'failed')
   const [byId, hist] = await Promise.all([withNeedsOfOtherProjectsSoABlockerReadsItsRealState(team, tasks), historiesFromTheFeedSinceTheOldestTask(team, tasks, project)])
   const byKey = new Map(tasks.map((t) => [key(t), t]))
+  const reopenedOnGithub = new Map(await Promise.all(tasks.filter((t) => t.labels['issue-root'] && !closed(t.task)).map(async (t) => [t.id, await githubRepliesOf(team, t, [])] as const)))
   const rows = tasks
     .map((m) => ({ m, h: hist.get(m.id)! }))
     .sort((a, b) => b.h.active - a.h.active || (key(a.m) < key(b.m) ? -1 : 1))
   const columns: Record<string, unknown[]> = { open: [], in_progress: [], done: [] }
   for (const { m, h } of rows) {
-    const r = row(m, h, byId, dir)
+    const r = row(m, h, byId, dir, reopenedOnGithub.get(m.id))
     const parent = m.labels.parent ? byKey.get(m.labels.parent) : undefined
     const doneStillShown = columns.done!.length < DONE_ALWAYS_SHOWN_LATEST || underAnOpenSpecThePanelTicks(parent) || (h.done ?? 0) >= now - DONE_ALSO_SHOWN_WITHIN
     if (r.status === 'done' && !doneStillShown) continue
@@ -173,7 +190,8 @@ export async function boardData(team: Team, project?: string, dir: string | null
       }),
     )
     .sort((a, b) => b.at - a.at)
-  return { columns: Object.entries(columns).map(([k, v]) => ({ key: k, tasks: v })), decisions }
+  const syncNote = dir && project ? await syncStalledNote(dir, project) : null
+  return { columns: Object.entries(columns).map(([k, v]) => ({ key: k, tasks: v })), decisions, ...(syncNote ? { syncNote } : {}) }
 }
 
 export async function projectsData(team: Team) {

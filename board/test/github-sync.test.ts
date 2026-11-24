@@ -1,10 +1,12 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
-import { deliverAsSignedWebhook, githubSyncConfig, importOnlySync, pollRepo, refusingGithubWrites, type Reader } from '../src/github-sync.ts'
+import { deliverAsSignedWebhook, githubSyncConfig, importOnlySync, pollRepo, recordRound, refusingGithubWrites, syncStalledNote, type Reader } from '../src/github-sync.ts'
+import { githubRepos } from '../src/github.ts'
+import { boardData } from '../src/views.ts'
 import { verifier } from '../src/server.ts'
 
 const REPO = 'acme/roubao'
@@ -212,5 +214,79 @@ describe('配置', () => {
   it('格式不对就说清楚该怎么写', async () => {
     await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 1 } }))
     await expect(githubSyncConfig(dir)).rejects.toThrow('"reader"')
+  })
+})
+
+describe('同步停了要露出来', () => {
+  const config = { repos: { [REPO]: 'roubao' }, reader: owner.login }
+  const now = Date.parse('2026-11-24T12:00:00Z')
+  beforeEach(async () => writeFile(join(dir, 'github-sync.json'), JSON.stringify(config)))
+
+  it('配置了但还没跑过一轮，说还没跑过', async () => {
+    expect(await syncStalledNote(dir, 'roubao', now)).toContain('还没跑过一轮')
+  })
+
+  it('最近一轮成功就不说话；连着失败超过 3 分钟，说停在几点、为什么', async () => {
+    await recordRound(dir, REPO, undefined, new Date(now - 60_000))
+    expect(await syncStalledNote(dir, 'roubao', now)).toBeNull()
+    await recordRound(dir, REPO, new Error('gh: network down'), new Date(now))
+    expect(await syncStalledNote(dir, 'roubao', now)).toBeNull()
+    const okAt = new Date(now - 60_000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+    expect(await syncStalledNote(dir, 'roubao', now + 3 * 60_000)).toBe(`GitHub 同步停在 ${okAt}（gh: network down）`)
+  })
+
+  it('不同步的 channel 不说话', async () => {
+    expect(await syncStalledNote(dir, 'nawaban', now)).toBeNull()
+  })
+
+  it('看板 JSON 带上这句，面板据此显示', async () => {
+    expect((await boardData(team, 'roubao', dir)).syncNote).toContain('还没跑过一轮')
+    expect((await boardData(team, 'nawaban', dir)).syncNote).toBeUndefined()
+  })
+
+  it('同步到板上的仓库不再从 GitHub 读，没同步的照旧', async () => {
+    const repoDir = join(dir, 'roubao-checkout')
+    await mkdir(join(repoDir, 'docs/agents'), { recursive: true })
+    await writeFile(join(repoDir, 'docs/agents/issue-tracker.md'), '# Issue tracker: GitHub\n')
+    await writeFile(join(dir, 'repos.json'), JSON.stringify({ roubao: repoDir, other: repoDir }))
+    expect(Object.keys(await githubRepos(dir))).toEqual(['other'])
+    expect(Object.keys(await githubRepos(dir, { evenWhenSyncedToTheBoard: true }))).toEqual(['roubao', 'other'])
+  })
+})
+
+describe('每天对一次删除', () => {
+  it('从没记过评论 ID 的旧状态，第一次对账先记下，之后删掉的也能删', async () => {
+    const c = comment(9201, 1730, yue, '旧状态里的评论', '2026-11-24T10:01:00Z')
+    const w = { issues: [issue(1730, 'open', '2026-11-24T10:00:00Z')], comments: [c], now: '2026-11-24T12:00:00.000Z' }
+    await pollRepo(REPO, dir, readerOf(w), deliver())
+    const path = join(dir, 'github-sync', `${encodeURIComponent(REPO)}.json`)
+    const saved = JSON.parse(await readFile(path, 'utf8'))
+    delete saved.comments
+    saved.reconciledAt = '2026-11-23T11:00:00.000Z'
+    await writeFile(path, JSON.stringify(saved))
+    const onlyTheDailyReconcileSeesComments = { ...readerOf(w), list: async (p: string) => (p.includes('/issues/comments') ? [] : readerOf(w).list(p)) }
+    await pollRepo(REPO, dir, onlyTheDailyReconcileSeesComments, deliver())
+    w.comments = []
+    w.now = '2026-11-25T13:00:00.000Z'
+    await pollRepo(REPO, dir, readerOf(w), deliver())
+    await settled()
+    expect((await repliesOf(`${REPO}#1730`)).filter((r) => !r.deleted)).toEqual([])
+  })
+
+  it('GitHub 上删掉的评论，过了一天的那一轮在板上也删掉', async () => {
+    const kept = comment(9101, 1730, yue, '留着的', '2026-11-24T10:01:00Z')
+    const removed = comment(9102, 1730, yue, '会被删的', '2026-11-24T10:02:00Z')
+    const w = { issues: [issue(1730, 'open', '2026-11-24T10:00:00Z')], comments: [kept, removed], now: '2026-11-24T12:00:00.000Z' }
+    await pollRepo(REPO, dir, readerOf(w), deliver())
+    await pollRepo(REPO, dir, readerOf(w), deliver())
+    w.comments = [kept]
+    w.now = '2026-11-24T13:00:00.000Z'
+    await pollRepo(REPO, dir, readerOf(w), deliver())
+    await settled()
+    expect((await repliesOf(`${REPO}#1730`)).filter((r) => !r.deleted).map((r) => r.text)).toEqual(['留着的', '会被删的'])
+    w.now = '2026-11-25T13:00:00.000Z'
+    await pollRepo(REPO, dir, readerOf(w), deliver())
+    await settled()
+    expect((await repliesOf(`${REPO}#1730`)).filter((r) => !r.deleted).map((r) => r.text)).toEqual(['留着的'])
   })
 })
