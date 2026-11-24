@@ -7,7 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures" / "agy"
 TRANSCRIPT = FIXTURES / "transcript_full.jsonl"
 CONVERSATION = "4234b2f6-f445-44ec-99b9-874a44a00d51"
-LAST_STEP_OF_THE_UNRECORDED_QUESTION = 13
+LAST_STEP_OF_THE_QUESTION = 13
+NOTHING_LISTENS_HERE = "http://127.0.0.1:9/api/board"
+BROKEN_ASK_BLOCK = '要你定：\n\n```json#nawaban-ask-request@1\n{"ticket": "AGY-01", "decision": \n```\n'
 
 
 def recorded(name, **overrides):
@@ -92,7 +94,7 @@ def declared_project(tmp_path, parent=None):
     proj = (parent or tmp_path) / "agyws"; proj.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main", str(proj)], check=True)
     board = tmp_path / "board"
-    env = {"NAWABAN_CLI": "board", "NAWABAN_BOARD_DIR": str(board), "NAWABAN_BOARD_PORT": "9", "HC_TERMINAL_ID": ""}
+    env = {"NAWABAN_CLI": "board", "NAWABAN_BOARD_DIR": str(board), "NAWABAN_BOARD_PORT": "9", "BOARD_URL": NOTHING_LISTENS_HERE, "HC_TERMINAL_ID": ""}
     return proj, board, env
 
 
@@ -114,16 +116,17 @@ def test_an_agy_file_write_by_the_declared_orchestrator_is_denied_and_a_command_
     assert run(ROOT, "PreToolUse", call, env)["decision"] == "allow"
 
 
-def test_the_ask_guard_sends_back_a_question_asked_without_recording_an_ask(tmp_path):
+def test_the_ask_guard_sends_back_a_broken_ask_block_and_lets_a_question_in_words_through(tmp_path):
     proj, board, env = declared_project(tmp_path)
     (board / "orchestrator").mkdir(parents=True); (board / "orchestrator" / "agyws").write_text(CONVERSATION)
-    asked_without_recording = tmp_path / "t.jsonl"
-    asked_without_recording.write_text("".join(l + "\n" for l in TRANSCRIPT.read_text().splitlines()
-                                               if json.loads(l)["step_index"] <= LAST_STEP_OF_THE_UNRECORDED_QUESTION))
-    sent_back = run(ROOT, "Stop", recorded("Stop.json", cwd=str(proj), transcriptPath=str(asked_without_recording)), env)
-    assert sent_back["decision"] == "continue" and "没记成待决策项" in sent_back["reason"]
+    steps = [json.loads(l) for l in TRANSCRIPT.read_text().splitlines()][:LAST_STEP_OF_THE_QUESTION + 1]
+    steps[-1]["content"] = BROKEN_ASK_BLOCK
+    replied_a_broken_block = tmp_path / "t.jsonl"
+    replied_a_broken_block.write_text("".join(json.dumps(s, ensure_ascii=False) + "\n" for s in steps))
+    sent_back = run(ROOT, "Stop", recorded("Stop.json", cwd=str(proj), transcriptPath=str(replied_a_broken_block)), env)
+    assert sent_back["decision"] == "continue" and "nawaban-ask-request@1" in sent_back["reason"]
     assert run(ROOT, "Stop", recorded("Stop.json", cwd=str(proj), transcriptPath=str(TRANSCRIPT)), env) == {}
-    assert run(ROOT, "Stop", recorded("Stop-continued.json", cwd=str(proj), transcriptPath=str(asked_without_recording)), env) == {}
+    assert run(ROOT, "Stop", recorded("Stop-continued.json", cwd=str(proj), transcriptPath=str(replied_a_broken_block)), env) == {}
 
 
 def test_the_comment_guard_denies_a_hand_written_state_comment(tmp_path):

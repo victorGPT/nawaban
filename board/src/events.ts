@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util'
 import { BoardError, block, type board } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
-import { gapsOfADecisionCard, SCHEMAS, type SchemaId } from './schemas.ts'
+import { type DecisionCard, gapsOfADecisionCard, SCHEMAS, type SchemaId } from './schemas.ts'
 import { IMPACT_FORMAT, whyNotDeclarable } from './impact.ts'
 import { registeredReadings } from './okr.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
@@ -176,15 +176,20 @@ async function link(e: Event): Promise<number> {
   return 'why' in value ? refuse(`${value.why} (正文 pr:<url>, commit:<sha>, artifact:<ref>, adr:<ref>)`) : e.reply(value.text)
 }
 
-async function ask(e: Event): Promise<number> {
-  const { a } = e
-  const value = { decision: a.body, kr: e.kr, context: a.context, options: (a.option ?? []).map(cardOption), recommendation: a.rec }
+async function holdForDecision(e: Event, value: DecisionCard): Promise<number> {
   const gaps = gapsOfADecisionCard(value)
   if (gaps.length) return refuse(`待决策项未就绪（不满足就绪标准），缺 ${gaps.join('、')}；- / none / 无 / 待定 这类占位算缺（--option 写成 方案｜代价｜单向门 或 双向门）`)
-  const card = checkedBeforeAnythingLands('nawaban-ask@1', value)
+  const card = checkedBeforeAnythingLands('nawaban-ask@1', value as Record<string, unknown>)
   if ('why' in card) return refuse(card.why)
-  return e.holdFirstThenReply(a.body!, HOLD_FOR_DECISION, card.text)
+  return e.holdFirstThenReply(String(value.decision), HOLD_FOR_DECISION, card.text)
 }
+
+async function ask(e: Event): Promise<number> {
+  const { a } = e
+  return holdForDecision(e, { decision: a.body, kr: e.kr, context: a.context, options: (a.option ?? []).map(cardOption), recommendation: a.rec })
+}
+
+export const askOn = (id: string, card: DecisionCard, as: string | undefined, run: Run, team: Team) => holdForDecision(eventOn(id, { as }, run, team), card)
 
 export async function registration(team: Team, id: string, o: string | undefined, specs: string[], change = 'product'): Promise<{ text: string } | { error: number }> {
   const headings = []

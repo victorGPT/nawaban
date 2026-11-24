@@ -24,6 +24,25 @@ const MOVED_KR_WITH_ITS_READING_BEFORE_AND_AFTER = {
   properties: { name: text, dir: { enum: ['↑', '↓'] }, before: text, after: text, basis },
 } as const
 
+const DECISION_CARD_REQUIRED = ['decision', 'kr', 'context', 'options', 'recommendation'] as const
+
+const DECISION_CARD_FIELDS = {
+  decision: text,
+  kr: text,
+  context: text,
+  options: {
+    type: 'array',
+    minItems: 2,
+    items: {
+      type: 'object',
+      required: ['choice', 'tradeoff', 'door'],
+      additionalProperties: false,
+      properties: { choice: text, tradeoff: text, door: { enum: ['one-way', 'two-way'] } },
+    },
+  },
+  recommendation: text,
+} as const
+
 const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
   'nawaban-decision@1': {
     description: 'A choice taken on a task: the question, the verdict, what was turned down, and who took it.',
@@ -45,27 +64,11 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
   },
   'nawaban-ask@1': {
     description: "A decision card for the decision-maker: what's to decide, the KR it serves, the facts, two options or more, and a recommendation.",
-    schema: {
-      type: 'object',
-      required: ['decision', 'kr', 'context', 'options', 'recommendation'],
-      additionalProperties: false,
-      properties: {
-        decision: text,
-        kr: text,
-        context: text,
-        options: {
-          type: 'array',
-          minItems: 2,
-          items: {
-            type: 'object',
-            required: ['choice', 'tradeoff', 'door'],
-            additionalProperties: false,
-            properties: { choice: text, tradeoff: text, door: { enum: ['one-way', 'two-way'] } },
-          },
-        },
-        recommendation: text,
-      },
-    },
+    schema: { type: 'object', required: DECISION_CARD_REQUIRED, additionalProperties: false, properties: DECISION_CARD_FIELDS },
+  },
+  'nawaban-ask-request@1': {
+    description: "A decision card the orchestrator puts in a reply, with the task it is on: the ask guard records it on that task as nawaban-ask@1.",
+    schema: { type: 'object', required: ['ticket', ...DECISION_CARD_REQUIRED], additionalProperties: false, properties: { ticket: text, ...DECISION_CARD_FIELDS } },
   },
   'nawaban-resolve@1': {
     description: "The decision-maker's answer to a task's decision card, in their words.",

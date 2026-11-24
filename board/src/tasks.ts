@@ -46,7 +46,7 @@ export function profile(): string {
 
 const key = (m: MessageView) => m.labels.key ?? `#${m.id}`
 const title = (m: MessageView) => m.text.split('\n')[0]
-const live = (m: MessageView) => {
+export const live = (m: MessageView) => {
   const claim = m.task?.claim
   return claim && Date.parse(claim.until) > Date.now() ? claim : null
 }
@@ -281,7 +281,7 @@ const close: Verb = async (argv) => {
   return cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team, task, !!values.json)
 }
 
-const profilesTheHookSessionMayHold = (session: string) => (['cx', 'agy', 'cc'] as const).map((agent) => sessionProfile(agent, session))
+export const profilesTheHookSessionMayHold = (session: string) => (['cx', 'agy', 'cc'] as const).map((agent) => sessionProfile(agent, session))
 
 async function heldByAnyOf(profiles: string[]): Promise<{ id: string; channel: string; as: string }[]> {
   return (await all({ state: 'claimed' })).flatMap((task) => {
