@@ -2,6 +2,7 @@ import { realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { board, BoardEventView, MessageView } from '@vercel/board'
+import { narrationOf, type Hold } from './narrate.ts'
 import { readLive } from './progress.ts'
 import { noPullStates, type PullStateOf } from './pulls.ts'
 import { gapsOfADecisionCard, type DecisionCard } from './schemas.ts'
@@ -17,6 +18,7 @@ const DECISIONS_SHOWN_WITHIN_OPEN_OR_CLOSED = 48 * HOUR
 const NOTES_CARRIED_BY_A_PENDING_DECISION = 3
 const PAGE = 50
 const HOLDS_THE_DECISION_MAKER_ANSWERS = new Set(['needs_input', 'awaiting_approval'])
+const EVENTS_THAT_END_A_CLAIM = new Set(['task.claimed', 'task.released', 'task.completed', 'task.canceled', 'task.failed', 'task.expired'])
 
 const secs = (iso: string) => Math.floor(Date.parse(iso) / 1000)
 const key = (m: MessageView) => m.labels.key ?? `#${m.id}`
@@ -39,10 +41,10 @@ export async function tasksOf(team: Team, channel?: string, state: 'all' | 'bloc
 }
 
 type Reply = { message: MessageView; at: number; by: string }
-type History = { replies: Reply[]; claims: { at: number; by: string }[]; done: number | null; active: number }
+type History = { replies: Reply[]; holds: Hold[]; done: number | null; active: number }
 
 async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: MessageView[], channel?: string) {
-  const out = new Map<string, History>(tasks.map((t) => [t.id, { replies: [], claims: [], done: null, active: secs(t.createdAt) }]))
+  const out = new Map<string, History>(tasks.map((t) => [t.id, { replies: [], holds: [], done: null, active: secs(t.createdAt) }]))
   if (!tasks.length) return out
   const seen = new Set<string>()
   let after = tasks.reduce((a, t) => (Number(t.id) < Number(a) ? t.id : a), tasks[0]!.id)
@@ -62,8 +64,11 @@ async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: Message
       if (e.type === 'message.posted' && m && !m.deleted && !seen.has(m.id)) {
         seen.add(m.id)
         h.replies.push({ message: m, at, by: windowProfileElseName(p.by?.actor ?? '') })
-      } else if (e.type === 'task.claimed') h.claims.push({ at, by: windowProfileElseName(p.by!.actor) })
-      else if (e.type === 'task.completed') h.done = at
+      }
+      const held = h.holds.at(-1)
+      if (EVENTS_THAT_END_A_CLAIM.has(e.type) && held?.to === null) held.to = Date.parse(e.createdAt) / 1000
+      if (e.type === 'task.claimed') h.holds.push({ by: windowProfileElseName(p.by!.actor), from: Date.parse(e.createdAt) / 1000, to: null })
+      if (e.type === 'task.completed') h.done = at
     }
   }
 }
@@ -89,7 +94,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: st
   const t = m.task!
   const claim = live(t)
   const ask = t.blocked && HOLDS_THE_DECISION_MAKER_ANSWERS.has(t.blocked.kind ?? '') ? t.blocked : null
-  const lastClaimer = h.claims.at(-1)?.by ?? null
+  const lastClaimer = h.holds.at(-1)?.by ?? null
   const holderElseTheWindowThatAskedSinceAHoldEndsTheClaim = claim ? windowProfileElseName(claim.actor) : ask ? lastClaimer : null
   const session = holderElseTheWindowThatAskedSinceAHoldEndsTheClaim
   const done = t.state === 'completed'
@@ -112,7 +117,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: st
     open_blockers: open.length,
     terminal: session ? (m.labels.terminal ?? null) : null,
     leader: orchestratorAsTheGlossaryDefinesIt(dispatch, session, lastClaimer),
-    claimed_at: h.claims[0]?.at ?? null,
+    claimed_at: h.holds[0] ? Math.floor(h.holds[0].from) : null,
   }
   if (done) return { ...out, done_at: h.done }
   return {
@@ -232,6 +237,7 @@ export async function taskDetail(team: Team, ref: string, pullStateOf: PullState
     links: events.filter((e) => e.kind === 'link'),
     pulls: Object.fromEntries(pullUrls.flatMap((url, i) => (pullStates[i] ? [[url, pullStates[i]]] : []))),
     events,
+    narration: await narrationOf(h.holds),
   }
 }
 

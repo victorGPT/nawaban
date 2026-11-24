@@ -1,12 +1,11 @@
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { readdir, readFile, realpath } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { readFile, realpath } from 'node:fs/promises'
 import { basename, dirname, join, resolve as absolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
+import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
 import { profile, Refused, resolve, sessionProfile } from './tasks.ts'
 
@@ -150,13 +149,6 @@ const startsTheWayThisDispatchWould = (t: Terminal, a: Args) => {
   const want = WORKER_ARGV[a.agent](a.model, '').slice(0, -1)
   const startedWith = withoutSessionName(t.argv ?? []).slice(-want.length - 1, -1)
   return startedWith.length === want.length && want.every((w, i) => startedWith[i] === w)
-}
-
-async function claudeTranscriptOf(session: string): Promise<string | null> {
-  const projects = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects')
-  const dirs = await readdir(projects).catch(() => [])
-  const found = dirs.map((d) => join(projects, d, `${session}.jsonl`)).find((f) => existsSync(f))
-  return found ?? null
 }
 
 async function contextShareOf(t: Terminal): Promise<number | null> {
