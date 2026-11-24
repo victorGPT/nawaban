@@ -9,7 +9,7 @@ export const MILESTONES = ['started', 'edited', 'committed', 'pr', 'review', 're
 export type Milestone = (typeof MILESTONES)[number]
 export type Live = { milestone: Milestone; at: number }
 type HookInput = { session_id?: string; transcript_path?: string; cwd?: string }
-type Held = { id: string }
+type Held = { id: string; key: string }
 
 const exec = promisify(execFile)
 const PROGRESS_FOLDER = 'progress'
@@ -26,7 +26,12 @@ const COMMAND_SIGNS: [Milestone, RegExp, RegExp | null][] = [
   ['committed', new RegExp(AT_A_COMMAND + String.raw`git(?:\s+-[Cc]\s+\S+)*\s+commit\b`), null],
 ]
 const QUOTED = /'[^']*'|"(?:[^"\\]|\\.)*"/g
-const quotesBlanked = (command: string) => command.replace(QUOTED, (q) => q[0] + ' '.repeat(q.length - 2) + q.at(-1))
+const HEREDOC_BODY = /(<<-?\s*(['"]?)(\w+)\2[^\n]*\n)([\s\S]*?\n[ \t]*\3)(?=\n|$)/g
+const blankedKeepingLength = (text: string) => text.replace(/[^\n]/g, ' ')
+const quotesBlanked = (command: string) =>
+  command
+    .replace(HEREDOC_BODY, (_all, opener: string, _q, _tag, body: string) => opener + blankedKeepingLength(body))
+    .replace(QUOTED, (q) => q[0] + ' '.repeat(q.length - 2) + q.at(-1))
 
 function signsOf(command: string): Milestone[] {
   const blanked = quotesBlanked(command)
@@ -107,24 +112,31 @@ export function milestoneOfCall(call: Call): Milestone {
   return furthest([edits ? 'edited' : 'started', reviewer ? 'review' : 'started', ...signs])
 }
 
-export function milestoneOfTranscript(transcript: string | undefined): Milestone {
-  if (!transcript) return 'started'
+const escaped = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const claimOf = (task: Held) => new RegExp(String.raw`\bclaim\s+(?:${escaped(task.key)}|#?${escaped(task.id)})(?![\w-])`)
+
+function callsSinceTheSessionClaimed(transcript: string | undefined, task: Held): Call[] {
+  if (!transcript) return []
   let lines: string[]
   try {
     lines = tailLines(transcript)
   } catch {
-    return 'started'
+    return []
   }
-  return furthest(
-    lines.flatMap((line) => {
-      try {
-        return callsOfStep(JSON.parse(line)).map(milestoneOfCall)
-      } catch {
-        return []
-      }
-    }),
-  )
+  const calls = lines.flatMap((line) => {
+    try {
+      return callsOfStep(JSON.parse(line))
+    } catch {
+      return []
+    }
+  })
+  const claimed = claimOf(task)
+  const lastClaim = calls.findLastIndex((c) => commandsRunBy(c).some((command) => claimed.test(command)))
+  return calls.slice(lastClaim + 1)
 }
+
+export const milestoneOfTranscript = (transcript: string | undefined, task: Held = { id: '', key: '' }): Milestone =>
+  furthest(callsSinceTheSessionClaimed(transcript, task).map(milestoneOfCall))
 
 const succeeds = (cmd: string, args: string[], cwd: string) =>
   exec(cmd, args, { cwd, timeout: PROBE_TIMEOUT_MS }).then(
@@ -155,10 +167,10 @@ export async function recordProgress(input: HookInput, held: Held[], boardDir: s
   const stampedSoTheHookWaitsItsGap = held.length ? now : now - WRITE_EVERY_SECONDS + LOOKS_AGAIN_AFTER_SECONDS
   await utimes(stamp, stampedSoTheHookWaitsItsGap, stampedSoTheHookWaitsItsGap)
   if (!held.length) return []
-  const reached = furthest([milestoneOfTranscript(input.transcript_path), await milestoneOfCheckout(input.cwd)])
-  for (const { id } of held) {
-    const onlyForward = furthest([readLive(boardDir, id)?.milestone ?? 'started', reached])
-    await overwrite(liveFile(boardDir, id), { milestone: onlyForward, at: Math.floor(now) })
+  const checkout = await milestoneOfCheckout(input.cwd)
+  for (const task of held) {
+    const onlyForward = furthest([readLive(boardDir, task.id)?.milestone ?? 'started', milestoneOfTranscript(input.transcript_path, task), checkout])
+    await overwrite(liveFile(boardDir, task.id), { milestone: onlyForward, at: Math.floor(now) })
   }
   return held.map((h) => h.id)
 }

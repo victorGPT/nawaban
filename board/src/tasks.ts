@@ -254,11 +254,11 @@ const close: Verb = async (argv) => {
 
 const profilesTheHookSessionMayHold = (session: string) => (['cx', 'agy', 'cc'] as const).map((agent) => sessionProfile(agent, session))
 
-async function heldByAnyOf(profiles: string[]): Promise<{ id: string; as: string }[]> {
+async function heldByAnyOf(profiles: string[]): Promise<{ id: string; key: string; as: string }[]> {
   return (await all({ state: 'claimed' })).flatMap((task) => {
     const claim = live(task)
     const as = profiles.find((p) => claim?.actor.endsWith(`+${p}`))
-    return as ? [{ id: task.id, as }] : []
+    return as ? [{ id: task.id, key: key(task), as }] : []
   })
 }
 

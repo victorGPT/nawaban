@@ -35,6 +35,26 @@ it('counts only commands it ran, not text it wrote or searched for', async () =>
   expect(milestoneOfTranscript(await transcriptOf(claudeCall('Agent', { subagent_type: 'codex:codex-rescue', prompt: 'review' })))).toBe('review')
 })
 
+it('does not take text a command writes through a heredoc for a command', async () => {
+  const command = 'cat > docs/contributing.md <<EOF\n# Submit changes\ngit commit -m fix\ngh pr create --fill\nEOF'
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command })))).toBe('started')
+  expect(milestoneOfTranscript(await transcriptOf(claudeCall('Bash', { command: "cat <<'EOF' > x\nhi\nEOF\ngit commit -qm x" })))).toBe('committed')
+})
+
+it('reads a task only from the session\'s last claim of it, so a reused worker\'s next task starts over', async () => {
+  const a = { id: '10', key: 'K-A' }
+  const b = { id: '11', key: 'K-B' }
+  const reusedWorker = await transcriptOf(
+    claudeCall('Bash', { command: 'node cli.ts claim K-A' }),
+    claudeCall('Bash', { command: 'gh pr create --fill' }),
+    claudeCall('Bash', { command: 'hc send t19p "回报：K-A 完成"' }),
+    claudeCall('Bash', { command: 'node cli.ts claim K-B' }),
+    claudeCall('Edit', { file_path: 'b.ts' }),
+  )
+  expect(milestoneOfTranscript(reusedWorker, b)).toBe('edited')
+  expect(milestoneOfTranscript(reusedWorker, a)).toBe('reported')
+})
+
 it('reads Codex and Antigravity tool calls the same way', async () => {
   const codex = await transcriptOf({ type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"git commit -m x"}' } })
   const agy = await transcriptOf({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: { CommandLine: 'gh pr create --fill' } }] }, { type: 'USER_INPUT', content: 'hc send t1 "回报：…"' })
