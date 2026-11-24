@@ -65,12 +65,20 @@ const entryOf = (at: number, text: string): Entry => {
 }
 const questionOf = (body: string) => QUESTION_LINE.exec(body)?.[1]?.trim() || null
 
-const workerOf = (body: string): string => {
+const dataOf = (body: string): Record<string, unknown> => {
   try {
-    return String(JSON.parse(body)?.worker ?? '')
+    return Object(JSON.parse(body))
   } catch {
-    return ''
+    return {}
   }
+}
+const workerOf = (body: string) => String(dataOf(body).worker ?? '')
+
+type CardOption = { choice?: string; tradeoff?: string }
+function cardOf(body: string) {
+  const card = dataOf(body)
+  const options = (Array.isArray(card.options) ? (card.options as CardOption[]) : []).map((o) => [o.choice, o.tradeoff].filter(Boolean).join('｜'))
+  return [card.decision, card.context, ...options, card.recommendation && '建议：' + card.recommendation].filter(Boolean).join('\n')
 }
 
 function linkLabel(body: string): Link {
@@ -101,6 +109,8 @@ const ROW_OF_EVENT: Record<string, (e: Event) => Row | null> = {
       : e.body.startsWith(ASK_OPENING)
       ? { kind: 'ask', at: e.at, line: firstLine(e.body.slice(ASK_OPENING.length)), full: e.body.slice(ASK_OPENING.length).trim() }
       : { kind: 'note', ...entryOf(e.at, e.body) },
+  ask: (e) => ({ kind: 'ask', ...entryOf(e.at, cardOf(e.body) || e.body) }),
+  resolve: (e) => ({ kind: 'decision', by: 'owner', question: null, ...entryOf(e.at, String(dataOf(e.body).words ?? e.body)) }),
   dispatch: (e) => ({ kind: 'milestone', at: e.at, line: ['派工', workerOf(e.body)].filter(Boolean).join(' '), href: null, mark: 'dispatch' }),
   link: (e) => (linkOf(e.body).kind === 'pr' ? { kind: 'milestone', at: e.at, line: '开 ' + linkLabel(e.body).label, href: linkLabel(e.body).href, mark: 'pr' } : null),
 }

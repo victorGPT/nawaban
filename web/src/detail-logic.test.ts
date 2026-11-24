@@ -168,3 +168,13 @@ describe('detailView first lines', () => {
     expect(row).toMatchObject({ line: '只收完成回报', full: '只收完成回报\n背景：发给谁' })
   })
 })
+
+describe('detailView decision cards', () => {
+  it('shows a decision card as what was asked and the answer as the decision-maker\'s ruling', () => {
+    const card = JSON.stringify({ decision: '用 A 还是 B', kr: '无', context: '两种都能做', options: [{ choice: 'A', tradeoff: '快', door: 'two-way' }, { choice: 'B', tradeoff: '稳', door: 'one-way' }], recommendation: 'A' })
+    const view = detailView(detail([ev('ask', card, at(24, 9)), ev('resolve', JSON.stringify({ words: '就 A' }), at(24, 10))]), task(), NOW)
+    expect(lines(view)).toEqual([['今天', ['decision 就 A', 'ask 用 A 还是 B']]])
+    expect(view.days[0]!.rows[1]).toMatchObject({ full: '用 A 还是 B\n两种都能做\nA｜快\nB｜稳\n建议：A' })
+    expect(view.ruling).toMatchObject({ line: '就 A', by: 'owner' })
+  })
+})
