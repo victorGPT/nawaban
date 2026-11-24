@@ -516,8 +516,9 @@ export function moveSelection(keys, key, delta) {
 const KEYS = { down: "down", up: "up", enter: "open", escape: "back", left: "left", right: "right", 1: "1", 2: "2", 3: "3", 4: "4" };
 export const keyCommand = (e) => KEYS[e.keystroke] ?? null;
 
-const OKR_STATES = ["met", "missed", "stale", "untested"];
-const KR_STATUS_WORST_FIRST = ["missed", "stale", "untested", "met"];
+const OKR_STATES = ["met", "missed", "unmeasurable", "stale", "untested"];
+const KR_STATUS_WORST_FIRST = ["missed", "unmeasurable", "stale", "untested", "met"];
+const NO_CURRENT_VALUE = new Set(["untested", "unmeasurable"]);
 const OPS = { ">=": "≥", "<=": "≤", ">": ">", "<": "<", "==": "=" };
 const LOWER_IS_BETTER = new Set(["<=", "<"]);
 const UNITS_COUNTED_IN_POINTS = new Set(["%", "百分点", "个百分点"]);
@@ -534,13 +535,16 @@ export const varianceText = (gap, unit, w) =>
 const hasStructuredTarget = (k) => OPS[k.target_op] != null && Number.isFinite(k.target_value);
 const targetText = (k, unit) => (hasStructuredTarget(k) ? OPS[k.target_op] + " " + oneDecimal(k.target_value) + unit : k.target ?? "");
 
-const isMeasured = (k) => k.value != null && k.status !== "untested";
+const isMeasured = (k) => k.value != null && !NO_CURRENT_VALUE.has(k.status);
+const isLaterSeries = (k) => Number.isFinite(k.series?.version) && k.series.version > 1 && typeof k.series.since === "string";
 const hasMismatch = (k) => Array.isArray(k.mismatch) && k.mismatch.length > 0;
 
 const krRow = (k, w) => {
   const unit = k.unit ?? "", measured = isMeasured(k);
-  return { name: k.name, status: OKR_STATES.includes(k.status) ? k.status : "untested",
-    value: measured ? oneDecimal(k.value) + unit : w.status.untested, target: targetText(k, unit), measured,
+  const status = OKR_STATES.includes(k.status) ? k.status : "untested";
+  return { name: k.name, status,
+    value: measured ? oneDecimal(k.value) + unit : w.status[status], target: targetText(k, unit), measured,
+    series: isLaterSeries(k) ? w.series(k.series.version, isoMonthDay(k.series.since)) : null, failure: k.failure ?? null,
     gap: measured && hasStructuredTarget(k) ? varianceText(gapOf(k.target_op, k.target_value, k.value), unit, w) : null,
     as_of: k.as_of ?? null, day: measured && k.as_of ? isoMonthDay(k.as_of) : null, source: k.source ?? null,
     trend: w.trend[k.trend] ?? w.trend.null, missed_rounds: k.missed_rounds ?? 0, wait: k.wait ?? null,
@@ -579,13 +583,15 @@ export function okrView(okr, lang) {
 
 export const OKR_WORDS = {
   zh: { tally: (met, total, at) => `${met}/${total} 达标${at ? ` · ${at} 量` : ""}`,
-    status: { met: "绿", missed: "红", stale: "黄", untested: "未测" },
+    status: { met: "绿", missed: "红", unmeasurable: "量不了", stale: "黄", untested: "未测" },
+    series: (n, day) => `口径 v${n} 起 ${day}`, failure: "测量失败",
     trend: { closer: "在变好", away: "在变差", flat: "没动", null: "首次读数" },
     target: "目标", value: "现值", asOf: "截至", source: "来源", trendLabel: "走向", rounds: (n) => `连续 ${n} 轮未达标`, wait: "要你做",
     mismatch: (ts) => `预期不符 ${ts.join(" ")}`, noObjective: "这个项目还没有 O",
     variance: "偏差", asOfShort: "截至", point: "点", metFolded: (n) => `${n} 条已达标`, untestedFolded: (n) => `${n} 条未测`, allMet: "全部达标" },
   en: { tally: (met, total, at) => `Green ${met}/${total}${at ? ` · measured ${at}` : ""}`,
-    status: { met: "Green", missed: "Red", stale: "Amber", untested: "Untested" },
+    status: { met: "Green", missed: "Red", unmeasurable: "Unmeasurable", stale: "Amber", untested: "Untested" },
+    series: (n, day) => `measure v${n} since ${day}`, failure: "Measure failed",
     trend: { closer: "Getting closer", away: "Moving away", flat: "Flat", null: "First reading" },
     target: "Target", value: "Value", asOf: "As of", source: "Source", trendLabel: "Trend", rounds: (n) => `Red ${n} rounds in a row`, wait: "Needs you to",
     mismatch: (ts) => `Not as declared ${ts.join(" ")}`, noObjective: "No Objective for this project yet",

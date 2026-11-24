@@ -33,7 +33,7 @@ const GROUP_LOOK = {
   todo: { accent: INK.untouched, side: INK.dim },
   done: { accent: INK.finished, side: INK.dim, faded: true },
 };
-const GAP_COLOR = { missed: INK.red, stale: INK.amber, met: INK.green, untested: INK.dim };
+const GAP_COLOR = { missed: INK.red, unmeasurable: INK.amber, stale: INK.amber, met: INK.green, untested: INK.dim };
 const OBJECTIVE_TALLY_COLOR = { missed: INK.red, unsure: INK.muted, met: INK.green };
 const BADGE_COLOR = { ask: INK.amberText, missed: INK.red, met: INK.green, plain: INK.dim };
 const CHIP_COLOR = { pick: INK.amber, maybe: INK.amber, talk: INK.sky, waiting: INK.amber };
@@ -576,7 +576,7 @@ export default class NawabanBoard extends View {
   krFacts(k, o) {
     return [[o.value, k.value], [o.target, k.target], [o.asOf, k.as_of && isoMonthDay(k.as_of)], [o.source, k.source], [o.trendLabel, k.trend],
       ...(k.missed_rounds > 0 ? [["", o.rounds(k.missed_rounds)]] : []), ...(k.wait ? [[o.wait, k.wait]] : []),
-      ...(k.mismatch ? [["", k.mismatch]] : [])];
+      ...(k.mismatch ? [["", k.mismatch]] : []), ...(k.failure ? [[o.failure, k.failure]] : []), ...(k.series ? [["", k.series]] : [])];
   }
 
   noteHover(key, on, cx) {
@@ -828,14 +828,17 @@ export default class NawabanBoard extends View {
 
   krReading(k, o, quiet) {
     const dim = (text) => div().flex_none().text_color(INK.dim).child(text);
-    if (!k.measured) return h_flex().text_size(TYPE.meta).child(dim(o.status.untested + " / " + o.target + " " + k.target));
+    if (!k.measured) {
+      return h_flex().text_size(TYPE.meta).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(o.status[k.status] + " / " + o.target + " " + k.target));
+    }
     return h_flex().flex_wrap().items_baseline().gap(SPACE.s).text_size(TYPE.meta)
       .child(div().flex_none().text_size(quiet ? TYPE.label : TYPE.body).when(!quiet, (el) => el.font_semibold())
         .text_color(k.status === "missed" ? INK.red : INK.value).child(k.value))
       .child(dim("/ " + o.target + " " + k.target))
       .when(Boolean(k.gap), (el) => el.child(dim("· " + o.variance)).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(k.gap)))
       .child(dim("·")).child(div().flex_none().text_color(GAP_COLOR[k.status]).child(o.status[k.status]))
-      .when(Boolean(k.day), (el) => el.child(dim("· " + o.asOfShort + " " + k.day)));
+      .when(Boolean(k.day), (el) => el.child(dim("· " + o.asOfShort + " " + k.day)))
+      .when(Boolean(k.series), (el) => el.child(dim("· " + k.series)));
   }
 
   clickGroup(s, cx) {

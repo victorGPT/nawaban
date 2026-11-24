@@ -1,13 +1,13 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { block, board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { registerSchemas } from '../src/schemas.ts'
-import { judge, jsonOkr, keepEachNewReadingOnce, okr, run, type Declared, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
+import { defHash, judge, jsonOkr, keepEachNewReadingOnce, okr, run, type Declared, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
 
 const OKR_PORTED_FROM_THE_OLD_TEST_OKR_PY = `
 [[objective]]
@@ -294,10 +294,10 @@ describe('readings kept on the board', () => {
 
   it('reads json okr off the board and never runs a measure', async () => {
     const p = await projectOnItsOwnBoardWithItsOwnReposJson()
-    const measure = (v: string, d: string) => `measure = "echo ${v} ${d}"`
-    await define(p.root, [['意图准确率', '>= 95', measure('90', '2026-11-10')], ['边界难例', '>= 80']])
+    await define(p.root, [['意图准确率', '>= 95', 'measure = "cat k.txt"'], ['边界难例', '>= 80']])
+    await writeFile(join(p.root, 'k.txt'), '90 2026-11-10')
     await nawabanOkr(p)
-    await define(p.root, [['意图准确率', '>= 95', measure('97.5', '2026-11-18')], ['边界难例', '>= 80']])
+    await writeFile(join(p.root, 'k.txt'), '97.5 2026-11-18')
     await nawabanOkr(p)
     await define(p.root, [['意图准确率', '>= 95', 'measure = "touch ran; echo 1 2026-11-19"'], ['边界难例', '>= 80']])
     const { code, data } = await jokr(p)
@@ -329,9 +329,9 @@ describe('readings kept on the board', () => {
 const objectives = (krs: [string, string, Partial<Kr>?][]): Objective[] => [{ name: 'O', kr: krs.map(([name, target, more]) => ({ name, target, ...more })) }]
 
 const eachReadingItsOwnRoundASecondApartOldestFirst = (readings: Record<string, [number, string][]>, at = '2026-11-19T00:00:00'): KeptReading[] =>
-  Object.entries(readings).flatMap(([kr, rs]) => rs.map(([v, as_of], i) => ({ kr, value: String(v), as_of, source: '', measured_at: `${at.slice(0, -2)}${String(i).padStart(2, '0')}` })))
+  Object.entries(readings).flatMap(([kr, rs]) => rs.map(([v, as_of], i) => ({ kr, value: String(v), as_of, source: '', measured_at: `${at.slice(0, -2)}${String(i).padStart(2, '0')}`, def_hash: '' })))
 
-const reading = (kr: string, value: number, at: string, as_of = at.slice(0, 10)): KeptReading => ({ kr, value: String(value), as_of, source: '', measured_at: at })
+const reading = (kr: string, value: number, at: string, as_of = at.slice(0, 10)): KeptReading => ({ kr, value: String(value), as_of, source: '', measured_at: at, def_hash: '' })
 
 type Decl = { ticket: string; kr: string; dir: string; at: string }
 
@@ -523,11 +523,12 @@ describe('declarations against readings', () => {
 
   it('prints the counts and the mismatches after okr', async () => {
     const p = await projectOnItsOwnBoardWithItsOwnReposJson()
-    await define(p.root, [['K', '>= 95', 'measure = "echo 80 2026-11-10"'], ['J', '>= 1']])
+    await define(p.root, [['K', '>= 95', 'measure = "cat k.txt"'], ['J', '>= 1']])
+    await writeFile(join(p.root, 'k.txt'), '80 2026-11-10')
     await nawabanOkr(p)
     await declareTicketMovesKrOfO(p, '#7', 'K', '↑')
     await declareTicketMovesKrOfO(p, '#8', 'J', '↓')
-    await define(p.root, [['K', '>= 95', 'measure = "echo 79 2026-11-11"'], ['J', '>= 1']])
+    await writeFile(join(p.root, 'k.txt'), '79 2026-11-11')
     const { code, out } = await nawabanOkr(p)
     expect(code).toBe(0)
     expect(out).toContain('O O · 声明 ↑0 ↓1 =0')
@@ -550,5 +551,61 @@ describe('declarations against readings', () => {
     const { data } = await jokr(p)
     expect(data.last_measured_at).toBe(now.toISOString())
     expect(kinds(data)).toEqual([['accept', null]])
+  })
+})
+
+describe('a reading is judged within the series of the measure it was read under', () => {
+  const krOf = async (p: Project, name: string) => (await jokr(p)).data.objectives[0].krs.find((k: { name: string }) => k.name === name)
+
+  it('keeps a value that comes back on the same as-of and shows the latest', async () => {
+    const p = await projectOnItsOwnBoardWithItsOwnReposJson('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = "<= 3"\nmeasure = "cat k.txt"\n')
+    for (const v of ['2.1', '3.4', '2.1']) {
+      await writeFile(join(p.root, 'k.txt'), `${v} 2026-11-17 e3`)
+      await nawabanOkr(p)
+    }
+    expect((await readingsTheBoardKeepsKrValueAsOfSource(p)).map((r) => r[1])).toEqual(['2.1', '2.1', '3.4'])
+    const k = await krOf(p, 'K')
+    expect([k.value, k.status, k.trend]).toEqual([2.1, 'met', 'closer'])
+  })
+
+  it('starts a new series from zero when the measure script changes', async () => {
+    const p = await projectOnItsOwnBoardWithItsOwnReposJson('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = "<= 3"\nmeasure = "cat k.txt # e3.ts"\n')
+    await writeFile(join(p.root, 'e3.ts'), 'v1')
+    for (const v of ['12.9', '11.6']) {
+      await writeFile(join(p.root, 'k.txt'), `${v} 2026-11-17 e3`)
+      await nawabanOkr(p)
+    }
+    const old = await krOf(p, 'K')
+    expect([old.series.version, old.trend, old.missed_rounds]).toEqual([1, 'closer', 2])
+    await writeFile(join(p.root, 'e3.ts'), 'v2')
+    await nawabanOkr(p)
+    const k = await krOf(p, 'K')
+    expect([k.value, k.trend, k.missed_rounds, k.mismatch, k.history]).toEqual([11.6, null, 1, [], [{ value: 11.6, as_of: '2026-11-17' }]])
+    expect(k.series.version).toBe(2)
+    expect(k.series.def_hash).not.toBe(old.series.def_hash)
+  })
+
+  it('reads 量不了 while the measure fails, and reads again once it does', async () => {
+    const p = await projectOnItsOwnBoardWithItsOwnReposJson('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = "== 0"\nmeasure = "cat k.txt"\n')
+    await writeFile(join(p.root, 'k.txt'), '0 2026-11-17 ci')
+    await nawabanOkr(p)
+    await rm(join(p.root, 'k.txt'))
+    expect((await nawabanOkr(p)).out).toContain('K  量不了 / 目标 == 0 · 测量失败：退出码 1')
+    const failed = await krOf(p, 'K')
+    expect([failed.status, failed.value, failed.missed_rounds]).toEqual(['unmeasurable', 0, 0])
+    expect(failed.failure).toMatch(/^退出码 1/)
+    await writeFile(join(p.root, 'k.txt'), '0 2026-11-17 ci')
+    await nawabanOkr(p)
+    const k = await krOf(p, 'K')
+    expect([k.status, k.failure, k.trend, k.history]).toEqual(['met', null, null, [{ value: 0, as_of: '2026-11-17' }]])
+  })
+
+  it('hashes a measure as the old CLI does', async () => {
+    const root = realpathSync(await mkdtemp(join(tmpdir(), 'nawaban-def-hash-')))
+    await mkdir(join(root, 'scripts'))
+    await writeFile(join(root, 'scripts', 'e3.ts'), "export const gold = 'v3'\n")
+    await writeFile(join(root, 'evals.jsonl'), '{}\n')
+    const kr = { name: '放错档（E3）', target: '<= 3', unit: '%', max_age_days: 14, measure: 'node scripts/e3.ts evals.jsonl ../x.ts /etc/hosts' }
+    expect(await defHash(root, kr)).toBe('5383ad5b5354835d')
   })
 })

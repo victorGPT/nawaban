@@ -159,20 +159,29 @@ def test_a_failed_github_post_keeps_no_declaration(tmp_path, board, capsys, monk
     assert impacts(board) == []
 
 
-def test_a_version_2_board_migrates_to_3_keeping_its_readings(board):
+READINGS_AS_VERSION_3_KEPT_THEM = """DROP TABLE kr_readings;
+CREATE TABLE kr_readings (repo TEXT NOT NULL, kr TEXT NOT NULL, value TEXT NOT NULL, as_of TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '', measured_at TEXT NOT NULL, UNIQUE (repo, kr, as_of, source));
+INSERT INTO kr_readings VALUES ('r','k','1','2026-11-17','','x');"""
+
+
+@pytest.mark.parametrize("old", [2, 3])
+def test_an_old_board_migrates_keeping_its_readings_and_takes_a_new_value_on_the_same_as_of(board, old):
     with closing(sqlite3.connect(board)) as con:
-        con.executescript("DROP TABLE kr_impacts; PRAGMA user_version=2;"
-                          "INSERT INTO kr_readings VALUES ('r','k','1','2026-11-17','','x');")
+        con.executescript(READINGS_AS_VERSION_3_KEPT_THEM + ("DROP TABLE kr_impacts;" if old == 2 else "")
+                          + f"PRAGMA user_version={old};")
     calls, real = [], cli.backup
     cli.backup = lambda p: calls.append(p) or real(p)
     try:
         cli._migrate(board)
-        cli._migrate(board)  # the loser of a race finds version 3 under the write lock
+        cli._migrate(board)  # the loser of a race finds the current version under the write lock
     finally:
         cli.backup = real
     with closing(sqlite3.connect(board)) as con:
-        assert con.execute("PRAGMA user_version").fetchone()[0] == 3
-        assert con.execute("SELECT count(*) FROM kr_readings").fetchone()[0] == 1
+        assert con.execute("PRAGMA user_version").fetchone()[0] == cli.VERSION
+        con.execute("INSERT INTO kr_readings (repo, kr, value, as_of, source, measured_at, def_hash)"
+                    " VALUES ('r','k','2','2026-11-17','','y','h')")
+        assert con.execute("SELECT value, def_hash FROM kr_readings ORDER BY rowid").fetchall() == [("1", ""), ("2", "h")]
         assert con.execute("SELECT count(*) FROM kr_impacts").fetchone()[0] == 0
     assert len(calls) == 1
 

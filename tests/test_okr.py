@@ -251,14 +251,21 @@ def test_init_on_an_old_board_migrates_it(board):
     assert rows(board) == []
 
 
-def test_okr_keeps_each_reading_once_and_skips_failed_and_untested(repo, board, capsys):
+def readings(db):
+    return [r for r in rows(db) if r[2] != cli.FAILED]
+
+
+def test_okr_keeps_each_reading_once_and_a_failed_measure_as_its_failure(repo, board, capsys):
     assert cli.main(["--db", str(board), "okr"]) == 0
     assert "读数新记 2 条" in capsys.readouterr().out
-    got = {(r[0], r[1], r[2], r[3], r[4]) for r in rows(board)}
+    got = {(r[0], r[1], r[2], r[3], r[4]) for r in readings(board)}
     assert got == {(str(repo.resolve()), "意图准确率", "100.0", "2026-11-17", ""),
                    (str(repo.resolve()), "L1 首位", "89", "2026-11-17", "")}
+    assert {(r[1], r[4]) for r in rows(board) if r[2] == cli.FAILED} == {
+        ("硬条件违反", "退出码 3：missing data"), ("没写日期", "最后一行不是「数值 截至」：'5'"),
+        ("不是数", "最后一行不是「数值 截至」：'n/a 2026-11-17'")}
     assert cli.main(["--db", str(board), "okr"]) == 0
-    assert "读数新记 0 条" in capsys.readouterr().out and len(rows(board)) == 2
+    assert "读数新记 0 条" in capsys.readouterr().out and len(rows(board)) == 5
 
 
 def test_as_of_is_the_date_and_source_the_rest(repo, board):
@@ -286,7 +293,7 @@ def seed(db, repo, readings, at="2026-11-19T00:00:00"):
     with closing(sqlite3.connect(db)) as con, con:
         for kr, rs in readings.items():
             for i, (v, as_of) in enumerate(rs):
-                con.execute("INSERT INTO kr_readings VALUES (?, ?, ?, ?, '', ?)",
+                con.execute("INSERT INTO kr_readings (repo, kr, value, as_of, source, measured_at) VALUES (?, ?, ?, ?, '', ?)",
                             (str(repo.resolve()), kr, str(v), as_of, f"{at[:-2]}{i:02d}"))
 
 
@@ -402,7 +409,7 @@ def test_accept_is_not_asked_while_a_kr_is_not_met(repo, board, capsys):
 def test_okr_accept_refuses_unless_the_objective_is_all_met_now(repo, board, capsys):
     assert cli.main(["--db", str(board), "okr", "--accept", "听得懂需求"]) == 1
     assert "还没全 ✓" in capsys.readouterr().err and rows(board, "okr_accepts") == []
-    assert len(rows(board)) == 2  # a refused accept still keeps this run's readings
+    assert len(readings(board)) == 2  # a refused accept still keeps this run's readings
     assert cli.main(["--db", str(board), "okr", "--accept", "没这个"]) == 1
     define(repo, [("K", ">= 1", 'measure = "echo 2 2026-11-18"')])
     assert cli.main(["--db", str(board), "okr", "--accept", "O"]) == 0
@@ -446,7 +453,7 @@ def declare(db, repo, ticket, kr, d, at, o="O"):
 
 def reading(db, repo, kr, value, at, as_of=None):
     with closing(sqlite3.connect(db)) as con, con:
-        con.execute("INSERT INTO kr_readings VALUES (?, ?, ?, ?, '', ?)", (str(repo.resolve()), kr, str(value), as_of or at[:10], at))
+        con.execute("INSERT INTO kr_readings (repo, kr, value, as_of, source, measured_at) VALUES (?, ?, ?, ?, '', ?)", (str(repo.resolve()), kr, str(value), as_of or at[:10], at))
 
 
 def kr_of(data, name):
@@ -517,14 +524,75 @@ def test_one_round_with_several_readings_is_judged_on_its_latest_as_of(repo, boa
 
 
 def test_okr_prints_the_counts_and_the_mismatches(repo, board, capsys):
-    define(repo, [("K", ">= 95", 'measure = "echo 80 2026-11-10"'), ("J", ">= 1", "")])
+    (repo / "k.txt").write_text("80 2026-11-10")
+    define(repo, [("K", ">= 95", 'measure = "cat k.txt"'), ("J", ">= 1", "")])
     assert cli.main(["--db", str(board), "okr"]) == 0
     declare(board, repo, "#7", "K", "↑", "2000-01-01T00:00:00")  # before the run above: judged by the next
     with closing(sqlite3.connect(board)) as con, con:
         con.execute("UPDATE kr_readings SET measured_at='2000-01-01T00:00:00' WHERE kr='K'")
     declare(board, repo, "#8", "J", "↓", "2000-01-02T00:00:00")
-    define(repo, [("K", ">= 95", 'measure = "echo 79 2026-11-11"'), ("J", ">= 1", "")])
+    (repo / "k.txt").write_text("79 2026-11-11")
     capsys.readouterr()
     assert cli.main(["--db", str(board), "okr"]) == 0
     out = capsys.readouterr().out
     assert "O O · 声明 ↑0 ↓1 =0" in out and "预期不符 K：#7 声明 ↑" in out, out
+
+
+def test_a_value_that_comes_back_on_the_same_as_of_is_kept_and_shown(repo, board, capsys):
+    define(repo, [("K", "<= 3", 'measure = "cat k.txt"')])
+    for value in ("2.1", "3.4", "2.1"):
+        (repo / "k.txt").write_text(f"{value} 2026-11-17 e3")
+        assert cli.main(["--db", str(board), "okr"]) == 0
+    assert [r[2] for r in readings(board)] == ["2.1", "3.4", "2.1"]
+    k = kr_of(jokr(board, capsys)[1], "K")
+    assert (k["value"], k["status"], k["trend"]) == (2.1, "met", "closer")
+
+
+def test_changing_the_measure_script_starts_a_new_series_from_zero(repo, board, capsys):
+    (repo / "e3.ts").write_text("v1")
+    define(repo, [("K", "<= 3", 'measure = "cat k.txt # e3.ts"')])
+    for value in ("12.9", "11.6"):
+        (repo / "k.txt").write_text(f"{value} 2026-11-17 e3")
+        assert cli.main(["--db", str(board), "okr"]) == 0
+    declare(board, repo, "#9", "K", "=", "2000-01-01T00:00:00")
+    with closing(sqlite3.connect(board)) as con, con:
+        con.execute("UPDATE kr_readings SET measured_at='2000-01-01T00:00:00' WHERE value='12.9'")
+    old = kr_of(jokr(board, capsys)[1], "K")
+    assert (old["series"]["version"], old["trend"], old["missed_rounds"]) == (1, "closer", 2)
+    (repo / "e3.ts").write_text("v2")
+    (repo / "k.txt").write_text("11.6 2026-11-17 e3")
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    k = kr_of(jokr(board, capsys)[1], "K")
+    assert (k["value"], k["trend"], k["missed_rounds"], k["mismatch"]) == (11.6, None, 1, [])
+    assert k["history"] == [{"value": 11.6, "as_of": "2026-11-17"}]
+    assert k["series"]["version"] == 2 and k["series"]["def_hash"] != old["series"]["def_hash"]
+    assert len(readings(board)) == 3
+
+
+def test_a_failed_measure_shows_unmeasurable_until_it_reads_again(repo, board, capsys):
+    define(repo, [("K", "== 0", 'measure = "cat k.txt"')])
+    (repo / "k.txt").write_text("0 2026-11-17 ci")
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    (repo / "k.txt").unlink()
+    capsys.readouterr()
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    assert "K  量不了 / 目标 == 0 · 测量失败：退出码 1" in capsys.readouterr().out
+    k = kr_of(jokr(board, capsys)[1], "K")
+    assert (k["status"], k["value"], k["missed_rounds"]) == ("unmeasurable", 0, 0)
+    assert k["failure"].startswith("退出码 1")
+    (repo / "k.txt").write_text("0 2026-11-17 ci")
+    assert cli.main(["--db", str(board), "okr"]) == 0
+    k = kr_of(jokr(board, capsys)[1], "K")
+    assert (k["status"], k["failure"], k["trend"], k["history"]) == ("met", None, None, [{"value": 0, "as_of": "2026-11-17"}])
+
+
+def test_def_hash_is_the_one_the_board_cli_computes(tmp_path):
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "e3.ts").write_text("export const gold = 'v3'\n")
+    (tmp_path / "evals.jsonl").write_text("{}\n")
+    kr = {"name": "放错档（E3）", "target": "<= 3", "unit": "%", "max_age_days": 14,
+          "measure": "node scripts/e3.ts evals.jsonl ../x.ts /etc/hosts"}
+    assert cli.def_hash(tmp_path, kr) == DEF_HASH_BOTH_CLIS_AGREE_ON
+
+
+DEF_HASH_BOTH_CLIS_AGREE_ON = "5383ad5b5354835d"

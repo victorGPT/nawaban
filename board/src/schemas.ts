@@ -95,6 +95,25 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
       properties: { objective: text, kr: text, value: text, as_of: text, source: { type: 'string' }, commit: text },
     },
   },
+  'nawaban-kr-reading@2': {
+    description:
+      "One KR's reading as its measure printed it, with the hash of the measure it was read under (the KR's okr.toml entry and the measure code it names): a new hash starts a new series. The message's time is its round.",
+    schema: {
+      type: 'object',
+      required: ['kr', 'value', 'as_of', 'source', 'def_hash'],
+      additionalProperties: false,
+      properties: { objective: text, kr: text, value: text, as_of: text, source: { type: 'string' }, def_hash: text, commit: text },
+    },
+  },
+  'nawaban-kr-failure@1': {
+    description: "A KR whose measure failed: why, and the hash of the measure that failed. It is no round; the KR reads 量不了 until its measure reads again.",
+    schema: {
+      type: 'object',
+      required: ['kr', 'failure', 'def_hash'],
+      additionalProperties: false,
+      properties: { objective: text, kr: text, failure: text, def_hash: text, commit: text },
+    },
+  },
   'nawaban-okr-accept@1': {
     description: "The decision-maker's sign-off on an Objective whose KRs were all met when it was given; the message's time is when.",
     schema: { type: 'object', required: ['objective'], additionalProperties: false, properties: { objective: text } },

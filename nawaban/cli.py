@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
+import json
 import os
 import re
 import shlex
@@ -15,8 +17,8 @@ from contextlib import closing
 from decimal import Decimal
 from pathlib import Path
 
-VERSION = 3
-VERSIONS_MIGRATED_ON_OPEN = (1, 2)
+VERSION = 4
+VERSIONS_MIGRATED_ON_OPEN = (1, 2, 3)
 OKR_SCHEMA = """
 CREATE TABLE IF NOT EXISTS kr_readings (
     repo        TEXT NOT NULL,
@@ -25,7 +27,7 @@ CREATE TABLE IF NOT EXISTS kr_readings (
     as_of       TEXT NOT NULL,
     source      TEXT NOT NULL DEFAULT '',
     measured_at TEXT NOT NULL,
-    UNIQUE (repo, kr, as_of, source)
+    def_hash    TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS okr_accepts (
     repo        TEXT NOT NULL,
@@ -170,8 +172,18 @@ def _migrate_once_under_one_write_lock(con: sqlite3.Connection, path: Path) -> N
     backup(path)
     for stmt in filter(str.strip, TABLES_ADDED_SINCE_VERSION_1_IDEMPOTENT.split(";")):
         con.execute(stmt)
+    if "def_hash" not in {c[1] for c in con.execute("PRAGMA table_info(kr_readings)")}:
+        _rebuild_readings_without_the_unique_that_dropped_new_values(con)
     con.execute(f"PRAGMA user_version={VERSION}")
     con.execute("COMMIT")
+
+
+def _rebuild_readings_without_the_unique_that_dropped_new_values(con: sqlite3.Connection) -> None:
+    con.execute("ALTER TABLE kr_readings RENAME TO kr_readings_v3")
+    con.execute(OKR_SCHEMA.split(";")[0])
+    con.execute("INSERT INTO kr_readings (repo, kr, value, as_of, source, measured_at)"
+                " SELECT repo, kr, value, as_of, source, measured_at FROM kr_readings_v3 ORDER BY rowid")
+    con.execute("DROP TABLE kr_readings_v3")
 
 
 def _another_process_migrated_first(con: sqlite3.Connection) -> bool:
@@ -976,7 +988,7 @@ def _refuse_whole_file_for_a_malformed_kr(o: dict, kr: dict) -> None:
 _AS_OF = re.compile(r"(\d{4}-\d\d-\d\d\S*)\s*(.*)")
 
 
-def okr_run(root: Path) -> tuple[str, list[tuple[str, float, str, str]], dict[str, bool]]:
+def okr_run(root: Path) -> tuple[str, list[tuple[str, str, str, str, str]], dict[str, bool]]:
     objectives = _okr_defs(root)
     out, readings, full = [_okr_heading(root)], [], {}
     for o in objectives:
@@ -1003,11 +1015,11 @@ def _measure_kr(root: Path, kr: dict) -> tuple[str, bool, tuple | None]:
     op, goal = _TARGET.fullmatch(kr["target"].strip()).groups()
     unit, want = kr.get("unit", ""), f"{op} {goal}{kr.get('unit', '')}"
     got = _measure(root, kr["measure"]) if kr.get("measure") else None
-    reading = _dated_reading_unique_per_as_of(kr, got)
+    reading = _kept_reading_or_failure(root, kr, got)
     if got is None:
         return f"  {kr['name']}  未测 / 目标 {want}", False, reading
     if isinstance(got, str):
-        return f"  {kr['name']}  未测 / 目标 {want} · 测量失败：{got}", False, reading
+        return f"  {kr['name']}  量不了 / 目标 {want} · 测量失败：{got}", False, reading
     line = lambda rag: _okr_line(kr["name"], got[0], unit, want, op, Decimal(goal), rag, got[1])
     if kr.get("max_age_days") is not None and (stale := _stale(got[1], kr["max_age_days"])):
         return f"{line('黄')}  {stale}", False, reading
@@ -1032,10 +1044,36 @@ def _okr_line(name: str, value: Decimal, unit: str, want: str, op: str, goal: De
     return f"  {name}  {value:.1f}{unit} / 目标 {want} · 偏差 {variance} · {rag} · 截至 {day.group(1) if day else as_of}"
 
 
-def _dated_reading_unique_per_as_of(kr: dict, got) -> tuple | None:
+def _kept_reading_or_failure(root: Path, kr: dict, got) -> tuple | None:
+    if isinstance(got, str):
+        return (kr["name"], FAILED, "", got, def_hash(root, kr))
     if isinstance(got, tuple) and (d := _AS_OF.fullmatch(got[1])):
-        return (kr["name"], str(got[0]), d.group(1), d.group(2))
+        return (kr["name"], str(got[0]), d.group(1), d.group(2), def_hash(root, kr))
     return None
+
+
+FAILED = ""
+DEF_HASH_LENGTH = 16
+KR_FIELDS_IN_DEF_HASH = ("max_age_days", "measure", "name", "target", "unit", "wait")
+MEASURE_CODE_SUFFIXES = (".ts", ".mts", ".js", ".mjs", ".cjs", ".py", ".sh")
+
+
+def def_hash(root: Path, kr: dict) -> str:
+    entry = json.dumps({k: kr[k] for k in KR_FIELDS_IN_DEF_HASH if k in kr}, ensure_ascii=False, separators=(",", ":"))
+    h = hashlib.sha256(entry.encode())
+    for name in _repo_files_named_in(root, kr.get("measure", "")):
+        h.update(b"\0" + name.encode() + b"\0" + hashlib.sha256((root / name).read_bytes()).hexdigest().encode())
+    return h.hexdigest()[:DEF_HASH_LENGTH]
+
+
+def _repo_files_named_in(root: Path, cmd: str) -> list[str]:
+    named = []
+    for word in cmd.split():
+        p = Path(word)
+        inside = not p.is_absolute() and ".." not in p.parts
+        if inside and p.suffix in MEASURE_CODE_SUFFIXES and word not in named and (root / word).is_file():
+            named.append(word)
+    return named
 
 
 def _sortable_timestamp(t: _dt.datetime) -> str:
@@ -1059,11 +1097,17 @@ def okr_record(con, repo: Path, readings: list, accept: str | None, full: dict[s
 
 
 def _keep_readings_before_judging_accept(con, repo: Path, readings: list, now: _dt.datetime) -> int:
+    kept = 0
     with con:
-        before = con.total_changes
-        con.executemany("INSERT OR IGNORE INTO kr_readings VALUES (?, ?, ?, ?, ?, ?)",
-                        [(str(repo), k, v, as_of, src, _sortable_timestamp(now)) for k, v, as_of, src in readings])
-        return con.total_changes - before
+        for k, v, as_of, src, h in readings:
+            latest = con.execute("SELECT value, as_of, source, def_hash FROM kr_readings WHERE repo=? AND kr=?"
+                                 " ORDER BY measured_at DESC, rowid DESC LIMIT 1", (str(repo), k)).fetchone()
+            if latest is not None and tuple(latest) == (v, as_of, src, h):
+                continue
+            con.execute("INSERT INTO kr_readings (repo, kr, value, as_of, source, measured_at, def_hash)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?)", (str(repo), k, v, as_of, src, _sortable_timestamp(now), h))
+            kept += v != FAILED
+    return kept
 
 
 def _closer(op: str, goal: Decimal, prev: Decimal, cur: Decimal) -> str:
@@ -1134,8 +1178,8 @@ def okr_data(path: Path | str, repo: Path) -> dict:
 
 def _stored_okr_rows(path: Path | str, repo: Path) -> tuple[list, dict, dict[tuple, list]]:
     with closing(open_readonly(path)) as con:
-        rows = con.execute("SELECT kr, value, as_of, source, measured_at FROM kr_readings WHERE repo=?"
-                           " ORDER BY as_of, measured_at", (str(repo),)).fetchall()
+        rows = con.execute("SELECT kr, value, as_of, source, measured_at, def_hash FROM kr_readings WHERE repo=?"
+                           " ORDER BY measured_at, as_of, rowid", (str(repo),)).fetchall()
         accepts = dict(con.execute("SELECT objective, max(accepted_at) FROM okr_accepts WHERE repo=?"
                                    " GROUP BY objective", (str(repo),)).fetchall())
         declared: dict[tuple, list] = {}
@@ -1162,15 +1206,17 @@ def _objective_view(o: dict, by_kr: dict, accepts: dict, declared: dict, attenti
     return {"name": name, "met": met, "total": len(krs), "accept_pending": pending, "impacts": counts, "krs": krs}
 
 
-def _kr_view(name: str, kr: dict, rs: list, accepts: dict, declared: list, attention: list) -> tuple[dict, bool]:
+def _kr_view(name: str, kr: dict, kept: list, accepts: dict, declared: list, attention: list) -> tuple[dict, bool]:
     op, goal = _TARGET.fullmatch(kr["target"].strip()).groups()
     g = Decimal(goal)
     ok = lambda r: _MEETS_ON_DECIMAL[op](Decimal(r["value"]), g)
+    rounds, rs, version = _rounds_and_current_series(kept)
+    failure = kept[-1]["source"] if kept and kept[-1]["value"] == FAILED else None
     missed = _missed_rounds_since_last_met(rs, ok)
     last = rs[-1] if rs else None
-    status = _kr_status(kr, last, missed)
+    status = "unmeasurable" if failure is not None else _kr_status(kr, last, missed)
     trends = [_closer(op, g, Decimal(a["value"]), Decimal(b["value"])) for a, b in zip(rs, rs[1:])]
-    missed_after_accept = name in accepts and any(r["measured_at"] > accepts[name] and not ok(r) for r in rs)
+    missed_after_accept = name in accepts and any(r["measured_at"] > accepts[name] and not ok(r) for r in rounds)
     pending, mismatch = _impacts(op, g, rs, declared)
     recent = rs[-RECENT_READINGS_SHOWN:]
     view = {"name": kr["name"], "target": f"{op} {goal}", "target_op": op, "target_value": float(goal), "unit": kr.get("unit", ""), "status": status,
@@ -1178,9 +1224,18 @@ def _kr_view(name: str, kr: dict, rs: list, accepts: dict, declared: list, atten
             "source": last and last["source"],
             "history": [{"value": float(r["value"]), "as_of": r["as_of"]} for r in recent],
             "trend": trends[-1] if trends else None, "missed_rounds": missed, "wait": kr.get("wait"),
-            "impacts": pending, "mismatch": mismatch}
+            "impacts": pending, "mismatch": mismatch, "failure": failure,
+            "series": {"version": version, "since": rs[0]["measured_at"][:10], "def_hash": rs[0]["def_hash"]} if rs else None}
     attention += _kr_attention(name, kr, op, goal, status, missed, trends, "、".join(r["value"] for r in recent))
     return view, missed_after_accept
+
+
+def _rounds_and_current_series(kept: list) -> tuple[list, list, int]:
+    readings = [r for r in kept if r["value"] != FAILED]
+    same = lambda a, b: (a["value"], a["as_of"], a["source"], a["def_hash"]) == (b["value"], b["as_of"], b["source"], b["def_hash"])
+    rounds = [r for i, r in enumerate(readings) if i == 0 or not same(readings[i - 1], r)]
+    starts = [i for i, r in enumerate(rounds) if i == 0 or rounds[i - 1]["def_hash"] != r["def_hash"]]
+    return rounds, rounds[starts[-1]:] if starts else [], len(starts)
 
 
 def _missed_rounds_since_last_met(rs: list, ok) -> int:
