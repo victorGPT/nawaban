@@ -126,11 +126,11 @@ describe('结算出错', () => {
     const failingFor1740 = { ...team, threads: (async (q: Parameters<typeof team.threads>[0]) => ((q as { label?: Record<string, string> }).label?.issue?.endsWith('#1740') ? Promise.reject(new Error('坏了')) : team.threads(q))) as typeof team.threads }
     const settle = (known: Parameters<typeof settleIssueTasks>[3]) => settleIssueTasks(failingFor1740 as typeof team, 'roubao', REPO, known)
     const asked: string[] = []
-    const reader = { ...readerOf(world), list: async (p: string) => (asked.push(p), p.includes('since=') ? [] : readerOf(world).list(p)) }
+    const reader = { ...readerOf(world), now: async () => '2026-11-24T13:00:00.000Z', list: async (p: string) => (asked.push(p), p.includes('since=') ? [] : readerOf(world).list(p)) }
     await expect(pollRepo(REPO, dir, reader, deliverAsSignedWebhook((r) => team.fetch(r), url, SECRET), Date.now(), settle)).rejects.toThrow('#1740：坏了')
     expect((await theTask('ROUBAO-1741')).task?.state).toBe('ready')
     await pollRepo(REPO, dir, reader, deliverAsSignedWebhook((r) => team.fetch(r), url, SECRET))
-    expect(asked.filter((p) => p.includes('since=2026-11-24T11:58:00.000Z'))).not.toHaveLength(0)
+    expect(asked.filter((p) => p.includes('since=2026-11-24T12:58:00.000Z'))).not.toHaveLength(0)
   })
 })
 
