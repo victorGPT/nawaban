@@ -5,7 +5,8 @@ import { gapsOfADecisionCard, SCHEMAS, type SchemaId } from './schemas.ts'
 import { IMPACT_FORMAT, whyNotDeclarable } from './impact.ts'
 import { registeredReadings } from './okr.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
-import { Refused, resolve } from './tasks.ts'
+import { bodyFrom, Refused, resolve } from './tasks.ts'
+import { optionWordsBut, pointAt, withBody } from './hint.ts'
 
 type Run = (argv: string[]) => Promise<number>
 type Team = ReturnType<typeof board>
@@ -19,6 +20,8 @@ const HOLD_FOR_DECISION = 'awaiting_approval'
 const KR_HEADING = /^(.+)=(toward|away|hold)\s*$/
 const TRIAGE_LABEL = /^\s*triage:\s*([\w-]+)/
 const QUESTION_AFTER_DENGNI = /等你[：:]/
+const USAGE = `usage: nawaban event <票> <类> [正文]（类：${KINDS.join(' ')}）`
+const THE_OLD_FLAGS_A_POSITIONAL_REPLACES = ['kind', 'body']
 
 const OPTIONS = {
   kind: { type: 'string' },
@@ -27,9 +30,6 @@ const OPTIONS = {
   kr: { type: 'string', multiple: true },
   o: { type: 'string' },
   change: { type: 'string' },
-  question: { type: 'string' },
-  verdict: { type: 'string' },
-  rejected: { type: 'string', multiple: true },
   context: { type: 'string' },
   option: { type: 'string', multiple: true },
   rec: { type: 'string' },
@@ -85,17 +85,17 @@ async function boardIdByKeyOrId(ref: string): Promise<{ id: string } | { error: 
 }
 
 function misuse(kind: Kind, a: Args): string | null {
-  if (a.by !== undefined && (kind !== 'decision' || a.by !== 'user')) return '--by user goes only with --kind decision'
+  if (a.by !== undefined && (kind !== 'decision' || a.by !== 'user')) return '--by user goes only with decision'
   if ((a.o !== undefined) !== (kind === 'impact')) return 'an impact takes --o "<O 名>" (纯基础设施写 --o 无), and only an impact does'
-  if (a.change !== undefined && kind !== 'impact') return '--change goes only with --kind impact'
+  if (a.change !== undefined && kind !== 'impact') return '--change goes only with impact'
   if (kind !== 'impact' && (a.kr?.length ?? 0) > 1) return '--kr goes once, but for an impact'
   return null
 }
 
 function eventOn(id: string, a: Args, run: Run, team: Team): Event {
   const as = a.as ? ['--as', a.as] : []
-  const reply = (text: string) => run(['reply', id, text, ...as])
-  const hold = (reason: string, kind: string) => run(['tasks', 'block', id, reason, '--kind', kind, ...as])
+  const reply = (text: string) => run(['reply', id, ...as, '--', text])
+  const hold = (reason: string, kind: string) => run(['tasks', 'block', id, '--kind', kind, ...as, '--', reason])
   const holdAndNewest = () => holdAndNewestReply(team, id)
 
   const unblockAsPersonWhicheverWindowHeld = async () => {
@@ -113,7 +113,7 @@ function eventOn(id: string, a: Args, run: Run, team: Team): Event {
     const before = await holdAndNewest()
     if ('error' in before) return before.error
     if (before.hold?.kind !== kind) return null
-    const posted = await run(['reply', id, text, '--after', before.newest.id, ...as])
+    const posted = await run(['reply', id, '--after', before.newest.id, ...as, '--', text])
     if (posted) return posted
     const after = await holdAndNewest()
     if ('error' in after) return after.error
@@ -136,7 +136,7 @@ function eventOn(id: string, a: Args, run: Run, team: Team): Event {
 
 async function note(e: Event): Promise<number> {
   const { a } = e
-  if (!a.body) return refuse('a note needs --body', 2)
+  if (!a.body) return refuse('a note needs its 正文', 2)
   const body = a.body
   const triage = TRIAGE_LABEL.exec(body)?.[1]
   if (triage === 'needs-info') {
@@ -146,7 +146,7 @@ async function note(e: Event): Promise<number> {
   if (triage === 'ready-for-agent') {
     const held = await e.holdAndNewest()
     if ('error' in held) return held.error
-    if (held.hold && held.hold.kind !== HOLD_FOR_PERSON) return refuse(`#${e.id} is held for a decision: resolve it with --kind resolve`)
+    if (held.hold && held.hold.kind !== HOLD_FOR_PERSON) return refuse(`#${e.id} is held for a decision: resolve it with nawaban event ${e.id} resolve <正文>`)
     if (!held.hold) return e.reply(body)
     return (await e.answerThenLiftIfStillOurs(HOLD_FOR_PERSON, body, (newest) => newest.text === body)) ?? e.reply(body)
   }
@@ -161,19 +161,19 @@ const verdictWithItsConsequences = (verdict: string | undefined, consequences: s
 async function decision(e: Event): Promise<number> {
   const { a } = e
   const value = checkedBeforeAnythingLands('nawaban-decision@1', {
-    question: a.question ?? oldBodyLines(a.body, '背景|Context|Question')[0],
-    verdict: a.verdict ?? verdictWithItsConsequences(oldBodyLines(a.body, '决定|Decision|Verdict')[0], oldBodyLines(a.body, '影响|Consequences')[0]),
-    rejected: a.rejected ?? oldBodyLines(a.body, '否决方案|Rejected'),
+    question: oldBodyLines(a.body, '背景|Context|Question')[0],
+    verdict: verdictWithItsConsequences(oldBodyLines(a.body, '决定|Decision|Verdict')[0], oldBodyLines(a.body, '影响|Consequences')[0]),
+    rejected: oldBodyLines(a.body, '否决方案|Rejected'),
     by: a.by === 'user' ? 'user' : 'agent',
     ...(e.kr ? { kr: e.kr } : {}),
   })
-  return 'why' in value ? refuse(`${value.why} (--body 写 决定：、背景：、否决方案：，可选 影响：；Decision:/Context:/Rejected:、Question:/Verdict: 和 --question/--verdict/--rejected 照样收)`) : e.reply(value.text)
+  return 'why' in value ? refuse(`${value.why} (正文写 决定：、背景：、否决方案：，可选 影响：；Decision:/Context:/Rejected:、Question:/Verdict: 照样收)`) : e.reply(value.text)
 }
 
 async function link(e: Event): Promise<number> {
   const [, linkKind, ref] = /^(\w+):(.+)$/s.exec(e.a.body ?? '') ?? []
   const value = checkedBeforeAnythingLands('nawaban-link@1', { kind: linkKind, ref })
-  return 'why' in value ? refuse(`${value.why} (--body pr:<url>, commit:<sha>, artifact:<ref>, adr:<ref>)`) : e.reply(value.text)
+  return 'why' in value ? refuse(`${value.why} (正文 pr:<url>, commit:<sha>, artifact:<ref>, adr:<ref>)`) : e.reply(value.text)
 }
 
 async function ask(e: Event): Promise<number> {
@@ -203,7 +203,7 @@ export async function registration(team: Team, id: string, o: string | undefined
 
 async function impactShapeHereNamesAtTheBoard(e: Event): Promise<number> {
   const { a } = e
-  if (a.body || a.context || a.option || a.rec || a.question || a.verdict || a.rejected) return refuse('an impact takes only --o, --kr and --change', 2)
+  if (a.body || a.context || a.option || a.rec) return refuse('an impact takes only --o, --kr and --change', 2)
   const value = await registration(e.team, e.id, a.o, a.kr ?? [], a.change)
   return 'error' in value ? value.error : e.reply(value.text)
 }
@@ -226,19 +226,34 @@ const BY_KIND: Record<Kind, (e: Event) => Promise<number>> = {
   resolve: resolveDecision,
 }
 
+async function bodyElseRefusal(positional: string | undefined, values: Args): Promise<{ body: string | undefined } | { error: number }> {
+  try {
+    return { body: await bodyFrom(positional, values.body, undefined) }
+  } catch (error) {
+    return { error: refuse((error as Error).message, error instanceof Refused ? error.code : 1) }
+  }
+}
+
 export async function event(argv: string[], run: Run, team: Team): Promise<number> {
   let parsed
   try {
-    parsed = parseArgs({ args: argv, allowPositionals: true, options: OPTIONS })
+    parsed = parseArgs({ args: argv, allowPositionals: true, options: OPTIONS, tokens: true })
   } catch (error) {
     return refuse((error as Error).message, 2)
   }
-  const { values: a, positionals } = parsed
-  const ref = positionals[0]
-  const kind = a.kind as Kind
-  if (!ref || positionals.length > 1 || !KINDS.includes(kind)) {
-    return refuse(`usage: nawaban event <key|id> --kind ${KINDS.join('|')} …`, 2)
+  const { values, positionals, tokens } = parsed
+  const [ref, kindWord, bodyWord, ...extra] = positionals
+  if (kindWord !== undefined && values.kind !== undefined && kindWord !== values.kind) {
+    return refuse(`类给了两次且不一致：位置参数 ${kindWord}，--kind ${values.kind}`, 2)
   }
+  const kind = (kindWord ?? values.kind) as Kind
+  if (!ref || extra.length || !KINDS.includes(kind)) return refuse(USAGE, 2)
+  const body = await bodyElseRefusal(bodyWord, values)
+  if ('error' in body) return body.error
+  if (values.kind !== undefined || values.body !== undefined) {
+    pointAt(withBody(['event', ref, kind], values.body ?? bodyWord, optionWordsBut(tokens, THE_OLD_FLAGS_A_POSITIONAL_REPLACES)))
+  }
+  const a: Args = { ...values, kind, body: body.body }
   const task = await boardIdByKeyOrId(ref)
   if ('error' in task) return task.error
   const why = misuse(kind, a)

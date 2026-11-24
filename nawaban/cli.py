@@ -2003,7 +2003,51 @@ def _read_github_refreshing_the_inbox(gh: Path) -> dict:
 
 
 _ASKING_KEYWORDS = re.compile(r"你定|你点头|批不批|批准吗|要不要|你选|请拍板")
-_RECORDED = re.compile(r"\bevent\b.*?(?:--kind[\s=,'\"\\]+ask\b|triage:\s*needs-info)", re.S)
+_RECORDED_AS_MAIN_ALWAYS_READ_IT = re.compile(r"\bevent\b.*?(?:--kind[\s=,'\"\\]+ask\b|triage:\s*needs-info)", re.S)
+_WORD = re.compile(r"'([^']*)'|\"((?:[^\"\\]|\\.)*)\"|([^\s,'\"\[\](){}`$]+)|(\n)")
+_ENDS_A_COMMAND = {";", "&&", "||", "|", "&", "\n"}
+_TRIAGE_NEEDS_INFO_ANYWHERE = re.compile(r"triage:\s*needs-info")
+
+
+def _words(text: str) -> list[tuple[str, bool]]:
+    return [(re.sub(r"\\(.)", r"\1", dq) if dq else sq or bare or newline, bool(sq or dq))
+            for sq, dq, bare, newline in _WORD.findall(text)]
+
+
+def _event_records_an_ask(args: list[tuple[str, bool]]) -> bool:
+    positionals, flags = [], {}
+    words = iter(args)
+    for word, quoted in words:
+        if not quoted and word in _ENDS_A_COMMAND:
+            break
+        if word.startswith("--") and " " not in word:
+            name, inline, value = word.partition("=")
+            flags[name] = value if inline else next(words, ("", True))[0]
+        else:
+            positionals.append(word)
+    kind = flags.get("--kind") or (positionals[1] if len(positionals) > 1 else "")
+    body_comes_on_stdin = "-" in positionals[2:3]
+    said = " ".join(w for w, _ in args) if body_comes_on_stdin else " ".join([*positionals[2:], flags.get("--body", "")])
+    return kind == "ask" or (kind == "note" and bool(_TRIAGE_NEEDS_INFO_ANYWHERE.search(said)))
+
+
+def _records_an_ask(text: str) -> bool:
+    words = _words(text.replace("\\\n", " "))
+    for k, (word, quoted) in enumerate(words):
+        if word == "event" and _event_records_an_ask(words[k + 1:]):
+            return True
+        if quoted and " " in word and not _inside_an_event(words, k) and _records_an_ask(word):
+            return True
+    return False
+
+
+def _inside_an_event(words: list[tuple[str, bool]], k: int) -> bool:
+    for word, quoted in reversed(words[:k]):
+        if not quoted and word in _ENDS_A_COMMAND:
+            return False
+        if word == "event":
+            return True
+    return False
 
 
 def _leaves(v) -> str:
@@ -2091,11 +2135,11 @@ def unrecorded_ask(message: str, transcript: str | None) -> str | None:
         return None
     inputs = _turn_tool_inputs(transcript)
     unreadable_transcript_passes = inputs is None
-    if unreadable_transcript_passes or any(_RECORDED.search(s) for s in inputs):
+    if unreadable_transcript_passes or any(_RECORDED_AS_MAIN_ALWAYS_READ_IT.search(s) or _records_an_ask(s) for s in inputs):
         return None
     return ("这轮在向决策者要决定，却没记成待决策项，待决提示行里看不到它。先把问题记成待决策项："
             "nawaban event '#N' --kind ask --body <决策事项> --kr <关联 KR> --context <背景> --option <方案｜代价｜单向门/双向门> --option <方案｜代价｜单向门/双向门> --rec <建议>"
-            "（本地看板：nawaban event <ID> --kind note --body 'triage: needs-info — 等你：<问题>'），问法不用改。")
+            "（本地看板：nawaban event <ID> note 'triage: needs-info — 等你：<问题>'），问法不用改。")
 
 
 INBOX_STALE = 300
@@ -2397,9 +2441,37 @@ def moved_projects() -> set[str]:
     return set(json.loads(m.group(1) or "[]"))
 
 
+_FLAGS_THE_BOARD_TAKES_AS_POSITIONALS = {"event": ("--kind", "--body"), "create": ("--body",)}
+
+
+def board_words(argv: list[str]) -> list[str]:
+    if not argv or argv[0] not in _FLAGS_THE_BOARD_TAKES_AS_POSITIONALS:
+        return argv
+    moved = dict.fromkeys(_FLAGS_THE_BOARD_TAKES_AS_POSITIONALS[argv[0]])
+    positionals, rest = [], []
+    words = iter(argv[1:])
+    for word in words:
+        if not word.startswith("--"):
+            positionals.append(word)
+            continue
+        name, inline, value = word.partition("=")
+        value = value if inline else next(words, "")
+        if name in moved:
+            moved[name] = value
+        elif value.startswith("-"):
+            rest.append(f"{name}={value}")
+        else:
+            rest += [name, value]
+    body = moved.pop("--body")
+    head = [argv[0], *positionals, *moved.values()]
+    if body is None:
+        return head + rest
+    return [*head, *rest, "--", body] if body.startswith("-") else [*head, body, *rest]
+
+
 def refuse_moved(project: str | None, argv: list[str]) -> None:
     if project and project in moved_projects():
-        raise Refused(f"项目 {project} 已迁到 Board:nawaban {shlex.join(argv)}"
+        raise Refused(f"项目 {project} 已迁到 Board:nawaban {shlex.join(board_words(argv))}"
                       f"(nawaban 即 node {_PLUGIN / 'board' / 'src' / 'cli.ts'});旧库对它只读")
 
 

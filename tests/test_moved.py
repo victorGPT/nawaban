@@ -43,6 +43,24 @@ def test_a_write_to_a_moved_project_is_refused_with_the_board_command(run, args)
     assert run("show", "N-1")[1].count("progress") == 0
 
 
+def test_the_board_command_for_event_and_create_is_the_board_grammar(run):
+    assert "已迁到 Board:nawaban event N-1 note progress --by user(" in run("event", "N-1", "--kind", "note", "--body", "progress", "--by", "user")[2]
+    assert "已迁到 Board:nawaban create N-2 b --title t --project nawaban(" in run("create", "N-2", "--title", "t", "--body", "b", "--project", "nawaban")[2]
+    assert "已迁到 Board:nawaban block N-1 N-1(" in run("block", "N-1", "N-1")[2]
+
+
+@pytest.mark.parametrize("argv, board", [
+    (["event", "N-1", "--kind=impact", "--o", "无"], ["event", "N-1", "impact", "--o", "无"]),
+    (["event", "--kind", "note", "N-1", "--body=- 已完成"], ["event", "N-1", "note", "--", "- 已完成"]),
+    (["event", "N-1", "--kind", "ask", "--body", "定", "--option", "A｜快｜双向门", "--rec", "-"],
+     ["event", "N-1", "ask", "定", "--option", "A｜快｜双向门", "--rec=-"]),
+    (["create", "N-2", "--title", "t", "--body-file", "b.md"], ["create", "N-2", "--title", "t", "--body-file", "b.md"]),
+    (["claim", "N-1", "--release"], ["claim", "N-1", "--release"]),
+])
+def test_board_words_moves_kind_and_body_to_positionals(argv, board):
+    assert cli.board_words(argv) == board
+
+
 def test_reads_of_a_moved_project_still_work(run):
     assert run("show", "N-1")[0] == 0
     assert "N-1" in run("list", "--project", "nawaban")[1]

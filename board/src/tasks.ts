@@ -1,10 +1,12 @@
 import { parseArgs } from 'node:util'
-import { readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { text } from 'node:stream/consumers'
 import { block as blockOf, board, type MessageView } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
 import { RESULT_FORMAT, undeclared } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { forgetLive } from './progress.ts'
+import { optionWordsBut, pointAt, withBody } from './hint.ts'
 
 type Verb = (argv: string[]) => Promise<number>
 
@@ -12,6 +14,8 @@ const LEASE = '1h'
 const PAGE = 50
 const PROFILE_NAME = /^[A-Za-z][A-Za-z0-9-]{0,31}$/
 const SESSION_PREFIX_LENGTH = 8
+const BODY_FROM_STDIN = '-'
+const NEWLINE_A_FILE_ENDS_WITH_AS_BOARD_REPLY_DROPS_IT = /\n$/
 const personOwningEveryTaskTheirProfilesMade = () => board().as(null)
 const cliWhoseClaimsTheRenewHookFinds = (argv: string[]) => createApp({ appName: 'nawaban' }).run(argv)
 
@@ -74,13 +78,22 @@ export async function resolve(keyElseBoardId: string): Promise<MessageView> {
   return message
 }
 
+export async function bodyFrom(positional: string | undefined, flag: string | undefined, file: string | undefined): Promise<string | undefined> {
+  const given = Object.entries({ 位置参数: positional, '--body': flag, '--body-file': file }).filter(([, v]) => v !== undefined)
+  if (given.length > 1) throw new Refused(`正文给了 ${given.length} 处：${given.map(([where]) => where).join('、')}，只留一处`, 2)
+  if (file !== undefined) return (await readFile(file, 'utf8')).replace(NEWLINE_A_FILE_ENDS_WITH_AS_BOARD_REPLY_DROPS_IT, '')
+  if (positional === BODY_FROM_STDIN) return (await text(process.stdin)).replace(NEWLINE_A_FILE_ENDS_WITH_AS_BOARD_REPLY_DROPS_IT, '')
+  return positional ?? flag
+}
+
 const print = (json: boolean, doc: unknown, text: string) => process.stdout.write(json ? JSON.stringify(doc) + '\n' : text + '\n')
 const row = (m: MessageView) => `#${m.id}  ${state(m).padEnd(9)}  ${key(m)}  ${title(m)}`
 
 const create: Verb = async (argv) => {
-  const { values, positionals } = parseArgs({
+  const { values, positionals, tokens } = parseArgs({
     args: argv,
     allowPositionals: true,
+    tokens: true,
     options: {
       title: { type: 'string' },
       body: { type: 'string' },
@@ -91,12 +104,15 @@ const create: Verb = async (argv) => {
       json: { type: 'boolean' },
     },
   })
-  const [keyAsPostIdSoCreatingAgainAnswersTheSameTask] = positionals
-  if (!keyAsPostIdSoCreatingAgainAnswersTheSameTask || !values.title) throw new Refused('usage: nawaban create <key> --title "<title>" [--body ...] [--parent <key>] [--project <p>] [--blocked-by <key>]...', 2)
+  const [keyAsPostIdSoCreatingAgainAnswersTheSameTask, bodyWord, ...extra] = positionals
+  if (!keyAsPostIdSoCreatingAgainAnswersTheSameTask || extra.length || !values.title) {
+    throw new Refused('usage: nawaban create <票> --title <标题> [正文] [--parent <票>] [--project <项目>] [--blocked-by <票>]…', 2)
+  }
+  const body = await bodyFrom(bodyWord, values.body, values['body-file'])
+  if (values.body !== undefined) pointAt(withBody(['create', keyAsPostIdSoCreatingAgainAnswersTheSameTask], values.body, optionWordsBut(tokens, ['body'])))
   const parent = values.parent ? await resolve(values.parent) : null
   const project = values.project ?? parent?.channel
   if (!project) throw new Refused('no project: pass --project, or a --parent that has one', 2)
-  const body = values['body-file'] ? readFileSync(values['body-file'], 'utf8') : values.body
   const needs = await Promise.all((values['blocked-by'] ?? []).map(async (b) => (await resolve(b)).id))
   const { task } = await personOwningEveryTaskTheirProfilesMade().tasks.create(project, {
     id: keyAsPostIdSoCreatingAgainAnswersTheSameTask,

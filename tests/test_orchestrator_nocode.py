@@ -56,6 +56,7 @@ def test_the_orchestrator_keeps_its_own_commands(tmp_path, outside_tmp):
     call, repo, scratch = terminal(tmp_path, "orchestrator", outside_tmp)
     for cmd in ("gh pr merge 12 --squash", "gh pr view 12", "hc send t1 '回报：完成'", "git status", "git log -1", "git pull --ff-only",
                 "node board/src/cli.ts event 9 --kind note --body '下一步：git commit，再 sed -i 改 a.py > src/a.py'",
+                "nawaban event 9 note '下一步：git commit，再 sed -i 改 a.py > src/a.py'",
                 "nawaban dispatch X --body \"$(cat <<'EOF'\ngit commit -m x\necho x > src/a.py\nEOF\n)\"",
                 "ls 2>/dev/null >&2", "echo x > /dev/null", f"echo x > {scratch}/o.txt", "rg 'sed -i' src", "cat src/a.py | head", "gh pr view 12 # > README.md", "hc send t1 \"$(printf \"状态 > README.md\")\"", "hc send t1 \"`printf \"状态 > README.md\"`\"", "hc send t1 \"$(cat <<'EOF'\n示例 \"echo x > README.md\"\nEOF\n)\"",
                 "hc send t1 '>'", "rg '>' src", "node cli.ts event 9 --body=\"a > src/a.py\"", f"cd {scratch} && echo x > plan.md",

@@ -97,6 +97,21 @@ it('registers an impact whose names are in the okr.toml, a product change unless
   expect((await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=toward', '--change', 'code')).code).toBe(2)
 })
 
+it('registers with the kind as a word, and points the old --kind at that form, which runs as it reads', async () => {
+  const id = await newTask()
+  expect((await nawaban('event', id, 'impact', '--o', 'O1', '--kr', 'KR1=toward', '--change', 'product')).code).toBe(0)
+  const old = await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR2=hold', '--change', 'measure')
+  expect([old.code, old.err]).toEqual([0, `改用：nawaban event ${id} impact --o O1 --kr KR2=hold --change measure\n`])
+  expect((await nawaban(...old.err.replace('改用：nawaban ', '').trim().split(' '))).code).toBe(0)
+  const { replies } = await team.thread(id)
+  expect(replies.map((r) => r.blocks[0]!.data)).toEqual([
+    { objective: 'O1', change: 'product', krs: [{ name: 'KR1', heading: 'toward' }] },
+    { objective: 'O1', change: 'measure', krs: [{ name: 'KR2', heading: 'hold' }] },
+    { objective: 'O1', change: 'measure', krs: [{ name: 'KR2', heading: 'hold' }] },
+  ])
+  expect((await nawaban('event', id, 'note', '已完成：x', '--change', 'gold')).err).toMatch('--change goes only with impact')
+})
+
 it('refuses a KR or an O the okr.toml does not have', async () => {
   const id = await newTask()
   const kr = await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR9=toward')

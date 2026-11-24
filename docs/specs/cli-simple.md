@@ -188,7 +188,7 @@ nawaban：记票、事件、待决和读数的看板
 所有动词共用的规则：
 
 - **项目。** `create` 和 `status` 要有项目才能跑，`--project` 缺省取当前目录所在仓库的项目。今天 `create` 的 100 次里 76 次手写了 `--project`。`list` 的 `--project` 是过滤，不填就是全部。
-- **正文。** 位置参数。写 `-` 从标准输入读，`--body-file <文件>` 从文件读。今天 `event` 只认 `--body`，`create` 认 `--body` 和 `--body-file`，把位置参数静默丢掉（实测）。以 `-` 开头的正文今天写不进去（`--body "- 已完成"` 报 `argument is ambiguous`），新写法下走标准输入或 `--body-file`。
+- **正文。** 位置参数，写 `-` 从标准输入读，和 Board 原生的 `reply <id> [text]` 一个约定。`event` 不加 `--body-file`（决策者 11-25：不造轮子，Board 有的约定直接用）；`create` 上原有的 `--body-file` 保留。今天 `event` 只认 `--body`，`create` 认 `--body` 和 `--body-file`，把位置参数静默丢掉（实测）。以 `-` 开头的正文今天写不进去（`--body "- 已完成"` 报 `argument is ambiguous`），新写法下走标准输入或 `--body-file`。
 - **`--json`。** 每个动词都有，输出一个对象。面板读的 `json …` 不动，见「去掉的东西」第 4 条。
 - **`--help`。** 每个动词都有，打印用法一行加每个参数一行。
 - **谁定的。** `--by user` 只在 `decision` 上，和今天一样。
@@ -207,7 +207,7 @@ nawaban：记票、事件、待决和读数的看板
   ask <决策事项>     上升一件待决：--kr、--context、--option（至少两次）、--rec
   resolve <正文>     已决，解除 ask 留下的挂起
 
-正文写 - 从标准输入读，--body-file <文件> 从文件读。
+正文写 - 从标准输入读。
 ```
 
 ### 输出
@@ -339,7 +339,7 @@ MIGRATE-10-03 之后，同步仓库的写动词由旧 CLI 转给板 CLI，转过
 | 子票 | 做什么 | 演示 | 被挡 |
 | --- | --- | --- | --- |
 | -01 一屏 help | 新 `nawaban --help` 和 `help more`；每个动词的 `--help`；上游动词收进 `board`，钩子入口收进 `hook`，六个钩子脚本和 `dispatch.ts:269` 的子进程调用同一个 PR 改；`index` 改名 `status`；未知动词报错并列出十个动词；旧的顶层写法变别名。`event` 那一行先写今天的 `--kind` 文法 | `nawaban --help` 不超过 24 行 80 列；help 里每一行的写法都跑通；`nawaban event --help` 退出 0；`nawaban bogus` 退出 2；`hook guard` 拦 `nawaban board tasks complete` 时退出 2 | 无 |
-| -02 事件的类 | `event <票> <类> [正文]`；正文位置参数、`-`、`--body-file`，`create` 同样；删 `--question`、`--verdict`、`--rejected`；ask-guard 的 `_RECORDED` 和它的补救提示、`page.ts`、`impact.ts`、`cli.py` 的「已迁到 Board」提示、派单 brief 一起改 | `nawaban event X note "…"` 写成；以 `-` 开头的正文从标准输入写成；旧写法照常执行并打出改用提示；喂新写法的 `event X ask …`，ask-guard 放行 | -01 |
+| -02 事件的类 | `event <票> <类> [正文]`；正文位置参数、`-`，`create` 同样并保留它原有的 `--body-file`；删 `--question`、`--verdict`、`--rejected`；ask-guard 的 `_RECORDED` 和它的补救提示、`page.ts`、`impact.ts`、`cli.py` 的「已迁到 Board」提示、派单 brief 一起改 | `nawaban event X note "…"` 写成；以 `-` 开头的正文从标准输入写成；旧写法照常执行并打出改用提示；喂新写法的 `event X ask …`，ask-guard 放行 | -01 |
 | -03 一个调用名 | 板记账仓库的 skill 一节、派单 brief、钩子提示、`docs/agents` 全部写 `nawaban <动词>`；`create` 和 `status` 的 `--project` 缺省取当前仓库 | 新派的 worker 的 brief 里没有 `cli.ts` 路径；在仓库里 `nawaban create X --title t` 不带 `--project` 能建票；Codex 沙箱里 `nawaban show X` 能跑 | -01 |
 | -04 输出 | 写动词默认一两行中文的 ✓ 和 ✗，被拒时第二行给下一步；每个动词有 `--json`；退出码四个，`hook guard` 例外；行输出以 KEY 开头，板上编号不带 `#` | 十个动词各一条成功、一条被拒的输出快照 | -02 |
 | -05 status | `inbox`、`page` 合进 `status` 的 `--line`、`--unseen`，三个钩子同一个 PR 改；`show --all`；`create --inbox`；skill 不再教 `json`，`orchestrator.ts:190` 的提示一起改 | 待决提示行、网页答复提示、收件箱提示在新写法下照常出现；面板不改，`herdr-app check` 过 | -04、NAWABAN-MIGRATE-10-02 |
