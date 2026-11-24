@@ -195,12 +195,12 @@ export async function defHash(root: string, kr: Kr) {
 
 async function inputFiles(root: string, pattern: string) {
   const expanded = pattern === '~' || pattern.startsWith('~/') ? homedir() + pattern.slice(1) : pattern
-  const files: string[] = []
+  const files = new Set<string>()
   for await (const p of glob(expanded, { cwd: root })) {
-    const full = resolve(root, p)
-    if (await stat(full).then((s) => s.isFile(), () => false)) files.push(full)
+    const full = await realpath(resolve(root, p))
+    if (await stat(full).then((s) => s.isFile(), () => false)) files.add(full)
   }
-  return files
+  return [...files]
 }
 
 async function keptReadingOrFailure(root: string, o: Objective, kr: Kr, got: [string, string] | string | null): Promise<Reading | null> {

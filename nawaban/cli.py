@@ -1077,7 +1077,7 @@ def def_hash(root: Path, kr: dict) -> str:
 def _input_files(root: Path, pattern: str) -> list[Path]:
     expanded = os.path.expanduser(pattern)
     full = expanded if os.path.isabs(expanded) else os.path.join(glob.escape(str(root)), expanded)
-    return [Path(p) for p in glob.glob(full, recursive=True) if Path(p).is_file()]
+    return [Path(p) for p in dict.fromkeys(os.path.realpath(p) for p in glob.glob(full, recursive=True)) if Path(p).is_file()]
 
 
 def _repo_files_named_in(root: Path, cmd: str) -> list[str]:

@@ -634,6 +634,8 @@ describe('a measure that changes and fails at once', () => {
   })
 })
 
+const INPUTS_HASH = 'd7e5e0e755fbe52a'
+
 describe('inputs a KR declares', () => {
   it('hash as the old CLI does, dotfiles and missing patterns alike', async () => {
     const root = realpathSync(await mkdtemp(join(tmpdir(), 'nawaban-inputs-')))
@@ -641,7 +643,7 @@ describe('inputs a KR declares', () => {
       await mkdir(join(root, path, '..'), { recursive: true })
       await writeFile(join(root, path), text)
     }
-    expect(await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl', 'cases.json', 'missing/*.txt'] })).toBe('a4fbb62be849264b')
+    expect(await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl', 'cases.json', 'missing/*.txt', 'gold/**/**/*.jsonl'] })).toBe(INPUTS_HASH)
     const before = await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl'] })
     await writeFile(join(root, 'gold/sub/b.jsonl'), 'b2')
     expect(await defHash(root, { name: 'K', target: '<= 3', inputs: ['gold/**/*.jsonl'] })).not.toBe(before)

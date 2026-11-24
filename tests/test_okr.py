@@ -638,14 +638,14 @@ def inputs_fixture(root):
     for path, text in (("gold/a.jsonl", "a"), ("gold/sub/b.jsonl", "b"), ("gold/.h.jsonl", "h"), ("gold/.hidden/x.jsonl", "x"), ("cases.json", "c")):
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         (root / path).write_text(text)
-    return {"name": "K", "target": "<= 3", "inputs": ["gold/**/*.jsonl", "cases.json", "missing/*.txt"]}
+    return {"name": "K", "target": "<= 3", "inputs": ["gold/**/*.jsonl", "cases.json", "missing/*.txt", "gold/**/**/*.jsonl"]}
 
 
 def test_inputs_hash_as_the_board_cli_does(tmp_path):
     assert cli.def_hash(tmp_path, inputs_fixture(tmp_path)) == INPUTS_HASH_BOTH_CLIS_AGREE_ON
 
 
-INPUTS_HASH_BOTH_CLIS_AGREE_ON = "a4fbb62be849264b"
+INPUTS_HASH_BOTH_CLIS_AGREE_ON = "d7e5e0e755fbe52a"
 
 
 def test_a_changed_gold_file_starts_a_new_series_and_an_untouched_one_does_not(repo, board, capsys):
