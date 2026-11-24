@@ -267,16 +267,16 @@ it('refuses when the head is not readable locally, so its workflows can not be s
   expect(r.gh).not.toMatch(/^pr merge/m)
 })
 
-it('counts a worker that has already exited as retired on a rerun', async () => {
-  const { worktree } = await workerOnItsOwnTicket('M-EXITED', 't78')
-  const first = await mergeAsTheWorker('M-EXITED', 't78', worktree, { HC_KILL_FAIL: '1' })
-  expect(first.code).toBe(1)
+it('counts a worker that has already exited as retired on a rerun, even with its worktree left and a next ticket in its lane', async () => {
+  const { id, worktree } = await workerOnItsOwnTicket('M-EXITED', 't78')
+  await note(id, 'lane: exited-lane')
+  await note(await newTask('M-EXITED-NEXT'), 'lane: exited-lane')
   await writeFile(join(tmp, 'workers', 't78.json'), JSON.stringify({ state: 'finished', cwd: worktree, labels: {} }))
   await writeFile(join(tmp, 'pr-M-EXITED.json'), JSON.stringify({ ...greenCodePr('M-EXITED'), state: 'MERGED', mergeCommit: { oid: 'f'.repeat(40) } }))
-  const rerun = await mergeAsTheWorker('M-EXITED', 't78', repo)
+  const rerun = await mergeAsTheWorker('M-EXITED', 't78', worktree)
   expect(rerun.code).toBe(0)
   expect(rerun.stdout).toContain('worker t78 已不在')
-  expect(rerun.hc.match(/^kill/gm)).toHaveLength(1)
+  expect(rerun.hc).not.toMatch(/^(kill|send)/m)
 })
 
 it('tells the orchestrator when the kill fails after the worktree is gone, and a rerun from the main checkout finishes the retirement', async () => {
