@@ -144,7 +144,7 @@ async function pluginHoldElsePull(did: string[]): Promise<Outcome | null> {
   if (incoming.split('\n').some((path) => path === SCHEMA_FILE || path.includes('migrat'))) {
     return { kind: 'mergedButUnfinished', left: '插件要拉进来的改动里有 schema，要决策者点头再 pull；pull 之后重跑 merge 收尾' }
   }
-  const failed = await failureElseNull('git', ['-C', plugin, 'pull', '--ff-only', 'origin', 'main'])
+  const failed = await failureElseNull('git', ['-C', plugin, 'merge', '-q', '--ff-only', 'origin/main'])
   if (failed) return { kind: 'mergedButUnfinished', left: `插件 pull 失败：${failed}` }
   did.push('插件已 pull')
   return null
