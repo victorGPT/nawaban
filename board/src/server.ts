@@ -31,6 +31,7 @@ const WEB = fileURLToPath(new URL('../../web/', import.meta.url))
 const BUILT_PAGE = join(WEB, 'dist')
 const API = '/api/nawaban/'
 const INSPECTOR = '/board'
+const INSPECTOR_OPENS_ON = '/board/tasks'
 const WEB_TOKEN_COOKIE = 'nawaban-web-token'
 const READS = new Set(['GET', 'HEAD'])
 const WRITE_BODY_MAX_BYTES = 16 * 1024
@@ -405,7 +406,7 @@ export function site(
       fromThisMachineOrTheTailnetElseRefusal(request, port, tailnet) ??
       (presented !== null ? (holdsTheWebTokenElseRefusal(presented, want) ?? writesOnlyFromThePagesOwnOriginElseRefusal(request, tailnet)) : null)
     if (refusal) return refusal
-    if (isInspector) return inspect(request)
+    if (isInspector) return READS.has(request.method) ? (pathname === INSPECTOR || pathname === INSPECTOR + '/' ? new Response(null, { status: 302, headers: { location: INSPECTOR_OPENS_ON } }) : inspect(request)) : refuse(405, 'the inspector here is read-only: write through nawaban')
     if (!isApi) return READS.has(request.method) ? builtFile(pathname, dist) : refuse(405, 'read-only')
     const path = pathname.slice(API.length)
     try {
