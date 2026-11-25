@@ -2,7 +2,7 @@ import { mkdtemp, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
-import { keptReads, StillReading } from '../src/kept.ts'
+import { KEPT_FRESH_FOR_MS, keptReads, StillReading } from '../src/kept.ts'
 import { Refused } from '../src/said.ts'
 
 const nothingLanded = () => {}
@@ -35,4 +35,29 @@ it('never waits on a read that is not local, and keeps a refusal as the answer',
   await expect(kept.read('github:r', 'task #8', () => Promise.reject(new Refused('任务不存在:#8')), { local: false })).rejects.toBeInstanceOf(StillReading)
   while (!landed.length) await new Promise((r) => setTimeout(r, 5))
   await expect(kept.read('github:r', 'task #8', () => Promise.reject(new Refused('again')), { local: false })).rejects.toThrow('任务不存在:#8')
+})
+
+it('after a restart, a move made before the first read still makes that read wait for one made after it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nawaban-kept-'))
+  await keptReads(dir, nothingLanded).read('views', 'projects', async () => 'before the restart', { local: true })
+  await onDisk(dir)
+  const restarted = keptReads(dir, nothingLanded)
+  void restarted.moved('views')
+  expect(await restarted.read('views', 'projects', async () => 'after the move', { local: true })).toBe('after the move')
+})
+
+it('answers a background read that failed as that failure and says so, and reads again once it is old', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nawaban-kept-'))
+  let clock = 0
+  const landed: boolean[] = []
+  const kept = keptReads(dir, (_, changed) => void landed.push(changed), () => clock)
+  let attempts = 0
+  const flaky = async () => (++attempts === 1 ? Promise.reject(new Error('transient')) : 'board')
+  await expect(kept.read('github:r', 'board', flaky, { local: false })).rejects.toBeInstanceOf(StillReading)
+  while (!landed.length) await new Promise((r) => setTimeout(r, 5))
+  await expect(kept.read('github:r', 'board', flaky, { local: false })).rejects.toThrow('transient')
+  clock += KEPT_FRESH_FOR_MS + 1
+  await expect(kept.read('github:r', 'board', flaky, { local: false })).rejects.toThrow('transient')
+  while (landed.length < 2) await new Promise((r) => setTimeout(r, 5))
+  expect(await kept.read('github:r', 'board', flaky, { local: false })).toBe('board')
 })

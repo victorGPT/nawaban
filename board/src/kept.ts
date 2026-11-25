@@ -7,6 +7,7 @@ export const KEPT_FRESH_FOR_MS = 30_000
 const STILL_WANTED_FOR_MS = 10 * 60_000
 const KEPT_DIR = 'kept-reads'
 const NAME_HASH_LENGTH = 32
+const GENERATION_AT_START = 0
 
 export class StillReading extends Error {}
 
@@ -19,7 +20,7 @@ const sameRead = (a: Read | undefined, b: Read) => !!a && a.ok === b.ok && JSON.
 export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
   const entries = new Map<string, Entry>()
   const generations = new Map<string, number>()
-  const generationOf = (group: string) => generations.get(group) ?? 0
+  const generationOf = (group: string) => generations.get(group) ?? GENERATION_AT_START
   const fileOf = (key: string) => join(dir, KEPT_DIR, createHash('sha256').update(key).digest('hex').slice(0, NAME_HASH_LENGTH) + '.json')
   const movedSinceRead = (e: Entry) => e.read!.generation !== generationOf(e.group)
   const stale = (e: Entry) => e.read!.beforeThisProcess || movedSinceRead(e) || now() - e.read!.at > KEPT_FRESH_FOR_MS
@@ -36,10 +37,10 @@ export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
     }
   }
 
-  async function keptOnDiskAsStale(key: string, generation: number): Promise<Read | undefined> {
+  async function keptOnDiskAsStale(key: string): Promise<Read | undefined> {
     try {
       const kept = JSON.parse(await readFile(fileOf(key), 'utf8')) as { key: string; ok: boolean; value: unknown; at: number }
-      return kept.key === key ? { ok: kept.ok, value: kept.value, at: kept.at, generation, beforeThisProcess: true } : undefined
+      return kept.key === key ? { ok: kept.ok, value: kept.value, at: kept.at, generation: GENERATION_AT_START, beforeThisProcess: true } : undefined
     } catch {
       return undefined
     }
@@ -77,7 +78,12 @@ export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
   const inTheBackground = (key: string, e: Entry) =>
     refresh(key, e).then(
       (changed) => landed(e.group, changed),
-      (error) => console.error(`reading ${key} failed:`, error),
+      (error) => {
+        console.error(`reading ${key} failed:`, error)
+        if (e.read) return
+        e.read = { ok: false, value: `读 ${key} 失败：${(error as Error).message}`, at: now(), generation: generationOf(e.group) }
+        landed(e.group, true)
+      },
     )
 
   const answered = (read: Read) => {
@@ -91,7 +97,7 @@ export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
       entries.set(key, e)
       e.again = again
       e.wanted = now()
-      e.read ??= await keptOnDiskAsStale(key, generationOf(group))
+      e.read ??= await keptOnDiskAsStale(key)
       const localWorkCanAnswerNow = local && (!e.read || movedSinceRead(e))
       if (localWorkCanAnswerNow) await refresh(key, e)
       else if (!e.read) {
@@ -102,7 +108,8 @@ export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
     },
     async moved(group: string) {
       generations.set(group, generationOf(group) + 1)
-      const wanted = [...entries].filter(([, e]) => e.group === group && now() - e.wanted < STILL_WANTED_FOR_MS)
+      for (const [key, e] of entries) if (now() - e.wanted >= STILL_WANTED_FOR_MS && !e.running) entries.delete(key)
+      const wanted = [...entries].filter(([, e]) => e.group === group)
       const changed = await Promise.all(wanted.map(([key, e]) => refresh(key, e).catch((error) => (console.error(`reading ${key} failed:`, error), false))))
       return changed.some(Boolean)
     },

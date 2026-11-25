@@ -256,6 +256,7 @@ it('refuses an answer to a question that changed after the hold was listed, and 
   await create('event', id, 'wait', '哪天上线')
   const threadOfTheBoard = team.thread
   team.thread = (async (...args: Parameters<typeof threadOfTheBoard>) => {
+    if (args[0] !== id) return threadOfTheBoard.apply(team, args)
     team.thread = threadOfTheBoard
     await create('event', id, 'resolve', '周五上线')
     await create('event', id, 'wait', '要不要灰度')
