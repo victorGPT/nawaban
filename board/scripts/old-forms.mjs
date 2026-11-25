@@ -1,13 +1,14 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { UPSTREAM_VERBS } from '../src/hint.ts'
 
 export const RENAMED_VERBS = ['index', 'inbox', 'page', 'renew', 'progress', 'guard']
 const VERBS_THAT_TOOK_A_BODY_FLAG = ['event', 'create']
 const WHERE_CALLS_ARE_WRITTEN = ['hooks', 'board/src', 'skills', 'docs/agents', 'herdr/mods', 'install.sh']
 const THE_OLD_CLI_SPEAKS_ON_THIS_LINE = /cli\.py|'#\d|'#N'|#<|--db\b/
-const RENAMED_CALL = new RegExp(`(?:board/src/cli\\.ts["']?|\\bnawaban)\\s+(?:--\\S+\\s+)*(?:${RENAMED_VERBS.join('|')})\\b`)
-const OLD_FLAG_CALL = /(?:board\/src\/cli\.ts["']?|\bnawaban)\s+(?:event|create)\b[^\n]*?\s--(?:kind|body)(?![\w-])/
+const RENAMED_CALL = new RegExp(`(?:board/src/cli\\.ts["']?|\\bnawaban)\\s+(?:--\\S+\\s+)*(?:${[...RENAMED_VERBS, ...UPSTREAM_VERBS].join('|')})\\b`)
+const OLD_FLAG_CALL = /(?:board\/src\/cli\.ts["']?\s+|\bnawaban\s+|`)(?:event|create)\b[^\n]*?\s--(?:kind|body)(?![\w-])/
 
 export function oldUsesOf(row) {
   if (row.cli === 'old') return 0

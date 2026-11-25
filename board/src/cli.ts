@@ -6,7 +6,7 @@ import { createApp } from '@vercel/board/cli'
 import { dispatch, tell } from './dispatch.ts'
 import { askGuard } from './ask-guard.ts'
 import { claimRegistering, event } from './events.ts'
-import { pointAt } from './hint.ts'
+import { pointAt, UPSTREAM_VERBS } from './hint.ts'
 import { ghAccountGuard, guard } from './guard.ts'
 import { importOld } from './import.ts'
 import { merge } from './merge.ts'
@@ -29,7 +29,7 @@ const MAIN_SCREEN: Group[] = ['看', '写', '派']
 const MORE_SCREEN: Group[] = ['少用', '本机服务', '上游']
 const HELP_FLAGS = new Set(['--help', '-h'])
 const DOUBLE_WIDTH = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u
-const UPSTREAM_VERBS = ['whoami', 'grants', 'channels', 'schemas', 'actors', 'read', 'post', 'reply', 'schedule', 'schedules', 'edit', 'delete', 'react', 'label', 'typing', 'sync', 'sources', 'download', 'conformance', 'tasks', 'hooks', 'tail', 'wait']
+const BOARD_RESTART_BACKOFF_MS = [500, 1000, 2000, 4000, 8000]
 
 function tokenOfServedBoardElseLetItsOwn401Answer(): string | undefined {
   try {
@@ -37,6 +37,23 @@ function tokenOfServedBoardElseLetItsOwn401Answer(): string | undefined {
   } catch {
     return undefined
   }
+}
+
+const refusedBeforeAnythingWasSent = (error: unknown) => (error as { cause?: { code?: string } }).cause?.code === 'ECONNREFUSED'
+
+function retryWhileTheBoardRestarts() {
+  const fetchOnce = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    for (const backoff of BOARD_RESTART_BACKOFF_MS) {
+      try {
+        return await fetchOnce(input instanceof Request ? input.clone() : input, init)
+      } catch (error) {
+        if (!refusedBeforeAnythingWasSent(error)) throw error
+      }
+      await new Promise((wake) => setTimeout(wake, backoff))
+    }
+    return fetchOnce(input, init)
+  }) as typeof fetch
 }
 
 function pointAtThisMachinesBoard() {
@@ -321,5 +338,8 @@ async function runCommand(argv: string[]): Promise<number> {
 
 const argv = process.argv.slice(2)
 const serveKeepsTheEnvironmentLaunchdGaveIt = argv[0] === 'serve'
-if (!serveKeepsTheEnvironmentLaunchdGaveIt) pointAtThisMachinesBoard()
+if (!serveKeepsTheEnvironmentLaunchdGaveIt) {
+  pointAtThisMachinesBoard()
+  retryWhileTheBoardRestarts()
+}
 process.exitCode = await runCommand(argv)

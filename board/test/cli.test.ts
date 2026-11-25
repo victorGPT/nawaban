@@ -265,7 +265,27 @@ it('reads the body from stdin on -, and after --, a body starting with - include
   expect([fromStdin.code, fromStdin.err]).toEqual([0, ''])
   await succeeds('event', 'E2', 'note', '--', '- 已完成：在 -- 之后')
   expect(await repliesOf('E2')).toEqual(['- 已完成：从标准输入', '- 已完成：在 -- 之后'])
-  expect((await nawaban(['event', 'E2', 'note', '--body-file', join(boardDir, 'body.md')])).code).toBe(2)
+  const file = join(boardDir, 'body.md')
+  await writeFile(file, '- 已完成：从文件经标准输入\n')
+  const viaFile = await nawaban(['event', 'E2', 'note', '--body-file', file, '--as', 'cc-aaaa1111'])
+  expect(viaFile.code).toBe(2)
+  const hint = /改用：nawaban (.+)$/m.exec(viaFile.err)?.[1]
+  expect(hint).toBe(`event E2 note - --as cc-aaaa1111 < ${file}`)
+  expect((await nawabanAsTheShellRunsIt(hint!)).code).toBe(0)
+  expect((await repliesOf('E2')).at(-1)).toBe('- 已完成：从文件经标准输入')
+})
+
+it('waits out a board that is restarting, so a verb run meanwhile still lands', EVERY_STEP_STARTS_A_NODE, async () => {
+  const probe = await listen(() => Promise.resolve(new Response()), 0)
+  const port = (probe.address() as AddressInfo).port
+  await new Promise((closed) => probe.close(closed))
+  const restarting = nawaban(['create', 'R1', '--title', '重启时建的票', '--project', 'p5'], { more: { BOARD_URL: `http://127.0.0.1:${port}/api/board` } })
+  await new Promise((wake) => setTimeout(wake, 1200))
+  const back = await listen((request) => team.fetch(request), port)
+  const r = await restarting
+  back.close()
+  expect([r.code, r.err]).toEqual([0, ''])
+  expect((await succeeds('show', 'R1')).out).toContain('重启时建的票')
 })
 
 it('puts a positional body into the task create makes, and reads - from stdin there too', EVERY_STEP_STARTS_A_NODE, async () => {

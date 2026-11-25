@@ -1,3 +1,5 @@
+export const UPSTREAM_VERBS = ['whoami', 'grants', 'channels', 'schemas', 'actors', 'read', 'post', 'reply', 'schedule', 'schedules', 'edit', 'delete', 'react', 'label', 'typing', 'sync', 'sources', 'download', 'conformance', 'tasks', 'hooks', 'tail', 'wait']
+
 const SHELL_SAFE_WORD = /^[\w@%+=:,./-]+$/
 
 type Token = { kind: string; name?: string; rawName?: string; value?: string }
@@ -16,4 +18,6 @@ export const optionWordsBut = (tokens: Token[], moved: string[]) =>
 export const withBody = (head: string[], body: string | undefined, rest: string[]) =>
   body === undefined ? [...head, ...rest] : readAsAnOption(body) ? [...head, ...rest, '--', body] : [...head, body, ...rest]
 
-export const pointAt = (words: string[]) => process.stderr.write(`改用：nawaban ${words.map(shellWord).join(' ')}\n`)
+export const commandLine = (words: string[]) => `nawaban ${words.map(shellWord).join(' ')}`
+
+export const pointAt = (words: string[]) => process.stderr.write(`改用：${commandLine(words)}\n`)

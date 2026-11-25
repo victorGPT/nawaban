@@ -9,12 +9,13 @@ import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { forgetLive } from './progress.ts'
 import { optionWordsBut, pointAt, withBody } from './hint.ts'
 import { markInboxItemTurnedInto, openInboxItem } from './page.ts'
+import { EVENTS_THAT_END_A_CLAIM } from './views.ts'
 
 const LEASE = '1h'
 const PAGE = 50
 const PROFILE_NAME = /^[A-Za-z][A-Za-z0-9-]{0,31}$/
 const SESSION_PREFIX_LENGTH = 8
-const BODY_FROM_STDIN = '-'
+export const BODY_FROM_STDIN = '-'
 const NEWLINE_A_FILE_ENDS_WITH_AS_BOARD_REPLY_DROPS_IT = /\n$/
 const personOwningEveryTaskTheirProfilesMade = () => board().as(null)
 const cliWhoseClaimsTheRenewHookFinds = (argv: string[]) => createApp({ appName: 'nawaban' }).run(argv)
@@ -311,19 +312,40 @@ async function heldByAnyOf(profiles: string[]): Promise<{ id: string; channel: s
   })
 }
 
-async function lastClaimedAt(task: { id: string; channel: string }, as: string): Promise<number> {
+type ClaimEvent = { type: string; actor: string | undefined; at: number }
+
+async function claimEventsOf(task: { id: string; channel: string }): Promise<ClaimEvent[]> {
   const team = personOwningEveryTaskTheirProfilesMade()
-  let at = 0
+  const found: ClaimEvent[] = []
   for (let after = task.id; ; ) {
     const { events, cursor } = await team.poll({ channel: task.channel, after })
     for (const e of events) {
       const p = e.payload as { id?: string; by?: { actor: string } }
-      if (e.type === 'task.claimed' && p.id === task.id && p.by?.actor.endsWith(`+${as}`)) at = Date.parse(e.createdAt) / 1000
+      if (p.id === task.id && EVENTS_THAT_END_A_CLAIM.has(e.type)) found.push({ type: e.type, actor: p.by?.actor, at: Date.parse(e.createdAt) / 1000 })
     }
     const feedEndsWhereTheCursorStays = cursor === after
-    if (feedEndsWhereTheCursorStays) return at
+    if (feedEndsWhereTheCursorStays) return found
     after = cursor
   }
+}
+
+const claimedBy = (e: ClaimEvent | undefined, as: string) => e?.type === 'task.claimed' && !!e.actor?.endsWith(`+${as}`)
+
+async function lastClaimedAt(task: { id: string; channel: string }, as: string): Promise<number> {
+  return (await claimEventsOf(task)).findLast((e) => claimedBy(e, as))?.at ?? 0
+}
+
+const CLAIM_ENDED_BY_ITS_LEASE_ALONE = new Set(['task.claimed', 'task.expired'])
+
+export async function reclaimedIfItLapsedInMyHands(task: MessageView): Promise<MessageView> {
+  if (live(task)) return task
+  const as = profile()
+  const events = await claimEventsOf(task)
+  const lapsedUntaken = CLAIM_ENDED_BY_ITS_LEASE_ALONE.has(events.at(-1)?.type ?? '') && claimedBy(events.findLast((e) => e.type === 'task.claimed'), as)
+  if (!lapsedUntaken) return task
+  await upstreamAnswer(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE])
+  await labelTerminalThePanelReadsWhileClaimed(task.id)
+  return resolve(key(task))
 }
 
 export const heldBy = async (session: string) =>

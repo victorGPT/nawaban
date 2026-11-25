@@ -6,9 +6,9 @@ import { IMPACT_FORMAT, whyNotDeclarable } from './impact.ts'
 import { registeredReadings } from './okr.ts'
 import { claimReady } from './dispatch.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
-import { bodyFrom, key, live, profile, resolve } from './tasks.ts'
+import { BODY_FROM_STDIN, bodyFrom, key, live, profile, resolve } from './tasks.ts'
 import { answer, orRefusal, Refused } from './said.ts'
-import { optionWordsBut, pointAt, withBody } from './hint.ts'
+import { commandLine, optionWordsBut, pointAt, shellWord, withBody } from './hint.ts'
 
 type Run = (argv: string[]) => Promise<number>
 type Team = ReturnType<typeof board>
@@ -30,6 +30,7 @@ const THE_OLD_FLAGS_A_POSITIONAL_REPLACES = ['kind', 'body']
 const OPTIONS = {
   kind: { type: 'string' },
   body: { type: 'string' },
+  'body-file': { type: 'string' },
   by: { type: 'string' },
   kr: { type: 'string', multiple: true },
   o: { type: 'string' },
@@ -263,6 +264,11 @@ export function event(argv: string[], run: Run, team: Team): Promise<number> {
     }
     const kind = (kindWord ?? values.kind) as Kind
     if (!ref || extra.length || !KINDS.includes(kind)) refuse(USAGE, 2)
+    const file = values['body-file']
+    if (file !== undefined) {
+      const fromStdin = commandLine(['event', ref, kind, BODY_FROM_STDIN, ...optionWordsBut(tokens, [...THE_OLD_FLAGS_A_POSITIONAL_REPLACES, 'body-file'])])
+      refuse('event 不收 --body-file：正文写 - 从标准输入读', 2, `改用：${fromStdin} < ${shellWord(file)}`)
+    }
     const body = await bodyFrom(bodyWord, values.body, undefined)
     if (values.kind !== undefined || values.body !== undefined) {
       pointAt(withBody(['event', ref, kind], values.body ?? bodyWord, optionWordsBut(tokens, THE_OLD_FLAGS_A_POSITIONAL_REPLACES)))
