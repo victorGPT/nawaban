@@ -27,7 +27,7 @@ const rowOf = (row: Row, waiting: string | null) => ({
   at: clockOf(row.at),
   line: row.line,
   full: row.full,
-  lead: row.kind === 'ask' ? (row.line === waiting ? W.waiting : '问') + '：' : null,
+  lead: row.kind === 'ask' ? (row.line === waiting ? W.waiting : '问') + '：' : row.kind === 'decision' && row.by === 'agent' ? '代定：' : null,
   owner: row.kind === 'decision' && row.by === 'owner',
 })
 
@@ -73,6 +73,7 @@ export function TaskPage(props: { id: string; project: string; changes: number }
                       <Show when={v().stepLine}>{(line) => <em>{line()}</em>}</Show>
                     </p>,
                   ],
+                  v().steps && ['进度', <p><For each={v().steps!}>{(step, i) => <>{i() > 0 ? ' → ' : ''}{step.status === 'in_progress' ? <b>{step.word}</b> : step.status === 'pending' ? <em>{step.word}</em> : step.word}</>}</For></p>],
                   v().ruling && ['已定', <p>{v().ruling!.line}<em>{RULED_BY[v().ruling!.by]} · {stampOf(v().ruling!.at)}{v().ruling!.question ? ' · 问：' + v().ruling!.question : ''}</em></p>],
                   f().holder && ['负责', <p>{[f().holder!.name, f().holder!.runs].filter(Boolean).join(' · ')}<Show when={f().holder!.terminal}><em>{f().holder!.terminal}</em></Show></p>],
                   f().dispatchedAt != null && ['派发', <p>{[f().dispatcher, stampOf(f().dispatchedAt!)].filter(Boolean).join(' · ')}</p>],

@@ -58,6 +58,7 @@ button {
 [data-text-field] { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
 [data-page-head] h1 > [data-lamp] { margin-right: 10px; vertical-align: middle; }
 [data-quiet-link] { justify-self: start; white-space: nowrap; padding: 0; border: 0; background: none; font: 13px var(--read); color: var(--quiet); text-decoration: underline; text-decoration-color: #0000002e; text-underline-offset: 3px; cursor: pointer; }
+[data-device]:not([data-layout="split"]) [data-quiet-link] { color: var(--text); }
 @media (hover: hover) { [data-quiet-link]:hover { color: var(--ink); } }
 [data-status-line] { display: flex; gap: 10px; align-items: center; margin: 0; font-size: 14px; color: var(--quiet); }
 [data-facts] { display: grid; gap: 18px; margin: 0; padding-top: 24px; border-top: 1px solid #00000012; box-shadow: inset 0 1px 0 #ffffffb3; }

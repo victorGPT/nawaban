@@ -24,7 +24,7 @@ export function NoteComposer(props: { onKeep: (words: string) => Promise<void> }
   }
   return (
     <form data-note-composer onSubmit={keep}>
-      <TextArea label="记一条想法" placeholder="记一条想法" value={draft()} onInput={setDraft}>
+      <TextArea label="记一条想法" placeholder="记一条想法" value={draft()} onValueChange={setDraft}>
         <Button tone="primary" type="submit" disabled={!draft().trim() || saving()}>
           {saving() ? '正在记…' : '记下'}
         </Button>

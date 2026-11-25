@@ -22,57 +22,68 @@ import { Recommendation } from '../components/Recommendation'
 import { StatusLine } from '../components/StatusLine'
 import { TextField } from '../components/TextField'
 
-type Reading = { at: number; items: Waiting[]; details: Record<string, Detail>; answers: Record<string, WebAnswer>; failures: string[] }
+type ProjectRead = { name: string; at: number; board: WaitingBoard | null; failure: string; okr: WaitingOkr | null; answers: WebAnswer[]; details: Record<string, Detail> }
 
 const NARROW = '(max-width: 760px)'
 const NO_CARD_KR = /^\s*无/
 
-async function readProject(name: string) {
+async function readProject(name: string): Promise<ProjectRead> {
   const q = inProject(name)
   const [board, okr, answers] = await Promise.all([
     read<WaitingBoard>('board' + q).then((b) => [b, ''] as const, (e: Error) => [null, name + '：' + e.message] as const),
     read<WaitingOkr>('okr' + q).catch(() => null),
     read<{ answers: WebAnswer[] }>('answers' + q).then((b) => b.answers, () => [] as WebAnswer[]),
   ])
-  return { name, board: board[0], failure: board[1], okr, answers }
-}
-
-async function readAll(names: string[]): Promise<Reading> {
-  const projects = await Promise.all(names.map(readProject))
-  const held = waitingItems(projects.map((p) => ({ name: p.name, board: p.board, okr: p.okr, asked: {} }))).filter((w) => w.kind !== 'okr')
-  const fetched = await Promise.all(held.map((w) => read<Detail>('task/' + encodeURIComponent(w.id) + inProject(w.project)).then((d) => [waitingKey(w), d] as const, () => null)))
-  const details = Object.fromEntries(fetched.filter((x) => x !== null))
-  const asked = (name: string) => Object.fromEntries(held.filter((w) => w.project === name && details[waitingKey(w)]).map((w) => [w.id, details[waitingKey(w)]!.events]))
-  const readings: ProjectReading[] = projects.map((p) => ({ name: p.name, board: p.board, okr: p.okr, asked: asked(p.name) }))
-  return {
-    at: nowInSeconds(),
-    items: waitingItems(readings),
-    details,
-    answers: Object.fromEntries(projects.flatMap((p) => p.answers.map((a) => [waitingKey({ project: p.name, id: a.task }), a]))),
-    failures: projects.map((p) => p.failure).filter(Boolean),
-  }
+  const held = waitingItems([{ name, board: board[0], okr: null, asked: {} }])
+  const fetched = await Promise.all(held.map((w) => read<Detail>('task/' + encodeURIComponent(w.id) + q).then((d) => [w.id, d] as const, () => null)))
+  return { name, at: nowInSeconds(), board: board[0], failure: board[1], okr, answers, details: Object.fromEntries(fetched.filter((x) => x !== null)) }
 }
 
 export function DecidePage(props: { projects: string[]; changes: number }) {
   const [scope, setScope] = createSignal(ALL_PROJECTS)
-  const [reading, setReading] = createSignal<Reading | null>(null)
-  const [readFailure, setReadFailure] = createSignal('')
+  const [reads, setReads] = createSignal<Record<string, ProjectRead>>({})
   const [handed, setHanded] = createSignal<Record<string, WebAnswer>>({})
   const [selected, setSelected] = createSignal('')
   const [detailOpen, setDetailOpen] = createSignal(false)
-  let reads = 0
+  let inFlight = false
+  let wanted: string[] | null = null
+  const landed = (r: ProjectRead) => {
+    setReads((all) => ({ ...all, [r.name]: r }))
+    setHanded((all) => Object.fromEntries(Object.entries(all).filter(([key]) => !key.startsWith(r.name + '/'))))
+  }
+  const readOnceAtATimeKeepingOnlyTheLatestAsk = (names: string[]) => {
+    wanted = names
+    if (inFlight) return
+    inFlight = true
+    const asked = wanted
+    wanted = null
+    Promise.all(asked.map((name) => readProject(name).then(landed))).finally(() => {
+      inFlight = false
+      if (wanted) readOnceAtATimeKeepingOnlyTheLatestAsk(wanted)
+    })
+  }
   createEffect(
     () => ({ names: props.projects, n: props.changes }),
-    ({ names }) => {
-      if (!names.length) return
-      const mine = ++reads
-      readAll(names).then(
-        (r) => mine === reads && (setReading(r), setReadFailure(''), setHanded({})),
-        (e: Error) => mine === reads && setReadFailure(e.message),
-      )
-    },
+    ({ names }) => void (names.length && readOnceAtATimeKeepingOnlyTheLatestAsk(names)),
   )
+  const reading = createMemo(() => {
+    const present = props.projects.map((name) => reads()[name]).filter((r): r is ProjectRead => !!r)
+    if (!present.length) return null
+    const readings: ProjectReading[] = present.map((p) => ({ name: p.name, board: p.board, okr: p.okr, asked: Object.fromEntries(Object.entries(p.details).map(([id, d]) => [id, d.events])) }))
+    return {
+      at: Math.max(...present.map((p) => p.at)),
+      items: waitingItems(readings),
+      details: Object.fromEntries(present.flatMap((p) => Object.entries(p.details).map(([id, d]) => [waitingKey({ project: p.name, id }), d]))),
+      answers: Object.fromEntries(present.flatMap((p) => p.answers.map((a) => [waitingKey({ project: p.name, id: a.task }), a]))),
+      failures: present.map((p) => p.failure).filter(Boolean),
+      pending: props.projects.filter((name) => !reads()[name]),
+    }
+  })
   const items = createMemo(() => inScope(reading()?.items ?? [], scope()))
+  const stillReading = () => {
+    const pending = (reading()?.pending ?? []).filter((name) => scope() === ALL_PROJECTS || name === scope())
+    return pending.length ? '还在读 ' + pending.join('、') : null
+  }
   const many = () => scope() === ALL_PROJECTS && props.projects.length > 1
   const chosen = () => items().find((w) => waitingKey(w) === selected()) ?? items()[0]
   const answerOf = (key: string) => handed()[key] ?? reading()?.answers[key] ?? null
@@ -85,18 +96,18 @@ export function DecidePage(props: { projects: string[]; changes: number }) {
   const picker = () => <ProjectPicker value={scope()} choices={projectChoices(props.projects, true)} onPick={setScope} />
   return (
     <Device label="待决" layout="split" detail={detailOpen()}>
-      <Show when={reading()} fallback={<EmptyLine error={!!readFailure()}>{readFailure() || '读取中…'}</EmptyLine>}>
+      <Show when={reading()} fallback={<EmptyLine>读取中…</EmptyLine>}>
         <Show
           when={items().length}
           fallback={
             <ListPane>
-              <PageHead title="没有要你定的">{picker()}</PageHead>
+              <PageHead title={stillReading() ? '读取中…' : '没有要你定的'} meta={stillReading()}>{picker()}</PageHead>
               <For each={reading()!.failures}>{(f) => <EmptyLine error>{f}</EmptyLine>}</For>
             </ListPane>
           }
         >
           <ListPane>
-            <PageHead title={<><b>{items().length}</b> 件等你定</>}>{picker()}</PageHead>
+            <PageHead title={<><b>{items().length}</b> 件等你定</>} meta={stillReading()}>{picker()}</PageHead>
             <InboxList
               label="等你定的事"
               value={chosen() ? waitingKey(chosen()!) : ''}
@@ -176,7 +187,7 @@ function WaitingDetail(props: { item: Waiting; detail: Detail | null; answer: We
         </Show>
         <Show when={w().kind === 'ask' && w().ask}>
           <AnswerPanel>
-            <TextField label="回一句" placeholder="回一句" value={draft()} onInput={setDraft} disabled={sending()}>
+            <TextField label="回一句" placeholder="回一句" value={draft()} onValueChange={setDraft} disabled={sending()}>
               <Button tone="primary" disabled={!draft().trim() || sending()} onClick={() => send(REPLIES.say(draft().trim()))}>发给编排者</Button>
             </TextField>
             <QuietLink onClick={() => send(REPLIES.needsOptions)}>没法回一句？让编排者补成选项</QuietLink>

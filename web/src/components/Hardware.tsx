@@ -2,6 +2,8 @@ import type { JSX } from '@solidjs/web'
 import '@fontsource/geist/400.css'
 import '@fontsource/geist/500.css'
 import '@fontsource/geist/600.css'
+import '@fontsource/ibm-plex-mono/latin-400.css'
+import '@fontsource/ibm-plex-mono/latin-500.css'
 import '../hardware/skin.css'
 import './components.css'
 
