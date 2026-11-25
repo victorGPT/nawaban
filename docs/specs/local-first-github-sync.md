@@ -35,7 +35,7 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 - `repos`：仓库到板上 channel。只同步 issue，不同步 PR（PR 的同步以后再说，VN §3 最后一行）。
 - `reader`：轮询用哪个 gh 账号的 token 读，只读。
 - webhook secret 由 serve 首次启动时生成，存在 `~/.nawaban/board/github-webhook-secret`（同 `token` 文件的做法）。
-- 推送身份：就用 agent 现在写 GitHub 的 `wuxianzhong-gpt`，不建 GitHub App，也不开专用账号（决策者 11-25 问「能不能两个都不建」，临时板实测可以，见第 4 节「推送身份」）。
+- 推送身份：不建 GitHub App，也不开专用账号（决策者 11-25 问「能不能两个都不建」，临时板实测可以，见第 4 节「推送身份」）。每个仓库用自己的 GitHub 账号推，账号不写在这份配置里，也不写死在代码里：按仓库读该仓库 `docs/agents/issue-tracker.md` 里的 `github-account`（NAWABAN-GH-ACCOUNT 出的函数），token 用 `gh auth token --user <账号>` 从本机取。roubao 声明的是 `wuxianzhong-gpt`，就是 agent 现在写 GitHub 用的账号。
 - **只推公司仓库**：只有和同事共用、记账在 GitHub 上的仓库（现在只有 roubao）才写进 `github-sync.json`，也只有它们推送。个人仓库（nawaban、bzkanbanv2 等只有决策者的）记账本来就在板上，不进 `github-sync.json`，什么都不推。
 
 ## 2. 入站：本机轮询器
@@ -84,7 +84,7 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 
 **写路径切换**：`nawaban event '#N'`、`claim '#N'`、`close '#N'` 先写本地板，再由 sync 推出去。旧 CLI 在本机有 `github-sync.json` 时转给板；没有的（岳不同的机器）照旧直写 GitHub，轮询器再带回来。网页记已决（`server.ts` 调 `cli.py`）改成先写板。
 
-**推送身份**：用 `wuxianzhong-gpt`，`botUserId` 仍填不存在的 ID。11-25 在临时板上实测（内存板，GitHub API 打桩，不碰真 GitHub），一来一回的结果：
+**推送身份**：按仓库声明的账号推（roubao 是 `wuxianzhong-gpt`），`botUserId` 仍填不存在的 ID。-09 取推送 token 只走 NAWABAN-GH-ACCOUNT 的按仓库取账号函数；那张票没合并前，-09 留一个「仓库 → 账号」的接口位，接口签名照那张票定，不在 -09 里写死账号。仓库没声明账号，或本机没登录那个账号，就不推，显示缺什么，不回落到 gh 当前活跃账号。下面的实测用的是 `wuxianzhong-gpt`。11-25 在临时板上实测（内存板，GitHub API 打桩，不碰真 GitHub），一来一回的结果：
 
 | 情形 | 结果 |
 | --- | --- |
@@ -128,7 +128,7 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 | -06 只读入站 | 第 1、2 节：配置、轮询器、签名载荷交给本机路由、原生 `into` 导入 channel，首次全量，非 GET 一律拒绝 | 无 |
 | -07 任务化与前缀语义 | 第 3 节：root 转任务加 key，前缀变 block/unblock，`state` 变 complete/cancel，重开开新任务，middleware 放行，按平台时间排序 | -06 |
 | -08 读切换 | 面板、索引、待决提示行、brief、网页对同步仓库改读本地板，删掉旧的 GitHub 读路径和缓存；同步停了要露出来；每日对账补删除 | -07 |
-| -09 推送 | 第 4 节的过滤、`render`、补推、认回声，写路径切换；只对 `github-sync.json` 里的公司仓库 | -08 |
+| -09 推送 | 第 4 节的过滤、`render`、补推、认回声，写路径切换；只对 `github-sync.json` 里的公司仓库；推送账号走 NAWABAN-GH-ACCOUNT 的函数 | -08；NAWABAN-GH-ACCOUNT（没合并前留接口位） |
 | -10 状态外推与分享 | 第 4 节「状态外推」，第 5 节「本地 → GitHub」那一列 | -09 |
 | -11 收尾 | 导入 roubao 的 OKR 三张表；删掉插件和面板按 issue-tracker.md 标题的分流（只限有本机配置的仓库）；GLOSSARY 加术语；T8 编排者场景在 roubao 重跑；在 roubao 的 issue 上知会岳不同 | -10 |
 
