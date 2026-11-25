@@ -50,7 +50,8 @@ async function accountOfOwner(owner: string): Promise<string | null> {
   return typeof account === 'string' ? account : null
 }
 
-const ownerOf = (githubRepo: string) => githubRepo.replace(/^https?:\/\/github\.com\//, '').split('/')[0]!
+const ownerSlashRepo = (target: string) => target.replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, '').replace(/\.git\/?$/, '')
+const ownerOf = (githubRepo: string) => ownerSlashRepo(githubRepo).split('/')[0]!
 
 export async function accountElseNull(dir: string): Promise<string | null> {
   const checkouts = await checkoutsOf(dir)
@@ -108,7 +109,7 @@ function repoFlagOf(args: string[]): string | undefined {
 }
 
 async function checkoutOfGithubRepo(repo: string, boardDir: string): Promise<string | null> {
-  const wanted = repo.replace(/^https?:\/\/github\.com\//, '').toLowerCase()
+  const wanted = ownerSlashRepo(repo).toLowerCase()
   for (const path of Object.values(await reposReadOnEveryUseSoEditsNeedNoRestart(boardDir))) {
     const remote = await stdoutElseNull('git', ['-C', path, 'remote', 'get-url', 'origin'])
     if (remote && GITHUB_REPO_IN_REMOTE.exec(remote)?.[1]?.toLowerCase() === wanted) return path

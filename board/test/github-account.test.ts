@@ -139,7 +139,10 @@ test('a write to another repository with -R uses that repository declaration, fo
   expect(await whyThisGhWriteMustNotRun('GH_TOKEN=$(gh auth token --user victorGPT) gh issue comment 5 -R acme/roubao -b x', here, boardDir)).toContain('wuxianzhong-gpt')
   expect(await whyThisGhWriteMustNotRun('gh issue comment 5 -R acme/unknown -b x', here, boardDir)).toBeNull()
   await ownersMapTo({ acme: 'wuxianzhong-gpt' })
-  expect(await whyThisGhWriteMustNotRun('GH_TOKEN=$(gh auth token --user victorGPT) gh issue comment 5 -R acme/unknown -b x', here, boardDir)).toContain('wuxianzhong-gpt')
+  for (const target of ['acme/unknown', 'github.com/acme/unknown', 'https://github.com/Acme/unknown.git']) {
+    expect(await whyThisGhWriteMustNotRun(`GH_TOKEN=$(gh auth token --user victorGPT) gh issue comment 5 -R ${target} -b x`, here, boardDir), target).toContain('wuxianzhong-gpt')
+  }
+  expect(await whyThisGhWriteMustNotRun('GH_TOKEN=$(gh auth token --user wuxianzhong-gpt) gh issue comment 5 -R github.com/acme/roubao -b x', here, boardDir)).toBeNull()
 })
 
 test('the PreToolUse hook as Claude Code runs it refuses a wrong-account gh write with exit 2 and lets reads through', async () => {
