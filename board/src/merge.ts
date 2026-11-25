@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
 import { claimAssignedToMe, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf, workerProfileOf } from './dispatch.ts'
+import { githubTokenOf } from './github-account.ts'
 import { mergeGate } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
@@ -302,6 +303,7 @@ export function merge(argv: string[]): Promise<number> {
     }
     const [n] = parsed.positionals
     if (parsed.positionals.length !== 1 || !/^\d+$/.test(n!)) throw new Refused(USAGE, EXIT.misused)
+    process.env.GH_TOKEN = await githubTokenOf(process.cwd())
     const r: Run = { n: n!, wait: parsed.values.wait, task: null, root: await mainCheckoutRealPathOf(process.cwd()) }
     profile()
     return report(await outcomeOf(r), r)

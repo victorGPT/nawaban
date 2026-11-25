@@ -33,7 +33,9 @@ esac
 
 const GH_STAND_IN_ANSWERING_PR_VIEW_FROM_GH_PR_AND_LOGGING_MERGES = `#!/bin/sh
 printf '%s\\n' "$*" >> "$GH_LOG"
+printf '%s\\n' "$GH_TOKEN" >> "$GH_LOG.tokens"
 case "$1 $2" in
+  "auth token") echo tok-declared ;;
   "pr view") cat "$GH_PR" ;;
   "run list") if [ -n "$GH_RUNS" ]; then printf '%s' "$GH_RUNS"; else echo '[]'; fi ;;
 esac
@@ -68,6 +70,8 @@ beforeAll(async () => {
   await exec('git', ['init', '-q', '--bare', '-b', 'main', join(tmp, 'origin.git')])
   repo = join(tmp, 'repo')
   await exec('git', ['clone', '-q', join(tmp, 'origin.git'), repo])
+  await mkdir(join(repo, 'docs/agents'), { recursive: true })
+  await writeFile(join(repo, 'docs/agents/issue-tracker.md'), 'github-account: victorGPT\n')
   await git(repo, 'commit', '-q', '--allow-empty', '-m', 'init')
   await git(repo, 'push', '-q', '-u', 'origin', 'HEAD:main')
   HEAD = (await git(repo, 'rev-parse', 'HEAD')).stdout.trim()
@@ -138,7 +142,7 @@ async function mergeAsTheWorker(key: string, terminal: string, worktree: string,
     (error) => ({ code: error.code as number, stdout: error.stdout as string, stderr: error.stderr as string }),
   )
   const read = async (f: string) => (existsSync(f) ? await readFile(f, 'utf8') : '')
-  return { ...r, hc: await read(hcLog), gh: await read(ghLog) }
+  return { ...r, hc: await read(hcLog), gh: await read(ghLog), ghTokens: (await read(`${ghLog}.tokens`)).trim().split('\n') }
 }
 
 const lastNote = async (id: string) => (await replies(id)).at(-1)?.text ?? ''
@@ -261,6 +265,9 @@ it('merges a docs-only PR with no review', async () => {
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
   expect(r.gh).toContain(`pr merge 5 --squash --match-head-commit ${HEAD}`)
+  const [, ...everyGhCallAfterAskingTheKeyring] = r.ghTokens
+  expect(r.gh.split('\n')[0]).toBe('auth token --user victorGPT')
+  expect(new Set(everyGhCallAfterAskingTheKeyring)).toEqual(new Set(['tok-declared']))
   expect(await stateOf(id)).toBe('completed')
 })
 

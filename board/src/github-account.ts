@@ -1,26 +1,112 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
+import { quotedStringsBlankedSoAMentionIsNeverACommand, reposReadOnEveryUseSoEditsNeedNoRestart, words } from './impact.ts'
 import { Refused } from './said.ts'
 
 export const ACCOUNT_DECLARED_IN = 'docs/agents/issue-tracker.md'
 const FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END = /^ {0,3}(`{3,}|~{3,})[\s\S]*?(?:^ {0,3}\1|$(?![\s\S]))|<!--[\s\S]*?(?:-->|$(?![\s\S]))/gm
-const DECLARATION = /^github-account:[ \t]*([A-Za-z0-9-]+)[ \t]*$/m
+const DECLARATION = /^github-account:[ \t]*([A-Za-z0-9-]+)[ \t]*\r?$/m
+const GH_IN_COMMAND_POSITION = /(?:^|[;&|(\n])\s*((?:\w+=(?:"?\$\([^)]*\)"?|\S*)\s+)*)gh(?=\s)/g
+const SEGMENT_END = /[;&|\n)]|$/
+const TOKEN_SET_OUTSIDE_A_PROVEN_PREFIX = /\b(?:GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN)\b|\bgh\s+auth\s+(?:switch|login)\b/
+const READ_ONLY_GROUPS = new Set(['auth', 'help', 'version', '--version', '--help', 'status', 'browse', 'search', 'completion', 'config', 'alias'])
+const READ_ONLY_VERBS = new Set(['view', 'list', 'status', 'checks', 'diff', 'watch', 'download', 'clone', 'verify'])
+const API_SENDS_A_BODY = /^(?:-f|-F|--field|--raw-field|--input)(?:=|$)/
+const API_METHOD = /^(?:-X|--method)(?:=(.*))?$/
+const REPO_FLAG = /^(?:-R|--repo)(?:=(.*))?$/
+const GITHUB_REPO_IN_REMOTE = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/
 const run = promisify(execFile)
 
-export async function githubAccountOf(repo: string): Promise<string> {
-  const text = (await readFile(join(repo, ACCOUNT_DECLARED_IN), 'utf8').catch(() => '')).replace(FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END, '')
-  const account = DECLARATION.exec(text)?.[1]
-  if (!account) throw new Refused(`${repo} 没声明用哪个 GitHub 账号写：在 ${ACCOUNT_DECLARED_IN} 加一行 github-account: <账号>`)
-  return account
+const provenPrefix = (account: string) => `GH_TOKEN=$(gh auth token --user ${account})`
+const stdoutElseNull = async (cmd: string, args: string[]) => (await run(cmd, args).catch(() => null))?.stdout.trim() || null
+
+async function checkoutsOf(dir: string): Promise<string[]> {
+  const top = await stdoutElseNull('git', ['-C', dir, 'rev-parse', '--show-toplevel'])
+  const common = await stdoutElseNull('git', ['-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'])
+  return [...new Set([top ?? dir, ...(common ? [resolve(common, '..')] : [])])]
 }
 
-export async function githubTokenOf(repo: string): Promise<string> {
-  const account = await githubAccountOf(repo)
-  const token = (await run('gh', ['auth', 'token', '--user', account]).catch(() => null))?.stdout.trim()
-  if (!token) throw new Refused(`本机 gh 没登录 ${repo} 声明的账号 ${account}：先跑 gh auth login，登录 ${account}`)
+export async function githubAccountOf(dir: string): Promise<string> {
+  const checkouts = await checkoutsOf(dir)
+  for (const checkout of checkouts) {
+    const account = DECLARATION.exec((await readFile(join(checkout, ACCOUNT_DECLARED_IN), 'utf8').catch(() => '')).replace(FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END, ''))?.[1]
+    if (account) return account
+  }
+  throw new Refused(`${checkouts[0]} 没声明用哪个 GitHub 账号写：在 ${ACCOUNT_DECLARED_IN} 加一行 github-account: <账号>`)
+}
+
+export async function githubTokenOf(dir: string): Promise<string> {
+  const account = await githubAccountOf(dir)
+  const token = await stdoutElseNull('gh', ['auth', 'token', '--user', account])
+  if (!token) throw new Refused(`本机 gh 没登录 ${dir} 声明的账号 ${account}：先跑 gh auth login，登录 ${account}`)
   return token
 }
 
-export const ghEnvOf = async (repo: string) => ({ ...process.env, GH_TOKEN: await githubTokenOf(repo) })
+export const ghEnvOf = async (dir: string) => ({ ...process.env, GH_TOKEN: await githubTokenOf(dir) })
+
+function withoutRepoFlag(args: string[]): string[] {
+  const kept = []
+  for (let i = 0; i < args.length; i++) {
+    const m = REPO_FLAG.exec(args[i]!)
+    if (!m) kept.push(args[i]!)
+    else if (m[1] === undefined) i++
+  }
+  return kept
+}
+
+function writesToGithub(args: string[]): boolean {
+  const [group, verb] = withoutRepoFlag(args)
+  if (group === undefined || READ_ONLY_GROUPS.has(group)) return false
+  if (group !== 'api') return !READ_ONLY_VERBS.has(verb ?? '')
+  return args.some((a, i) => API_SENDS_A_BODY.test(a) || (API_METHOD.test(a) && (API_METHOD.exec(a)![1] ?? args[i + 1] ?? '').toUpperCase() !== 'GET'))
+}
+
+function repoFlagOf(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const m = REPO_FLAG.exec(args[i]!)
+    if (m) return m[1] ?? args[i + 1]
+  }
+  return undefined
+}
+
+async function checkoutOfGithubRepo(repo: string, boardDir: string): Promise<string | null> {
+  const wanted = repo.replace(/^https?:\/\/github\.com\//, '').toLowerCase()
+  for (const path of Object.values(await reposReadOnEveryUseSoEditsNeedNoRestart(boardDir))) {
+    const remote = await stdoutElseNull('git', ['-C', path, 'remote', 'get-url', 'origin'])
+    if (remote && GITHUB_REPO_IN_REMOTE.exec(remote)?.[1]?.toLowerCase() === wanted) return path
+  }
+  return null
+}
+
+export async function whyThisGhWriteMustNotRun(cmd: string, cwd: string, boardDir: string): Promise<string | null> {
+  const blanked = quotedStringsBlankedSoAMentionIsNeverACommand(cmd)
+  for (const m of blanked.matchAll(GH_IN_COMMAND_POSITION)) {
+    const end = m.index + m[0].length
+    const args = words(cmd.slice(end, end + blanked.slice(end).search(SEGMENT_END)))
+    if (!writesToGithub(args)) continue
+    const target = repoFlagOf(args)
+    const checkout = target ? await checkoutOfGithubRepo(target, boardDir) : cwd
+    if (!checkout) return `gh 写 ${target}，但它不在 ${join(boardDir, 'repos.json')} 登记的仓库里，不知道该用哪个账号：cd 到它的 checkout 里再写`
+    let account
+    try {
+      account = await githubAccountOf(checkout)
+    } catch (error) {
+      return `${(error as Error).message}；没声明的仓库不许 gh 写操作`
+    }
+    const prefix = cmd.slice(end - 'gh'.length - m[1]!.length, end - 'gh'.length).trim()
+    const rewritten = `${provenPrefix(account)} gh ${cmd.slice(end, end + blanked.slice(end).search(SEGMENT_END)).trim()}`
+    const howTo = `这个仓库声明用 ${account} 写 GitHub，写成：${rewritten}`
+    if (prefix) {
+      if (prefix === provenPrefix(account) || prefix === `GH_TOKEN="$(gh auth token --user ${account})"`) continue
+      return `gh 写操作前面的 token 赋值证明不了是 ${account}。${howTo}`
+    }
+    if (TOKEN_SET_OUTSIDE_A_PROVEN_PREFIX.test(blanked.replaceAll(/\$\(gh auth token --user [\w-]+\)/g, ''))) return `命令里改了 gh 的 token 或账号，核不了这次 gh 写操作用的是谁。${howTo}`
+    const effective = await stdoutElseNull('gh', ['auth', 'token'])
+    const declared = await stdoutElseNull('gh', ['auth', 'token', '--user', account])
+    if (!declared) return `本机 gh 没登录 ${account}：先跑 gh auth login，登录 ${account}`
+    if (effective !== declared) return `gh 现在的 token 不是 ${account} 的。${howTo}`
+  }
+  return null
+}
