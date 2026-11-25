@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { Readable } from 'node:stream'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { link, mkdir, readFile, unlink, watch, writeFile } from 'node:fs/promises'
+import { link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 import { extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,7 +15,6 @@ import { githubBoards, githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type Old
 import { currentGithubAsk, githubRepliesOf, HELD_FOR_A_GITHUB_ASK, settleIssueTasks, type KnownIssue } from './github-tasks.ts'
 import { deliverAsSignedWebhook, ghReader, githubSyncConfig, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
 import { okrData } from './okr.ts'
-import { isLiveFileName, progressDir } from './progress.ts'
 import { noPullStates, pullStateFromGitHub, type PullStateOf } from './pulls.ts'
 import { Refused } from './said.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
@@ -162,12 +161,7 @@ function writesOnlyFromThePagesOwnOriginElseRefusal(request: Request, tailnet: s
   return null
 }
 
-async function eachProgressWrite(dir: string, signal: AbortSignal, changed: () => void) {
-  await mkdir(progressDir(dir), { recursive: true })
-  for await (const { filename } of watch(progressDir(dir), { signal })) if (filename && isLiveFileName(filename)) changed()
-}
-
-function changes(team: Team, dir: string, signal: AbortSignal, githubWrote: EventTarget) {
+function changes(team: Team, signal: AbortSignal, githubWrote: EventTarget) {
   const stop = new AbortController()
   signal.addEventListener('abort', () => stop.abort())
   const line = (text: string) => new TextEncoder().encode(text)
@@ -180,7 +174,6 @@ function changes(team: Team, dir: string, signal: AbortSignal, githubWrote: Even
             out.enqueue(line('data: changed\n\n'))
           } catch {}
         }
-        eachProgressWrite(dir, stop.signal, changed).catch(() => {})
         githubWrote.addEventListener(WROTE, changed, { signal: stop.signal })
         void (async () => {
           try {
@@ -257,7 +250,7 @@ async function view(team: Team, dir: string, pullStateOf: PullStateOf, github: G
     if (repo) return Response.json(await okrData(team, dir, repo))
     return project ? refuse(404, `项目 ${project} 没在 repos.json 登记仓库`) : refuse(400, 'usage: /api/nawaban/okr?project=<name>|repo=<path>')
   }
-  if (what === 'changes' && !rest.length) return changes(team, dir, signal, github.wrote)
+  if (what === 'changes' && !rest.length) return changes(team, signal, github.wrote)
   if (what === 'answers' && !rest.length) return Response.json({ answers: await webAnswers(team, query.get('project') || undefined) })
   if (what === 'inbox' && !rest.length) {
     const project = query.get('project')

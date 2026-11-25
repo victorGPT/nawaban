@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs'
-import { mkdir, rename, rm, utimes, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, rename, utimes, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { text } from 'node:stream/consumers'
 import { promisify } from 'node:util'
 
@@ -9,7 +9,7 @@ export const MILESTONES = ['started', 'edited', 'committed', 'pr', 'review', 're
 export type Milestone = (typeof MILESTONES)[number]
 export type Live = { milestone: Milestone; at: number }
 type HookInput = { session_id?: string; transcript_path?: string; cwd?: string }
-type Held = { id: string; claimedAt: number }
+export type Held = { id: string; claimedAt: number; live: Live | null; keep: (live: Live) => Promise<unknown> }
 
 const exec = promisify(execFile)
 const PROGRESS_FOLDER = 'progress'
@@ -45,15 +45,13 @@ const REVIEWER_AGENT = /codex/i
 const SCRIPT_THAT_EDITS = /\b(?:edit|write)\(/
 const SHELL_IN_A_SCRIPT = /\$`([^`]*)`/g
 
-export const progressDir = (boardDir: string) => join(boardDir, PROGRESS_FOLDER)
-export const liveFile = (boardDir: string, taskId: string) => join(progressDir(boardDir), `${taskId}.json`)
+const liveFile = (boardDir: string, taskId: string) => join(boardDir, PROGRESS_FOLDER, `${taskId}.json`)
 const STAMP_FOLDER = 'progress-stamps'
 const sessionStamp = (boardDir: string, session: string) => join(boardDir, STAMP_FOLDER, session)
-export const isLiveFileName = (name: string) => /^\d+\.json$/.test(name)
 const rank = (m: Milestone) => MILESTONES.indexOf(m)
 const furthest = (ms: Milestone[]) => ms.reduce((a, b) => (rank(b) > rank(a) ? b : a), 'started' as Milestone)
 
-export function readLive(boardDir: string, taskId: string): Live | null {
+function readLive(boardDir: string, taskId: string): Live | null {
   try {
     const live = JSON.parse(readFileSync(liveFile(boardDir, taskId), 'utf8'))
     return MILESTONES.includes(live.milestone) && typeof live.at === 'number' ? live : null
@@ -62,7 +60,13 @@ export function readLive(boardDir: string, taskId: string): Live | null {
   }
 }
 
-export const forgetLive = (boardDir: string, taskId: string) => rm(liveFile(boardDir, taskId), { force: true })
+export const LIVE_LABELS = ['progress', 'progress.at']
+export const labelsOfLive = (live: Live) => ({ progress: live.milestone, 'progress.at': String(live.at) })
+export function liveOfLabels(labels: Record<string, string>): Live | null {
+  const milestone = labels.progress as Milestone
+  const at = Number(labels['progress.at'])
+  return MILESTONES.includes(milestone) && Number.isFinite(at) ? { milestone, at } : null
+}
 
 const GITHUB_CLAIMS_FOLDER = 'github-claims'
 const JSON_SUFFIX = '.json'
@@ -78,7 +82,9 @@ export function githubIssuesHeldBy(boardDir: string, session: string): Held[] {
   return names.flatMap((name) => {
     try {
       const claim = JSON.parse(readFileSync(join(folder, name), 'utf8'))
-      return claim.session === session && typeof claim.claimedAt === 'number' ? [{ id: name.slice(0, -JSON_SUFFIX.length), claimedAt: claim.claimedAt }] : []
+      const id = name.slice(0, -JSON_SUFFIX.length)
+      const keep = (live: Live) => overwrite(liveFile(boardDir, id), live)
+      return claim.session === session && typeof claim.claimedAt === 'number' ? [{ id, claimedAt: claim.claimedAt, live: readLive(boardDir, id), keep }] : []
     } catch {
       return []
     }
@@ -177,6 +183,7 @@ export async function milestoneOfCheckout(cwd: string | undefined, since = 0): P
 }
 
 async function overwrite(path: string, live: Live) {
+  await mkdir(dirname(path), { recursive: true })
   const fresh = `${path}.${process.pid}`
   await writeFile(fresh, JSON.stringify(live))
   await rename(fresh, path)
@@ -185,7 +192,6 @@ async function overwrite(path: string, live: Live) {
 export async function recordProgress(input: HookInput, held: Held[], boardDir: string, now = Date.now() / 1000): Promise<string[]> {
   const session = input.session_id
   if (!session) return []
-  await mkdir(progressDir(boardDir), { recursive: true })
   await mkdir(join(boardDir, STAMP_FOLDER), { recursive: true })
   const stamp = sessionStamp(boardDir, session)
   await writeFile(stamp, '')
@@ -194,8 +200,8 @@ export async function recordProgress(input: HookInput, held: Held[], boardDir: s
   if (!held.length) return []
   for (const task of held) {
     const sinceClaimed = [milestoneOfTranscript(input.transcript_path, task.claimedAt), await milestoneOfCheckout(input.cwd, task.claimedAt)]
-    const onlyForward = furthest([readLive(boardDir, task.id)?.milestone ?? 'started', ...sinceClaimed])
-    await overwrite(liveFile(boardDir, task.id), { milestone: onlyForward, at: Math.floor(now) })
+    const onlyForward = furthest([task.live?.milestone ?? 'started', ...sinceClaimed])
+    await task.keep({ milestone: onlyForward, at: Math.floor(now) })
   }
   return held.map((h) => h.id)
 }

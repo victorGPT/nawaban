@@ -58,7 +58,7 @@
 | --- | --- | --- | --- |
 | `tasks claim --ready --wait`（`docs/01-board/11-tasks.md:64`） | 派单由编排者推给指定终端，替 worker 认领：`board/src/dispatch.ts:269` 调原生 `tasks claim --as` | **加一层** | 保留 `dispatch`。它选终端、开 worker 进程，这是原生没有的；认领本身已经是原生 |
 | 租约、`tasks renew`（`11-tasks.md:67`） | `LEASE='1h'`（`board/src/tasks.ts:11`），钩子 `renew` 逐个调原生 renew（`tasks.ts:283`） | **加一层** | 保留。原生 `tasks run` 自动续租，但前提是活儿是一条命令（`11-tasks.md:172`）；agent 会话不是一条命令 |
-| `tasks release` | `claim --release` 调原生，另外清掉 `terminal` label 和进度文件（`tasks.ts:185`） | **原生**，薄包装 | 保持现状 |
+| `tasks release` | `claim --release` 调原生，另外一次清掉 `terminal`、`progress`、`progress.at` 三个 label（`tasks.ts:207`） | **原生**，薄包装 | 保持现状 |
 | `tasks fail` / `reopen` | 不用。`close` 只有 done 和 cancelled | **原生** | 误关的票没法 reopen，只有 failed 能（`11-tasks.md` States 表）。可以考虑「可能重做」的票用 fail 关；不加新动词 |
 | `tasks block`（挂起，hold） | `event ask` 调原生 `tasks block --kind awaiting_approval`（`board/src/events.ts:93`），加了决策卡校验 | **加一层** | 保留。0.53.0 没有叫 `hold` 的动词，挂起就是 `tasks block` |
 | `tasks needs`（`01-cli.md:1086`） | `nawaban block <票> <挡它的票>` 就是包了一层 `tasks.needs`（`board/src/tasks.ts:111`） | **原生**，我们的是重造，还撞名 | 删掉 `nawaban block`，用 `nawaban board tasks needs`。CLI-SIMPLE 草案把它留在 `help more`，建议改掉。`create --blocked-by` 保留 |
@@ -66,7 +66,7 @@
 | `--as`、`BOARD_PROFILE`（`11-tasks.md:40,134`） | 从会话环境变量推出 profile 名（`tasks.ts:31`），再传 `--as` | **加一层** | 保留。命名规则是我们的，传递用原生 |
 | `schedule`（`01-cli.md:1041`） | 没有自建，7 天里用了 0 次 | **原生** | 什么都不做 |
 | `wait --mentions`、`wait --re`（`01-cli.md:1397,1444`） | `page`、`inbox` 是钩子读的提示文本（`board/src/orchestrator.ts:209,232`），不是阻塞等待 | 两样东西，不算重造 | worker 等答复时用原生 `nawaban board wait --re <id>`，可以写进 skill；钩子的提示行保留 |
-| watchers、`tail` | 服务器的 SSE 用原生 `team.events`（`server.ts:185`）；`pulls.ts:27-31` 用 `gh pr view` 轮询 PR 的状态和 CI | SSE 是**原生**；PR 状态是**重造** | 开了 PR 同步（`repos({ … pulls })`）以后，PR 的 root 自带 `state=merged`、`ci.*`、`review` label（`04-github.md` State labels），`pulls.ts` 和 `merge` 等 CI 的轮询可以换成读 label。这一步排在 webhook 入口之后，轮询器也要覆盖 PR |
+| watchers、`tail` | 服务器的 SSE 用原生 `team.events`（`server.ts:180`）；`pulls.ts:27-31` 用 `gh pr view` 轮询 PR 的状态和 CI | SSE 是**原生**；PR 状态是**重造** | 开了 PR 同步（`repos({ … pulls })`）以后，PR 的 root 自带 `state=merged`、`ci.*`、`review` label（`04-github.md` State labels），`pulls.ts` 显示 PR 状态可以换成读 label。`merge` 等 CI 不能换：同步来的 label 分不清某个 head 上的 CI 是过了、还在跑还是被取消（NAWABAN-NATIVE-AUDIT 实测），`merge` 保留自己的 `gh` 检查。这一步排在 webhook 入口之后，轮询器也要覆盖 PR |
 
 ## 给编排者的建议
 

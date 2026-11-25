@@ -595,10 +595,10 @@ test("a held GitHub issue shows its milestone, ruling and last move like a board
   assert.equal(items.find((x) => x.id === "#8").doing, undefined);
 });
 
-test("the panel rereads the board when a task's progress file is written, not for the hook's own scratch files", () => {
+test("the panel rereads the board when the board database or its log is written, progress being a label on it, not for the hook's files", () => {
   const db = "/b/local.db";
-  assert.equal(boardChanged(["/b/progress/695.json"], db), true);
-  assert.deepEqual(["/b/progress/695.json.4242", "/b/progress/.session-x", "/b/progress-stamps/x"].map((p) => boardChanged([p], db)), [false, false, false]);
+  assert.deepEqual([db, db + "-wal"].map((p) => boardChanged([p], db)), [true, true]);
+  assert.deepEqual(["/b/progress/695.json", "/b/progress/.session-x", "/b/progress-stamps/x"].map((p) => boardChanged([p], db)), [false, false, false]);
 });
 
 test("a KR whose measure failed reads 量不了 with no stale value, and a later series names its measure version", () => {

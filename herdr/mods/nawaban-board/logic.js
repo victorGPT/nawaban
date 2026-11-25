@@ -30,10 +30,7 @@ export const folderOf = (path) => path.slice(0, path.lastIndexOf("/"));
 const WRITE_AHEAD_LOG_SUFFIX = "-wal";
 const isBoardFileOrItsLog = (path, db) => path === db || path === db + WRITE_AHEAD_LOG_SUFFIX;
 const isWatchedFolderItself = (path, db) => path === folderOf(db);
-const PROGRESS_FOLDER = "/progress";
-const LIVE_FILE = /^\d+\.json$/;
-const isProgressWrite = (path, db) => path.startsWith(folderOf(db) + PROGRESS_FOLDER + "/") && LIVE_FILE.test(path.slice(path.lastIndexOf("/") + 1));
-export const boardChanged = (paths, db) => paths.some((p) => isBoardFileOrItsLog(p, db) || isWatchedFolderItself(p, db) || isProgressWrite(p, db));
+export const boardChanged = (paths, db) => paths.some((p) => isBoardFileOrItsLog(p, db) || isWatchedFolderItself(p, db));
 
 export const OKR_FOLDER_IN_REPO = "docs/agents";
 const OKR_FILE = "okr.toml";

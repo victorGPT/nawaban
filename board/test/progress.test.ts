@@ -85,7 +85,7 @@ it('a GitHub issue claimed on this machine gets its live file from the session t
   await writeFile(join(boardDir, 'github-claims', 'roubao#950.json'), JSON.stringify({ session: 's1', claimedAt: 100 }))
   await writeFile(join(boardDir, 'github-claims', 'roubao#951.json'), JSON.stringify({ session: 's2', claimedAt: 100 }))
   const held = githubIssuesHeldBy(boardDir, 's1')
-  expect(held).toEqual([{ id: 'roubao#950', claimedAt: 100 }])
+  expect(held).toMatchObject([{ id: 'roubao#950', claimedAt: 100, live: null }])
   const transcript = await transcriptOf({ ...claudeCall('Bash', { command: 'gh pr create --fill' }), timestamp: new Date(200_000).toISOString() })
   await recordProgress({ session_id: 's1', transcript_path: transcript }, held, boardDir, 300)
   expect(JSON.parse(await readFile(join(boardDir, 'progress', 'roubao#950.json'), 'utf8'))).toEqual({ milestone: 'pr', at: 300 })

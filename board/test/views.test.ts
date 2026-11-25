@@ -188,3 +188,18 @@ it('reads past a long stretch of other projects\' events, and a dispatch brief a
   const s02 = data.columns.flatMap((c: { tasks: { id: string }[] }) => c.tasks).find((t: { id: string }) => t.id === 'S-02')
   expect(s02.progress.body).toBe('最后的进展')
 })
+
+it('a progress label written while a ticket is held shows as its live state and moves no activity, while another label still does', async () => {
+  await ok(WORKER_WINDOW_IN_T3, 't3', 'create', 'LV', '--title', '只刷进展', '--project', 'nawaban')
+  await ok(WORKER_WINDOW_IN_T3, 't3', 'claim', 'LV')
+  const id = (await team.tasks.list({ state: 'all', label: { key: 'LV' } })).tasks[0]!.message.id
+  const row = async () => (await read('board', '--project', 'nawaban')).columns.flatMap((c: { tasks: { id: string }[] }) => c.tasks).find((t: { id: string }) => t.id === 'LV')
+  const pastTheSecondActivityIsCountedIn = () => new Promise((r) => setTimeout(r, 1100))
+  const before = (await row()).active_at
+  await pastTheSecondActivityIsCountedIn()
+  await team.as(null).label(id, { set: { progress: 'edited', 'progress.at': '123' } })
+  expect(await row()).toMatchObject({ active_at: before, live: { milestone: 'edited', at: 123 } })
+  await pastTheSecondActivityIsCountedIn()
+  await team.as(null).label(id, { set: { terminal: 't5' } })
+  expect((await row()).active_at).toBeGreaterThan(before)
+})
