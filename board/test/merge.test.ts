@@ -38,6 +38,7 @@ case "$1 $2" in
   "auth token") echo tok-declared ;;
   "pr view") cat "$GH_PR" ;;
   "run list") if [ -n "$GH_RUNS" ]; then printf '%s' "$GH_RUNS"; else echo '[]'; fi ;;
+  "pr merge") if [ -s "$GH_MERGE_FAILS" ]; then head -n1 "$GH_MERGE_FAILS" >&2; sed -i.bak 1d "$GH_MERGE_FAILS"; exit 1; fi ;;
 esac
 `
 
@@ -694,6 +695,73 @@ it('refuses on a failing check: no merge, the ticket failed with the output tail
   expect([green.code, green.stderr]).toEqual([0, ''])
   expect(green.gh).toMatch(/^pr merge 5/m)
   expect(await stateOf(id)).toBe('completed')
+})
+
+it('runs the checks from the repository root even when merge runs in a subdirectory', async () => {
+  const { id, worktree } = await workerWithChecksOnItsHead('M-CHKROOT', 't7j', ['test "$(pwd -P)" = "$(git rev-parse --show-toplevel)"'])
+  await mkdir(join(worktree, 'sub'))
+  const r = await mergeAsTheWorker('M-CHKROOT', 't7j', join(worktree, 'sub'))
+  expect([r.code, r.stderr]).toEqual([0, ''])
+  expect(await stateOf(id)).toBe('completed')
+})
+
+async function githubFailingTheMerge(key: string, errors: string[]) {
+  const fails = join(tmp, `merge-fails-${key}`)
+  const sleeps = join(tmp, `sleeps-${key}`)
+  await mkdir(sleeps)
+  await writeFile(join(sleeps, 'sleep'), `#!/bin/sh\nprintf '%s\\n' "$1" >> "${sleeps}/log"\n`)
+  await chmod(join(sleeps, 'sleep'), 0o755)
+  await writeFile(fails, errors.map((e) => `${e}\n`).join(''))
+  return { env: { GH_MERGE_FAILS: fails, PATH: `${sleeps}:${tmp}:${process.env.PATH}` }, pauses: async () => (await readFile(join(sleeps, 'log'), 'utf8').catch(() => '')).split('\n').filter(Boolean) }
+}
+
+it('retries a GitHub hiccup on the merge with backoff, then merges and completes the ticket', async () => {
+  const { id, worktree } = await workerWithChecksOnItsHead('M-HICCUP', 't7g', ['true'])
+  const github = await githubFailingTheMerge('M-HICCUP', ['GraphQL: Something went wrong while executing your query. (mergePullRequest)'])
+  const r = await mergeAsTheWorker('M-HICCUP', 't7g', worktree, github.env)
+  expect([r.code, r.stderr]).toEqual([0, ''])
+  expect(r.gh.match(/^pr merge/gm)).toHaveLength(2)
+  expect(await github.pauses()).toEqual(['2'])
+  expect(await stateOf(id)).toBe('completed')
+})
+
+it('reports a merge GitHub keeps failing as a merge failure, not failed checks: the ticket stays claimed and a rerun merges', async () => {
+  const { id, worktree } = await workerWithChecksOnItsHead('M-GHDOWN', 't7h', ['echo checks-ran'])
+  const github = await githubFailingTheMerge('M-GHDOWN', Array(4).fill('HTTP 502: Bad Gateway (https://api.github.com/graphql)'))
+  const down = await mergeAsTheWorker('M-GHDOWN', 't7h', worktree, github.env)
+  expect(down.code).toBe(1)
+  expect(down.gh.match(/^pr merge/gm)).toHaveLength(4)
+  expect(await github.pauses()).toEqual(['2', '4', '8'])
+  expect(down.stderr).toContain('合并失败（GitHub）')
+  expect(down.stderr).not.toContain('验收检查没过')
+  expect(await stateOf(id)).toBe('claimed')
+  expect(await holderOf(id)).toMatch(/\+cc-aaaa1111$/)
+  const tail = await lastNote(id)
+  expect(tail).toContain('merge: 拒合 — 合并失败（GitHub）')
+  expect(tail).toContain('HTTP 502: Bad Gateway')
+  const up = await mergeAsTheWorker('M-GHDOWN', 't7h', worktree, github.env)
+  expect([up.code, up.stderr]).toEqual([0, ''])
+  expect(await stateOf(id)).toBe('completed')
+})
+
+it('keeps a failing check that prints the merge-failed words as failed checks', async () => {
+  const { id, worktree } = await workerWithChecksOnItsHead('M-FORGE', 't7k', ['echo "nawaban: gh pr merge 没成" >&2; exit 7'])
+  const r = await mergeAsTheWorker('M-FORGE', 't7k', worktree)
+  expect(r.code).toBe(1)
+  expect(r.gh).not.toMatch(/^pr merge/m)
+  expect(r.stderr).toContain('验收检查没过')
+  expect(await stateOf(id)).toBe('failed')
+})
+
+it('does not retry a merge GitHub refuses for good', async () => {
+  const { id, worktree } = await workerWithChecksOnItsHead('M-UNMERGEABLE', 't7i', ['true'])
+  const github = await githubFailingTheMerge('M-UNMERGEABLE', ['Pull request #5 is not mergeable: the merge commit cannot be cleanly created.'])
+  const r = await mergeAsTheWorker('M-UNMERGEABLE', 't7i', worktree, github.env)
+  expect(r.code).toBe(1)
+  expect(r.gh.match(/^pr merge/gm)).toHaveLength(1)
+  expect(await github.pauses()).toEqual([])
+  expect(r.stderr).toContain('合并失败（GitHub）')
+  expect(await stateOf(id)).toBe('claimed')
 })
 
 it('refuses to run the checks off the PR head, before the ticket is let go', async () => {

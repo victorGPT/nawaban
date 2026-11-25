@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -25,6 +26,9 @@ const SCHEMA_FILE = 'board/src/schemas.ts'
 const EXIT_CODE = { waiting: EXIT.waiting, refused: EXIT.refused, mergedButUnfinished: EXIT.refused, done: EXIT.done } as const
 const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
 const CHECK_OUTPUT_TAIL_CHARS = 2000
+const MERGE_RETRY_PAUSES_S = [2, 4, 8]
+const GITHUB_HICCUP = 'GraphQL|HTTP 5[0-9][0-9]'
+const mergeFailedMarkNoCheckCanForge = () => `nawaban: gh pr merge 没成 ${randomUUID()}`
 const pluginDir = () => process.env.NAWABAN_PLUGIN_DIR ?? join(homedir(), '.nawaban', 'plugin')
 
 type PullRequest = {
@@ -111,13 +115,17 @@ async function gateBeforeTheIrreversibleMerge(pr: PullRequest, task: MessageView
   return why ? { kind: 'refused', why } : null
 }
 
+async function mergedAtHead(pr: PullRequest): Promise<boolean> {
+  const again = await viewOf(String(pr.number)).catch(() => null)
+  return again?.state === 'MERGED' && again.headRefOid === pr.headRefOid
+}
+
 async function mergeElseWhyNot(pr: PullRequest): Promise<string | null> {
   try {
     await exec('gh', ['pr', 'merge', String(pr.number), '--squash', '--match-head-commit', pr.headRefOid])
     return null
   } catch (error) {
-    const again = await viewOf(String(pr.number)).catch(() => null)
-    return again?.state === 'MERGED' && again.headRefOid === pr.headRefOid ? null : `gh pr merge 失败：${failureOf(error)}`
+    return (await mergedAtHead(pr)) ? null : `gh pr merge 失败：${failureOf(error)}`
   }
 }
 
@@ -130,12 +138,23 @@ async function headCheckedOutCleanElseWhyNot(pr: PullRequest): Promise<string | 
 
 const shQuoted = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
 
-const eachCheckThenTheMerge = (checks: string[], pr: PullRequest) =>
-  [...checks.flatMap((c) => [`printf '%s\\n' ${shQuoted(`$ ${c}`)}`, `sh -c ${shQuoted(c)} || exit $?`]), `exec gh pr merge ${pr.number} --squash --match-head-commit ${pr.headRefOid}`].join('\n')
+const mergeRetryingGithubHiccups = (pr: PullRequest, failedMark: string) => [
+  `for pause in ${MERGE_RETRY_PAUSES_S.join(' ')} last; do`,
+  `  out=$(gh pr merge ${pr.number} --squash --match-head-commit ${pr.headRefOid} 2>&1) && { printf '%s\\n' "$out"; exit 0; }`,
+  `  printf '%s\\n' "$out" >&2`,
+  `  [ "$pause" != last ] && printf '%s\\n' "$out" | grep -qE ${shQuoted(GITHUB_HICCUP)} || break`,
+  `  sleep "$pause"`,
+  'done',
+  `printf '%s\\n' ${shQuoted(failedMark)} >&2`,
+  'exit 1',
+]
 
-function boardTasksRun(argv: string[]): Promise<{ settled: { outcome?: string; task?: MessageView } | null; tail: string }> {
+const eachCheckThenTheMerge = (checks: string[], pr: PullRequest, failedMark: string) =>
+  [...checks.flatMap((c) => [`printf '%s\\n' ${shQuoted(`$ ${c}`)}`, `sh -c ${shQuoted(c)} || exit $?`]), ...mergeRetryingGithubHiccups(pr, failedMark)].join('\n')
+
+function boardTasksRun(argv: string[], cwd: string): Promise<{ settled: { outcome?: string; task?: MessageView } | null; tail: string }> {
   return new Promise((done) => {
-    const child = spawn('node', [CLI, 'board', 'tasks', 'run', ...argv], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn('node', [CLI, 'board', 'tasks', 'run', ...argv], { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
     let tail = ''
     child.stdout.on('data', (chunk) => (out += chunk))
@@ -158,11 +177,19 @@ async function checksThenMergeAsOneTasksRunElseWhyNot(pr: PullRequest, task: Mes
   if (kr.length) await board().as(profile()).reply(task.id, resultsOf(kr))
   const unreported = await whyNotCloseable(task.id)
   if (unreported) return `${unreported.split('\n')[0]}：验收检查通过就直接关票，KR 结果在 merge 时报：nawaban merge ${pr.number} --kr "<KR 名>=<后值> 实测|预计"`
+  const top = (await stdoutOrNullOnFailure('git', ['rev-parse', '--show-toplevel']))?.trim()
+  if (!top) return '读不到仓库根目录，验收检查要在那里跑'
   const as = profile()
+  const failedMark = mergeFailedMarkNoCheckCanForge()
   await upstreamAnswer(['tasks', 'release', task.id, '--as', as])
-  const { settled, tail } = await boardTasksRun([task.id, '--as', as, '--result', `验收检查全过，已合 PR #${pr.number}`, '--json', '--', 'sh', '-c', eachCheckThenTheMerge(checks, pr)])
+  const { settled, tail } = await boardTasksRun([task.id, '--as', as, '--result', `验收检查全过，已合 PR #${pr.number}`, '--json', '--', 'sh', '-c', eachCheckThenTheMerge(checks, pr, failedMark)], top)
   if (settled?.outcome === 'completed') return null
   const shown = tail.trim() || '（没有输出）'
+  if (settled?.outcome === 'failed' && tail.includes(failedMark)) {
+    await reclaimedIfItLapsedInMyHands(await resolve(task.labels.key ?? task.id))
+    if (await mergedAtHead(pr)) return null
+    return `合并失败（GitHub），验收检查全过，票没记 failed、仍由你认领：GitHub 恢复后直接重跑 nawaban merge ${pr.number}：\n${shown}`
+  }
   if (settled?.outcome === 'failed') return `验收检查没过，票记 failed（${settled.task?.task?.reason ?? '?'}），修好后重跑 merge 会重开它：\n${shown}`
   return `tasks run 没跑成，票已交还：先 nawaban claim ${task.labels.key ?? task.id} 再重跑 merge：\n${shown}`
 }
