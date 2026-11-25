@@ -7,6 +7,7 @@ import { into } from '@vercel/board/sync'
 import { github, repos } from '@vercel/board/sync-github'
 import type { KnownIssue } from './github-tasks.ts'
 import { POLL_EVERY_MS, recordRound, STATE_FOLDER, type SyncConfig } from './github-sync-status.ts'
+import { writtenHereFirst } from './github-push.ts'
 export { githubSyncConfig, recordRound, syncStalledNote } from './github-sync-status.ts'
 
 const WEBHOOK_SECRET_FILE = 'github-webhook-secret'
@@ -52,9 +53,18 @@ export function refusingGithubWrites(fetch: typeof globalThis.fetch): typeof glo
   }
 }
 
+type Subject = { subject?: { repo?: string; number?: number }; text?: string }
+
+const intoExceptWhatWasWrittenHereFirst = (channel: string) => async (sync: Parameters<ReturnType<typeof into>>[0]) => {
+  if (sync.direction !== 'in') return
+  const { subject, text } = sync.event as Subject
+  const echo = subject?.repo && subject.number && text ? await writtenHereFirst(sync.board, channel, subject.repo, subject.number, text) : false
+  if (!echo) await sync.import(channel)
+}
+
 export function importOnlySync(config: SyncConfig, token: string, secret: string) {
   const adapter = createGitHubAdapter({ token, webhookSecret: secret, botUserId: NO_GITHUB_USER_HAS_THIS_ID, userName: 'nawaban-sync' })
-  const routes = Object.fromEntries(Object.entries(config.repos).map(([repo, channel]) => [repo, { issues: into(channel) }]))
+  const routes = Object.fromEntries(Object.entries(config.repos).map(([repo, channel]) => [repo, { issues: intoExceptWhatWasWrittenHereFirst(channel) }]))
   return github({ adapter, botUserId: NO_GITHUB_USER_HAS_THIS_ID }, repos(routes))
 }
 
@@ -115,7 +125,15 @@ function actionsBringingTheBoardTo(issue: Issue, seen: Seen | undefined): { acti
 
 export type Settle = (known: KnownIssue[]) => Promise<void>
 
+const knownIn = (state: RepoState): KnownIssue[] => Object.entries(state.issues).map(([number, seen]) => ({ number: Number(number), state_reason: seen.state_reason, reopens: seen.reopens ?? 0 }))
+
 export async function pollRepo(repo: string, dir: string, reader: Reader, deliver: Deliver, now = Date.now(), settle: Settle = async () => {}) {
+  const failed = await bringTheBoardUpToGithub(repo, dir, reader, deliver, now).then(() => null, (error: unknown) => error)
+  await settle(knownIn(await loadState(stateFile(dir, repo))))
+  if (failed) throw failed
+}
+
+async function bringTheBoardUpToGithub(repo: string, dir: string, reader: Reader, deliver: Deliver, now: number) {
   const path = stateFile(dir, repo)
   const state = await loadState(path)
   const roundStartedOnGithubClock = await reader.now()
@@ -164,7 +182,6 @@ export async function pollRepo(repo: string, dir: string, reader: Reader, delive
   } finally {
     await saveState(path, state)
   }
-  await settle(Object.entries(state.issues).map(([number, seen]) => ({ number: Number(number), state_reason: seen.state_reason, reopens: seen.reopens ?? 0 })))
 }
 
 async function deleteWhatGithubNoLongerHas(repo: string, reader: Reader, deliver: Deliver, state: RepoState, repository: unknown) {

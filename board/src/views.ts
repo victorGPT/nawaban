@@ -1,5 +1,5 @@
 import { realpath } from 'node:fs/promises'
-import { currentGithubAsk, githubAskIn, githubRepliesOf, HELD_FOR_A_GITHUB_ASK } from './github-tasks.ts'
+import { currentGithubAsk, githubAskIn, githubRepliesOf, HELD_FOR_A_GITHUB_ASK, inGithubFormat } from './github-tasks.ts'
 import { cardFromAGithubAsk } from './github-card.ts'
 import { syncStalledNote } from './github-sync-status.ts'
 import { join } from 'node:path'
@@ -103,7 +103,7 @@ const orchestratorAsTheGlossaryDefinesIt = (latestDispatch: Reply | undefined, h
 
 const GITHUB_PROGRESS_PREFIX = /^\s*(?:#{1,6}\s*)?\**进展\**\s*(?:[（(][^）)\n]*[）)])?\**\s*[：:]\**\s*/
 const TRAILING_NAWABAN_MARKER = /\n*<!-- nawaban \{[^\n]*\} -->\s*$/
-const fromGithub = (r: Reply) => r.message.from === 'github'
+const fromGithub = (r: Reply) => inGithubFormat(r.message)
 const visibleOnGithub = (r: Reply) => r.message.text.replace(TRAILING_NAWABAN_MARKER, '')
 const isNote = (r: Reply) => r.message.blocks.length === 0 && (!fromGithub(r) || GITHUB_PROGRESS_PREFIX.test(visibleOnGithub(r)))
 const progress = (r: Reply | undefined) => (r ? { body: fromGithub(r) ? visibleOnGithub(r).replace(GITHUB_PROGRESS_PREFIX, '') : r.message.text, at: r.at } : null)

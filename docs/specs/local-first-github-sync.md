@@ -15,9 +15,9 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 | 去重（按评论 ID，不按投递 ID） | 原生 | VN §2 实跑 |
 | 作者（导入的 reply 署名 `github:user:<id>`） | 原生 | VN §2 实跑 |
 | 编辑、删除（收到事件时） | 原生 | 04-github.md Events 表 |
-| 推送账号自己写的评论不导入回来 | 原生 | VN §2 实跑；本地发出的东西不会转一圈再回来 |
-| 推送的格式（前缀加 marker） | 原生 `render` | VN §2 实跑 |
-| 推送按线程排队、按顺序 | 原生 | `docs/02-sync/01-overview.md` |
+| 板上先写、推出去的评论不再导入回来 | 加一层：入站按 marker 的 uid 认回声 | 第 4 节；`botUserId` 填不存在的 ID，原生这条用不上 |
+| 推送的格式（前缀加 marker） | 旧 CLI 写的原文，板上照存照推 | 第 4 节 |
+| 推送按 issue 排队、按顺序 | 自建发件箱 | 原生出站重启就丢（第 4 节实跑） |
 | **入站** | **自建：本机轮询器** | 原生只收 webhook（VN §1），本地板只听 127.0.0.1，决策者 11-24 定网页只在 tailnet 内，不开公网入口（决定 1425） |
 | **推哪些** | **加一层：sync 函数里过滤** | 原生默认什么也不推 |
 | **断网后补推** | **加一层** | 原生重试 5 次后放弃，进程重启也丢（VN §2） |
@@ -53,11 +53,11 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 
 **首次全量**：游标文件不在时，先拉开着的 issue 和最近 2 天关掉的，每个 issue 的评论按 issue 翻页拉全，按上面的规则送进去，再写游标。以后有评论落在没见过的旧 issue 上，原生会自己去取那个 issue（04-github.md「Comments on PRs the board hasn't seen」）。
 
-**sync 函数（入站这一侧）**：`direction === 'in'` 时 `import(channel)`。
+**sync 函数**：只管入站，`direction === 'in'` 时 `import(channel)`，板上先写的回声除外（第 4 节）；出站什么也不做。
 
-**botUserId**：原生把 `botUserId` 写的评论当成自己发的，不导入。决策者的 agent 都用 `wuxianzhong-gpt` 写 GitHub，所以 `botUserId` 绝不能是这个账号的 ID（VN 结论 4）。`botUserId` 一直填一个不存在的 ID，所有人的评论都导入；推送也用 `wuxianzhong-gpt` 之后仍然这样填，推出去的评论靠原生的同步映射认回，不靠 `botUserId`（第 4 节）。
+**botUserId**：原生把 `botUserId` 写的评论当成自己发的，不导入。决策者的 agent 都用 `wuxianzhong-gpt` 写 GitHub，所以 `botUserId` 绝不能是这个账号的 ID（VN 结论 4）。`botUserId` 一直填一个不存在的 ID，所有人的评论都导入；推送也用 `wuxianzhong-gpt` 之后仍然这样填，推出去的评论靠 marker 的 uid 认回，不靠 `botUserId`（第 4 节）。
 
-**不往 GitHub 写**：没定推送身份之前，serve 进程里对 `api.github.com` 的非 GET 请求一律拒绝（GraphQL 的 `viewer` 查询也是 POST，所以 `botUserId` 必须显式给，原生就不会去查）。轮询器用 `gh api` 只发 GET。
+**原生不往 GitHub 写**：serve 进程里经 `fetch` 对 `api.github.com` 的非 GET 请求一律拒绝，推送只走第 4 节发件箱的 `gh api`（GraphQL 的 `viewer` 查询也是 POST，所以 `botUserId` 必须显式给，原生就不会去查）。轮询器用 `gh api` 只发 GET。
 
 **删除**：增量端点看不到删除。每天对开着的 issue 全量重拉一次评论，本地有、GitHub 没了的，补发 `deleted`。放在 -08。
 
@@ -74,15 +74,18 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 
 ## 4. 出站：推送（只推公司仓库）
 
-**推哪些**（sync 函数 `direction === 'out'` 里过滤，只推映射到 issue 的线程）：认领和交还、进展同步（`triage:`、`wayfinder:`、`lane:` 这几种记账备注不推）、决策记录、PR 链接、待决、已决、影响声明。不推：派活记录、triage、网页答复、收件箱、OKR 读数、租约续期。
+**怎么推**（-09 实跑后定，不用原生出站）：原生出站的 watcher 开机从 feed 头读，推送途中重启 serve 那条就丢了，也不留 `undelivered`；原生也没有重推的入口。所以 sync 函数只管入站，出站自建发件箱，状态都记在板上（label），重启不丢：
 
-**格式**：`render` 出和旧 `gh_post` 一字不差的「前缀：正文」加 marker `<!-- nawaban {...} -->`，岳不同机器上的旧 CLI 什么都不用改。
+- **写入**：`github-sync.json` 的 `push` 里列了的仓库，旧 CLI 的 `gh_post` 不直写 GitHub，改成 `nawaban hook github-reply <owner/repo> <N>`，把一字不差的「前缀：正文」加 marker（uid 由旧 CLI 生成）记成该 issue 导入线程下的一条回复，立刻返回。没列在 `push` 里的仓库照旧直写，开关默认关。
+- **推哪些**：板上写的（`from` 为空）、带 nawaban marker、kind 是认领、交还、进展、决定、PR、待决、已决、影响之一的回复。`triage:`、`wayfinder:`、`lane:` 开头的进展不推；派活记录、网页答复、收件箱、OKR 读数这些不带 marker，本来就不推。
+- **推送**：serve 每 10 秒扫一遍，同一个 issue 按写的先后推，前一条推不出去后一条就等着（保证待决在已决前面）。POST 之前先给那条回复打 `github-push-tried-at`；打过的、两分钟内（GitHub 列表落后写入的窗口）不再试，两分钟后先在该 issue 的评论里按 uid 找，找到就不再 POST。推成了打 `github-comment=<评论 ID>`。token 按仓库取（见「推送身份」），取不到就不推。推不出去时，待决提示行和面板显示「有 N 条还没推到 GitHub（原因）」。
+- **认回声**：入站时评论末尾 marker 的 uid 已经在板上那条 issue 线程里（板上写的）出现过，就不导入。`created`、`edited`、首次见到的 issue 拉全部历史，都走这一处。
+- **待决和已决按并集算**：GitHub 来的和板上写的（带 marker）一起折叠，按 GitHub 评论 ID 排序（板上写的用 `github-comment`，还没推出去的排在最后）。断网时也照常结算：读 GitHub 失败，这一轮照样按上次记下的 issue 结算，所以本地待决立刻挂起，本地已决立刻解除。
+- **已知限制**：`event --kind ask` 写之前旧 CLI 要读 GitHub 查有没有另一件待决，断网时会失败（进展、决定、PR 不受影响）。本地记的已决推出去之前，同事在 GitHub 上又提了新待决，这条已决排在那件待决之后，会被当成答了它。
 
-**补推**：原生重试 5 次后放弃，失败原因留在消息的 `undelivered` 里。serve 每轮扫 `undelivered` 不为空的消息补推；具体怎么补推（原生没有 redeliver 入口）由 -09 先实跑定。
+**状态外推**（-10，自建）：本地关票、重开、认领时，用 adapter 的 octokit 调 `issues.update`、`addAssignees`、`removeAssignees`。本地新建的票要分享，调 `issues.create`，再 `vb sync <id> github:<owner>/<repo>:issue:<N>` 把线程挂上去。在那之前，旧 CLI 的 claim、close 照旧直接改 GitHub 上的 assignee 和状态，只有随之写的评论先写板。
 
-**状态外推**（自建）：本地关票、重开、认领时，用 adapter 的 octokit 调 `issues.update`、`addAssignees`、`removeAssignees`。本地新建的票要分享，调 `issues.create`，再 `vb sync <id> github:<owner>/<repo>:issue:<N>` 把线程挂上去。
-
-**写路径切换**：`nawaban event '#N'`、`claim '#N'`、`close '#N'` 先写本地板，再由 sync 推出去。旧 CLI 在本机有 `github-sync.json` 时转给板；没有的（岳不同的机器）照旧直写 GitHub，轮询器再带回来。网页记已决（`server.ts` 调 `cli.py`）改成先写板。
+**写路径**：guard（影响声明、合并锁、待决守卫）的路由不动，到 -11 roubao 的 OKR 搬上板之后再切；板 CLI 的 `event ROUBAO-N` 写的是板上的 block，不推。
 
 **推送身份**：按仓库声明的账号推（roubao 是 `wuxianzhong-gpt`），`botUserId` 仍填不存在的 ID。-09 取推送 token 只走 NAWABAN-GH-ACCOUNT 的按仓库取账号函数；那张票没合并前，-09 留一个「仓库 → 账号」的接口位，接口签名照那张票定，不在 -09 里写死账号。仓库没声明账号，或本机没登录那个账号，就不推，显示缺什么，不回落到 gh 当前活跃账号。下面的实测用的是 `wuxianzhong-gpt`。11-25 在临时板上实测（内存板，GitHub API 打桩，不碰真 GitHub），一来一回的结果：
 
@@ -128,7 +131,7 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 | -06 只读入站 | 第 1、2 节：配置、轮询器、签名载荷交给本机路由、原生 `into` 导入 channel，首次全量，非 GET 一律拒绝 | 无 |
 | -07 任务化与前缀语义 | 第 3 节：root 转任务加 key，前缀变 block/unblock，`state` 变 complete/cancel，重开开新任务，middleware 放行，按平台时间排序 | -06 |
 | -08 读切换 | 面板、索引、待决提示行、brief、网页对同步仓库改读本地板，删掉旧的 GitHub 读路径和缓存；同步停了要露出来；每日对账补删除 | -07 |
-| -09 推送 | 第 4 节的过滤、`render`、补推、认回声，写路径切换；只对 `github-sync.json` 里的公司仓库；推送账号走 NAWABAN-GH-ACCOUNT 的函数 | -08；NAWABAN-GH-ACCOUNT（没合并前留接口位） |
+| -09 推送 | 第 4 节的发件箱：旧 CLI 先写板、过滤、按序推、按 uid 防重、认回声、并集结算；只对 `github-sync.json` 的 `push` 里的公司仓库；推送账号走 `githubTokenOf` | -08；NAWABAN-GH-ACCOUNT |
 | -10 状态外推与分享 | 第 4 节「状态外推」，第 5 节「本地 → GitHub」那一列 | -09 |
 | -11 收尾 | 导入 roubao 的 OKR 三张表；删掉插件和面板按 issue-tracker.md 标题的分流（只限有本机配置的仓库）；GLOSSARY 加术语；T8 编排者场景在 roubao 重跑；在 roubao 的 issue 上知会岳不同 | -10 |
 

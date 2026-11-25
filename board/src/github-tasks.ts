@@ -42,7 +42,18 @@ async function reopenedAsANewTask(person: Person, root: MessageView, finished: M
   return task
 }
 
-function markerOf(text: string): { kind?: unknown; body?: unknown } | null {
+export const PUSHED_AS = 'github-comment'
+
+export const inGithubFormat = (m: MessageView) => m.from === 'github' || (m.from === null && TRAILING_NAWABAN_MARKER.test(m.text))
+
+const githubCommentIdOf = (m: MessageView) => Number(m.from === 'github' ? m.origin?.message : (m.labels[PUSHED_AS] ?? Infinity))
+
+const inGithubOrder = (a: MessageView, b: MessageView) => {
+  const [x, y] = [githubCommentIdOf(a), githubCommentIdOf(b)]
+  return x !== y ? (x < y ? -1 : 1) : a.createdAt < b.createdAt ? -1 : 1
+}
+
+export function markerOf(text: string): { kind?: unknown; body?: unknown; uid?: unknown } | null {
   const found = TRAILING_NAWABAN_MARKER.exec(text)
   try {
     return found ? JSON.parse(found[1]!) : null
@@ -60,7 +71,7 @@ export function askOrRulingIn(text: string): { ask: string } | 'ruling' | null {
 }
 
 export const githubAskIn = (m: MessageView) => {
-  if (m.from !== 'github' || m.deleted) return null
+  if (!inGithubFormat(m) || m.deleted) return null
   const said = askOrRulingIn(m.text)
   return said && said !== 'ruling' ? said.ask : null
 }
@@ -71,9 +82,8 @@ export async function githubRepliesOf(person: Person, task: MessageView, own: Me
 }
 
 export function currentGithubAsk(replies: MessageView[]): MessageView | null {
-  const inGithubOrder = replies.filter((r) => r.from === 'github' && !r.deleted).sort((a, b) => Number(a.origin?.message) - Number(b.origin?.message) || (a.createdAt < b.createdAt ? -1 : 1))
   let pending: MessageView | null = null
-  for (const r of inGithubOrder) {
+  for (const r of replies.filter((m) => inGithubFormat(m) && !m.deleted).sort(inGithubOrder)) {
     const said = askOrRulingIn(r.text)
     if (said === 'ruling') pending = null
     else if (said) pending = r

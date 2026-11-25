@@ -1357,6 +1357,7 @@ GH_WORDS = {"claim": "认领", "release": "交还", "note": "进展", "decision"
 _TRAILING_ONE_LINE_MARKER = re.compile(r"\n*<!-- nawaban (\{[^\n]*\}) -->\s*\Z")
 _GH_ISSUE = re.compile(r"#(\d+)")
 HC_TIMEOUT_SECONDS = 3
+BOARD_WRITE_TIMEOUT_SECONDS = 30
 
 
 def marker(ev: dict) -> str:
@@ -1382,7 +1383,32 @@ def gh_post(root: Path, number: str, kind: str, body: str, kr: str | None = None
         ev["kr"] = kr
     if by:
         ev["by"] = by
-    _gh(root, "issue", "comment", number, "--body", f"{GH_WORDS[kind]}：{body}\n\n{marker(ev)}")
+    text = f"{GH_WORDS[kind]}：{body}\n\n{marker(ev)}"
+    pushed_by_the_board = _repo_the_board_pushes(root)
+    if pushed_by_the_board:
+        _write_on_the_board_first(pushed_by_the_board, number, text)
+    else:
+        _gh(root, "issue", "comment", number, "--body", text)
+
+
+def _repo_the_board_pushes(root: Path) -> str | None:
+    import json
+    try:
+        config = json.loads((_board_dir() / "github-sync.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    repos = config.get("repos") or {}
+    return next((repo for repo in config.get("push") or [] if repos.get(repo) == root.name), None)
+
+
+def _write_on_the_board_first(repo: str, number: str, text: str) -> None:
+    try:
+        r = subprocess.run(["node", str(_PLUGIN / "board" / "src" / "cli.ts"), "hook", "github-reply", repo, number],
+                           input=text, capture_output=True, text=True, timeout=BOARD_WRITE_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise Refused(f"板写不进:{e}")
+    if r.returncode != 0:
+        raise Refused(f"板写不进:{(r.stderr or r.stdout).strip()}")
 
 
 def _role(terminal: str) -> str | None:
