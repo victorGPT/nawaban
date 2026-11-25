@@ -11,7 +11,7 @@ import { guard } from './guard.ts'
 import { importOld } from './import.ts'
 import { merge } from './merge.ts'
 import { jsonOkr, okr, okrStat } from './okr.ts'
-import { inbox, index, page } from './orchestrator.ts'
+import { status } from './orchestrator.ts'
 import { boardDirAsConfiguredWhenAsked, DIR, PORT, serve, urlFor, web, webOverTailnet } from './server.ts'
 import { oldCli } from './github.ts'
 import { githubIssuesHeldBy, progress } from './progress.ts'
@@ -68,11 +68,13 @@ const COMMANDS: Record<string, Command> = {
     about: '现在要管的：待决、停滞、进行中、可开工',
     flags: [
       ['--project <项目>', '只看这个项目，末尾接上网页已答和收件箱；缺省是当前仓库的，不在仓库里看全部'],
+      ['--line', '只打印待决提示行，从标准输入读 Stop 钩子输入，Stop 钩子用'],
+      ['--unseen <会话>', '只打印这个会话没见过的网页已答和收件箱，提示词钩子用'],
       ['--json', '输出 JSON'],
     ],
-    run: (rest) => index(rest, board()),
+    run: (rest) => status(rest, board(), DIR),
   },
-  show: { group: '看', usage: 'show <票>', about: '一张票：正文、负责人、被挡、最近事件', flags: [['--json', '输出 JSON']], run: taskVerb('show') },
+  show: { group: '看', usage: 'show <票>', about: '一张票：正文、负责人、被挡、最近事件', flags: [['--all', '再列出全部事件'], ['--json', '输出 JSON']], run: taskVerb('show') },
   list: {
     group: '看',
     usage: 'list',
@@ -109,6 +111,7 @@ const COMMANDS: Record<string, Command> = {
       ['--project <项目>', '缺省随 --parent，再缺省是当前仓库在 repos.json 里的项目'],
       ['--blocked-by <票>', '被这张票挡，可重复'],
       ['--lane <泳道>', '开工前要读同一批东西的一组票；dispatch 交给这条泳道在跑的 worker'],
+      ['--inbox <条目>', '把这条收件箱条目转成这张票并标成已处理；不给正文就用条目原话，项目随条目'],
       ['--json', '输出 JSON'],
     ],
     run: taskVerb('create'),
@@ -237,17 +240,6 @@ const COMMANDS: Record<string, Command> = {
     ],
     run: (rest) => (rest[0] === 'okr' ? jsonOkr(rest.slice(1), board(), DIR) : json(rest, board(), DIR)),
   },
-  inbox: { group: '本机服务', usage: 'inbox', about: '待决提示行，Stop 钩子读的，不手敲', flags: [['--project <项目>', '项目']], run: (rest) => inbox(rest, board(), DIR) },
-  page: {
-    group: '本机服务',
-    usage: 'page',
-    about: '网页已答和收件箱，提示词钩子读的，不手敲',
-    flags: [
-      ['--project <项目>', '必填'],
-      ['--session <会话>', '只给这个会话没见过的'],
-    ],
-    run: (rest) => page(rest, board(), DIR),
-  },
   board: {
     group: '上游',
     usage: 'board <动词…>',
@@ -257,12 +249,17 @@ const COMMANDS: Record<string, Command> = {
   },
 }
 
-const RENAMED: Record<string, string[]> = {
-  index: ['status'],
-  renew: ['hook', 'renew'],
-  progress: ['hook', 'progress'],
-  guard: ['hook', 'guard'],
-  ...Object.fromEntries(UPSTREAM_VERBS.map((verb) => [verb, ['board', verb]])),
+const SESSION_FLAG = /^--session(?==|$)/
+const prefixed = (words: string[]) => (rest: string[]) => [...words, ...rest]
+
+const RENAMED: Record<string, (rest: string[]) => string[]> = {
+  index: prefixed(['status']),
+  inbox: prefixed(['status', '--line']),
+  page: (rest) => ['status', ...rest.map((word) => word.replace(SESSION_FLAG, '--unseen'))],
+  renew: prefixed(['hook', 'renew']),
+  progress: prefixed(['hook', 'progress']),
+  guard: prefixed(['hook', 'guard']),
+  ...Object.fromEntries(UPSTREAM_VERBS.map((verb) => [verb, prefixed(['board', verb])])),
 }
 
 const columns = (text: string) => [...text].reduce((n, c) => n + (DOUBLE_WIDTH.test(c) ? 2 : 1), 0)
@@ -310,7 +307,7 @@ async function runCommand(argv: string[]): Promise<number> {
   const [word, ...rest] = argv
   if (word === undefined || word === 'help' || HELP_FLAGS.has(word)) return printed(rest[0] === 'more' ? MORE_HELP : MAIN_HELP)
   if (Object.hasOwn(RENAMED, word)) {
-    const renamed = [...RENAMED[word]!, ...rest]
+    const renamed = RENAMED[word]!(rest)
     pointAt(renamed)
     return runCommand(renamed)
   }

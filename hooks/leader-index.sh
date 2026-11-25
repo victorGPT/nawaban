@@ -32,7 +32,7 @@ print_orchestrator_rules() {
 }
 
 is_the_orchestrator "$input" "${route#* }" || exit 0
-echo "nawaban index（现状索引，SessionStart 钩子注入；你是编排者，先读它再凭记忆补）："
+echo "nawaban status（现状索引，SessionStart 钩子注入；你是编排者，先读它再凭记忆补）："
 print_index_from_the_tracker_this_repository_uses
 warn_when_off_main
 print_orchestrator_rules

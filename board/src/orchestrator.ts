@@ -9,7 +9,7 @@ import { projectOfThisRepository } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { seenOf } from './merge.ts'
 import { all, key } from './tasks.ts'
-import { answer, Refused } from './said.ts'
+import { answer, orRefusal, Refused } from './said.ts'
 import { boardData, tasksOf } from './views.ts'
 import { openInboxItems, pageText, webAnswers, type InboxItem, type WebAnswer } from './page.ts'
 
@@ -143,17 +143,23 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
   return [...out, '', `48 小时内关了 ${closedMayUndercount} 个。`].join('\n')
 }
 
-const fail = (error: unknown) => {
-  process.stderr.write(`error: ${(error as Error).message}\n`)
-  return error instanceof Refused ? error.code : 1
-}
-
-export function index(argv: string[], team: Team): Promise<number> {
-  return answer(argv, async () => {
-    const { values } = parseArgs({ args: argv, options: { project: { type: 'string' }, json: { type: 'boolean' } } })
+export function status(argv: string[], team: Team, dir: string): Promise<number> {
+  return orRefusal(argv, async () => {
+    const { values } = parseArgs({
+      args: argv,
+      options: { project: { type: 'string' }, json: { type: 'boolean' }, line: { type: 'boolean' }, unseen: { type: 'string' } },
+    })
+    if (values.line && values.unseen !== undefined) throw new Refused('--line 和 --unseen 只用一个', 2)
     const project = values.project ?? (await projectOfThisRepository(boardDirAsConfiguredWhenAsked()))
-    const [data, fromThePage, workers] = await Promise.all([boardData(team, project), whatThePageWrote(team, project), liveWorkersText(project)])
-    return { shown: [indexText(data as Data, project ?? '看板'), workers, fromThePage].filter(Boolean).join('\n\n'), json: data }
+    if (values.line) return pendingLine(team, dir, project)
+    if (values.unseen !== undefined) {
+      if (!project) throw new Refused(`不知道看哪个项目：${process.cwd()} 不在 repos.json 的任何仓库里`, 2, '加 --project <项目>')
+      return whatThisSessionHasNotSeenPrinted(team, project, dir, values.unseen)
+    }
+    return answer(argv, async () => {
+      const [data, fromThePage, workers] = await Promise.all([boardData(team, project), whatThePageWrote(team, project), liveWorkersText(project)])
+      return { shown: [indexText(data as Data, project ?? '看板'), workers, fromThePage].filter(Boolean).join('\n\n'), json: data }
+    })
   })
 }
 
@@ -203,7 +209,7 @@ export function stillOpenLine(answers: Pick<WebAnswer, 'task'>[], items: Pick<In
     answers.length ? `网页已答 ${answers.length} 件（${answers.map((a) => a.task).join('、')}）` : '',
     items.length ? `收件箱 ${items.length} 条（${items.map((i) => i.id).join('、')}）` : '',
   ].filter(Boolean)
-  return `${parts.join('，')}上次已给过全文，还开着；要全文跑 nawaban page --project ${project}`
+  return `${parts.join('，')}上次已给过全文，还开着；要全文跑 nawaban status --project ${project}`
 }
 
 async function whatThisSessionHasNotSeen(team: Team, project: string, dir: string, session: string) {
@@ -222,22 +228,11 @@ async function whatThisSessionHasNotSeen(team: Team, project: string, dir: strin
   return { text, remember }
 }
 
-export async function page(argv: string[], team: Team, dir: string): Promise<number> {
-  try {
-    const { values } = parseArgs({ args: argv, options: { project: { type: 'string' }, session: { type: 'string' } } })
-    if (!values.project) throw new Refused('usage: nawaban page --project <p> [--session <id>]', 2)
-    if (!values.session) {
-      const text = await whatThePageWrote(team, values.project)
-      if (text) process.stdout.write(text + '\n')
-      return 0
-    }
-    const { text, remember } = await whatThisSessionHasNotSeen(team, values.project, dir, values.session)
-    if (text) process.stdout.write(text + '\n')
-    await remember()
-    return 0
-  } catch (error) {
-    return fail(error)
-  }
+async function whatThisSessionHasNotSeenPrinted(team: Team, project: string, dir: string, session: string): Promise<number> {
+  const { text, remember } = await whatThisSessionHasNotSeen(team, project, dir, session)
+  if (text) process.stdout.write(text + '\n')
+  await remember()
+  return 0
 }
 
 async function writeWholeSoAReaderNeverSeesHalf(file: string, content: string) {
@@ -245,24 +240,19 @@ async function writeWholeSoAReaderNeverSeesHalf(file: string, content: string) {
   await rename(`${file}.${process.pid}`, file)
 }
 
-export async function inbox(argv: string[], team: Team, dir: string): Promise<number> {
-  try {
-    const { values } = parseArgs({ args: argv, options: { project: { type: 'string' } } })
-    const stop = JSON.parse((await text(process.stdin)) || '{}') as { session_id?: string }
-    const items = (await tasksOf(team, values.project, 'blocked'))
-      .filter((m) => HOLDS_THE_DECISION_MAKER_ANSWERS.has(m.task?.blocked?.kind ?? ''))
-      .map((m) => ({ id: key(m), title: m.text.split('\n')[0]! }))
-    const [answered, open] = values.project ? await Promise.all([webAnswers(team, values.project), openInboxItems(team, values.project)]) : [[], []]
-    const file = join(dir, 'inbox', `seen-${(stop.session_id || 'x').replace(/[^\w-]/g, '_')}.json`)
-    const shownLast = await readFile(file, 'utf8').then((s) => JSON.parse(s) as unknown, () => null)
-    await mkdir(join(dir, 'inbox'), { recursive: true })
-    await writeWholeSoAReaderNeverSeesHalf(file, JSON.stringify([...items.map((i) => i.id), ...answered.map(answeredSeen), ...open.map(inboxSeen)]))
-    const line = inboxLine(items, Array.isArray(shownLast) ? shownLast : null, { answered, inbox: open })
-    const stalled = values.project ? await syncStalledNote(dir, values.project) : null
-    const shown = [line, stalled].filter(Boolean).join('｜')
-    if (shown) process.stdout.write(JSON.stringify({ systemMessage: shown }) + '\n')
-    return 0
-  } catch (error) {
-    return fail(error)
-  }
+async function pendingLine(team: Team, dir: string, project: string | undefined): Promise<number> {
+  const stop = JSON.parse((await text(process.stdin)) || '{}') as { session_id?: string }
+  const items = (await tasksOf(team, project, 'blocked'))
+    .filter((m) => HOLDS_THE_DECISION_MAKER_ANSWERS.has(m.task?.blocked?.kind ?? ''))
+    .map((m) => ({ id: key(m), title: m.text.split('\n')[0]! }))
+  const [answered, open] = project ? await Promise.all([webAnswers(team, project), openInboxItems(team, project)]) : [[], []]
+  const file = join(dir, 'inbox', `seen-${(stop.session_id || 'x').replace(/[^\w-]/g, '_')}.json`)
+  const shownLast = await readFile(file, 'utf8').then((s) => JSON.parse(s) as unknown, () => null)
+  await mkdir(join(dir, 'inbox'), { recursive: true })
+  await writeWholeSoAReaderNeverSeesHalf(file, JSON.stringify([...items.map((i) => i.id), ...answered.map(answeredSeen), ...open.map(inboxSeen)]))
+  const line = inboxLine(items, Array.isArray(shownLast) ? shownLast : null, { answered, inbox: open })
+  const stalled = project ? await syncStalledNote(dir, project) : null
+  const shown = [line, stalled].filter(Boolean).join('｜')
+  if (shown) process.stdout.write(JSON.stringify({ systemMessage: shown }) + '\n')
+  return 0
 }

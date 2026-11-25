@@ -186,6 +186,9 @@ it('shows what waits on the decision-maker under each reply, new items first, th
   await answeredSoNothingWaits()
   expect(await inbox('s1')).toBe('待决 0 件')
   expect(await inbox('s1')).toBeNull()
+
+  const viaTheOldWord = await runWithTheHooksEnvironment(['node', CLI, 'inbox', '--project', 'proj'], JSON.stringify({ session_id: 's3' }))
+  expect([viaTheOldWord.code, JSON.parse(viaTheOldWord.out).systemMessage, viaTheOldWord.err]).toEqual([0, '待决 0 件', '改用：nawaban status --line --project proj\n'])
 })
 
 it('puts a ticket its holder waits on into the pending line, and a resolve hands it back to that holder alone', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
@@ -252,8 +255,7 @@ it('lets a session outside Herdr that the owner declared read what the web page 
   expect(await nawaban('status', '--project', 'proj')).toContain(`- ${item.id} 面板加夜间模式`)
 
   await nawaban('event', p1, '--kind', 'resolve', '--body', '发吧，周五前')
-  await nawaban('create', 'IN1', '--project', 'proj', '--title', '面板加夜间模式', '--body', `收件箱 ${item.id}`)
-  await nawaban('board', 'label', item.id, 'inbox=done', 'task=IN1', '--if', 'inbox=open')
+  await nawaban('create', 'IN1', '--title', '面板加夜间模式', '--inbox', item.id)
   expect(await stop(SESSION)).toBe('待决 0 件')
   expect((await prompt('继续')).out).toBe('')
   expect(await nawaban('status', '--project', 'proj')).toContain('- IN1 面板加夜间模式')
@@ -279,9 +281,10 @@ it('gives the orchestrator what the web page wrote in full once per session, the
   await team.reply(q1, { text: webAnswerText({ option: '上', words: longWords }) })
   const item = await team.post(inboxChannel('proj'), { text: inboxItemText('导出 CSV'), labels: INBOX_OPEN })
 
-  const full = await nawaban('page', '--project', 'proj')
   const turns = [await prompt(S), await prompt(S), await prompt(S), await prompt(S), await prompt(S)]
-  expect(turns[0]).toBe(full)
+  const full = turns[0]!
+  expect(full).toContain(longWords)
+  expect(full).toContain(`- ${item.id} 导出 CSV`)
   for (const later of turns.slice(1)) {
     expect(later).not.toContain(longWords)
     expect(later).toContain('上次已给过全文，还开着')
@@ -290,7 +293,10 @@ it('gives the orchestrator what the web page wrote in full once per session, the
   }
   console.log(`page-writes 5 轮注入字数：改前 ${[...full].length * 5}（每轮 ${[...full].length}），改后 ${turns.map((t) => [...t].length).join('+')} = ${turns.reduce((n, t) => n + [...t].length, 0)}`)
 
-  expect(await nawaban('page', '--project', 'proj')).toBe(full)
+  expect(await nawaban('status', '--project', 'proj')).toContain(full.trimEnd())
+  const fresh = 'cccc3333-0000-0000-0000-000000000000'
+  const oldPage = await runWithTheHooksEnvironment(['node', CLI, 'page', '--project', 'proj', '--session', fresh])
+  expect([oldPage.code, oldPage.out, oldPage.err]).toEqual([0, full, `改用：nawaban status --project proj --unseen ${fresh}\n`])
 
   const second = await team.post(inboxChannel('proj'), { text: inboxItemText('加暗色主题'), labels: INBOX_OPEN })
   const afterNew = await prompt(S)

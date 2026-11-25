@@ -103,6 +103,15 @@ export async function keepInboxItem(team: Team, project: string, words: string):
   }
 }
 
+export async function openInboxItem(team: Team, id: string): Promise<InboxItem & { project: string }> {
+  const root = await team.thread(id, { limit: 1 }).then(({ message }) => message, () => null)
+  const stillOpen = root?.id === id && !root.deleted && root.channel.startsWith(INBOX_CHANNEL_PREFIX) && firstBlock(root, 'nawaban-inbox') && root.labels.inbox === INBOX_OPEN.inbox
+  if (!root || !stillOpen) throw new Refused(`收件箱里没有开着的条目 ${id}`, 1, '条目 id 照 nawaban status 收件箱一节的行首写')
+  return { id, words: wordsOf(root), by: author(root), at: root.createdAt, project: root.channel.slice(INBOX_CHANNEL_PREFIX.length) }
+}
+
+export const markInboxItemTurnedInto = (team: Team, id: string, task: string) => team.label(id, { set: { ...INBOX_DONE, task }, if: INBOX_OPEN })
+
 export async function dropInboxItem(team: Team, id: string) {
   const root = await team.thread(id).then(({ message }) => message, () => null)
   const anInboxItem = root?.id === id && !root.deleted && root.channel.startsWith(INBOX_CHANNEL_PREFIX) && firstBlock(root, 'nawaban-inbox')
@@ -120,7 +129,7 @@ export function pageText(answers: WebAnswer[], items: InboxItem[], project: stri
   if (items.length) {
     if (out.length) out.push('')
     out.push(
-      `## 收件箱 ${items.length}（${inboxChannel(project)} 里开着的，行首是条目 id；转任务：nawaban create <KEY> --project ${project} --title … "…（收件箱 <id>）"，再 nawaban board label <id> inbox=done task=<KEY> --if inbox=open；转命令或不做：nawaban board label <id> inbox=done --if inbox=open）`,
+      `## 收件箱 ${items.length}（${inboxChannel(project)} 里开着的，行首是条目 id；转票：nawaban create <KEY> --title … --inbox <id>；转命令或不做：nawaban board label <id> inbox=done --if inbox=open）`,
     )
     for (const i of items) out.push(`- ${i.id} ${i.words}`)
   }
