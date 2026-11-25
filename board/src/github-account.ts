@@ -35,19 +35,44 @@ async function checkoutsOf(dir: string): Promise<string[]> {
   return [...new Set([top ?? dir, ...(common ? [resolve(common, '..')] : [])])]
 }
 
-export async function githubAccountOf(dir: string): Promise<string> {
+export const ownerAccountsFile = () => join(homedir(), '.nawaban', 'github-accounts.json')
+
+async function accountOfOwner(owner: string): Promise<string | null> {
+  let text
+  try {
+    text = await readFile(ownerAccountsFile(), 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+  const accounts = JSON.parse(text) as Record<string, unknown>
+  const account = Object.entries(accounts).find(([o]) => o.toLowerCase() === owner.toLowerCase())?.[1]
+  return typeof account === 'string' ? account : null
+}
+
+const ownerOf = (githubRepo: string) => githubRepo.replace(/^https?:\/\/github\.com\//, '').split('/')[0]!
+
+export async function accountElseNull(dir: string): Promise<string | null> {
   const checkouts = await checkoutsOf(dir)
   for (const checkout of checkouts) {
-    const account = DECLARATION.exec((await readFile(join(checkout, ACCOUNT_DECLARED_IN), 'utf8').catch(() => '')).replace(FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END, ''))?.[1]
-    if (account) return account
+    const declared = DECLARATION.exec((await readFile(join(checkout, ACCOUNT_DECLARED_IN), 'utf8').catch(() => '')).replace(FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END, ''))?.[1]
+    if (declared) return declared
   }
-  throw new Refused(`${checkouts[0]} 没声明用哪个 GitHub 账号写：在 ${ACCOUNT_DECLARED_IN} 加一行 github-account: <账号>`)
+  const remote = await stdoutElseNull('git', ['-C', checkouts[0]!, 'remote', 'get-url', 'origin'])
+  const repo = remote && GITHUB_REPO_IN_REMOTE.exec(remote)?.[1]
+  return repo ? accountOfOwner(ownerOf(repo)) : null
+}
+
+export async function githubAccountOf(dir: string): Promise<string> {
+  const account = await accountElseNull(dir)
+  if (account) return account
+  throw new Refused(`${dir} 不知道用哪个 GitHub 账号写：在 ${ownerAccountsFile()} 给它 origin 的拥有者配账号（{"<拥有者>": "<账号>"}），或在仓库的 ${ACCOUNT_DECLARED_IN} 加一行 github-account: <账号>`)
 }
 
 export async function githubTokenOf(dir: string): Promise<string> {
   const account = await githubAccountOf(dir)
   const token = await stdoutElseNull('gh', ['auth', 'token', '--user', account])
-  if (!token) throw new Refused(`本机 gh 没登录 ${dir} 声明的账号 ${account}：先跑 gh auth login，登录 ${account}`)
+  if (!token) throw new Refused(`本机 gh 没登录 ${dir} 要用的账号 ${account}：先跑 gh auth login，登录 ${account}`)
   return token
 }
 
@@ -126,18 +151,14 @@ export async function whyThisGhWriteMustNotRun(typed: string, cwd: string, board
     if (!writesToGithub(args, segment)) continue
     const target = repoFlagOf(args)
     const here = directoryTheCommandIsInAt(cmd, blanked, m.index, cwd)
+    if (!here && !(await readFile(ownerAccountsFile()).catch(() => null))) continue
     if (!here) return 'gh 写操作前 cd 到的目录核不了（带变量或 cd -），不知道是哪个仓库：cd 写成字面路径，或在那个仓库里另起一条命令'
     const checkout = target ? await checkoutOfGithubRepo(target, boardDir) : here
-    if (!checkout) return `gh 写 ${target}，但它不在 ${join(boardDir, 'repos.json')} 登记的仓库里，不知道该用哪个账号：cd 到它的 checkout 里再写`
-    let account
-    try {
-      account = await githubAccountOf(checkout)
-    } catch (error) {
-      return `${(error as Error).message}；没声明的仓库不许 gh 写操作`
-    }
+    const account = checkout ? await accountElseNull(checkout) : await accountOfOwner(ownerOf(target!))
+    if (!account) continue
     const leadStart = Math.max(...[...blanked.slice(0, m.index)].map((c, i) => (SEGMENT_START.test(c) ? i + 1 : 0)), 0)
     const lead = cmd.slice(leadStart, m.index)
-    const howTo = `这个仓库声明用 ${account} 写 GitHub，写成：${provenPrefix(account)} gh ${segment.trim()}`
+    const howTo = `这个仓库用 ${account} 写 GitHub，写成：${provenPrefix(account)} gh ${segment.trim()}`
     const assignments = (lead.match(TOKEN_ASSIGNMENT) ?? []).length
     if (assignments === 1 && (lead.match(/\bGH_TOKEN\b/g) ?? []).length === 1 && PROVEN_ASSIGNMENT(account).test(lead)) continue
     if (assignments) return `gh 写操作前面的 token 赋值证明不了是 ${account}。${howTo}`

@@ -38,7 +38,7 @@ def gh(tmp_path, monkeypatch, capsys):
             issue["comments"].append({"body": args[args.index("--body") + 1], "createdAt": "2026-11-15T01:00:00Z"})
         if args[1:3] == ["issue", "edit"]:
             issue["assignees"] = [{"login": "me"}] if "--add-assignee" in args else []
-        out = json.dumps(issue) if args[1:3] == ["issue", "view"] else ""
+        out = json.dumps(issue) if args[1:3] == ["issue", "view"] else "tok" if args[1:3] == ["auth", "token"] else ""
         return subprocess.CompletedProcess(args, 0, out, "")
     monkeypatch.setattr(subprocess, "run", run)
 
@@ -396,3 +396,21 @@ def test_a_delegated_decision_carries_its_kr(gh, tmp_path, capsys):
 def test_kr_belongs_only_to_asks_and_decisions(gh):
     code, out = gh.nawaban("event", "#950", "--kind", "note", "--body", "x", "--kr", "KR1")
     assert code == 1 and "--kr" in out and posted(gh) == []
+
+
+def test_a_repository_whose_owner_this_machine_maps_writes_as_that_account_and_never_rotates(gh, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".nawaban").mkdir()
+    (tmp_path / ".nawaban" / "github-accounts.json").write_text(json.dumps({"business-center-ai-efficiency": "wuxianzhong-gpt"}))
+    subprocess.run(["git", "-C", str(gh.repo), "remote", "add", "origin", "https://github.com/Business-Center-AI-Efficiency/roubao.git"], check=True)
+    assert cli.github_account(gh.repo) == "wuxianzhong-gpt"
+    cli._gh(gh.repo, "issue", "comment", "7", "--body", "x")
+    assert ["auth", "token", "--user", "wuxianzhong-gpt"] in gh
+    assert not any(c[:2] == ["auth", "status"] for c in gh)
+
+
+def test_a_declaration_in_the_tracker_doc_overrides_the_owner_map_and_a_teammate_without_either_keeps_the_active_login(gh, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert cli.github_account(gh.repo) is None
+    (gh.repo / "docs" / "agents" / "issue-tracker.md").write_text("# Issue tracker: GitHub\n\ngithub-account: victorGPT\n")
+    assert cli.github_account(gh.repo) == "victorGPT"

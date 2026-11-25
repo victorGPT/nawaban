@@ -18,7 +18,7 @@ esac
 `
 let tmp: string
 let boardDir: string
-const saved = { PATH: process.env.PATH, GH_TOKEN: process.env.GH_TOKEN }
+const saved = { PATH: process.env.PATH, GH_TOKEN: process.env.GH_TOKEN, HOME: process.env.HOME }
 
 beforeEach(async () => {
   tmp = await realpath(await mkdtemp(join(tmpdir(), 'gh-account-')))
@@ -26,15 +26,22 @@ beforeEach(async () => {
   await writeFile(join(tmp, 'bin', 'gh'), GH_LOGGED_IN_AS_BOTH_WITH_WUXIANZHONG_ACTIVE)
   await chmod(join(tmp, 'bin', 'gh'), 0o755)
   process.env.PATH = `${join(tmp, 'bin')}:${saved.PATH}`
+  process.env.HOME = tmp
   delete process.env.GH_TOKEN
   boardDir = join(tmp, 'board')
   await mkdir(boardDir)
 })
 afterEach(() => {
   process.env.PATH = saved.PATH
+  process.env.HOME = saved.HOME
   if (saved.GH_TOKEN === undefined) delete process.env.GH_TOKEN
   else process.env.GH_TOKEN = saved.GH_TOKEN
 })
+
+async function ownersMapTo(accounts: Record<string, string>) {
+  await mkdir(join(tmp, '.nawaban'), { recursive: true })
+  await writeFile(join(tmp, '.nawaban', 'github-accounts.json'), JSON.stringify(accounts))
+}
 
 async function repoDeclaring(name: string, tracker: string | null, origin?: string) {
   const repo = join(tmp, name)
@@ -54,13 +61,13 @@ test('a repository declares its account on its own line of the tracker doc and w
 
 test('a repository without a declaration is refused, never falling back to the active gh account', async () => {
   for (const repo of [await repoDeclaring('none', null), await repoDeclaring('prose', 'Writes use github-account: victorGPT, see above.\n'), await repoDeclaring('fenced', '# Example\n```text\ngithub-account: victorGPT\n```\n'), await repoDeclaring('unclosed', '# Example\n```text\ngithub-account: victorGPT\n'), await repoDeclaring('commented', '<!--\ngithub-account: victorGPT\n-->\n')]) {
-    await expect(githubTokenOf(repo)).rejects.toThrow(`在 ${ACCOUNT_DECLARED_IN} 加一行 github-account: <账号>`)
+    await expect(githubTokenOf(repo)).rejects.toThrow(`${ACCOUNT_DECLARED_IN} 加一行 github-account: <账号>`)
   }
 })
 
 test('a declared account this machine has not logged into is refused, naming the account to log in', async () => {
   const repo = await repoDeclaring('elsewhere', 'github-account: someone-else\n')
-  await expect(githubTokenOf(repo)).rejects.toThrow('声明的账号 someone-else')
+  await expect(githubTokenOf(repo)).rejects.toThrow('要用的账号 someone-else')
 })
 
 test('a worktree cut before the declaration merged reads it from the main checkout', async () => {
@@ -93,18 +100,34 @@ test('a gh write that proves it runs as the declared account, and every gh read,
   expect(await whyThisGhWriteMustNotRun('gh pr create --fill', repo, boardDir)).toBeNull()
 })
 
-test('a gh write after cd into another repository uses that repository declaration', async () => {
+test('a gh write after cd into another repository uses that repository account', async () => {
+  await ownersMapTo({ acme: 'wuxianzhong-gpt' })
   const here = await repoDeclaring('nawaban', 'github-account: victorGPT\n')
-  const undeclared = await repoDeclaring('undeclared', null)
-  expect(await whyThisGhWriteMustNotRun(`cd ${undeclared} && GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill`, here, boardDir)).toContain('没声明')
+  const other = await repoDeclaring('other', null, 'https://github.com/acme/other.git')
+  expect(await whyThisGhWriteMustNotRun(`cd ${other} && GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill`, here, boardDir)).toContain('wuxianzhong-gpt')
   expect(await whyThisGhWriteMustNotRun('cd $DIR && GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill', here, boardDir)).toContain('cd')
-  expect(await whyThisGhWriteMustNotRun(`cd ${here}/docs && GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill`, undeclared, boardDir)).toBeNull()
+  expect(await whyThisGhWriteMustNotRun(`cd ${here}/docs && GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill`, other, boardDir)).toBeNull()
 })
 
-test('a repository without a declaration may not write to GitHub at all', async () => {
-  const repo = await repoDeclaring('undeclared', null)
-  expect(await whyThisGhWriteMustNotRun('GH_TOKEN=$(gh auth token --user victorGPT) gh issue comment 1 -b x', repo, boardDir)).toContain('没声明')
-  expect(await whyThisGhWriteMustNotRun('gh issue view 1', repo, boardDir)).toBeNull()
+test('without a declaration the account comes from this machine owner map, and a declaration overrides it', async () => {
+  await ownersMapTo({ 'Business-Center-AI-Efficiency': 'wuxianzhong-gpt', victorGPT: 'victorGPT' })
+  const nawaban = await repoDeclaring('nawaban', null, 'https://github.com/victorGPT/nawaban.git')
+  const roubao = await repoDeclaring('roubao', null, 'git@github.com:business-center-ai-efficiency/roubao.git')
+  const overridden = await repoDeclaring('overridden', 'github-account: wuxianzhong-gpt\n', 'https://github.com/victorGPT/x.git')
+  expect(await githubAccountOf(nawaban)).toBe('victorGPT')
+  expect(await githubTokenOf(roubao)).toBe('tok-wxz')
+  expect(await githubAccountOf(overridden)).toBe('wuxianzhong-gpt')
+  expect(await whyThisGhWriteMustNotRun('gh pr create --fill', nawaban, boardDir)).toContain('GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill')
+  expect(await whyThisGhWriteMustNotRun('gh issue comment 1 -b x', roubao, boardDir)).toBeNull()
+})
+
+test('a repository neither declared nor owned by a mapped owner is left alone, as on a teammate machine without the map', async () => {
+  const theirs = await repoDeclaring('theirs', null, 'https://github.com/Business-Center-AI-Efficiency/roubao.git')
+  expect(await whyThisGhWriteMustNotRun('GH_TOKEN=$(gh auth token --user victorGPT) gh issue comment 1 -b x', theirs, boardDir)).toBeNull()
+  expect(await whyThisGhWriteMustNotRun('cd $DIR && gh pr create --fill', theirs, boardDir)).toBeNull()
+  await ownersMapTo({ victorGPT: 'victorGPT' })
+  expect(await whyThisGhWriteMustNotRun('gh issue comment 1 -b x', theirs, boardDir)).toBeNull()
+  await expect(githubTokenOf(theirs)).rejects.toThrow('github-accounts.json')
 })
 
 test('a write to another repository with -R uses that repository declaration, found through repos.json', async () => {
@@ -114,7 +137,9 @@ test('a write to another repository with -R uses that repository declaration, fo
   expect(await whyThisGhWriteMustNotRun('GH_TOKEN=$(gh auth token --user wuxianzhong-gpt) gh issue comment 5 -R acme/roubao -b x', here, boardDir)).toBeNull()
   expect(await whyThisGhWriteMustNotRun('gh issue comment 5 --repo acme/roubao -b x', here, boardDir)).toBeNull()
   expect(await whyThisGhWriteMustNotRun('GH_TOKEN=$(gh auth token --user victorGPT) gh issue comment 5 -R acme/roubao -b x', here, boardDir)).toContain('wuxianzhong-gpt')
-  expect(await whyThisGhWriteMustNotRun('gh issue comment 5 -R acme/unknown -b x', here, boardDir)).toContain('repos.json')
+  expect(await whyThisGhWriteMustNotRun('gh issue comment 5 -R acme/unknown -b x', here, boardDir)).toBeNull()
+  await ownersMapTo({ acme: 'wuxianzhong-gpt' })
+  expect(await whyThisGhWriteMustNotRun('GH_TOKEN=$(gh auth token --user victorGPT) gh issue comment 5 -R acme/unknown -b x', here, boardDir)).toContain('wuxianzhong-gpt')
 })
 
 test('the PreToolUse hook as Claude Code runs it refuses a wrong-account gh write with exit 2 and lets reads through', async () => {
