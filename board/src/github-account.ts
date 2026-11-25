@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { reposReadOnEveryUseSoEditsNeedNoRestart, words } from './impact.ts'
@@ -8,8 +9,6 @@ import { Refused } from './said.ts'
 export const ACCOUNT_DECLARED_IN = 'docs/agents/issue-tracker.md'
 const FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END = /^ {0,3}(`{3,}|~{3,})[\s\S]*?(?:^ {0,3}\1|$(?![\s\S]))|<!--[\s\S]*?(?:-->|$(?![\s\S]))/gm
 const DECLARATION = /^github-account:[ \t]*([A-Za-z0-9-]+)[ \t]*\r?$/m
-const GH_IN_COMMAND_POSITION = /(?:^|[;&|(`\n])\s*((?:(?:env|command|exec|time|nohup|xargs)\s+|\w+=(?:"?\$\([^)]*\)"?|\S*)\s+)*)gh(?=\s)/g
-const WRAPPER = /\b(?:env|command|exec|time|nohup|xargs)\s+/g
 const RUNS_A_STRING_AS_A_COMMAND = /\b(?:(?:ba|z|da)?sh\s+-\w*c|eval)\b/
 const GRAPHQL_WRITE = /\bmutation\b|--input\b/
 const SEGMENT_END = /[;&|\n)`]|$/
@@ -65,7 +64,7 @@ function writesToGithub(args: string[], segment: string): boolean {
   const [group, verb] = withoutRepoFlag(args)
   if (group === undefined || READ_ONLY_GROUPS.has(group)) return false
   if (group !== 'api') return !READ_ONLY_VERBS.has(verb ?? '')
-  if (verb === 'graphql') return GRAPHQL_WRITE.test(segment)
+  if (args.some((a) => a === 'graphql')) return GRAPHQL_WRITE.test(segment)
   const at = args.findIndex((a) => API_METHOD.test(a))
   const method = at < 0 ? (args.some((a) => API_SENDS_A_BODY.test(a)) ? 'POST' : 'GET') : API_METHOD.exec(args[at]!)![1] || args[at + 1] || ''
   return method.toUpperCase() !== 'GET'
@@ -99,15 +98,31 @@ const textBlankedKeepingWhatTheShellRuns = (cmd: string) =>
     .replace(HEREDOC_BODY, (body, quote: string) => (quote ? blank(body) : keepingSubstitutions(body)))
     .replace(QUOTED, (q) => q[0] + (q[0] === "'" ? blank(q.slice(1, -1)) : keepingSubstitutions(q.slice(1, -1))) + q.at(-1))
 
+const SEGMENT_START = /[;&|\n`]/
+const GH_ANYWHERE = /(?<![\w./-])gh(?=[ \t])/g
+const CHANGES_DIRECTORY = /(?<![\w./-])(?:cd|pushd)(?:[ \t]+([^\s;&|)]+))?/g
+const PROVEN_ASSIGNMENT = (account: string) => new RegExp(`(?<![\\w])GH_TOKEN="?\\$\\(gh auth token --user ${account}\\)"?(?=\\s)`)
+const TOKEN_ASSIGNMENT = /\b(?:GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN)=/g
+
+function directoryTheCommandIsInAt(cmd: string, blanked: string, at: number, cwd: string): string | null {
+  const last = [...blanked.slice(0, at).matchAll(CHANGES_DIRECTORY)].at(-1)
+  if (!last) return cwd
+  const target = last[1] === undefined ? '~' : cmd.slice(last.index + last[0].length - last[1].length, last.index + last[0].length).replace(/^(['"])(.*)\1$/, '$2')
+  if (/[$`*]/.test(target) || target === '-') return null
+  return resolve(cwd, target.replace(/^~(?=\/|$)/, homedir()))
+}
+
 export async function whyThisGhWriteMustNotRun(cmd: string, cwd: string, boardDir: string): Promise<string | null> {
   const blanked = textBlankedKeepingWhatTheShellRuns(cmd)
-  for (const m of blanked.matchAll(GH_IN_COMMAND_POSITION)) {
+  for (const m of blanked.matchAll(GH_ANYWHERE)) {
     const end = m.index + m[0].length
     const segment = cmd.slice(end, end + blanked.slice(end).search(SEGMENT_END))
     const args = words(segment)
     if (!writesToGithub(args, segment)) continue
     const target = repoFlagOf(args)
-    const checkout = target ? await checkoutOfGithubRepo(target, boardDir) : cwd
+    const here = directoryTheCommandIsInAt(cmd, blanked, m.index, cwd)
+    if (!here) return 'gh 写操作前 cd 到的目录核不了（带变量或 cd -），不知道是哪个仓库：cd 写成字面路径，或在那个仓库里另起一条命令'
+    const checkout = target ? await checkoutOfGithubRepo(target, boardDir) : here
     if (!checkout) return `gh 写 ${target}，但它不在 ${join(boardDir, 'repos.json')} 登记的仓库里，不知道该用哪个账号：cd 到它的 checkout 里再写`
     let account
     try {
@@ -115,13 +130,12 @@ export async function whyThisGhWriteMustNotRun(cmd: string, cwd: string, boardDi
     } catch (error) {
       return `${(error as Error).message}；没声明的仓库不许 gh 写操作`
     }
-    const prefix = cmd.slice(end - 'gh'.length - m[1]!.length, end - 'gh'.length).replace(WRAPPER, '').trim()
-    const rewritten = `${provenPrefix(account)} gh ${cmd.slice(end, end + blanked.slice(end).search(SEGMENT_END)).trim()}`
-    const howTo = `这个仓库声明用 ${account} 写 GitHub，写成：${rewritten}`
-    if (prefix) {
-      if (prefix === provenPrefix(account) || prefix === `GH_TOKEN="$(gh auth token --user ${account})"`) continue
-      return `gh 写操作前面的 token 赋值证明不了是 ${account}。${howTo}`
-    }
+    const leadStart = Math.max(...[...blanked.slice(0, m.index)].map((c, i) => (SEGMENT_START.test(c) ? i + 1 : 0)), 0)
+    const lead = cmd.slice(leadStart, m.index)
+    const howTo = `这个仓库声明用 ${account} 写 GitHub，写成：${provenPrefix(account)} gh ${segment.trim()}`
+    const assignments = (lead.match(TOKEN_ASSIGNMENT) ?? []).length
+    if (assignments === 1 && PROVEN_ASSIGNMENT(account).test(lead)) continue
+    if (assignments) return `gh 写操作前面的 token 赋值证明不了是 ${account}。${howTo}`
     if (TOKEN_SET_OUTSIDE_A_PROVEN_PREFIX.test(blanked.replaceAll(/\$\(gh auth token --user [\w-]+\)/g, ''))) return `命令里改了 gh 的 token 或账号，核不了这次 gh 写操作用的是谁。${howTo}`
     const effective = await stdoutElseNull('gh', ['auth', 'token'])
     const declared = await stdoutElseNull('gh', ['auth', 'token', '--user', account])
