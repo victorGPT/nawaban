@@ -11,12 +11,12 @@ import { githubTokenOf } from './github-account.ts'
 import { mergeGate } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
-import { all, closeDone, forgetTheClaimOf, live, profile, reclaimedIfItLapsedInMyHands, resolve } from './tasks.ts'
+import { all, closeDone, forgetTheClaimOf, live, profile, reclaimedIfItLapsedInMyHands, resolve, resultsOf, whyNotCloseable } from './tasks.ts'
 import { answer, EXIT, Refused, upstreamAnswer, type Said } from './said.ts'
 
 const exec = promisify(execFile)
 const CLAIM_WAIT = '10m'
-const USAGE = `用法：nawaban merge <PR 号> [--wait <时长>，领下一张最多等多久，默认 ${CLAIM_WAIT}]`
+const USAGE = `用法：nawaban merge <PR 号> [--wait <时长>，领下一张最多等多久，默认 ${CLAIM_WAIT}] [--kr "<KR 名>=<后值> 实测|预计"]...`
 const PR_FIELDS = 'number,state,url,title,headRefName,headRefOid,files,statusCheckRollup,comments,mergeCommit'
 const NO_BLOCKER_REVIEW_LINE = /review[:：]\s*无挡/i
 const SHA_PREFIX_A_REVIEW_NAMES = /\b[0-9a-f]{7,40}\b/gi
@@ -44,7 +44,7 @@ type Outcome =
   | { kind: 'refused'; why: string }
   | { kind: 'mergedButUnfinished'; left: string }
   | { kind: 'done'; did: string[]; thenRetire: Retirable | null; pickedUp?: string }
-type Run = { n: string; wait: string; task: MessageView | null; root: string | null }
+type Run = { n: string; wait: string; kr: string[]; task: MessageView | null; root: string | null }
 type Seen = { task: MessageView; terminal: string | null }
 
 const failureOf = (error: unknown) => String((error as { stderr?: string }).stderr || (error as Error).message).trim()
@@ -131,7 +131,7 @@ async function headCheckedOutCleanElseWhyNot(pr: PullRequest): Promise<string | 
 const shQuoted = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
 
 const eachCheckThenTheMerge = (checks: string[], pr: PullRequest) =>
-  [...checks.flatMap((c) => [`printf '%s\\n' ${shQuoted(`$ ${c}`)}`, `(\n${c}\n) || exit $?`]), `exec gh pr merge ${pr.number} --squash --match-head-commit ${pr.headRefOid}`].join('\n')
+  [...checks.flatMap((c) => [`printf '%s\\n' ${shQuoted(`$ ${c}`)}`, `sh -c ${shQuoted(c)} || exit $?`]), `exec gh pr merge ${pr.number} --squash --match-head-commit ${pr.headRefOid}`].join('\n')
 
 function boardTasksRun(argv: string[]): Promise<{ settled: { outcome?: string; task?: MessageView } | null; tail: string }> {
   return new Promise((done) => {
@@ -152,9 +152,12 @@ function boardTasksRun(argv: string[]): Promise<{ settled: { outcome?: string; t
   })
 }
 
-async function checksThenMergeAsOneTasksRunElseWhyNot(pr: PullRequest, task: MessageView, checks: string[]): Promise<string | null> {
+async function checksThenMergeAsOneTasksRunElseWhyNot(pr: PullRequest, task: MessageView, checks: string[], kr: string[]): Promise<string | null> {
   const off = await headCheckedOutCleanElseWhyNot(pr)
   if (off) return off
+  if (kr.length) await board().as(profile()).reply(task.id, resultsOf(kr))
+  const unreported = await whyNotCloseable(task.id)
+  if (unreported) return `${unreported.split('\n')[0]}：验收检查通过就直接关票，KR 结果在 merge 时报：nawaban merge ${pr.number} --kr "<KR 名>=<后值> 实测|预计"`
   const as = profile()
   await upstreamAnswer(['tasks', 'release', task.id, '--as', as])
   const { settled, tail } = await boardTasksRun([task.id, '--as', as, '--result', `验收检查全过，已合 PR #${pr.number}`, '--json', '--', 'sh', '-c', eachCheckThenTheMerge(checks, pr)])
@@ -283,7 +286,7 @@ async function outcomeOf(r: Run): Promise<Outcome> {
     const gate = await gateBeforeTheIrreversibleMerge(pr, r.task)
     if (gate) return gate
     const checks = checksOf((await board().thread(r.task.id)).replies)
-    const failed = checks.length ? await checksThenMergeAsOneTasksRunElseWhyNot(pr, r.task, checks) : await mergeElseWhyNot(pr)
+    const failed = checks.length ? await checksThenMergeAsOneTasksRunElseWhyNot(pr, r.task, checks, r.kr) : await mergeElseWhyNot(pr)
     if (failed) return { kind: 'refused', why: failed }
   }
   const did = [`PR #${pr.number} 已合`]
@@ -345,14 +348,14 @@ export function merge(argv: string[]): Promise<number> {
   return answer(argv, async () => {
     let parsed
     try {
-      parsed = parseArgs({ args: argv, allowPositionals: true, options: { wait: { type: 'string', default: CLAIM_WAIT }, json: { type: 'boolean' } } })
+      parsed = parseArgs({ args: argv, allowPositionals: true, options: { wait: { type: 'string', default: CLAIM_WAIT }, kr: { type: 'string', multiple: true }, json: { type: 'boolean' } } })
     } catch {
       throw new Refused(USAGE, EXIT.misused)
     }
     const [n] = parsed.positionals
     if (parsed.positionals.length !== 1 || !/^\d+$/.test(n!)) throw new Refused(USAGE, EXIT.misused)
     process.env.GH_TOKEN = await githubTokenOf(process.cwd())
-    const r: Run = { n: n!, wait: parsed.values.wait, task: null, root: await mainCheckoutRealPathOf(process.cwd()) }
+    const r: Run = { n: n!, wait: parsed.values.wait, kr: parsed.values.kr ?? [], task: null, root: await mainCheckoutRealPathOf(process.cwd()) }
     profile()
     return report(await outcomeOf(r), r)
   })

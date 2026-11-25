@@ -203,7 +203,7 @@ const COMMANDS: Record<string, Command> = {
     ],
     run: (rest) => dispatch(rest),
   },
-  merge: { group: '派', usage: 'merge <PR>', about: '合并 PR，关票，领下一张或收掉 worker', flags: [['--wait <时长>', '领指派给你的下一张最多等多久，默认 10m'], ['--json', '输出 JSON']], run: (rest) => merge(rest) },
+  merge: { group: '派', usage: 'merge <PR>', about: '合并 PR，关票，领下一张或收掉 worker', flags: [['--wait <时长>', '领指派给你的下一张最多等多久，默认 10m'], ['--kr "<KR>=<后值> 实测|预计"', '带验收检查的票由检查关票，登记过的 KR 结果在这里报'], ['--json', '输出 JSON']], run: (rest) => merge(rest) },
   'okr-stat': { group: '少用', usage: 'okr-stat verdicts|prereg|drift', about: 'nawaban 自己 KR 的量法：声明符合率、预注册占比、账本漂移', run: (rest) => okrStat(rest, board(), DIR) },
   tell: { group: '少用', usage: 'tell <票> <一句>', about: 'worker 把「回报：<票> <一句>」发给当前编排者；没找到就记在票上', run: (rest) => tell(rest) },
   block: { group: '少用', usage: 'block <票> <挡它的票>', about: '建票之后补一条被挡', flags: [['--json', '输出 JSON']], run: taskVerb('block') },

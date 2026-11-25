@@ -202,6 +202,8 @@ export async function labelTerminalThePanelReadsWhileClaimed(taskId: string) {
   await personOwningEveryTaskTheirProfilesMade().label(taskId, t ? { set: { terminal: t } } : { unset: ['terminal'] })
 }
 
+export const whyNotCloseable = (taskId: string) => undeclared(personOwningEveryTaskTheirProfilesMade(), taskId, boardDirAsConfiguredWhenAsked())
+
 export async function forgetTheClaimOf(taskId: string) {
   await personOwningEveryTaskTheirProfilesMade().label(taskId, { unset: ['terminal'] })
   await forgetLive(boardDirAsConfiguredWhenAsked(), taskId)
@@ -237,7 +239,7 @@ const claim: Verb = async (argv) => {
 
 const KR_RESULT = /^(.+)=(-?\d+(?:\.\d+)?%?)\s+(实测|预计)\s*$/
 
-function resultsOf(specs: string[]) {
+export function resultsOf(specs: string[]) {
   const krs = specs.map((spec) => {
     const [, name, after, basis] = KR_RESULT.exec(spec) ?? []
     if (!name) throw new Refused(`--kr 写成 ${RESULT_FORMAT}：${spec}`, 2)
@@ -250,7 +252,7 @@ async function refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team: ReturnT
   const as = profile()
   const held = refuseHeldByAnother(task, as, '等持票的 worker 自己关，或等它的租约过期')
   if (results) await team.reply(task.id, results)
-  const why = await undeclared(team, task.id, boardDirAsConfiguredWhenAsked())
+  const why = await whyNotCloseable(task.id)
   if (why) {
     const [headline, ...next] = why.split('\n')
     throw new Refused(headline!, 1, next.join('\n').trim() || undefined)

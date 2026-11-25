@@ -705,3 +705,33 @@ it('refuses to run the checks off the PR head, before the ticket is let go', asy
   expect(r.gh).not.toMatch(/^pr merge/m)
   expect(await stateOf(id)).toBe('claimed')
 })
+
+
+it('reads a check that sets -e as failing, never reaching the merge', async () => {
+  const { id, worktree } = await workerWithChecksOnItsHead('M-CHKSETE', 't7f', ['set -e; false; echo PASS'])
+  const r = await mergeAsTheWorker('M-CHKSETE', 't7f', worktree)
+  expect(r.code).toBe(1)
+  expect(r.gh).not.toMatch(/^pr merge/m)
+  expect(await stateOf(id)).toBe('failed')
+  expect((await lastNote(id)).split('\n')).not.toContain('PASS')
+})
+
+it('refuses to let the checks close a ticket whose registered KRs have no result, and takes them on merge --kr', async () => {
+  const okrRepo = join(tmp, 'okr-repo')
+  await mkdir(join(okrRepo, 'docs/agents'), { recursive: true })
+  await writeFile(join(okrRepo, 'docs/agents/okr.toml'), '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 95"\nmeasure = "cat k.txt"\n')
+  const reposFile = join(tmp, 'board', 'repos.json')
+  const repos = existsSync(reposFile) ? JSON.parse(await readFile(reposFile, 'utf8')) : {}
+  await writeFile(reposFile, JSON.stringify({ ...repos, 'm-chkkr': okrRepo }))
+  const { id, worktree } = await workerWithChecksOnItsHead('M-CHKKR', 't7g', ['true'])
+  await exec('node', [CLI, 'event', 'M-CHKKR', 'impact', '--o', 'O', '--kr', 'K=toward'], { cwd: worktree, env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, NAWABAN_BOARD_DIR: join(tmp, 'board'), CLAUDE_CODE_SESSION_ID: 'aaaa1111-0000' } })
+  const unreported = await mergeAsTheWorker('M-CHKKR', 't7g', worktree)
+  expect(unreported.code).toBe(1)
+  expect(unreported.stderr).toContain('没补结果(K)')
+  expect(unreported.stderr).toContain('nawaban merge 5 --kr')
+  expect(unreported.gh).not.toMatch(/^pr merge/m)
+  expect(await stateOf(id)).toBe('claimed')
+  const reported = await mergeAsTheWorker('M-CHKKR', 't7g', worktree, {}, '0s', ['--kr', 'K=96 实测'])
+  expect([reported.code, reported.stderr]).toEqual([0, ''])
+  expect(await stateOf(id)).toBe('completed')
+})
