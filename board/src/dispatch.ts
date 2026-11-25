@@ -51,10 +51,10 @@ export const NEXT_ACCEPT = '照票上 Acceptance criteria；开 PR 不合并'
 const NOTHING_TO_CLAIM = ['nothing_ready', 'timeout']
 type Agent = keyof typeof WORKER_ARGV
 const isAgent = (name: string): name is Agent => Object.hasOwn(WORKER_ARGV, name)
-const USAGE = `用法：nawaban dispatch [<票>] --brief "<目标、范围>" --accept "<怎样算做完>" [--name <worker>] [--agent ${Object.keys(WORKER_ARGV).join('|')}] [--model <m>] [--to <终端> | --new]`
+const USAGE = `用法：nawaban dispatch [<票>] --brief "<目标、范围>" --accept "<怎样算做完>" [--check '<验收命令>']... [--name <worker>] [--agent ${Object.keys(WORKER_ARGV).join('|')}] [--model <m>] [--to <终端> | --new]`
 const USAGE_NEXT = 'nawaban dispatch --help 看每个参数'
 
-type Args = { ref: string | undefined; name: string | undefined; brief: string; accept: string; agent: Agent; model: string | undefined; to: string | undefined; fresh: boolean }
+type Args = { ref: string | undefined; name: string | undefined; brief: string; accept: string; checks: string[]; agent: Agent; model: string | undefined; to: string | undefined; fresh: boolean }
 type Checked = { as: string; task: MessageView | null; root: string; orch: string; name: string; who: string; lane: string | null }
 type Worktree = { path: string; branch: string }
 type Terminal = { address: string; name?: string; state?: string; cwd?: string; argv?: string[]; labels?: Record<string, string> }
@@ -115,6 +115,12 @@ export async function orchestratorFor(root: string): Promise<string | null> {
 }
 
 type Dispatched = { terminal: string; accept: string; orchestrator?: string }
+const CHECKS_NOTE = '验收检查：'
+export const checksOf = (replies: MessageView[]): string[] => {
+  const latest = replies.map((r) => r.text).findLast((t) => t.startsWith(CHECKS_NOTE))
+  return latest ? JSON.parse(latest.slice(CHECKS_NOTE.length)) : []
+}
+
 export const lastDispatchOf = (replies: MessageView[]) =>
   replies.flatMap((r) => r.blocks.filter((b) => b.schema === 'nawaban-dispatch').map((b) => b.data as Dispatched)).at(-1)
 
@@ -149,6 +155,7 @@ function parseDispatchArgs(argv: string[]): Args {
       name: { type: 'string' },
       brief: { type: 'string' },
       accept: { type: 'string' },
+      check: { type: 'string', multiple: true },
       agent: { type: 'string', default: 'claude' },
       model: { type: 'string' },
       to: { type: 'string' },
@@ -158,7 +165,8 @@ function parseDispatchArgs(argv: string[]): Args {
   })
   const [ref] = positionals
   if (positionals.length > 1 || !(ref || a.name) || !a.brief || !a.accept || !isAgent(a.agent!) || (a.to && a.new)) throw new Refused(USAGE, 2, USAGE_NEXT)
-  return { ref, name: a.name, brief: a.brief, accept: a.accept, agent: a.agent, model: a.model, to: a.to, fresh: !!a.new }
+  if (a.check?.length && !ref) throw new Refused('--check 记在票上，merge 时跑：不带票的派发没有票可记', 2)
+  return { ref, name: a.name, brief: a.brief, accept: a.accept, checks: a.check ?? [], agent: a.agent, model: a.model, to: a.to, fresh: !!a.new }
 }
 
 async function refuseBeforeAnythingStarts(a: Args): Promise<Checked> {
@@ -254,7 +262,10 @@ const reusedWorktreeLine = (wt: Worktree) =>
 
 type ReportsVia = { ref: string } | { name: string; orch: string }
 
-function briefReportingTo(via: ReportsVia, brief: string, accept: string, worktreeLine: string, firstSteps: string[] = []): string {
+const checksLines = (checks: string[]) =>
+  checks.length ? ['验收检查（nawaban merge 合并前用看板的 tasks run 在 PR head 上逐条跑，全过才合并并关票；有一条非 0 就拒合，票记 failed 和输出尾巴。先在本地跑过）：', ...checks.map((c) => `  ${c}`)] : []
+
+function briefReportingTo(via: ReportsVia, brief: string, accept: string, worktreeLine: string, firstSteps: string[] = [], checks: string[] = []): string {
   const [task, reportLines] =
     'ref' in via
       ? [`${via.ref}（nawaban show ${via.ref} 看全文；认领、进展、关闭用 nawaban claim|event|close 记）`, [`  nawaban tell ${via.ref} "完成 PR #<号>"`, `  nawaban tell ${via.ref} "受阻，详情在票上"`]]
@@ -265,6 +276,7 @@ function briefReportingTo(via: ReportsVia, brief: string, accept: string, worktr
     ...firstSteps,
     brief,
     `验收：${accept}`,
+    ...checksLines(checks),
     '完成或受阻：只发一行，照抄其一，PR 号填上；结论、实测输出、卡在哪、要谁做什么都写在票上：',
     ...reportLines,
     '只发这一行：中途进展、阶段结果记在票上的「进展」里，不发给编排者（每条消息都会叫醒它，留在它的上下文里）。',
@@ -342,7 +354,7 @@ export async function pickupBrief(task: MessageView, worktree: string): Promise<
   const brief = replies.map((r) => r.text).findLast((t) => t.startsWith(BRIEF_NOTE))?.slice(BRIEF_NOTE.length) ?? NEXT_BRIEF
   const accept = lastDispatchOf(replies)?.accept ?? NEXT_ACCEPT
   const declareFirst = `这张已替你认领，但认领时没登记 KR 影响：先跑 nawaban event ${ref} impact --o "<O 名>" --kr "<KR>=toward|away|hold"（纯基础设施写 --o 无），不然 merge 会拦`
-  return briefReportingTo({ ref }, brief, accept, reusedWorktreeLine({ path: worktree, branch: `wt/${ref.toLowerCase()}` }), [declareFirst])
+  return briefReportingTo({ ref }, brief, accept, reusedWorktreeLine({ path: worktree, branch: `wt/${ref.toLowerCase()}` }), [declareFirst], checksOf(replies))
 }
 
 export async function claimReady(wait: string | undefined, project: string | undefined): Promise<Said> {
@@ -401,6 +413,15 @@ async function recordDispatchAsThisWindow(c: Checked, a: Args, address: string, 
   }
 }
 
+async function recordChecksMergeRuns(c: Checked, a: Args, address: string) {
+  if (!c.task || !a.checks.length) return
+  try {
+    await board().as(c.as).reply(c.task.id, `${CHECKS_NOTE}${JSON.stringify(a.checks)}`)
+  } catch (error) {
+    throw new Refused(`已派给 hc ${address}，但记验收检查到 ${a.ref} 上失败：${(error as Error).message}`)
+  }
+}
+
 async function recordBriefThePickupReads(c: Checked, a: Args, task: MessageView, address: string) {
   try {
     await board().as(c.as).reply(task.id, `${BRIEF_NOTE}${a.brief}`)
@@ -422,6 +443,7 @@ export function dispatch(argv: string[]): Promise<number> {
       const worker = seat.reuse
       const as = await assignToRunningWorker(seat.task, worker)
       await recordDispatchAsThisWindow(checked, a, worker.address, worker.name ?? worker.address)
+      await recordChecksMergeRuns(checked, a, worker.address)
       await recordBriefThePickupReads(checked, a, seat.task, worker.address)
       return {
         done: `${checked.who} 指派给在跑的 hc ${worker.address}${lane}，它做完手上那张自己领 · 回报给 ${checked.orch}`,
@@ -429,9 +451,10 @@ export function dispatch(argv: string[]): Promise<number> {
       }
     }
     const wt = await worktreeOffOriginMain(checked.root, checked.name)
-    const brief = briefReportingTo(a.ref ? { ref: a.ref } : { name: checked.name, orch: checked.orch }, a.brief, a.accept, freshWorktreeLine(wt))
+    const brief = briefReportingTo(a.ref ? { ref: a.ref } : { name: checked.name, orch: checked.orch }, a.brief, a.accept, freshWorktreeLine(wt), [], a.checks)
     const address = await startWorkerElseRemoveWorktree(checked, a, wt, brief)
     await recordDispatchAsThisWindow(checked, a, address)
+    await recordChecksMergeRuns(checked, a, address)
     if (checked.lane) await stdoutOrNullOnFailure('hc', ['label', address, `lane=${checked.lane}`])
     const passedOver = seat.passedOver.length ? `，跳过了 ${seat.passedOver.join('；')}` : ''
     return {

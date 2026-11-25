@@ -202,6 +202,11 @@ export async function labelTerminalThePanelReadsWhileClaimed(taskId: string) {
   await personOwningEveryTaskTheirProfilesMade().label(taskId, t ? { set: { terminal: t } } : { unset: ['terminal'] })
 }
 
+export async function forgetTheClaimOf(taskId: string) {
+  await personOwningEveryTaskTheirProfilesMade().label(taskId, { unset: ['terminal'] })
+  await forgetLive(boardDirAsConfiguredWhenAsked(), taskId)
+}
+
 function refuseHeldByAnother(task: MessageView, as: string, next: string) {
   const held = live(task)
   if (held && !held.actor.endsWith(`+${as}`)) throw new Refused(`${key(task)} 在 ${profileViaUser(held.actor)} 手里，租约到 ${clock(held.until)}`, 1, next)
@@ -220,8 +225,7 @@ const claim: Verb = async (argv) => {
   const as = profile()
   if (values.release) {
     const { task: released } = (await upstreamAnswer(['tasks', 'release', task.id, '--as', as])) as { task: MessageView }
-    await personOwningEveryTaskTheirProfilesMade().label(task.id, { unset: ['terminal'] })
-    await forgetLive(boardDirAsConfiguredWhenAsked(), task.id)
+    await forgetTheClaimOf(task.id)
     return { done: `交还 ${key(task)}`, json: { task: released } }
   }
   refuseHeldByAnother(task, as, '等它交还，或让编排者改派')
@@ -253,8 +257,7 @@ async function refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team: ReturnT
   }
   if (!held) await upstreamAnswer(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE])
   const { task: completed } = (await upstreamAnswer(['tasks', 'complete', task.id, '--as', as])) as { task: MessageView }
-  await team.label(task.id, { unset: ['terminal'] })
-  await forgetLive(boardDirAsConfiguredWhenAsked(), task.id)
+  await forgetTheClaimOf(task.id)
   return { done: `关了 ${key(task)}（做完）`, json: { task: completed } }
 }
 
@@ -269,8 +272,7 @@ async function needsWithoutAnyCanceledSinceBoardTakesNone(team: ReturnType<typeo
 
 async function cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView): Promise<Said> {
   if (task.task?.state !== 'canceled') await team.tasks.cancel(task.id, 'cancelled')
-  await team.label(task.id, { unset: ['terminal'] })
-  await forgetLive(boardDirAsConfiguredWhenAsked(), task.id)
+  await forgetTheClaimOf(task.id)
   const stillWaitingRerunFinishesThem: string[] = []
   for (const down of await all({ state: 'open', needs: task.id })) {
     try {
@@ -335,14 +337,16 @@ async function lastClaimedAt(task: { id: string; channel: string }, as: string):
   return (await claimEventsOf(task)).findLast((e) => claimedBy(e, as))?.at ?? 0
 }
 
-const CLAIM_ENDED_BY_ITS_LEASE_ALONE = new Set(['task.claimed', 'task.expired'])
+const CLAIM_ENDED_BY_ITS_LEASE_OR_A_FAILED_CHECK_RUN = new Set(['task.claimed', 'task.expired', 'task.failed'])
 
 export async function reclaimedIfItLapsedInMyHands(task: MessageView): Promise<MessageView> {
   if (live(task)) return task
   const as = profile()
   const events = await claimEventsOf(task)
-  const lapsedUntaken = CLAIM_ENDED_BY_ITS_LEASE_ALONE.has(events.at(-1)?.type ?? '') && claimedBy(events.findLast((e) => e.type === 'task.claimed'), as)
+  const ended = events.at(-1)?.type ?? ''
+  const lapsedUntaken = CLAIM_ENDED_BY_ITS_LEASE_OR_A_FAILED_CHECK_RUN.has(ended) && claimedBy(events.findLast((e) => e.type === 'task.claimed'), as)
   if (!lapsedUntaken) return task
+  if (ended === 'task.failed') await personOwningEveryTaskTheirProfilesMade().tasks.reopen(task.id)
   await upstreamAnswer(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE])
   await labelTerminalThePanelReadsWhileClaimed(task.id)
   return resolve(key(task))
