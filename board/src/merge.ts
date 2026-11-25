@@ -1,27 +1,30 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
-import { claimAssignedToMe, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf, workerProfileOf } from './dispatch.ts'
+import { checksOf, claimAssignedToMe, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf, workerProfileOf } from './dispatch.ts'
 import { githubTokenOf } from './github-account.ts'
 import { mergeGate } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
-import { all, closeDone, live, profile, reclaimedIfItLapsedInMyHands, resolve } from './tasks.ts'
-import { answer, EXIT, Refused, type Said } from './said.ts'
+import { all, closeDone, forgetTheClaimOf, live, profile, reclaimedIfItLapsedInMyHands, resolve, resultsOf, whyNotCloseable } from './tasks.ts'
+import { answer, EXIT, Refused, upstreamAnswer, type Said } from './said.ts'
 
 const exec = promisify(execFile)
 const CLAIM_WAIT = '10m'
-const USAGE = `用法：nawaban merge <PR 号> [--wait <时长>，领下一张最多等多久，默认 ${CLAIM_WAIT}]`
+const USAGE = `用法：nawaban merge <PR 号> [--wait <时长>，领下一张最多等多久，默认 ${CLAIM_WAIT}] [--kr "<KR 名>=<后值> 实测|预计"]...`
 const PR_FIELDS = 'number,state,url,title,headRefName,headRefOid,files,statusCheckRollup,comments,mergeCommit'
 const NO_BLOCKER_REVIEW_LINE = /review[:：]\s*无挡/i
 const SHA_PREFIX_A_REVIEW_NAMES = /\b[0-9a-f]{7,40}\b/gi
 const WORKTREE_BRANCH = /^wt\/(.+)$/
 const SCHEMA_FILE = 'board/src/schemas.ts'
 const EXIT_CODE = { waiting: EXIT.waiting, refused: EXIT.refused, mergedButUnfinished: EXIT.refused, done: EXIT.done } as const
+const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
+const CHECK_OUTPUT_TAIL_CHARS = 2000
 const pluginDir = () => process.env.NAWABAN_PLUGIN_DIR ?? join(homedir(), '.nawaban', 'plugin')
 
 type PullRequest = {
@@ -41,7 +44,7 @@ type Outcome =
   | { kind: 'refused'; why: string }
   | { kind: 'mergedButUnfinished'; left: string }
   | { kind: 'done'; did: string[]; thenRetire: Retirable | null; pickedUp?: string }
-type Run = { n: string; wait: string; task: MessageView | null; root: string | null }
+type Run = { n: string; wait: string; kr: string[]; task: MessageView | null; root: string | null }
 type Seen = { task: MessageView; terminal: string | null }
 
 const failureOf = (error: unknown) => String((error as { stderr?: string }).stderr || (error as Error).message).trim()
@@ -118,6 +121,52 @@ async function mergeElseWhyNot(pr: PullRequest): Promise<string | null> {
   }
 }
 
+async function headCheckedOutCleanElseWhyNot(pr: PullRequest): Promise<string | null> {
+  const head = (await stdoutOrNullOnFailure('git', ['rev-parse', 'HEAD']))?.trim()
+  if (head !== pr.headRefOid) return `验收检查要在 PR head ${pr.headRefOid.slice(0, 7)} 上跑，这里是 ${head?.slice(0, 7) ?? '读不到的 HEAD'}：切到 PR 分支、pull 到 head 再跑`
+  const status = await stdoutOrNullOnFailure('git', ['status', '--porcelain'])
+  return status === null || status.trim() ? '工作区有没提交的改动，跑出来的不是 PR head：先提交或清掉' : null
+}
+
+const shQuoted = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
+
+const eachCheckThenTheMerge = (checks: string[], pr: PullRequest) =>
+  [...checks.flatMap((c) => [`printf '%s\\n' ${shQuoted(`$ ${c}`)}`, `sh -c ${shQuoted(c)} || exit $?`]), `exec gh pr merge ${pr.number} --squash --match-head-commit ${pr.headRefOid}`].join('\n')
+
+function boardTasksRun(argv: string[]): Promise<{ settled: { outcome?: string; task?: MessageView } | null; tail: string }> {
+  return new Promise((done) => {
+    const child = spawn('node', [CLI, 'board', 'tasks', 'run', ...argv], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    let tail = ''
+    child.stdout.on('data', (chunk) => (out += chunk))
+    child.stderr.on('data', (chunk) => (tail = (tail + chunk).slice(-CHECK_OUTPUT_TAIL_CHARS)))
+    const settle = () => {
+      try {
+        done({ settled: JSON.parse(out), tail })
+      } catch {
+        done({ settled: null, tail })
+      }
+    }
+    child.on('close', settle)
+    child.on('error', (error) => done({ settled: null, tail: error.message }))
+  })
+}
+
+async function checksThenMergeAsOneTasksRunElseWhyNot(pr: PullRequest, task: MessageView, checks: string[], kr: string[]): Promise<string | null> {
+  const off = await headCheckedOutCleanElseWhyNot(pr)
+  if (off) return off
+  if (kr.length) await board().as(profile()).reply(task.id, resultsOf(kr))
+  const unreported = await whyNotCloseable(task.id)
+  if (unreported) return `${unreported.split('\n')[0]}：验收检查通过就直接关票，KR 结果在 merge 时报：nawaban merge ${pr.number} --kr "<KR 名>=<后值> 实测|预计"`
+  const as = profile()
+  await upstreamAnswer(['tasks', 'release', task.id, '--as', as])
+  const { settled, tail } = await boardTasksRun([task.id, '--as', as, '--result', `验收检查全过，已合 PR #${pr.number}`, '--json', '--', 'sh', '-c', eachCheckThenTheMerge(checks, pr)])
+  if (settled?.outcome === 'completed') return null
+  const shown = tail.trim() || '（没有输出）'
+  if (settled?.outcome === 'failed') return `验收检查没过，票记 failed（${settled.task?.task?.reason ?? '?'}），修好后重跑 merge 会重开它：\n${shown}`
+  return `tasks run 没跑成，票已交还：先 nawaban claim ${task.labels.key ?? task.id} 再重跑 merge：\n${shown}`
+}
+
 async function failureElseNull(cmd: string, args: string[]): Promise<string | null> {
   try {
     await exec(cmd, args)
@@ -172,10 +221,10 @@ async function linkThenClose(task: MessageView, pr: PullRequest, did: string[]):
     return { kind: 'mergedButUnfinished', left: `补 pr link 失败：${failureOf(error)}` }
   }
   const key = task.labels.key ?? task.id
-  if ((await resolve(key)).task?.state !== 'completed') {
-    const unclosed = await closeDone(key).then(() => null, (error: Error) => error.message)
-    if (unclosed) return { kind: 'mergedButUnfinished', left: `close ${key} --done 失败：${unclosed}` }
-  }
+  const unclosed = (await resolve(key)).task?.state === 'completed'
+    ? await forgetTheClaimOf(task.id).then(() => null, (error: Error) => error.message)
+    : await closeDone(key).then(() => null, (error: Error) => error.message)
+  if (unclosed) return { kind: 'mergedButUnfinished', left: `close ${key} --done 失败：${unclosed}` }
   did.push(`${key} 已关`)
   return null
 }
@@ -236,7 +285,8 @@ async function outcomeOf(r: Run): Promise<Outcome> {
     r.task = await reclaimedIfItLapsedInMyHands(r.task)
     const gate = await gateBeforeTheIrreversibleMerge(pr, r.task)
     if (gate) return gate
-    const failed = await mergeElseWhyNot(pr)
+    const checks = checksOf((await board().thread(r.task.id)).replies)
+    const failed = checks.length ? await checksThenMergeAsOneTasksRunElseWhyNot(pr, r.task, checks, r.kr) : await mergeElseWhyNot(pr)
     if (failed) return { kind: 'refused', why: failed }
   }
   const did = [`PR #${pr.number} 已合`]
@@ -298,14 +348,14 @@ export function merge(argv: string[]): Promise<number> {
   return answer(argv, async () => {
     let parsed
     try {
-      parsed = parseArgs({ args: argv, allowPositionals: true, options: { wait: { type: 'string', default: CLAIM_WAIT }, json: { type: 'boolean' } } })
+      parsed = parseArgs({ args: argv, allowPositionals: true, options: { wait: { type: 'string', default: CLAIM_WAIT }, kr: { type: 'string', multiple: true }, json: { type: 'boolean' } } })
     } catch {
       throw new Refused(USAGE, EXIT.misused)
     }
     const [n] = parsed.positionals
     if (parsed.positionals.length !== 1 || !/^\d+$/.test(n!)) throw new Refused(USAGE, EXIT.misused)
     process.env.GH_TOKEN = await githubTokenOf(process.cwd())
-    const r: Run = { n: n!, wait: parsed.values.wait, task: null, root: await mainCheckoutRealPathOf(process.cwd()) }
+    const r: Run = { n: n!, wait: parsed.values.wait, kr: parsed.values.kr ?? [], task: null, root: await mainCheckoutRealPathOf(process.cwd()) }
     profile()
     return report(await outcomeOf(r), r)
   })

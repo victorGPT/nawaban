@@ -657,3 +657,81 @@ it('reports a board claim --ready can not reach as an error, never as nothing re
 it.each([{ argv: ['C-POOL'] }, { argv: ['--o', '无'] }, { argv: ['--release'] }])('refuses claim --ready with $argv', async ({ argv }) => {
   expect((await claimReadyIn(repo, argv)).code).toBe(2)
 })
+
+
+async function workerWithChecksOnItsHead(key: string, terminal: string, checks: string[]) {
+  const w = await workerOnItsOwnTicket(key, terminal)
+  const head = (await git(w.worktree, 'rev-parse', 'HEAD')).stdout.trim()
+  await writeFile(join(tmp, `pr-${key}.json`), JSON.stringify({ ...greenCodePr(key), headRefOid: head, comments: [{ body: `Codex review：无挡合并（${head.slice(0, 7)}）` }] }))
+  await note(w.id, `验收检查：${JSON.stringify(checks)}`)
+  return { ...w, head }
+}
+
+it('runs the ticket\'s checks with the board\'s tasks run, then merges, the run completing the ticket', async () => {
+  const { id, worktree, head } = await workerWithChecksOnItsHead('M-CHK', 't7c', ['echo first passes', 'test "$BOARD_TASK" != ""'])
+  const r = await mergeAsTheWorker('M-CHK', 't7c', worktree)
+  expect([r.code, r.stderr]).toEqual([0, ''])
+  expect(r.gh).toContain(`pr merge 5 --squash --match-head-commit ${head}`)
+  expect(await stateOf(id)).toBe('completed')
+  expect((await team.thread(id)).message.task?.result).toBe('验收检查全过，已合 PR #5')
+  expect(r.stdout).toContain('M-CHK 已关')
+})
+
+it('refuses on a failing check: no merge, the ticket failed with the output tail on it, and a rerun after the fix reopens it and merges', async () => {
+  const fixed = join(tmp, 'm-chk-red-fixed')
+  const { id, worktree } = await workerWithChecksOnItsHead('M-CHKRED', 't7d', ['echo fine', `echo boom-\$BOARD_TASK; test -f ${fixed} || exit 7`, 'echo never'])
+  const red = await mergeAsTheWorker('M-CHKRED', 't7d', worktree)
+  expect(red.code).toBe(1)
+  expect(red.gh).not.toMatch(/^pr merge/m)
+  expect(await stateOf(id)).toBe('failed')
+  expect((await team.thread(id)).message.task?.reason).toBe('exited 7')
+  const tail = await lastNote(id)
+  expect(tail).toContain('merge: 拒合 — 验收检查没过，票记 failed（exited 7）')
+  expect(tail).toContain(`boom-${id}`)
+  expect(tail).not.toContain('never')
+  await writeFile(fixed, '')
+  const green = await mergeAsTheWorker('M-CHKRED', 't7d', worktree)
+  expect([green.code, green.stderr]).toEqual([0, ''])
+  expect(green.gh).toMatch(/^pr merge 5/m)
+  expect(await stateOf(id)).toBe('completed')
+})
+
+it('refuses to run the checks off the PR head, before the ticket is let go', async () => {
+  const { id, worktree } = await workerWithChecksOnItsHead('M-CHKDIRTY', 't7e', ['true'])
+  await writeFile(join(worktree, 'stray'), '')
+  const r = await mergeAsTheWorker('M-CHKDIRTY', 't7e', worktree)
+  expect(r.code).toBe(1)
+  expect(r.stderr).toContain('工作区有没提交的改动')
+  expect(r.gh).not.toMatch(/^pr merge/m)
+  expect(await stateOf(id)).toBe('claimed')
+})
+
+
+it('reads a check that sets -e as failing, never reaching the merge', async () => {
+  const { id, worktree } = await workerWithChecksOnItsHead('M-CHKSETE', 't7f', ['set -e; false; echo PASS'])
+  const r = await mergeAsTheWorker('M-CHKSETE', 't7f', worktree)
+  expect(r.code).toBe(1)
+  expect(r.gh).not.toMatch(/^pr merge/m)
+  expect(await stateOf(id)).toBe('failed')
+  expect((await lastNote(id)).split('\n')).not.toContain('PASS')
+})
+
+it('refuses to let the checks close a ticket whose registered KRs have no result, and takes them on merge --kr', async () => {
+  const okrRepo = join(tmp, 'okr-repo')
+  await mkdir(join(okrRepo, 'docs/agents'), { recursive: true })
+  await writeFile(join(okrRepo, 'docs/agents/okr.toml'), '[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 95"\nmeasure = "cat k.txt"\n')
+  const reposFile = join(tmp, 'board', 'repos.json')
+  const repos = existsSync(reposFile) ? JSON.parse(await readFile(reposFile, 'utf8')) : {}
+  await writeFile(reposFile, JSON.stringify({ ...repos, 'm-chkkr': okrRepo }))
+  const { id, worktree } = await workerWithChecksOnItsHead('M-CHKKR', 't7g', ['true'])
+  await exec('node', [CLI, 'event', 'M-CHKKR', 'impact', '--o', 'O', '--kr', 'K=toward'], { cwd: worktree, env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, NAWABAN_BOARD_DIR: join(tmp, 'board'), CLAUDE_CODE_SESSION_ID: 'aaaa1111-0000' } })
+  const unreported = await mergeAsTheWorker('M-CHKKR', 't7g', worktree)
+  expect(unreported.code).toBe(1)
+  expect(unreported.stderr).toContain('没补结果(K)')
+  expect(unreported.stderr).toContain('nawaban merge 5 --kr')
+  expect(unreported.gh).not.toMatch(/^pr merge/m)
+  expect(await stateOf(id)).toBe('claimed')
+  const reported = await mergeAsTheWorker('M-CHKKR', 't7g', worktree, {}, '0s', ['--kr', 'K=96 实测'])
+  expect([reported.code, reported.stderr]).toEqual([0, ''])
+  expect(await stateOf(id)).toBe('completed')
+})

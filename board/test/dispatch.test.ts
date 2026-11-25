@@ -459,3 +459,18 @@ it('prints no worker section in status when no worker lives in this repository',
   expect(r.code).toBe(0)
   expect(r.stdout).not.toContain('活着的 worker')
 })
+
+
+it('records the checks on the ticket for merge to run, and puts them in the brief', async () => {
+  const id = await newTask('D-CHK')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-CHK', '--brief', 'b', '--accept', 'a', '--check', 'pnpm test', '--check', "grep -q 'x' f"], { HC_ORCH: 'to1' })
+  expect([r.code, r.stderr]).toEqual([0, ''])
+  expect(r.hc).toContain("  grep -q 'x' f")
+  expect((await replies(id)).map((m) => m.text)).toContain('验收检查：["pnpm test","grep -q \'x\' f"]')
+})
+
+it('refuses --check without a ticket to record it on, and starts nothing', async () => {
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'chk-none', '--brief', 'b', '--accept', 'a', '--check', 'true'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(2)
+  expect(r.hc).not.toMatch(/^run/m)
+})
