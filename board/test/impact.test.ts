@@ -202,7 +202,7 @@ it("stops an agent closing a task with the board's CLI", EVERY_HOOK_RUN_STARTS_A
 
 it('refuses a merge whose task declares no impact, from a worktree of the repository', EVERY_HOOK_RUN_STARTS_A_SHELL_AND_TWO_NODES, async () => {
   const id = await newTask('nawaban', 'NAWABAN-T-01')
-  const pr = { number: 7, title: 'feat: x', body: 'NAWABAN-T-01', headRefName: 'feat/x' }
+  const pr = { number: 7, title: 'feat: x', body: 'Refs NAWABAN-T-01', headRefName: 'feat/x' }
   const refused = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 7 --squash', worktree, pr)
   expect(refused.code).toBe(2)
   expect(refused.err).toMatch(/NAWABAN-T-01/)
@@ -215,6 +215,25 @@ it('refuses a merge whose task declares no impact, from a worktree of the reposi
   await (await team.tasks.claim(id)).complete('done')
   const doneStillHasItsDeclaration = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 7 --squash', worktree, pr)
   expect(doneStillHasItsDeclaration.code).toBe(0)
+})
+
+it('checks only the tickets a merge is for, not one its body mentions in passing', EVERY_HOOK_RUN_STARTS_A_SHELL_AND_TWO_NODES, async () => {
+  const own = await newTask('nawaban', 'NAWABAN-M-01')
+  await newTask('nawaban', 'NAWABAN-M-02')
+  await newTask('nawaban', 'NAWABAN-M-03')
+  const pr = { number: 9, title: '收尾（NAWABAN-M-01）', body: '删别名另开 NAWABAN-M-02，父票 NAWABAN-M-03。', headRefName: 'wt/nawaban-m-01' }
+  const undeclaredOwn = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 9', worktree, pr)
+  expect([undeclaredOwn.code, undeclaredOwn.err]).toEqual([2, expect.stringContaining('(NAWABAN-M-01)')])
+  await nawaban('event', own, '--kind', 'impact', '--o', '无')
+  expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 9', worktree, pr)).code).toBe(0)
+  const referenced = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 9', worktree, { ...pr, body: '收尾。\n\nRefs NAWABAN-M-02' })
+  expect([referenced.code, referenced.err]).toEqual([2, expect.stringContaining('(NAWABAN-M-02)')])
+  const closesThenMentions = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 9', worktree, { ...pr, body: 'Closes NAWABAN-M-01. Follow-up NAWABAN-M-02 will be handled separately.' })
+  expect(closesThenMentions.code).toBe(0)
+  const refsAList = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 9', worktree, { ...pr, body: 'Refs: NAWABAN-M-01, NAWABAN-M-03' })
+  expect([refsAList.code, refsAList.err]).toEqual([2, expect.stringContaining('(NAWABAN-M-03)')])
+  const onlyTheBranch = await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 9', worktree, { ...pr, title: 'x', body: '' })
+  expect(onlyTheBranch.code).toBe(0)
 })
 
 it("reads gh's -R before pr merge as a merge", EVERY_HOOK_RUN_STARTS_A_SHELL_AND_TWO_NODES, async () => {
