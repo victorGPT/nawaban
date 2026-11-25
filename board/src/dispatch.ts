@@ -402,8 +402,10 @@ async function assignToRunningWorker(task: MessageView, worker: Terminal): Promi
   return as
 }
 
-const idleHoldingNothing = async (worker: Terminal, as: string, project: string) =>
-  WAITING_FOR_INPUT.includes(worker.status?.state ?? '') && !(await all({ channel: project, state: 'open' })).some((t) => live(t)?.actor?.endsWith(`+${as}`))
+const claimableNowByAnIdleWorkerHoldingNothing = async (task: MessageView, worker: Terminal, as: string) =>
+  task.task?.state === 'ready' &&
+  WAITING_FOR_INPUT.includes(worker.status?.state ?? '') &&
+  !(await all({ channel: task.channel, state: 'open' })).some((t) => live(t)?.actor?.endsWith(`+${as}`))
 
 const wakeToClaim = async (worker: Terminal, who: string) =>
   (await stdoutOrNullOnFailure('hc', ['send', worker.address, `${who} 指派给你了：跑 nawaban claim --ready 领它，照打印的 brief 在这个 worktree 切新分支接着做`])) !== null
@@ -452,7 +454,7 @@ export function dispatch(argv: string[]): Promise<number> {
       await recordDispatchAsThisWindow(checked, a, worker.address, worker.name ?? worker.address)
       await recordChecksMergeRuns(checked, a, worker.address)
       await recordBriefThePickupReads(checked, a, seat.task, worker.address)
-      const woken = (await idleHoldingNothing(worker, as, seat.task.channel)) && (await wakeToClaim(worker, checked.who))
+      const woken = (await claimableNowByAnIdleWorkerHoldingNothing(seat.task, worker, as)) && (await wakeToClaim(worker, checked.who))
       const when = woken ? '它空着，已叫它现在领' : '它做完手上那张自己领'
       return {
         done: `${checked.who} 指派给在跑的 hc ${worker.address}${lane}，${when} · 回报给 ${checked.orch}`,

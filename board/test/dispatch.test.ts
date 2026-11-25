@@ -313,6 +313,14 @@ it('leaves an idle worker still holding a ticket to claim the assigned one when 
   expect(r.hc).not.toMatch(/^send/m)
 })
 
+it('leaves an idle worker unwoken while the ticket assigned to it is still blocked, so claim --ready takes nothing else', async () => {
+  const { worktree } = await laneOfTwoWhereFirstBlocksSecond('LK', 'blocked')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LK-B', '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, 'blocked', 10_000, undefined, 'done'))
+  expect(r.stderr).toBe('')
+  expect(r.stdout).toContain('它做完手上那张自己领')
+  expect(r.hc).not.toMatch(/^send/m)
+})
+
 it('assigns a task still blocked in its lane to the same worker and leaves the claim to it', async () => {
   const { second, worktree } = await laneOfTwoWhereFirstBlocksSecond('LQ', 'queue')
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LQ-B', '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, 'queue', 10_000))
