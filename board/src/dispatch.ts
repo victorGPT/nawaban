@@ -306,7 +306,7 @@ export async function claimNextReady(project: string, wait?: string): Promise<Me
 const DURATION = /^(\d+)(s|m|h)$/
 const MS_PER = { s: 1_000, m: 60_000, h: 3_600_000 } as const
 const LOOK_FOR_AN_ASSIGNED_TICKET_EVERY_MS = 15_000
-const GONE_BETWEEN_LISTING_AND_CLAIMING = [...NOTHING_TO_CLAIM, 'task_assigned', 'task_claimed', 'task_not_ready']
+const GONE_BETWEEN_LISTING_AND_CLAIMING = [...NOTHING_TO_CLAIM, 'task_assigned', 'task_claimed', 'task_blocked', 'task_waiting', 'task_finished']
 
 function msOf(wait: string): number {
   const [, n, unit] = DURATION.exec(wait) ?? []
