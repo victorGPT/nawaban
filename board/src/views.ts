@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { board, BoardEventView, MessageView } from '@vercel/board'
 import { narrationOf, type Hold } from './narrate.ts'
-import { readLive } from './progress.ts'
+import { LIVE_LABELS, liveOfLabels } from './progress.ts'
 import { noPullStates, type PullStateOf } from './pulls.ts'
 import { gapsOfADecisionCard, type DecisionCard } from './schemas.ts'
 import { Refused } from './said.ts'
@@ -30,6 +30,11 @@ const body = (m: MessageView) => m.text.split('\n').slice(2).join('\n').trim()
 const windowProfileElseName = (actor: string) => (actor.includes('+') ? actor.slice(actor.lastIndexOf('+') + 1) : actor.slice(actor.lastIndexOf(':') + 1))
 const live = (t: Task | undefined) => (t?.claim && Date.parse(t.claim.until) > Date.now() ? t.claim : null)
 const closed = (t: Task | undefined) => t?.state === 'completed' || t?.state === 'canceled' || t?.state === 'failed'
+const movesOnlyTheLiveProgress = (e: BoardEventView) => {
+  if (e.type !== 'labels.changed') return false
+  const { set, unset } = e.payload as { set: Record<string, string>; unset: string[] }
+  return [...Object.keys(set), ...unset].every((k) => LIVE_LABELS.includes(k))
+}
 const data = (m: MessageView, name: string) =>
   m.blocks.find((b) => b.schema === name && b.data)?.data as Record<string, unknown> | undefined
 
@@ -67,7 +72,7 @@ async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: Message
       const thread = e.type === 'message.posted' ? m?.re : p.id
       const h = thread ? out.get(thread) : undefined
       if (!h) continue
-      h.active = Math.max(h.active, at)
+      if (!movesOnlyTheLiveProgress(e)) h.active = Math.max(h.active, at)
       if (e.type === 'message.posted' && m && !m.deleted && !seen.has(m.id)) {
         seen.add(m.id)
         const reply = { message: m, at, by: windowProfileElseName(p.by?.actor ?? '') }
@@ -103,7 +108,7 @@ const visibleOnGithub = (r: Reply) => r.message.text.replace(TRAILING_NAWABAN_MA
 const isNote = (r: Reply) => r.message.blocks.length === 0 && (!fromGithub(r) || GITHUB_PROGRESS_PREFIX.test(visibleOnGithub(r)))
 const progress = (r: Reply | undefined) => (r ? { body: fromGithub(r) ? visibleOnGithub(r).replace(GITHUB_PROGRESS_PREFIX, '') : r.message.text, at: r.at } : null)
 
-function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: string | null, githubReplies: MessageView[] = h.replies.map((r) => r.message)) {
+function row(m: MessageView, h: History, byId: Map<string, MessageView>, githubReplies: MessageView[] = h.replies.map((r) => r.message)) {
   const t = m.task!
   const claim = live(t)
   const ask = t.blocked && HOLDS_THE_DECISION_MAKER_ANSWERS.has(t.blocked.kind ?? '') ? t.blocked : null
@@ -138,7 +143,7 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, dir: st
   if (done) return { ...out, done_at: h.done }
   return {
     ...out,
-    live: session && dir ? readLive(dir, m.id) : null,
+    live: session ? liveOfLabels(m.labels) : null,
     ruling: ruling ? { at: ruling.at, verdict: String(data(ruling.message, 'nawaban-decision')!.verdict) } : null,
     progress: progress(notes.findLast((r) => !/^\s*(?:(?:coord|impact|lane):|派发 brief：)/.test(r.message.text))),
     blocked_by: open.map((id) => (byId.get(id) ? key(byId.get(id)!) : `#${id}`)).sort(),
@@ -176,7 +181,7 @@ export async function boardData(team: Team, project?: string, dir: string | null
     .sort((a, b) => b.h.active - a.h.active || (key(a.m) < key(b.m) ? -1 : 1))
   const columns: Record<string, unknown[]> = { open: [], in_progress: [], done: [] }
   for (const { m, h } of rows) {
-    const r = row(m, h, byId, dir, reopenedOnGithub.get(m.id))
+    const r = row(m, h, byId, reopenedOnGithub.get(m.id))
     const parent = m.labels.parent ? byKey.get(m.labels.parent) : undefined
     const doneStillShown = columns.done!.length < DONE_ALWAYS_SHOWN_LATEST || underAnOpenSpecThePanelTicks(parent) || (h.done ?? 0) >= now - DONE_ALSO_SHOWN_WITHIN
     if (r.status === 'done' && !doneStillShown) continue

@@ -359,12 +359,12 @@ it('keeps a worker running while its terminal holds a claimed task, and lets it 
 })
 
 it('moves a worker\'s task only forward along its milestones and stamps when it last moved, at most once in five minutes, and forgets it on close', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const labelsOf = async (id: string) => (await team.thread(id, { limit: 1 })).message.labels
   const liveOf = async (id: string, until: (live: { milestone: string; at: number }) => boolean = () => true) => {
     for (let tries = 0; tries < 100; tries++) {
-      try {
-        const live = JSON.parse(await readFile(join(tmp, 'board/progress', `${id}.json`), 'utf8'))
-        if (until(live)) return live
-      } catch {}
+      const labels = await labelsOf(id)
+      const live = labels.progress ? { milestone: labels.progress, at: Number(labels['progress.at']) } : null
+      if (live && until(live)) return live
       await new Promise((r) => setTimeout(r, 100))
     }
     return null
@@ -381,13 +381,13 @@ it('moves a worker\'s task only forward along its milestones and stamps when it 
 
   await called({ command: 'git commit -m x' })
   expect((await hook('progress.sh', afterATool)).out).toBe('')
-  const first = await liveOf(id)
+  const first = (await liveOf(id))!
   expect(first.milestone).toBe('committed')
 
   await called({ command: 'gh pr create --fill' })
   await hook('progress.sh', afterATool)
   await new Promise((r) => setTimeout(r, 1500))
-  expect((await liveOf(id)).milestone).toBe('committed')
+  expect((await liveOf(id))!.milestone).toBe('committed')
 
   await gapPassed()
   await called({ command: 'ls' })
@@ -398,9 +398,11 @@ it('moves a worker\'s task only forward along its milestones and stamps when it 
   const board = JSON.parse(await nawaban('json', 'board', '--project', 'proj'))
   const row = board.columns.flatMap((c: { tasks: { id: string }[] }) => c.tasks).find((t: { id: string }) => t.id === 'LP1')
   expect(row.live.milestone).toBe('committed')
+  expect(await readFile(join(tmp, 'board/progress', `${id}.json`)).catch(() => 'no file')).toBe('no file')
 
   await nawaban('close', 'LP1', '--cancelled')
-  expect(await readFile(join(tmp, 'board/progress', `${id}.json`)).catch(() => 'gone')).toBe('gone')
+  const afterClose = await labelsOf(id)
+  expect([afterClose.progress, afterClose['progress.at']]).toEqual([undefined, undefined])
 })
 
 it('registers the renewal on every prompt and tool call, and both impact guards before Bash', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {

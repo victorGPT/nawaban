@@ -6,7 +6,7 @@ import { createApp } from '@vercel/board/cli'
 import { answer, upstreamAnswer, orRefusal, Refused, type Said } from './said.ts'
 import { projectOfThisRepository, RESULT_FORMAT, undeclared } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
-import { forgetLive } from './progress.ts'
+import { labelsOfLive, LIVE_LABELS, liveOfLabels, type Held, type Live } from './progress.ts'
 import { optionWordsBut, pointAt, withBody } from './hint.ts'
 import { markInboxItemTurnedInto, openInboxItem } from './page.ts'
 import { EVENTS_THAT_END_A_CLAIM } from './views.ts'
@@ -205,8 +205,7 @@ export async function labelTerminalThePanelReadsWhileClaimed(taskId: string) {
 export const whyNotCloseable = (taskId: string) => undeclared(personOwningEveryTaskTheirProfilesMade(), taskId, boardDirAsConfiguredWhenAsked())
 
 export async function forgetTheClaimOf(taskId: string) {
-  await personOwningEveryTaskTheirProfilesMade().label(taskId, { unset: ['terminal'] })
-  await forgetLive(boardDirAsConfiguredWhenAsked(), taskId)
+  await personOwningEveryTaskTheirProfilesMade().label(taskId, { unset: ['terminal', ...LIVE_LABELS] })
 }
 
 function refuseHeldByAnother(task: MessageView, as: string, next: string) {
@@ -308,11 +307,11 @@ export const closeDone = (ref: string) => close([ref, '--done'])
 
 export const profilesTheHookSessionMayHold = (session: string) => (['cx', 'agy', 'cc'] as const).map((agent) => sessionProfile(agent, session))
 
-async function heldByAnyOf(profiles: string[]): Promise<{ id: string; channel: string; as: string }[]> {
+async function heldByAnyOf(profiles: string[]): Promise<{ id: string; channel: string; as: string; labels: Record<string, string> }[]> {
   return (await all({ state: 'claimed' })).flatMap((task) => {
     const claim = live(task)
     const as = profiles.find((p) => claim?.actor.endsWith(`+${p}`))
-    return as ? [{ id: task.id, channel: task.channel, as }] : []
+    return as ? [{ id: task.id, channel: task.channel, as, labels: task.labels }] : []
   })
 }
 
@@ -354,8 +353,26 @@ export async function reclaimedIfItLapsedInMyHands(task: MessageView): Promise<M
   return resolve(key(task))
 }
 
-export const heldBy = async (session: string) =>
-  Promise.all((await heldByAnyOf(profilesTheHookSessionMayHold(session))).map(async (t) => ({ id: t.id, claimedAt: await lastClaimedAt(t, t.as) })))
+const STALE_HEARTBEAT = 'label_conflict'
+
+async function keptOnlyWhileStillHeldAsRead(taskId: string, read: Record<string, string>, live: Live) {
+  const stillAsRead = { 'board.task': 'claimed', terminal: read.terminal ?? null, 'progress.at': read['progress.at'] ?? null }
+  await personOwningEveryTaskTheirProfilesMade()
+    .label(taskId, { set: labelsOfLive(live), if: stillAsRead })
+    .catch((error: { code?: string }) => {
+      if (error.code !== STALE_HEARTBEAT) throw error
+    })
+}
+
+export const heldBy = async (session: string): Promise<Held[]> =>
+  Promise.all(
+    (await heldByAnyOf(profilesTheHookSessionMayHold(session))).map(async (t) => ({
+      id: t.id,
+      claimedAt: await lastClaimedAt(t, t.as),
+      live: liveOfLabels(t.labels),
+      keep: (live: Live) => keptOnlyWhileStillHeldAsRead(t.id, t.labels, live),
+    })),
+  )
 
 const renew = async (argv: string[]): Promise<number> => {
   const { values } = parseArgs({ args: argv, options: { session: { type: 'string' }, json: { type: 'boolean' } } })
