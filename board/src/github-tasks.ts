@@ -48,7 +48,7 @@ export const inGithubFormat = (m: MessageView) => m.from === 'github' || (m.from
 
 const githubCommentIdOf = (m: MessageView) => Number(m.from === 'github' ? m.origin?.message : (m.labels[PUSHED_AS] ?? Infinity))
 
-const inGithubOrder = (a: MessageView, b: MessageView) => {
+export const inGithubOrder = (a: MessageView, b: MessageView) => {
   const [x, y] = [githubCommentIdOf(a), githubCommentIdOf(b)]
   return x !== y ? (x < y ? -1 : 1) : a.createdAt < b.createdAt ? -1 : 1
 }

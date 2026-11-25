@@ -193,6 +193,19 @@ describe('板上写的待决和已决，和 GitHub 来的一起算', () => {
     expect((await theTask()).task?.blocked).toBeFalsy()
   })
 
+  it('断网时写的进展推出去之后，联网补拉回来的更早的 GitHub 评论不会盖住它', async () => {
+    const earlier = commentOn(1730, '进展：同事断网期间写的')
+    world.down = true
+    await write('note', '我断网时写的')
+    world.down = false
+    await push(Date.now() + 3 * 60_000)
+    world.comments.splice(0, 0, earlier)
+    await poll()
+    await poll()
+    const row = (await boardData(team, 'roubao')).columns.flatMap((c) => c.tasks as { id: string; progress: { body: string } | null }[]).find((t) => t.id === 'ROUBAO-1730')!
+    expect(row.progress?.body).toBe('我断网时写的')
+  })
+
   it('本地待决、已决都推出去之后，同事在 GitHub 上提新待决，网页显示并能答这一件', async () => {
     await write('ask', '上线吗')
     await write('resolve', '上')
