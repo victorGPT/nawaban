@@ -9,6 +9,7 @@ import { local } from '@vercel/board/backend-local'
 import { listen, verifier } from '../src/server.ts'
 import { registerSchemas } from '../src/schemas.ts'
 import { projectsData } from '../src/views.ts'
+import { INBOX_OPEN, inboxChannel, inboxItemText } from '../src/page.ts'
 
 const CLI = new URL('../src/cli.ts', import.meta.url).pathname
 const SECRET = 'test-secret'
@@ -81,7 +82,7 @@ it('fits the help on one screen and lists the ten everyday verbs', EVERY_STEP_ST
   expect(lines.filter((line) => columnsCountingWideCharactersAsTwo(line) > HELP_COLUMNS_AT_MOST)).toEqual([])
   expect(verbsListedIn(out)).toEqual(TEN_VERBS)
   for (const same of [[], ['-h'], ['help']]) expect((await succeeds(...same)).out).toBe(out)
-  expect(verbsListedIn((await succeeds('help', 'more')).out)).toEqual(['okr-stat', 'tell', 'block', 'web', 'serve', 'import', 'hook', 'json', 'inbox', 'page', 'board'])
+  expect(verbsListedIn((await succeeds('help', 'more')).out)).toEqual(['okr-stat', 'tell', 'block', 'web', 'serve', 'import', 'hook', 'json', 'board'])
 })
 
 it("answers every verb's --help without reaching a board", EVERY_STEP_STARTS_A_NODE, async () => {
@@ -151,6 +152,32 @@ it('prints under status what index printed, and points index at status', EVERY_S
   expect(index.out).toBe(status.out)
   expect(status.err).toBe('')
   expect(hintedCommand(index.err)).toBe('status --project p2')
+})
+
+it('prints every event of a ticket under show --all, and only the latest without it', EVERY_STEP_STARTS_A_NODE, async () => {
+  await succeeds('create', 'A1', '--title', '事件多', '--project', 'p-all')
+  for (const n of [1, 2, 3]) await succeeds('event', 'A1', 'note', `第 ${n} 条\n第二行 ${n}`)
+  const brief = (await succeeds('show', 'A1')).out
+  expect(brief).toContain('第 3 条')
+  expect(brief).not.toContain('第 1 条')
+  const every = (await succeeds('show', 'A1', '--all')).out
+  expect(every).toMatch(/events {6}3\n/)
+  expect(every.indexOf('第 1 条')).toBeLessThan(every.indexOf('第 2 条'))
+  expect(every).toContain('    第二行 3')
+  expect((JSON.parse((await succeeds('show', 'A1', '--all', '--json')).out) as { events: unknown[] }).events).toHaveLength(3)
+})
+
+it('turns an inbox item into a ticket in its project and marks it done, once', EVERY_STEP_STARTS_A_NODE, async () => {
+  const item = await team.post(inboxChannel('p-inbox'), { text: inboxItemText('面板加夜间模式'), labels: INBOX_OPEN })
+  const made = await succeeds('create', 'IN-1', '--title', '夜间模式', '--inbox', item.id)
+  expect(made.out).toBe(`✓ 建票 IN-1：夜间模式（收件箱 ${item.id} 已处理）\n`)
+  const shown = (await succeeds('show', 'IN-1')).out
+  expect(shown).toContain('project     p-inbox')
+  expect(shown).toContain('面板加夜间模式')
+  expect((await team.thread(item.id)).message.labels).toMatchObject({ inbox: 'done', task: 'IN-1' })
+  const again = await nawaban(['create', 'IN-2', '--title', '再转一次', '--inbox', item.id])
+  expect([again.code, again.err]).toEqual([1, expect.stringContaining(`收件箱里没有开着的条目 ${item.id}`)])
+  expect((await nawaban(['show', 'IN-2'])).code).toBe(1)
 })
 
 it('keeps the JSON the panel reads', async () => {

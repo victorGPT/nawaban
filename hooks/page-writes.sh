@@ -8,5 +8,6 @@ route=$(node "$hooks/route.mjs" "$(repository_the_session_is_in "$input")" --rea
 project=${route#* }
 is_the_orchestrator "$input" "$project" || exit 0
 sid=$(session_of "$input")
-node "$hooks/../board/src/cli.ts" page --project "$project" ${sid:+--session "$sid"} 2>/dev/null
+[ -n "$sid" ] || exit 0
+node "$hooks/../board/src/cli.ts" status --project "$project" --unseen "$sid" 2>/dev/null
 exit 0

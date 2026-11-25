@@ -8,6 +8,7 @@ import { projectOfThisRepository, RESULT_FORMAT, undeclared } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { forgetLive } from './progress.ts'
 import { optionWordsBut, pointAt, withBody } from './hint.ts'
+import { markInboxItemTurnedInto, openInboxItem } from './page.ts'
 
 const LEASE = '1h'
 const PAGE = 50
@@ -93,17 +94,19 @@ const create: Verb = async (argv) => {
       project: { type: 'string' },
       'blocked-by': { type: 'string', multiple: true },
       lane: { type: 'string' },
+      inbox: { type: 'string' },
       json: { type: 'boolean' },
     },
   })
   const [keyAsPostIdSoCreatingAgainAnswersTheSameTask, bodyWord, ...extra] = positionals
   if (!keyAsPostIdSoCreatingAgainAnswersTheSameTask || extra.length || !values.title) {
-    throw new Refused('用法：nawaban create <票> --title <标题> [正文] [--parent <票>] [--project <项目>] [--blocked-by <票>]… [--lane <泳道>]', 2)
+    throw new Refused('用法：nawaban create <票> --title <标题> [正文] [--parent <票>] [--project <项目>] [--blocked-by <票>]… [--lane <泳道>] [--inbox <条目>]', 2)
   }
-  const body = await bodyFrom(bodyWord, values.body, values['body-file'])
+  const item = values.inbox === undefined ? null : await openInboxItem(personOwningEveryTaskTheirProfilesMade(), values.inbox)
+  const body = (await bodyFrom(bodyWord, values.body, values['body-file'])) ?? item?.words
   if (values.body !== undefined) pointAt(withBody(['create', keyAsPostIdSoCreatingAgainAnswersTheSameTask], values.body, optionWordsBut(tokens, ['body'])))
   const parent = values.parent ? await resolve(values.parent) : null
-  const project = values.project ?? parent?.channel ?? (await projectOfThisRepository(boardDirAsConfiguredWhenAsked()))
+  const project = values.project ?? parent?.channel ?? item?.project ?? (await projectOfThisRepository(boardDirAsConfiguredWhenAsked()))
   if (!project) throw new Refused(`不知道建在哪个项目：${process.cwd()} 不在 repos.json 的任何仓库里`, 2, '加 --project <项目>，或给一个有项目的 --parent')
   const needs = await Promise.all((values['blocked-by'] ?? []).map(async (b) => (await resolve(b)).id))
   const { task } = await personOwningEveryTaskTheirProfilesMade().tasks.create(project, {
@@ -113,7 +116,9 @@ const create: Verb = async (argv) => {
     needs,
   })
   if (values.lane) await personOwningEveryTaskTheirProfilesMade().label(task.id, { set: { lane: values.lane } })
-  return { done: `建票 ${key(task)}：${title(task)}${values.lane ? `（泳道 ${values.lane}）` : ''}`, json: { task } }
+  if (item) await markInboxItemTurnedInto(personOwningEveryTaskTheirProfilesMade(), item.id, key(task))
+  const notes = [values.lane && `泳道 ${values.lane}`, item && `收件箱 ${item.id} 已处理`].filter(Boolean)
+  return { done: `建票 ${key(task)}：${title(task)}${notes.length ? `（${notes.join('，')}）` : ''}`, json: { task } }
 }
 
 const block: Verb = async (argv) => {
@@ -139,10 +144,26 @@ const list: Verb = async (argv) => {
   return { shown: tasks.map(row).join('\n') || '没有票', json: { tasks } }
 }
 
+const REPLIES_PAGE = 500
+
+async function everyReplyOf(id: string): Promise<MessageView[]> {
+  const team = personOwningEveryTaskTheirProfilesMade()
+  const out: MessageView[] = []
+  for (let after: string | undefined; ; ) {
+    const { replies, cursor } = await team.thread(id, { after, limit: REPLIES_PAGE })
+    out.push(...replies)
+    if (replies.length < REPLIES_PAGE || cursor === after) return out
+    after = cursor
+  }
+}
+
+const indentedUnderItsHead = (text: string) => text.replace(/\n/g, '\n    ')
+const eventLine = (m: MessageView) => `  ${m.createdAt}  ${m.author?.handle ?? '?'}  ${indentedUnderItsHead(m.text)}`
+
 const show: Verb = async (argv) => {
-  const { positionals } = parseArgs({ args: argv, allowPositionals: true, options: { json: { type: 'boolean' } } })
+  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { all: { type: 'boolean' }, json: { type: 'boolean' } } })
   const [ref] = positionals
-  if (!ref || positionals.length !== 1) throw new Refused('用法：nawaban show <票>', 2)
+  if (!ref || positionals.length !== 1) throw new Refused('用法：nawaban show <票> [--all]', 2)
   const task = await resolve(ref)
   const team = personOwningEveryTaskTheirProfilesMade()
   const [needs, downstream, summary] = await Promise.all([
@@ -150,6 +171,7 @@ const show: Verb = async (argv) => {
     all({ state: 'all', needs: task.id }),
     team.threads({ re: task.id, limit: 1 }),
   ])
+  const events = values.all ? (await everyReplyOf(task.id)).filter((m) => !m.deleted) : null
   const latest = summary.threads[0]?.last ?? null
   const claim = live(task)
   const lines = [
@@ -165,7 +187,8 @@ const show: Verb = async (argv) => {
     `  downstream  ${downstream.map((m) => `${key(m)} ${state(m)}`).join(', ') || 'nothing'}`,
     `  latest      ${latest ? `${latest.author?.handle ?? '?'} · ${latest.createdAt}  ${latest.text.split('\n')[0]}` : 'nothing yet'}`,
   ]
-  return { shown: lines.filter((l) => typeof l === 'string').join('\n'), json: { task, needs, downstream, latest } }
+  const everyEvent = events ? ['', `  events      ${events.length}`, ...events.map(eventLine)] : []
+  return { shown: [...lines, ...everyEvent].filter((l) => typeof l === 'string').join('\n'), json: { task, needs, downstream, latest, ...(events ? { events } : {}) } }
 }
 
 const terminal = () => (process.env.CLAUDE_CODE_SESSION_ID ? process.env.HC_TERMINAL_ID : undefined)

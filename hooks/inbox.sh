@@ -9,7 +9,7 @@ project=${route#* }
 
 show_board_inbox_read_fresh() {
   is_the_orchestrator "$input" "$project" || return 0
-  printf '%s' "$input" | node "$hooks/../board/src/cli.ts" inbox --project "$project" 2>/dev/null
+  printf '%s' "$input" | node "$hooks/../board/src/cli.ts" status --line --project "$project" 2>/dev/null
 }
 
 show_tracker_inbox_from_cache() {
