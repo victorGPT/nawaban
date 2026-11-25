@@ -46,7 +46,7 @@ const profileViaUser = (actor: string) => {
   const [who, as] = actor.slice(actor.lastIndexOf(':') + 1).split('+')
   return as ? `${as} via ${who}` : who
 }
-const state = (m: MessageView) => (m.task?.state === 'claimed' && !live(m) ? 'ready' : m.task?.state ?? 'not a task')
+export const state = (m: MessageView) => (m.task?.state === 'claimed' && !live(m) ? 'ready' : m.task?.state ?? 'not a task')
 
 export async function all(query: Parameters<ReturnType<typeof board>['tasks']['list']>[0]) {
   const team = personOwningEveryTaskTheirProfilesMade()

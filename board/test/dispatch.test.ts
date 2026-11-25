@@ -201,7 +201,7 @@ it('refuses an agent it has no row for, and starts nothing', async () => {
 const LANE_WORKER = 't99'
 const WORKER_SESSION = 'bbbb2222-0000'
 
-async function fileTheLaneWorkerAt(worktree: string, lane: string, contextTokens: number, startedAs = ['claude', '--model', 'opus']) {
+async function fileTheLaneWorkerAt(worktree: string, lane: string, contextTokens: number, startedAs = ['claude', '--model', 'opus'], status = 'working') {
   await mkdir(join(tmp, 'workers'), { recursive: true })
   await writeFile(
     join(tmp, 'workers', `${LANE_WORKER}.json`),
@@ -211,6 +211,7 @@ async function fileTheLaneWorkerAt(worktree: string, lane: string, contextTokens
       cwd: worktree,
       argv: ['env', `BOARD_URL=${url}`, ...startedAs, '/pstack:poteto-mode 任务：A'],
       labels: { lane, 'revive.agent': 'claude', 'revive.session': WORKER_SESSION },
+      status: { app: 'claude-code', state: status },
     }),
   )
   await mkdir(join(tmp, 'claude', 'projects', 'worker'), { recursive: true })
@@ -291,6 +292,33 @@ it('routes a ticket made with create --lane to that lane\'s running worker, with
   expect(r.stderr).toBe('')
   expect(r.stdout).toBe('✓ LL-B 指派给在跑的 hc t99（泳道 cli），它做完手上那张自己领 · 回报给 to1\n')
   expect((await team.thread(first)).message.task?.state).toBe('completed')
+})
+
+it('wakes an idle worker holding no ticket to claim the one assigned to it now', async () => {
+  const { worktree } = await laneOfTwoWhereFirstBlocksSecond('LW', 'wake')
+  await cliAsWindowOf(WORKER_SESSION, ['claim', 'LW-A'])
+  await cliAsWindowOf(WORKER_SESSION, ['close', 'LW-A', '--done'])
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LW-B', '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, 'wake', 10_000, undefined, 'done'))
+  expect(r.stderr).toBe('')
+  expect(r.stdout).toBe('✓ LW-B 指派给在跑的 hc t99（泳道 wake），它空着，已叫它现在领 · 回报给 to1\n')
+  expect(r.hc).toMatch(/^send t99 LW-B 指派给你了：跑 nawaban claim --ready 领它/m)
+})
+
+it('leaves an idle worker still holding a ticket to claim the assigned one when it finishes', async () => {
+  const { worktree } = await laneOfTwoWhereFirstBlocksSecond('LH', 'hold')
+  await cliAsWindowOf(WORKER_SESSION, ['claim', 'LH-A'])
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LH-B', '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, 'hold', 10_000, undefined, 'idle'))
+  expect(r.stderr).toBe('')
+  expect(r.stdout).toContain('它做完手上那张自己领')
+  expect(r.hc).not.toMatch(/^send/m)
+})
+
+it('leaves an idle worker unwoken while the ticket assigned to it is still blocked, so claim --ready takes nothing else', async () => {
+  const { worktree } = await laneOfTwoWhereFirstBlocksSecond('LK', 'blocked')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LK-B', '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, 'blocked', 10_000, undefined, 'done'))
+  expect(r.stderr).toBe('')
+  expect(r.stdout).toContain('它做完手上那张自己领')
+  expect(r.hc).not.toMatch(/^send/m)
 })
 
 it('assigns a task still blocked in its lane to the same worker and leaves the claim to it', async () => {

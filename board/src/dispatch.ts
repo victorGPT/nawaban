@@ -9,7 +9,7 @@ import { projectOfThisRepository } from './impact.ts'
 import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
-import { key, labelTerminalThePanelReadsWhileClaimed, profile, resolve, row, sessionProfile } from './tasks.ts'
+import { all, key, labelTerminalThePanelReadsWhileClaimed, live, profile, resolve, row, sessionProfile, state } from './tasks.ts'
 import { answer, EXIT, Refused, type Said } from './said.ts'
 
 const exec = promisify(execFile)
@@ -49,6 +49,7 @@ const BRIEF_NOTE = '派发 brief：'
 const NEXT_BRIEF = '照票正文和票上最新的决定'
 export const NEXT_ACCEPT = '照票上 Acceptance criteria；开 PR 不合并'
 const NOTHING_TO_CLAIM = ['nothing_ready', 'timeout']
+const WAITING_FOR_INPUT = ['done', 'idle']
 type Agent = keyof typeof WORKER_ARGV
 const isAgent = (name: string): name is Agent => Object.hasOwn(WORKER_ARGV, name)
 const USAGE = `用法：nawaban dispatch [<票>] --brief "<目标、范围>" --accept "<怎样算做完>" [--check '<验收命令>']... [--name <worker>] [--agent ${Object.keys(WORKER_ARGV).join('|')}] [--model <m>] [--to <终端> | --new]`
@@ -57,7 +58,7 @@ const USAGE_NEXT = 'nawaban dispatch --help 看每个参数'
 type Args = { ref: string | undefined; name: string | undefined; brief: string; accept: string; checks: string[]; agent: Agent; model: string | undefined; to: string | undefined; fresh: boolean }
 type Checked = { as: string; task: MessageView | null; root: string; orch: string; name: string; who: string; lane: string | null }
 type Worktree = { path: string; branch: string }
-type Terminal = { address: string; name?: string; state?: string; cwd?: string; argv?: string[]; labels?: Record<string, string> }
+type Terminal = { address: string; name?: string; state?: string; status?: { state?: string }; cwd?: string; argv?: string[]; labels?: Record<string, string> }
 type Seat = { reuse: Terminal; task: MessageView } | { reuse: null; passedOver: string[] }
 
 export async function stdoutOrNullOnFailure(cmd: string, args: string[]): Promise<string | null> {
@@ -401,6 +402,14 @@ async function assignToRunningWorker(task: MessageView, worker: Terminal): Promi
   return as
 }
 
+const claimableNowByAnIdleWorkerHoldingNothing = async (task: MessageView, worker: Terminal, as: string) =>
+  state(task) === 'ready' &&
+  WAITING_FOR_INPUT.includes(worker.status?.state ?? '') &&
+  !(await all({ channel: task.channel, state: 'open' })).some((t) => live(t)?.actor?.endsWith(`+${as}`))
+
+const wakeToClaim = async (worker: Terminal, who: string) =>
+  (await stdoutOrNullOnFailure('hc', ['send', worker.address, `${who} 指派给你了：跑 nawaban claim --ready 领它，照打印的 brief 在这个 worktree 切新分支接着做`])) !== null
+
 async function recordDispatchAsThisWindow(c: Checked, a: Args, address: string, worker = c.name) {
   const model = a.model ?? (a.agent === 'claude' ? CLAUDE_MODEL_WHEN_NONE_IS_NAMED : undefined)
   const value = { worker, terminal: address, accept: a.accept, orchestrator: c.orch, agent: a.agent, ...(model ? { model } : {}) }
@@ -445,9 +454,11 @@ export function dispatch(argv: string[]): Promise<number> {
       await recordDispatchAsThisWindow(checked, a, worker.address, worker.name ?? worker.address)
       await recordChecksMergeRuns(checked, a, worker.address)
       await recordBriefThePickupReads(checked, a, seat.task, worker.address)
+      const woken = (await claimableNowByAnIdleWorkerHoldingNothing(seat.task, worker, as)) && (await wakeToClaim(worker, checked.who))
+      const when = woken ? '它空着，已叫它现在领' : '它做完手上那张自己领'
       return {
-        done: `${checked.who} 指派给在跑的 hc ${worker.address}${lane}，它做完手上那张自己领 · 回报给 ${checked.orch}`,
-        json: { ticket: checked.who, terminal: worker.address, profile: as, lane: checked.lane, orchestrator: checked.orch, assigned: true },
+        done: `${checked.who} 指派给在跑的 hc ${worker.address}${lane}，${when} · 回报给 ${checked.orch}`,
+        json: { ticket: checked.who, terminal: worker.address, profile: as, lane: checked.lane, orchestrator: checked.orch, assigned: true, woken },
       }
     }
     const wt = await worktreeOffOriginMain(checked.root, checked.name)
