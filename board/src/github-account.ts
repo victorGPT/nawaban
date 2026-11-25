@@ -11,6 +11,7 @@ const FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END = /^ {0,3}(`{3,}|~{3,
 const DECLARATION = /^github-account:[ \t]*([A-Za-z0-9-]+)[ \t]*\r?$/m
 const RUNS_A_STRING_AS_A_COMMAND = /\b(?:(?:ba|z|da)?sh\s+-\w*c|eval)\b/
 const GRAPHQL_WRITE = /\bmutation\b|--input\b|=@/
+const GRAPHQL_QUERY_WRITTEN_OUT = /\bquery=['"]?\s*(?:query\b|\{)/
 const SEGMENT_END = /[;&|\n)`]|$/
 const HEREDOC_BODY = /<<-?[ \t]*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n[ \t]*\2(?=\s|$)/g
 const QUOTED = /'[^']*'|"(?:\\.|[^"\\])*"/g
@@ -65,7 +66,7 @@ function writesToGithub(args: string[], segment: string): boolean {
   const [group, verb, subVerb] = withoutRepoFlag(args).filter((a) => !a.startsWith('-'))
   if (group === undefined || READ_ONLY_GROUPS.has(group) || args.includes('--help')) return false
   if (group !== 'api') return verb !== undefined && !READ_ONLY_VERBS.has(verb) && !(NESTED_COMMANDS.has(verb) && READ_ONLY_VERBS.has(subVerb ?? ''))
-  if (args.some((a) => a === 'graphql')) return GRAPHQL_WRITE.test(segment)
+  if (args.some((a) => a === 'graphql')) return GRAPHQL_WRITE.test(segment) || !GRAPHQL_QUERY_WRITTEN_OUT.test(segment)
   const at = args.findIndex((a) => API_METHOD.test(a))
   const method = at < 0 ? (args.some((a) => API_SENDS_A_BODY.test(a)) ? 'POST' : 'GET') : API_METHOD.exec(args[at]!)![1] || args[at + 1] || ''
   return method.toUpperCase() !== 'GET'
@@ -113,7 +114,8 @@ function directoryTheCommandIsInAt(cmd: string, blanked: string, at: number, cwd
   return resolve(cwd, target.replace(/^~(?=\/|$)/, homedir()))
 }
 
-export async function whyThisGhWriteMustNotRun(cmd: string, cwd: string, boardDir: string): Promise<string | null> {
+export async function whyThisGhWriteMustNotRun(typed: string, cwd: string, boardDir: string): Promise<string | null> {
+  const cmd = typed.replace(/\\\n/g, '  ')
   const blanked = textBlankedKeepingWhatTheShellRuns(cmd)
   for (const m of blanked.matchAll(GH_ANYWHERE)) {
     const end = m.index + m[0].length
