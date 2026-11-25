@@ -75,3 +75,21 @@ it('says a read landed even when the read again it was asked for meanwhile faile
   expect(landed).toContain(true)
   expect(await kept.read('github:r', 'board', again, { local: false })).toBe('new board')
 })
+
+it('does not read again and again when a stale read keeps failing', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nawaban-kept-'))
+  let clock = 0
+  let attempts = 0
+  const kept = keptReads(dir, (group, changed) => void (changed && group !== 'views' && kept.moved('views')), () => clock)
+  await kept.read('github:r', 'remote', async () => 'cached', { local: true })
+  const offline = async () => {
+    attempts++
+    throw new Error('offline')
+  }
+  const view = () => kept.read('github:r', 'remote', offline, { local: false })
+  await kept.read('views', 'view', view, { local: true })
+  clock = KEPT_FRESH_FOR_MS + 1
+  await kept.read('views', 'view', view, { local: true })
+  await new Promise((r) => setTimeout(r, 100))
+  expect(attempts).toBe(1)
+})

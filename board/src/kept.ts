@@ -60,7 +60,10 @@ export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
         try {
           read = { ok: true, value: await e.again(), at: now(), generation }
         } catch (error) {
-          if (!(error instanceof Refused)) throw error
+          if (!(error instanceof Refused)) {
+            if (changed) return changed
+            throw error
+          }
           read = { ok: false, value: error.message, at: now(), generation }
         }
         const differs = !sameRead(e.read, read)
@@ -80,7 +83,8 @@ export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
       (changed) => landed(e.group, changed),
       (error) => {
         console.error(`reading ${key} failed:`, error)
-        e.read ??= { ok: false, value: `读 ${key} 失败：${(error as Error).message}`, at: now(), generation: generationOf(e.group) }
+        if (e.read) return
+        e.read = { ok: false, value: `读 ${key} 失败：${(error as Error).message}`, at: now(), generation: generationOf(e.group) }
         landed(e.group, true)
       },
     )
