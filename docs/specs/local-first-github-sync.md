@@ -84,7 +84,12 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 - **面板的最新进展**：同一排序规则，GitHub 上已有的按评论 ID，还没推出去的和板上直接写的（不带 marker）排在后面、按写的先后。
 - **已知限制**：`event --kind ask` 写之前旧 CLI 要读 GitHub 查有没有另一件待决，断网时会失败（进展、决定、PR 不受影响）。本地记的已决推出去之前，同事在 GitHub 上又提了新待决，这条已决排在那件待决之后，会被当成答了它。
 
-**状态外推**（-10，自建）：本地关票、重开、认领时，用 adapter 的 octokit 调 `issues.update`、`addAssignees`、`removeAssignees`。本地新建的票要分享，调 `issues.create`，再 `vb sync <id> github:<owner>/<repo>:issue:<N>` 把线程挂上去。在那之前，旧 CLI 的 claim、close 照旧直接改 GitHub 上的 assignee 和状态，只有随之写的评论先写板。
+**状态外推**（-10 实做，自建，和评论同一个发件箱）：不用 adapter 的 octokit。serve 拒绝经 `fetch` 的非 GET 请求，adapter 拿的也是 `reader` 的 token。所以状态外推和评论一样走发件箱的 `gh api`，用按仓库取的推送账号。
+- **认领、交还**：`push` 里的仓库，旧 CLI 的 claim 不再直接 `gh issue edit`，只写 `认领：`、`交还：` 到板上。发件箱推出这条评论后，给推送账号加上或去掉 assignee（幂等，重启后按 uid 找回评论再补）。板上写 `认领：` 时，issue 的 root 有推送账号以外的 `assignee.*`，就拒绝，提示先在 issue 上说好，板上和 GitHub 都不写。
+- **关票、重开**：旧 CLI 的 close 改成 `nawaban hook github-state <owner/repo> <N> completed|not_planned|open`，在 issue 的 root 上记 `github-state-wanted`。关票时板上的任务当场关掉（complete 或 cancel），不等网络。发件箱在这个 issue 排队的评论全推完后才改 GitHub 上的状态（先推「PR：」再关）；root 的 `state` 已经是想要的，就只清掉意图、不改 GitHub（先到的生效）。清意图带 `if`，推送途中又记的新意图不会被清掉。重开推出去后，轮询器按第 3 节开新任务。
+- **分享**：`nawaban share <票>` 只在票的项目对应 `push` 里的仓库时可用，在 root 上记 `github-share`。发件箱用推送账号开 issue（正文末尾带 `<!-- nawaban-share <板上 ID> -->`），再 `sync(<id>, github:<owner>/<repo>:issue:<N>)` 把线程挂上去，并打 `issue=<owner>/<repo>#N`。开之前先打 `github-share-tried-at`，响应丢了的话两分钟后按标记在推送账号开的 issue 里找，找到就不再开。实测挂线程不发网络请求；轮询器第一次见到这个 issue 时，原生把 `state` 打在原线程上，不另建 root，第 3 节把票号改成 `ROUBAO-N`。
+- 没推出去的状态和分享都算进「有 N 条还没推到 GitHub」。
+- 第 5 节「两边同时改」里认领输了要 release 并推 `交还：`，-10 没做。
 
 **写路径**：guard（影响声明、合并锁、待决守卫）的路由不动，到 -11 roubao 的 OKR 搬上板之后再切；板 CLI 的 `event ROUBAO-N` 写的是板上的 block，不推。
 
