@@ -214,6 +214,23 @@ it('writes an answer to a held question, naming it by its words, and keeps the h
   expect((await asPage({ ask: '哪天上线', words: '对旧问题的答复' })).status).toBe(409)
 })
 
+it('refuses an answer to a question that changed after the hold was listed, and posts nothing under the new one', async () => {
+  await create('create', 'Q2', '--title', '问一句', '--project', 'question2')
+  const id = (await team.tasks.list({ state: 'all', label: { key: 'Q2' } })).tasks[0]!.message.id
+  await create('event', id, 'wait', '哪天上线')
+  const threadOfTheBoard = team.thread
+  team.thread = (async (...args: Parameters<typeof threadOfTheBoard>) => {
+    team.thread = threadOfTheBoard
+    await create('event', id, 'resolve', '周五上线')
+    await create('event', id, 'wait', '要不要灰度')
+    return threadOfTheBoard.apply(team, args)
+  }) as typeof threadOfTheBoard
+  const written = await send('/api/nawaban/answer/Q2', { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify({ ask: '哪天上线', words: '对旧问题的答复' }) })
+  team.thread = threadOfTheBoard
+  expect(written.status).toBe(409)
+  expect(JSON.parse((await send('/api/nawaban/answers?project=question2')).body).answers).toEqual([])
+})
+
 it('writes an answer to a 待决 as the local person, keeps the hold, and reads it back', async () => {
   await create('create', 'D1', '--title', '发不发', '--project', 'decide')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'D1' } })).tasks[0]!.message.id

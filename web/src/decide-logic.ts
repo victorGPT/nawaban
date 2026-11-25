@@ -128,13 +128,17 @@ function waitingOfProject(p: ProjectReading): Waiting[] {
     const target = String(k.target).replace(/>=\s*/, '≥ ').replace(/<=\s*/, '≤ ')
     return ((k.value == null ? '没读数' : k.value + unit) + ' / 目标 ' + target + unit).replace(/(\d)(?=[\u4e00-\u9fff])/g, '$1 ')
   }
-  const waits = new Map<string, { objective: string; krs: string[] }>()
-  for (const a of p.okr?.attention ?? []) if (a.kind === 'wait') waits.set(a.text, { objective: a.objective, krs: [...(waits.get(a.text)?.krs ?? []), a.kr] })
-  const okrWaits = [...waits].map(([text, w]): Waiting => ({
+  const waits = new Map<string, { text: string; krs: string[] }>()
+  for (const a of p.okr?.attention ?? []) {
+    if (a.kind !== 'wait') continue
+    const id = 'O「' + a.objective + '」' + a.text
+    waits.set(id, { text: a.text, krs: [...(waits.get(id)?.krs ?? []), a.kr] })
+  }
+  const okrWaits = [...waits].map(([id, w]): Waiting => ({
     project: p.name,
-    id: 'O「' + w.objective + '」',
+    id,
     kind: 'okr',
-    question: text,
+    question: w.text,
     since: null,
     blocks: 0,
     krs: w.krs.length,
@@ -177,3 +181,4 @@ export const ALL_PROJECTS = '全部项目'
 export const projectChoices = (names: string[], withAll: boolean) => (withAll ? [ALL_PROJECTS, ...names] : names)
 export const inScope = (items: Waiting[], scope: string) => (scope === ALL_PROJECTS ? items : items.filter((i) => i.project === scope))
 export const waitingKey = (w: Pick<Waiting, 'project' | 'id'>) => w.project + '/' + w.id
+export const detailKey = (w: Pick<Waiting, 'project' | 'id' | 'ask'>) => waitingKey(w) + '\n' + (w.ask ?? '')

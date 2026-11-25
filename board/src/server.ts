@@ -316,10 +316,11 @@ async function answer(team: Team, asThisPerson: (body: unknown) => Promise<Respo
     return refuse(400, 'bad task key')
   }
   const said = answerSent(await jsonSent(request, ANSWER_SHAPE))
-  const [task] = await team.tasks.list({ state: 'blocked', label: { key: ref } }).then((p) => p.tasks.map((t) => t.message))
-  const hold = task?.task?.blocked
-  if (!task || (hold?.kind !== 'awaiting_approval' && hold?.kind !== 'needs_input')) return refuse(409, `${ref} 没有在等决策者答复`)
-  const { replies } = await team.thread(task.id)
+  const [listed] = await team.tasks.list({ state: 'blocked', label: { key: ref } }).then((p) => p.tasks.map((t) => t.message))
+  if (!listed) return refuse(409, `${ref} 没有在等决策者答复`)
+  const { message: task, replies } = await team.thread(listed.id)
+  const hold = task.task?.blocked
+  if (hold?.kind !== 'awaiting_approval' && hold?.kind !== 'needs_input') return refuse(409, `${ref} 没有在等决策者答复`)
   const githubReplies = await githubRepliesOf(team, task, replies)
   const aQuestionNamesItsHoldByItsWords = hold.kind === 'needs_input'
   const current = aQuestionNamesItsHoldByItsWords ? null : hold.reason.startsWith(HELD_FOR_A_GITHUB_ASK) ? currentGithubAsk(githubReplies) : replies.findLast((m) => !m.deleted && m.blocks.some((b) => b.schema === 'nawaban-ask'))

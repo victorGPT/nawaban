@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import { inProject, nowInSeconds, read, write } from '../api'
-import { ALL_PROJECTS, costOf, inScope, preselected, projectChoices, REPLIES, waitedFor, waitingItems, waitingKey, workerOf, type ProjectReading, type Reply, type Waiting, type WaitingBoard, type WaitingOkr, type WebAnswer } from '../decide-logic'
+import { ALL_PROJECTS, costOf, detailKey, inScope, preselected, projectChoices, REPLIES, waitedFor, waitingItems, waitingKey, workerOf, type ProjectReading, type Reply, type Waiting, type WaitingBoard, type WaitingOkr, type WebAnswer } from '../decide-logic'
 import type { Detail } from '../detail-logic'
 import { ActionRow } from '../components/ActionRow'
 import { AnswerPanel } from '../components/AnswerPanel'
@@ -86,7 +86,7 @@ export function DecidePage(props: { projects: string[]; changes: number }) {
   }
   const many = () => scope() === ALL_PROJECTS && props.projects.length > 1
   const chosen = () => items().find((w) => waitingKey(w) === selected()) ?? items()[0]
-  const answerOf = (key: string) => handed()[key] ?? reading()?.answers[key] ?? null
+  const answerOf = (w: Waiting) => handed()[detailKey(w)] ?? reading()?.answers[waitingKey(w)] ?? null
   const now = () => reading()?.at ?? nowInSeconds()
   const rowMeta = (w: Waiting) => {
     const advice = w.card?.advice
@@ -113,18 +113,18 @@ export function DecidePage(props: { projects: string[]; changes: number }) {
               value={chosen() ? waitingKey(chosen()!) : ''}
               onPick={setSelected}
             >
-              <For each={items()}>{(w) => <InboxRow value={waitingKey(w)} title={w.question} meta={rowMeta(w)} tone={answerOf(waitingKey(w)) ? 'done' : 'wait'} onOpen={() => matchMedia(NARROW).matches && setDetailOpen(true)} />}</For>
+              <For each={items()}>{(w) => <InboxRow value={waitingKey(w)} title={w.question} meta={rowMeta(w)} tone={answerOf(w) ? 'done' : 'wait'} onOpen={() => matchMedia(NARROW).matches && setDetailOpen(true)} />}</For>
             </InboxList>
             <For each={reading()!.failures}>{(f) => <EmptyLine error>{f}</EmptyLine>}</For>
           </ListPane>
-          <For each={chosen() ? [waitingKey(chosen()!)] : []}>
+          <For each={chosen() ? [detailKey(chosen()!)] : []}>
             {(key) => (
-              <Show when={items().find((w) => waitingKey(w) === key)}>
+              <Show when={items().find((w) => detailKey(w) === key)}>
                 {(w) => (
                   <WaitingDetail
                     item={w()}
-                    detail={reading()!.details[key] ?? null}
-                    answer={answerOf(key)}
+                    detail={reading()!.details[waitingKey(w())] ?? null}
+                    answer={answerOf(w())}
                     many={many()}
                     now={now()}
                     onAnswered={(a) => setHanded((all) => ({ ...all, [key]: a }))}

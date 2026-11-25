@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adviceOf, ALL_PROJECTS, choicesOf, costOf, inScope, waitedFor, workerOf, preselected, projectChoices, REPLIES, waitingItems, type Card, type ProjectReading, type WaitingBoard } from './decide-logic'
+import { adviceOf, ALL_PROJECTS, choicesOf, costOf, detailKey, inScope, waitedFor, workerOf, preselected, projectChoices, REPLIES, waitingItems, waitingKey, type Card, type ProjectReading, type WaitingBoard } from './decide-logic'
 
 const TELEGRAM: Card = {
   decision: '要不要开一个肉包官方 Telegram 号，把 Telegram 登录的 bot 转到这个号名下',
@@ -93,7 +93,7 @@ describe('waitingItems', () => {
       ), { asked: { 'NEW-ASK': [{ kind: 'note', body: '等你：新的', at: NOW - 5 }], 'OLD-ASK': [{ kind: 'note', body: 'triage: needs-info — 等你：老的', at: NOW - 500 }] } }),
       project('b', null, { okr: { objectives: [], attention: [{ kind: 'wait', objective: 'O1', kr: 'K1', text: '等你批' }, { kind: 'wait', objective: 'O1', kr: 'K2', text: '等你批' }] } }),
     ])
-    expect(items.map((i) => i.id)).toEqual(['BLOCKER', 'O「O1」', 'CARD', 'OLD-ASK', 'NEW-ASK'])
+    expect(items.map((i) => i.id)).toEqual(['BLOCKER', 'O「O1」等你批', 'CARD', 'OLD-ASK', 'NEW-ASK'])
   })
   it('makes one item per shared OKR wait, with each KR reading and no way to answer it on the board', () => {
     const [okr] = waitingItems([project('r', null, { okr: {
@@ -101,6 +101,14 @@ describe('waitingItems', () => {
       attention: [{ kind: 'wait', objective: 'O1', kr: 'K1', text: '等日期定' }, { kind: 'wait', objective: 'O1', kr: 'K2', text: '等日期定' }, { kind: 'stuck', objective: 'O1', kr: 'K1', text: '不算' }],
     } })])
     expect(okr).toMatchObject({ kind: 'okr', krs: 2, ask: null, question: '等日期定', readings: [{ name: 'K1', reading: '12% / 目标 ≥ 15%' }, { name: 'K2', reading: '没读数 / 目标 ≤ 3 个百分点' }] })
+  })
+  it('keeps two different waits in one O apart, and the same wait in two Os apart', () => {
+    const items = waitingItems([project('r', null, { okr: {
+      objectives: [],
+      attention: [{ kind: 'wait', objective: 'O1', kr: 'K1', text: '等日期定' }, { kind: 'wait', objective: 'O1', kr: 'K2', text: '等预算批' }, { kind: 'wait', objective: 'O2', kr: 'K3', text: '等日期定' }],
+    } })])
+    expect(new Set(items.map(waitingKey)).size).toBe(3)
+    expect(items.map((i) => [i.question, i.readings.map((r) => r.name)])).toEqual(expect.arrayContaining([['等日期定', ['K1']], ['等预算批', ['K2']], ['等日期定', ['K3']]]))
   })
   it('gives a held question on a GitHub board no way to answer, and an unfinished card its card id', () => {
     const items = waitingItems([project('gh', { tracker: 'github', columns: [{ key: 'open', tasks: [open('#1', { waiting: '问一句' }), open('#2', { pending: { at: NOW, card: null, ask: 'c2', brief: '待决：先补卡\n更多' } })] }] })])
@@ -114,6 +122,17 @@ describe('preselected', () => {
     expect(preselected(telegram!)).toBe('A')
     const [adr] = waitingItems([project('r', board(open('D', { pending: { at: NOW, card: { ...ADR, rec: '选第三个：删' }, ask: 'a' } })))])
     expect(preselected(adr!)).toBe('')
+  })
+})
+
+describe('detailKey', () => {
+  it('gives a re-asked card on the same ticket a fresh detail, so its pick and a late answer to the old ask never carry over', () => {
+    const [old] = waitingItems([project('r', board(open('T', { pending: { at: NOW, card: TELEGRAM, ask: 'a1' } })))])
+    const [next] = waitingItems([project('r', board(open('T', { pending: { at: NOW, card: { ...ADR, rec: '选第三个：删' }, ask: 'a2' } })))])
+    expect(waitingKey(next!)).toBe(waitingKey(old!))
+    expect(detailKey(next!)).not.toBe(detailKey(old!))
+    expect(detailKey(next!).startsWith('r/')).toBe(true)
+    expect(preselected(next!)).toBe('')
   })
 })
 
