@@ -1,0 +1,11 @@
+[data-skin="hardware"] [data-kit="popover-surface"][data-size="calendar"]:not(#_):not(#_):not(#_) {
+  @starting-style {
+    transform: perspective(1000px) rotateX(90deg);
+  }
+}
+[data-skin="hardware"] [data-kit="popover-surface"][data-size="date-device"]:not(#_):not(#_):not(#_) {
+  @starting-style {
+    scale: 0.7;
+    opacity: 0;
+  }
+}

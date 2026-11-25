@@ -1,0 +1,10 @@
+@property --wall-l {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 3px;
+}
+@property --wall-r {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 3px;
+}

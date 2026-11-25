@@ -1,0 +1,786 @@
+[data-skin="hardware"] {
+  --paper: #f3f3f1;
+  --panel: #d9d9d6;
+  --panel-hi: #e3e3e0;
+  --ink: #1d1d1c;
+  --dim: #77777372;
+  --dim: #7a7a76;
+  --light-key: #ececea;
+  --light-edge: #b3b3af;
+  --charcoal: #2a2a29;
+  --charcoal-edge: #0f0f0f;
+  --key-color: var(--theme, #1c1c1c);
+  --key-color-edge: color-mix(in oklab, var(--key-color) 70%, #000);
+  --sans: "Spec Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --mono: var(--sans);
+  --label: 500 10px/1.2 var(--sans);
+  --dim: #7a7a76;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--sans);
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  & :is(
+      [data-kit="button"],
+      [data-kit="checkbox"],
+      [data-kit="segment"],
+      [data-kit="toggle"],
+      [data-kit="page"],
+      [data-kit="calendar-nav"],
+      [data-kit="tab"],
+      [data-kit="menubar-trigger"],
+      [data-kit="radio"]
+    ) {
+    font: var(--label);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink);
+    border-radius: calc(5px * var(--corner-scale));
+    background: linear-gradient(180deg, #f6f6f4, var(--light-key));
+    box-shadow:
+      inset 0 1px 0 #fff,
+      0 3px 0 var(--light-edge),
+      0 5px 7px -3px rgb(0 0 0 / calc(0.3 * var(--shadow-k)));
+    transition:
+      translate 60ms,
+      box-shadow 60ms;
+    &:active {
+      translate: 0 2px;
+      box-shadow:
+        inset 0 1px 0 #fff,
+        0 1px 0 var(--light-edge),
+        0 2px 3px -1px rgb(0 0 0 / calc(0.25 * var(--shadow-k)));
+    }
+  }
+  & :is([data-kit="segment"], [data-kit="toggle"], [data-kit="page"], [data-kit="button"][data-shape="round"]) {
+    color: #f2f2f0;
+    background: linear-gradient(180deg, #3b3b3a, var(--charcoal));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.12),
+      0 3px 0 var(--charcoal-edge),
+      0 5px 7px -3px rgb(0 0 0 / calc(0.4 * var(--shadow-k)));
+    &:active {
+      box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.12),
+        0 1px 0 var(--charcoal-edge);
+    }
+  }
+  & :is(
+      [data-kit="button"][data-tone="primary"],
+      [data-kit="segment"][data-selected],
+      [data-kit="page"][aria-current="page"],
+      [data-kit="tab"][data-selected],
+      [data-kit="menubar-trigger"][data-open]
+    ) {
+    color: #fff;
+    background: linear-gradient(180deg, color-mix(in oklab, var(--key-color), #fff 18%), var(--key-color));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.3),
+      0 3px 0 var(--key-color-edge),
+      0 5px 7px -3px color-mix(in oklab, var(--key-color-edge) 50%, transparent);
+  }
+  & [data-kit="button"]:not([data-shape]) {
+    min-width: 72px;
+  }
+  & [data-kit="button"][data-shape="round"] {
+    border-radius: 50%
+  }
+  & :is([data-kit="input"], [data-kit="select-trigger"], [data-kit="otp-slot"]) {
+    font: 400 14px var(--sans);
+    text-transform: none;
+    color: var(--ink);
+    background: var(--light-key);
+    box-shadow:
+      inset 0 1px 3px rgb(0 0 0 / calc(0.22 * var(--shadow-k))),
+      0 1px 0 #fff;
+    caret-color: var(--key-color);
+  }
+  & :is([data-kit="popup"], [data-kit="popup"][data-slot="select-content"], [data-kit="popup"][data-slot="menu-content"]) {
+    color: var(--ink);
+    background: var(--panel-hi);
+    box-shadow:
+      inset 0 0 0 1px #c9c9c5,
+      0 16px 30px -12px rgb(0 0 0 / calc(0.3 * var(--shadow-k)));
+    text-transform: none;
+    & [data-highlighted] {
+      color: #fff;
+      background: var(--key-color);
+    }
+    & [data-selected]::after {
+      color: inherit;
+    }
+  }
+  & [data-kit="option"] {
+    font: 400 13px var(--sans);
+  }
+}
+[data-skin="hardware"] {
+  --paper: #fbfbf9;
+  --panel: #f0efeb;
+  --panel-hi: #f7f6f3;
+  --dim: #8f8d87;
+  --light-key: #fcfcfa;
+  --light-edge: #d3d1cb;
+  --recess: #e9e8e3;
+  & :is([data-kit="segment"], [data-kit="toggle"], [data-kit="page"], [data-kit="button"][data-shape="round"]):not(
+      [data-selected],
+      [data-checked],
+      [aria-current="page"]
+    ) {
+    color: var(--ink);
+    background: linear-gradient(180deg, #ffffff, var(--light-key));
+    box-shadow:
+      inset 0 1px 0 #fff,
+      0 3px 0 var(--light-edge),
+      0 5px 8px -4px rgb(60 50 40 / calc(0.25 * var(--shadow-k)))
+  }
+  & :is([data-kit="button"], [data-kit="checkbox"], [data-kit="tab"], [data-kit="calendar-nav"], [data-kit="menubar-trigger"], [data-kit="radio"]):not(
+      [data-tone="primary"],
+      [data-tone="danger"],
+      [data-selected],
+      [data-open]
+    ) {
+    background: linear-gradient(180deg, #ffffff, var(--light-key));
+    box-shadow:
+      inset 0 1px 0 #fff,
+      0 3px 0 var(--light-edge),
+      0 5px 8px -4px rgb(60 50 40 / calc(0.25 * var(--shadow-k)));
+  }
+  & :is([data-kit="input"], [data-kit="select-trigger"], [data-kit="otp-slot"]) {
+    background: var(--recess);
+    box-shadow:
+      inset 0 1px 3px rgb(0 0 0 / calc(0.14 * var(--shadow-k))),
+      0 1px 0 #fff;
+  }
+  & :is([data-kit="dialog-surface"], [data-kit="popover-surface"], [data-kit="popup"]) {
+    background: var(--panel-hi);
+    box-shadow:
+      inset 0 0 0 1px #e2e0da,
+      0 24px 50px -20px rgb(60 50 40 / calc(0.3 * var(--shadow-k)));
+  }
+}
+[data-skin="hardware"] {
+  &,
+  & * {
+    scrollbar-width: thin;
+    scrollbar-color: #cbc9c3 transparent;
+  }
+  & ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  & ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  & ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: calc(8px * var(--corner-scale));
+    background: #cbc9c3 padding-box;
+    &:hover {
+      background-color: var(--key-color);
+    }
+  }
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"],
+    [data-kit="checkbox"],
+    [data-kit="segment"],
+    [data-kit="toggle"],
+    [data-kit="page"],
+    [data-kit="calendar-nav"],
+    [data-kit="tab"],
+    [data-kit="menubar-trigger"],
+    [data-kit="radio"]
+  ):active:not([data-disabled], :disabled) {
+  translate: 0 2px;
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 1px 0 var(--light-edge),
+    0 3px 8px -4px rgb(60 50 40 / calc(0.25 * var(--shadow-k)));
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"][data-tone="primary"],
+    [data-kit="segment"][data-checked],
+    [data-kit="tab"][data-selected],
+    [data-kit="page"][aria-current="page"]
+  ):active {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 1px 0 var(--key-color-edge),
+    0 3px 8px -4px color-mix(in oklab, var(--key-color-edge) 50%, transparent);
+}
+[data-skin="hardware"] {
+  --paper: #eeeeec;
+  --panel: #fbfbfa;
+  --soft-rest:
+    inset 0 1px 0 #fff, inset 0 -1px 1px rgb(0 0 0 / calc(0.04 * var(--shadow-k))), 0 1px 1px rgb(0 0 0 / calc(0.08 * var(--shadow-k))), 0 2px 4px rgb(0 0 0 / calc(0.06 * var(--shadow-k))),
+    0 10px 18px -6px rgb(0 0 0 / calc(0.16 * var(--shadow-k)));
+  --soft-press: inset 0 1px 2px rgb(0 0 0 / calc(0.08 * var(--shadow-k))), 0 0 0 1px rgb(0 0 0 / calc(0.04 * var(--shadow-k))), 0 1px 2px rgb(0 0 0 / calc(0.08 * var(--shadow-k)));
+  --soft-well: inset 0 1px 3px rgb(0 0 0 / 0.1), inset 0 0 0 1px rgb(0 0 0 / 0.03);
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"],
+    [data-kit="checkbox"],
+    [data-kit="segment"],
+    [data-kit="toggle"],
+    [data-kit="page"],
+    [data-kit="calendar-nav"],
+    [data-kit="tab"],
+    [data-kit="menubar-trigger"],
+    [data-kit="radio"]
+  ):not(#_) {
+  color: var(--ink);
+  background: linear-gradient(180deg, #ffffff, #f6f6f5);
+  box-shadow: var(--soft-rest);
+  translate: none;
+  &:active {
+    translate: none;
+    scale: 0.98;
+    background: linear-gradient(180deg, #f7f7f6, #f1f1f0);
+    box-shadow: var(--soft-press);
+  }
+}
+[data-skin="hardware"] [data-kit="button"]:not([data-shape]):not(#_) {
+  border-radius: calc(12px * var(--corner-scale));
+}
+[data-skin="hardware"] [data-kit="button"][data-tone="primary"]:not(#_) {
+  color: #fff;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--key-color), #fff 18%), var(--key-color));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 1px 1px color-mix(in oklab, var(--key-color-edge) 20%, transparent),
+    0 10px 18px -6px color-mix(in oklab, var(--key-color) 45%, transparent);
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="input"],
+    [data-kit="select-trigger"],
+    [data-kit="otp-slot"],
+    [data-kit="stepper-input"],
+    [data-kit="bars-plot"],
+    [data-kit="meter-track"],
+    [data-kit="tab-panel"]
+  ):not(#_) {
+  border-radius: calc(10px * var(--corner-scale));
+  background: #ececea;
+  box-shadow: var(--soft-well);
+}
+[data-skin="hardware"] :is([data-kit="popup"], [data-kit="dialog-surface"], [data-kit="popover-surface"]):not(#_) {
+  border-radius: calc(14px * var(--corner-scale));
+  background: var(--panel);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / calc(0.04 * var(--shadow-k))), 0 4px 10px rgb(0 0 0 / calc(0.06 * var(--shadow-k))), 0 30px 60px -20px rgb(0 0 0 / calc(0.25 * var(--shadow-k)));
+}
+[data-skin="hardware"] {
+  --key-edge: #dcdcd8;
+  --soft-rest:
+    inset 0 1px 0 #fff, 0 3px 0 var(--key-edge), 0 4px 1px rgb(0 0 0 / calc(0.06 * var(--shadow-k))), 0 5px 4px rgb(0 0 0 / calc(0.05 * var(--shadow-k))),
+    0 14px 20px -8px rgb(0 0 0 / calc(0.18 * var(--shadow-k)));
+  --soft-press:
+    inset 0 1px 0 #fff, 0 1px 0 var(--key-edge), 0 2px 1px rgb(0 0 0 / calc(0.07 * var(--shadow-k))), 0 5px 4px rgb(0 0 0 / calc(0.04 * var(--shadow-k))),
+    0 12px 18px -8px rgb(0 0 0 / calc(0.14 * var(--shadow-k)));
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"],
+    [data-kit="checkbox"],
+    [data-kit="toggle"],
+    [data-kit="page"],
+    [data-kit="calendar-nav"],
+    [data-kit="radio"]
+  ):not(#_) {
+  &:active {
+    scale: none;
+    translate: 0 2px;
+    box-shadow: var(--soft-press);
+  }
+}
+[data-skin="hardware"] [data-kit="button"][data-tone="primary"]:not(#_) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 3px 0 var(--key-color-edge),
+    0 5px 4px color-mix(in oklab, var(--key-color-edge) 12%, transparent),
+    0 14px 20px -8px color-mix(in oklab, var(--key-color) 45%, transparent);
+  &:active {
+    translate: 0 2px;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.3),
+      0 1px 0 var(--key-color-edge),
+      0 3px 3px color-mix(in oklab, var(--key-color-edge) 12%, transparent),
+      0 12px 18px -8px color-mix(in oklab, var(--key-color) 40%, transparent);
+  }
+}
+[data-skin="hardware"] {
+  --engraved: 0 1px 0 rgb(255 255 255 / 0.95), 0 -1px 0 rgb(0 0 0 / 0.07);
+  --embossed: 0 1px 1px rgb(0 0 0 / 0.25), 0 -1px 0 rgb(255 255 255 / 0.12);
+  text-shadow: var(--engraved);
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"][data-tone="primary"],
+    [data-kit="button"][data-tone="danger"],
+    [data-kit="page"][aria-current="page"],
+    [data-kit="badge"][data-tone="danger"],
+    [data-kit="badge"][data-tone="warning"],
+    [data-kit="nav-count"]
+  ):not(#_) {
+  text-shadow: var(--embossed);
+}
+[data-skin="hardware"] :is([data-kit="input"], [data-kit="select-trigger"], [data-kit="otp-slot"], [data-kit="tab-panel"]) {
+  text-shadow: 0 1px 0 rgb(255 255 255 / 0.8);
+}
+[data-skin="hardware"] [data-icon] {
+  text-transform: none;
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"][data-tone="primary"],
+    [data-kit="badge"][data-tone="danger"],
+    [data-kit="badge"][data-tone="warning"],
+    [data-kit="calendar-day"][data-selected]
+  ):not(#_) {
+  color: var(--on-accent);
+}
+[data-skin="hardware"] {
+  --engraved: 0 1px 0 rgb(255 255 255 / 0.85);
+}
+[data-skin="hardware"] [data-kit="input"]:not(#_) {
+  color: #f1f1ed;
+  background: linear-gradient(180deg, #1b1b1a, #111110);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    inset 0 2px 6px rgb(0 0 0 / calc(0.6 * var(--shadow-k))),
+    0 1px 0 #fff,
+    0 0 0 1px rgb(0 0 0 / calc(0.08 * var(--shadow-k)));
+  text-shadow: none;
+  caret-color: var(--key-color);
+  &::placeholder {
+    color: #6d6d68;
+  }
+  &::selection {
+    color: var(--on-accent);
+    background: var(--key-color);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--key-color);
+    outline-offset: 2px;
+  }
+}
+[data-skin="hardware"] [data-kit="input"]:not(#_) {
+  border: 2px solid #1a1918;
+  border-radius: calc(12px * var(--corner-scale));
+  color: #f4f4f0;
+  background:
+    radial-gradient(130% 160% at 50% 50%, #090908 52%, #141413 78%, #22211f 100%),
+    #0b0b0a;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.05),
+    inset 0 0 10px 2px rgb(255 255 255 / 0.07),
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    inset 0 -1px 0 rgb(0 0 0 / calc(0.6 * var(--shadow-k))),
+    0 1px 0 #fff,
+    0 2px 6px -2px rgb(0 0 0 / calc(0.25 * var(--shadow-k)));
+  text-shadow: 0 0 6px rgb(255 255 255 / 0.18);
+  caret-color: var(--key-color);
+  caret-shape: block;
+  &:focus-visible {
+    outline: 3px solid var(--key-color);
+    outline-offset: 4px;
+  }
+}
+[data-skin="hardware"] :is([data-kit="segment"], [data-kit="menubar-trigger"]):not([data-checked], [data-selected], [data-open]):active:not(#_) {
+  translate: none;
+  background: rgb(0 0 0 / 0.04);
+}
+[data-skin="hardware"] {
+  --slot: #262624;
+  --key-rest:
+    inset 0 1px 0 rgb(255 255 255 / 0.95), inset 0 -3px 0 var(--key-edge), inset 0 -4px 3px rgb(0 0 0 / calc(0.04 * var(--shadow-k))),
+    0 0 0 2px var(--slot), 0 1px 0 2px rgb(255 255 255 / 0.7);
+  --key-down:
+    inset 0 2px 3px rgb(0 0 0 / calc(0.14 * var(--shadow-k))), inset 0 -1px 0 var(--key-edge), 0 0 0 2px var(--slot),
+    0 1px 0 2px rgb(255 255 255 / 0.7);
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"],
+    [data-kit="checkbox"],
+    [data-kit="toggle"],
+    [data-kit="page"],
+    [data-kit="calendar-nav"],
+    [data-kit="radio"]
+  ):not(#_) {
+  border-radius: calc(6px * var(--corner-scale));
+  background: linear-gradient(180deg, #fdfdfc, #efefec);
+  box-shadow: var(--key-rest);
+  translate: none;
+  &:active {
+    translate: none;
+    scale: none;
+    background: linear-gradient(180deg, #f1f1ee, #e9e9e6);
+    box-shadow: var(--key-down);
+  }
+}
+[data-skin="hardware"] [data-kit="button"][data-shape="round"]:not(#_) {
+  border-radius: 50%;
+}
+[data-skin="hardware"] [data-kit="button"][data-tone="primary"]:not(#_) {
+  --key-edge: color-mix(in oklab, var(--key-color), #000 28%);
+  color: var(--on-accent);
+  font-weight: 400;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--key-color), #fff 10%), var(--key-color));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    inset 0 -3px 0 var(--key-edge),
+    0 0 0 2px var(--slot),
+    0 1px 0 2px rgb(255 255 255 / 0.7);
+  &:active {
+    background: linear-gradient(180deg, var(--key-color), color-mix(in oklab, var(--key-color), #000 6%));
+    box-shadow:
+      inset 0 2px 3px rgb(0 0 0 / calc(0.2 * var(--shadow-k))),
+      inset 0 -1px 0 var(--key-edge),
+      0 0 0 2px var(--slot),
+      0 1px 0 2px rgb(255 255 255 / 0.7);
+  }
+}
+[data-skin="hardware"] {
+  --slot: #34332f;
+}
+[data-skin="hardware"] {
+  --key-rest:
+    inset 0 1px 0 rgb(255 255 255 / 0.95), inset 0 -3px 0 var(--key-edge), 0 0 0 1px rgb(0 0 0 / calc(0.06 * var(--shadow-k))),
+    0 1px 2px rgb(0 0 0 / calc(0.1 * var(--shadow-k))), 0 8px 14px -6px rgb(0 0 0 / calc(0.22 * var(--shadow-k)));
+  --key-down:
+    inset 0 2px 3px rgb(0 0 0 / calc(0.12 * var(--shadow-k))), inset 0 -1px 0 var(--key-edge), 0 0 0 1px rgb(0 0 0 / calc(0.06 * var(--shadow-k))),
+    0 1px 1px rgb(0 0 0 / calc(0.08 * var(--shadow-k)));
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"]:not([data-shape="round"]),
+    [data-kit="checkbox"],
+    [data-kit="toggle"],
+    [data-kit="page"],
+    [data-kit="calendar-nav"]
+  ):not(#_) {
+  border-radius: calc(4px * var(--corner-scale));
+}
+[data-skin="hardware"] [data-kit="button"][data-tone="primary"]:not(#_) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    inset 0 -3px 0 var(--key-edge),
+    0 1px 2px rgb(0 0 0 / calc(0.14 * var(--shadow-k))),
+    0 8px 14px -6px color-mix(in oklab, var(--key-color) 55%, transparent);
+  &:active {
+    box-shadow:
+      inset 0 2px 3px rgb(0 0 0 / calc(0.2 * var(--shadow-k))),
+      inset 0 -1px 0 var(--key-edge),
+      0 1px 1px rgb(0 0 0 / calc(0.1 * var(--shadow-k)));
+  }
+}
+[data-skin="hardware"] :is([data-kit="popup"], [data-kit="popover-surface"], [data-kit="dialog-surface"]):not(#_) {
+  border-radius: calc(8px * var(--corner-scale));
+  padding: 4px;
+}
+[data-skin="hardware"] [data-kit="option"]:not(#_) {
+  gap: 8px;
+  border-radius: calc(4px * var(--corner-scale));
+  &[data-highlighted] {
+    color: var(--on-accent);
+    background: var(--key-color);
+    text-shadow: none;
+  }
+}
+[data-skin="hardware"] [data-kit="button"][data-open]:not([data-tone="primary"]):not(#_) {
+  background: linear-gradient(180deg, #f1f1ee, #e9e9e6);
+  box-shadow: var(--key-down);
+}
+[data-skin="hardware"] :is([data-kit="segment"]):not([data-checked], [data-selected], [data-open]):active:not(#_) {
+  background: transparent;
+}
+[data-skin="hardware"] {
+  --key-rest:
+    inset 0 1px 0 rgb(255 255 255 / 0.95), inset 0 -1px 1px rgb(0 0 0 / calc(0.04 * var(--shadow-k))), 0 0 0 1px rgb(0 0 0 / calc(0.05 * var(--shadow-k))),
+    0 3px 0 var(--key-edge), 0 4px 2px rgb(0 0 0 / calc(0.08 * var(--shadow-k))), 0 12px 16px -6px rgb(0 0 0 / calc(0.2 * var(--shadow-k)));
+  --key-down:
+    inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 1px 3px rgb(0 0 0 / calc(0.06 * var(--shadow-k))), 0 0 0 1px rgb(0 0 0 / calc(0.05 * var(--shadow-k))),
+    0 1px 0 var(--key-edge), 0 2px 2px rgb(0 0 0 / calc(0.08 * var(--shadow-k))), 0 10px 16px -6px rgb(0 0 0 / calc(0.18 * var(--shadow-k)));
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"],
+    [data-kit="checkbox"],
+    [data-kit="toggle"],
+    [data-kit="page"],
+    [data-kit="calendar-nav"],
+    [data-kit="radio"]
+  ):not(#_) {
+  box-shadow: var(--key-rest);
+  &:active {
+    translate: 0 2px;
+    box-shadow: var(--key-down);
+  }
+}
+[data-skin="hardware"] [data-kit="button"][data-open]:not([data-tone="primary"]):not(#_) {
+  translate: 0 2px;
+  box-shadow: var(--key-down);
+}
+[data-skin="hardware"] [data-kit="button"][data-tone="primary"]:not(#_) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 3px 0 var(--key-edge),
+    0 4px 2px rgb(0 0 0 / calc(0.1 * var(--shadow-k))),
+    0 12px 16px -6px color-mix(in oklab, var(--key-color) 55%, transparent);
+  &:active {
+    translate: 0 2px;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.2),
+      inset 0 1px 3px rgb(0 0 0 / calc(0.12 * var(--shadow-k))),
+      0 1px 0 var(--key-edge),
+      0 2px 2px rgb(0 0 0 / calc(0.1 * var(--shadow-k))),
+      0 10px 16px -6px color-mix(in oklab, var(--key-color) 50%, transparent);
+  }
+}
+[data-skin="hardware"] [data-kit="radio-group"]:not(#_),
+[data-skin="hardware"] [data-kit="surface"]:has(> [data-kit="check"]):not(#_) {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(72px, 1fr);
+  justify-items: center;
+  gap: 8px;
+}
+[data-skin="hardware"] [data-kit="radio-group"]:not(#_),
+[data-skin="hardware"] [data-kit="surface"]:has(> [data-kit="check"]):not(#_) {
+  grid-auto-columns: minmax(0, 1fr);
+  width: 100%;
+}
+[data-skin="hardware"] [data-kit="icon"][data-icon]:not(#_) {
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  rotate: none;
+  translate: none;
+  box-shadow: none;
+  text-shadow: none;
+  &::before {
+    content: none;
+  }
+}
+@property --lift {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+[data-skin="hardware"] [data-kit="radio-group"] > [data-kit="check"]:not(#_) {
+  display: grid;
+  width: 100%;
+  gap: 0;
+  & > * {
+    grid-area: 1 / 1;
+  }
+}
+[data-skin="hardware"] {
+  --led-size: 5px;
+  --led-color: var(--theme, #1c1c1c);
+  --led-off: #cfcdc7;
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"],
+    [data-kit="icon-button"],
+    [data-kit="toggle"],
+    [data-kit="segment"],
+    [data-kit="tab"],
+    [data-kit="check"],
+    [data-kit="switch-row"],
+    [data-kit="page"],
+    [data-kit="page-gap"],
+    [data-kit="menubar-trigger"],
+    [data-kit="calendar-nav"],
+    [data-kit="calendar-heading"],
+    [data-kit="calendar-weekday"],
+    [data-kit="calendar-day"],
+    [data-kit="accordion-trigger"],
+    [data-kit="select-trigger"],
+    [data-kit="option"],
+    [data-kit="knob"],
+    [data-kit="label"],
+    [data-kit="caption"],
+    [data-kit="value"],
+    [data-kit="badge"],
+    [data-kit="kbd"],
+    [data-kit="nav-item"],
+    [data-kit="nav-heading"],
+    [data-kit="carousel-indicators"],
+    [data-kit="tile"],
+    [data-kit="bars-axis"],
+    [data-kit="resizable-panel"],
+    [data-kit="stat-delta"]
+  ) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+:where([data-skin="hardware"], [data-skin="hardware"] *),
+:where([data-skin="hardware"] *)::before,
+:where([data-skin="hardware"] *)::after {
+  corner-shape: squircle;
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"][data-shape="round"],
+    [data-kit="switch"],
+    [data-kit="switch-thumb"],
+    [data-kit="knob-dial"],
+    [data-kit="knob-cap"],
+    [data-kit="avatar"],
+    [data-kit="led"],
+    [data-kit="radio-indicator"],
+    [data-kit="checkbox-indicator"],
+    [data-kit="carousel-indicator"],
+    [data-kit="scroll-area-thumb"],
+    [data-kit="slider-thumb"],
+    [data-kit="skeleton-block"][data-shape="circle"]
+  ),
+[data-skin="hardware"]
+  :is(
+    [data-kit="knob-dial"],
+    [data-kit="knob-cap"],
+    [data-kit="slider-thumb"],
+    [data-kit="switch"],
+    [data-kit="toggle"],
+    [data-kit="accordion-trigger"],
+    [data-kit="button"][data-shape="round"]
+  )::after,
+[data-skin="hardware"]
+  :is([data-kit="knob-dial"], [data-kit="slider-thumb"], [data-kit="switch"], [data-kit="alert"], [data-kit="badge"], [data-kit="breadcrumb-current"])::before {
+  corner-shape: round;
+}
+[data-skin="hardware"] {
+  --corner-scale: 1;
+}
+@supports (corner-shape: squircle) {
+  [data-skin="hardware"] {
+    --corner-scale: 2;
+  }
+}
+[data-skin="hardware"] [data-kit="button"][data-tone="primary"]:active:not(#_) {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--key-color), #fff 6%), color-mix(in oklab, var(--key-color), #000 5%));
+}
+[data-skin="hardware"] {
+  --key-radius: calc(10px * var(--corner-scale));
+}
+[data-skin="hardware"]
+  :is(
+    [data-kit="button"]:not([data-shape="round"]),
+    [data-kit="toggle"],
+    [data-kit="page"],
+    [data-kit="calendar-nav"],
+    [data-kit="menubar-trigger"],
+    [data-kit="icon-button"],
+    [data-kit="radio"],
+    [data-kit="checkbox"]
+  ):not(#_):not(#_) {
+  border-radius: var(--key-radius);
+}
+[data-skin="hardware"] {
+  --led-glow: 0 0 4px 1px color-mix(in oklab, var(--led-color) 50%, transparent);
+}
+[data-skin="hardware"] :is([data-kit="radio-indicator"], [data-kit="checkbox-indicator"])[data-checked]:not(#_):not(#_),
+[data-skin="hardware"] [data-kit="carousel-indicator"]:is([aria-selected="true"], [data-selected]):not(#_):not(#_),
+[data-skin="hardware"] [data-kit="segment"][data-checked] > [data-kit="led"]:not(#_):not(#_),
+[data-skin="hardware"] [data-kit="toggle"]:is([data-pressed], [aria-pressed="true"]):not(#_):not(#_)::after,
+[data-skin="hardware"] [data-kit="accordion-trigger"]:is([aria-expanded="true"], [data-panel-open], [data-open]):not(#_):not(#_)::after,
+[data-skin="hardware"] :is([data-kit="alert"], [data-kit="badge"], [data-kit="breadcrumb-current"]):not(#_):not(#_)::before,
+[data-skin="hardware"] [data-kit="side-tab"]:is([aria-selected="true"], [data-selected]):not(#_):not(#_)::before,
+[data-skin="hardware"] [data-kit="navbar-link"][aria-current]::before,
+[data-skin="hardware"] [data-list] button[aria-current="true"]::before,
+[data-skin="hardware"] [data-device-power][data-on] {
+  box-shadow: var(--led-glow);
+}
+[data-skin="hardware"] {
+  --shadow-color: 45deg 8% 30%;
+  --elev-mid:
+    0.5px 1px 1px hsl(var(--shadow-color) / calc(0.08 * var(--shadow-k))), 1px 2px 2px hsl(var(--shadow-color) / calc(0.08 * var(--shadow-k))),
+    2px 4px 4px hsl(var(--shadow-color) / calc(0.08 * var(--shadow-k))), 4px 8px 8px hsl(var(--shadow-color) / calc(0.08 * var(--shadow-k))),
+    8px 16px 16px hsl(var(--shadow-color) / calc(0.07 * var(--shadow-k)));
+  --elev-high:
+    0.5px 1px 1px hsl(var(--shadow-color) / calc(0.1 * var(--shadow-k))), 1px 2px 2px hsl(var(--shadow-color) / calc(0.1 * var(--shadow-k))),
+    2px 4px 4px hsl(var(--shadow-color) / calc(0.1 * var(--shadow-k))), 4px 8px 8px hsl(var(--shadow-color) / calc(0.1 * var(--shadow-k))),
+    8px 16px 16px hsl(var(--shadow-color) / calc(0.1 * var(--shadow-k))), 16px 32px 32px hsl(var(--shadow-color) / calc(0.1 * var(--shadow-k)));
+  --key-cast:
+    0.25px 3.5px 1px hsl(var(--shadow-color) / calc(0.16 * var(--shadow-k))), 1px 5px 3px hsl(var(--shadow-color) / calc(0.12 * var(--shadow-k))),
+    2px 7px 6px -1px hsl(var(--shadow-color) / calc(0.12 * var(--shadow-k))), 4px 11px 12px -3px hsl(var(--shadow-color) / calc(0.14 * var(--shadow-k)));
+  --key-cast-down:
+    0.25px 1.5px 1px hsl(var(--shadow-color) / calc(0.16 * var(--shadow-k))), 1px 3px 3px hsl(var(--shadow-color) / calc(0.12 * var(--shadow-k))),
+    2px 5px 6px -1px hsl(var(--shadow-color) / calc(0.12 * var(--shadow-k))), 4px 9px 12px -3px hsl(var(--shadow-color) / calc(0.14 * var(--shadow-k)));
+  --key-rest:
+    inset 0 1px 0 rgb(255 255 255 / 0.95), inset 0 -1px 1px rgb(0 0 0 / calc(0.04 * var(--shadow-k))), 0 0 0 1px hsl(var(--shadow-color) / calc(0.08 * var(--shadow-k))),
+    0 3px 0 var(--key-edge), var(--key-cast);
+  --key-down:
+    inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 1px 3px rgb(0 0 0 / calc(0.06 * var(--shadow-k))), 0 0 0 1px hsl(var(--shadow-color) / calc(0.08 * var(--shadow-k))),
+    0 1px 0 var(--key-edge), var(--key-cast-down);
+  --soft-rest: inset 0 1px 0 #fff, 0 3px 0 var(--key-edge), var(--key-cast);
+  --soft-press: inset 0 1px 0 #fff, 0 1px 0 var(--key-edge), var(--key-cast-down);
+}
+[data-skin="hardware"] :is([data-kit="module"], [data-kit="card"]):not(#_):not(#_),
+[data-skin="hardware"] [data-device] {
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 0 0 1px hsl(var(--shadow-color) / calc(0.06 * var(--shadow-k))),
+    var(--elev-mid);
+}
+[data-skin="hardware"]
+  :is([data-kit="popup"], [data-kit="dialog-surface"], [data-kit="popover-surface"], [data-kit="toast"], [data-kit="tooltip"]):not(#_):not(#_) {
+  box-shadow:
+    0 0 0 1px hsl(var(--shadow-color) / calc(0.1 * var(--shadow-k))),
+    var(--elev-high);
+}
+[data-modality="pointer"] [data-skin="hardware"] [data-kit="input"]:focus-visible:not(#_):not(#_):not(#_),
+[data-modality="pointer"] [data-skin="hardware"] [data-kit="wheel-frame"]:has(:focus-visible):not(#_):not(#_):not(#_) {
+  outline: none;
+}
+[data-skin="hardware"] {
+  --shadow-k: 0.9;
+}
+[data-skin="hardware"] {
+  --key-cast:
+    0 3.5px 1px hsl(var(--shadow-color) / calc(0.13 * var(--shadow-k))),
+    0 4.5px 3px hsl(var(--shadow-color) / calc(0.07 * var(--shadow-k))),
+    0.5px 6px 9px -3px hsl(var(--shadow-color) / calc(0.09 * var(--shadow-k)));
+  --key-cast-down:
+    0 1.5px 1px hsl(var(--shadow-color) / calc(0.13 * var(--shadow-k))),
+    0 2.5px 3px hsl(var(--shadow-color) / calc(0.07 * var(--shadow-k))),
+    0.5px 4px 8px -3px hsl(var(--shadow-color) / calc(0.09 * var(--shadow-k)));
+}
+[data-skin="hardware"] [data-kit="button"][data-tone="primary"]:not(:active):not(#_):not(#_):not(#_) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 3px 0 color-mix(in oklab, var(--key-color), #000 30%),
+    0 3.5px 1px rgb(0 0 0 / calc(0.12 * var(--shadow-k))),
+    0 6px 10px -3px color-mix(in oklab, var(--key-color) calc(52% * var(--shadow-k)), transparent),
+    0 11px 20px -8px color-mix(in oklab, var(--key-color) calc(38% * var(--shadow-k)), transparent);
+}
+[data-skin="hardware"] [data-kit="button"][data-tone="primary"]:active:not(#_):not(#_):not(#_) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    inset 0 1px 3px rgb(0 0 0 / calc(0.12 * var(--shadow-k))),
+    0 1px 0 color-mix(in oklab, var(--key-color), #000 30%),
+    0 1.5px 1px rgb(0 0 0 / calc(0.1 * var(--shadow-k))),
+    0 2px 5px -1px color-mix(in oklab, var(--key-color) calc(28% * var(--shadow-k)), transparent);
+}
+[data-skin="hardware"] :is([data-kit="button"]:not([data-tone="primary"]), [data-kit="radio"], [data-kit="toggle"], [data-kit="page"]):not(#_):not(#_):not(#_) {
+  background: linear-gradient(0deg, #fdfdfc, #efefec 70%, #ececE9);
+  &:active:not([data-kit="toggle"]) {
+    background: linear-gradient(0deg, #f1f1ef, #e4e4e1 70%, #e0e0dd);
+  }
+}
+[data-skin="hardware"] [data-kit="button"][data-tone="primary"]:not(#_):not(#_):not(#_) {
+  background: linear-gradient(0deg, oklch(from var(--key-color) calc(l + 0.06) c h), var(--key-color) 70%, oklch(from var(--key-color) calc(l - 0.03) c h));
+  &:active {
+    background: linear-gradient(0deg, oklch(from var(--key-color) calc(l + 0.01) c h), oklch(from var(--key-color) calc(l - 0.04) c h) 70%, oklch(from var(--key-color) calc(l - 0.07) c h));
+  }
+}

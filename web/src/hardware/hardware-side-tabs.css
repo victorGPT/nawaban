@@ -1,0 +1,5 @@
+[data-skin="hardware"] [data-kit="navbar-link"]::before,
+[data-skin="hardware"] [data-list] button::before,
+[data-skin="hardware"] [data-device-power] {
+  corner-shape: round;
+}

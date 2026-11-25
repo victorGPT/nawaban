@@ -1,0 +1,40 @@
+[data-kit="module"] {
+  &[data-wide] {
+    @media (max-width: 520px) {
+      grid-column: auto;
+    }
+  }
+}
+[data-kit="field"] {
+  display: grid;
+  gap: 8px;
+}
+[data-layout="dashboard"] {
+  @media (max-width: 900px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+[data-kit="shell"] {
+  @media (max-width: 860px) {
+    grid-template-columns: 1fr
+  }
+}
+[data-kit="kpis"] {
+  @media (max-width: 1000px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+[data-kit="split"] {
+  @media (max-width: 1000px) {
+    grid-template-columns: 1fr;
+  }
+}
+[data-kit="icon"] {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  line-height: 0;
+  & svg {
+    fill: currentColor;
+  }
+}

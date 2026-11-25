@@ -1,0 +1,69 @@
+[data-skin="hardware"] {
+  --gray-glass:
+    var(--tex-matte),
+    linear-gradient(180deg, #b6b7b1, #c8c9c3 35%, #c2c3bd);
+  --gray-ink: #141413;
+  --lcd-print: 0.25px 1px 0 rgb(20 20 19 / 14%);
+}
+[data-skin="hardware"] [data-kit="popover"] [data-kit="popover-surface"]:not([data-size]):not(#_):not(#_):not(#_):not(#_) {
+  @starting-style {
+    transform: none;
+    scale: 0.6;
+    opacity: 0;
+  }
+}
+[data-skin="hardware"] {
+  --float:
+    0 1px 1px hsl(var(--shadow-color) / calc(0.1 * var(--shadow-k))),
+    0 2px 2px hsl(var(--shadow-color) / calc(0.08 * var(--shadow-k))),
+    0 4px 4px hsl(var(--shadow-color) / calc(0.08 * var(--shadow-k))),
+    0 8px 8px hsl(var(--shadow-color) / calc(0.08 * var(--shadow-k))),
+    0 16px 16px hsl(var(--shadow-color) / calc(0.08 * var(--shadow-k))),
+    0 28px 32px -4px hsl(var(--shadow-color) / calc(0.1 * var(--shadow-k)));
+}
+[data-skin="hardware"] :is(
+    [data-kit="lcd"],
+    [data-kit="toast"],
+    [data-kit="hover-lcd"],
+    [data-kit="popover"] [data-kit="popover-surface"]:not([data-size]),
+    [data-kit="popup"]:not([data-screen])
+  ):not(#_):not(#_)
+  :is(
+    [data-kit="lcd-body"],
+    [data-kit="lcd-lit"],
+    [data-kit="lcd-tag"],
+    [data-kit="toast-title"],
+    [data-kit="toast-description"],
+    [data-kit="dialog-title"],
+    [data-kit="dialog-description"],
+    strong,
+    p,
+    [data-kit="hover-lcd-initials"],
+    [data-kit="hover-lcd-status"],
+    [data-kit="option"]:not([data-highlighted])
+  ):not(#_):not(#_):not(#_):not(#_) {
+  text-shadow: var(--lcd-print);
+}
+[data-skin="hardware"] {
+  --board-edge: 0 0.5px 0 6px #dddddd;
+}
+[data-skin="hardware"] [data-kit="popup"]:not([data-screen]):not(#_):not(#_):not(#_):not(#_) {
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.22),
+    inset 0 0 0 0.5px rgb(0 0 0 / 0.15),
+    0 0 0 5px #f2f2f0,
+    var(--board-edge),
+    0 0 0 6.5px rgb(0 0 0 / calc(0.06 * var(--shadow-k))),
+    var(--float);
+}
+[data-skin="hardware"] [data-kit="popover"][data-side="top"] [data-kit="hover-lcd"]:not(#_) {
+  @starting-style {
+    transform: perspective(800px) rotateX(-90deg);
+  }
+}
+[data-skin="hardware"] [data-kit="popover"] [data-kit="hover-lcd"]:not(#_):not(#_):not(#_) {
+  @starting-style {
+    transform: perspective(700px) rotateX(var(--tilt));
+    opacity: 0;
+  }
+}

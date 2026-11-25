@@ -1,0 +1,20 @@
+[data-skin="hardware"] {
+  & :is([data-icon="prev"], [data-icon="next"]) {
+    width: 7px;
+    height: 7px;
+    border-block-start: 2px solid currentColor;
+    border-inline-start: 2px solid currentColor;
+    rotate: -45deg;
+  }
+  & [data-kit="radio-group"] {
+    display: flex;
+    justify-content: center;
+    gap: 18px;
+  }
+  & [data-kit="toast"] {
+    @starting-style {
+      translate: 0 20px;
+      opacity: 0;
+    }
+  }
+}

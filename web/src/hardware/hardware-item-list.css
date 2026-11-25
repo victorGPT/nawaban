@@ -1,0 +1,9 @@
+[data-skin="hardware"] [data-kit="button"]:has(> [data-icon]):not([data-shape]):not(#_):not(#_) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  & > [data-icon] svg {
+    width: 14px;
+    height: 14px;
+  }
+}

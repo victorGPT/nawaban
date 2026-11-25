@@ -1,0 +1,58 @@
+[data-skin="hardware"] [data-kit="popup"]:not([data-screen]):not(#_):not(#_):not(#_) {
+  display: grid;
+  gap: 1px;
+  min-width: 190px;
+  padding: 8px;
+  border: 0;
+  border-radius: calc(10px * var(--corner-scale));
+  background: var(--gray-glass);
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.22),
+    inset 0 0 0 0.5px rgb(0 0 0 / 0.15),
+    0 0 0 5px #f2f2f0,
+    0 0 0 6px rgb(0 0 0 / calc(0.06 * var(--shadow-k))),
+    var(--float);
+  font-family: var(--mono, monospace);
+}
+[data-skin="hardware"] [data-kit="popup"]:not([data-screen]) [data-kit="option"]:not(#_):not(#_):not(#_) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 3px;
+  font: 500 11px/1 var(--mono, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gray-ink);
+  background: none;
+  box-shadow: none;
+  translate: none;
+  text-shadow: none;
+  cursor: pointer;
+  animation: lcd-print 200ms steps(12, end) both;
+  &::before,
+  &::after {
+    content: none;
+  }
+  &[data-highlighted] {
+    color: #c6c7c1;
+    background: var(--gray-ink);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-skin="hardware"] [data-kit="popup"] [data-kit="option"] {
+    animation: none;
+  }
+}
+[data-skin="hardware"] [data-kit="popup"]:not([data-screen]):not(#_):not(#_):not(#_) {
+  transition: opacity 120ms;
+  &:is([data-ending-style], [data-closed]):has([data-chosen]) {
+    transition-delay: 300ms;
+  }
+}
+[data-skin="hardware"] [data-kit="button"]:not([data-tone="primary"]):has(~ [data-kit="popup"]:not([data-screen])):not(#_):not(#_) {
+  translate: 0 2px;
+  box-shadow: var(--key-down);
+}

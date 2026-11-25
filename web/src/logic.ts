@@ -11,13 +11,13 @@ export type ObjectiveRow = { name: string; met: number; total: number; standing:
 export type OkrView = { met: number; total: number; measured: string | null; objectives: ObjectiveRow[] }
 export const okrView = (okr: unknown): OkrView | null => panelOkrView(okr, 'zh')
 
-export const TABS = ['decide', 'okr', 'tasks', 'inbox'] as const
+export const TABS = ['decide', 'tasks', 'okr', 'notes'] as const
 export type Tab = (typeof TABS)[number]
 export type Route = { tab: Tab; task: string | null }
 
 const TOKEN_PART = 'k='
 const TASK_PART = 'task-'
-const OPENING_TAB: Tab = 'tasks'
+const OPENING_TAB: Tab = 'decide'
 
 export function routeOf(hash: string) {
   const parts = hash.replace(/^#/, '').split('&').filter(Boolean)

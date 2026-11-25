@@ -1,0 +1,13 @@
+[data-skin] {
+  --theme: oklch(var(--theme-l, 0.24) var(--theme-c, 0) var(--theme-h, 0));
+  --key-lamp: oklch(from var(--theme) min(l, 0.86) c h);
+  --on-accent: oklch(clamp(0.18, (0.8 - var(--theme-l, 0.24)) * 1000, 1) 0 0);
+}
+[data-skin] {
+  -webkit-tap-highlight-color: transparent;
+}
+@media (pointer: coarse) {
+  [data-skin] :is(input:not([type="range"], [type="checkbox"], [type="radio"], [type="hidden"]), textarea, select, [contenteditable]) {
+    font-size: 16px !important;
+  }
+}
