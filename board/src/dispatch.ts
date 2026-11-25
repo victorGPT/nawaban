@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
-import { projectOf } from './impact.ts'
+import { projectOfThisRepository } from './impact.ts'
 import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
@@ -241,7 +241,7 @@ async function worktreeOffOriginMain(root: string, name: string): Promise<Worktr
   return { path, branch }
 }
 
-const MERGE_LINE = `收尾：验收没说不合并时，PR 的 CI 绿、评论里贴了带 head sha 的「Codex review：无挡…」之后，跑 node ${CLI} merge <PR 号>：它合并、关票，再最多等 10 分钟领指派给你的下一张（Claude Code 里用 Bash 的 run_in_background 放后台跑，别干等）。领到就照它打印的 brief 在这个 worktree 切新分支接着做；没领到它收掉 worktree 和终端`
+const MERGE_LINE = `收尾：验收没说不合并时，PR 的 CI 绿、评论里贴了带 head sha 的「Codex review：无挡…」之后，跑 nawaban merge <PR 号>：它合并、关票，再最多等 10 分钟领指派给你的下一张（Claude Code 里用 Bash 的 run_in_background 放后台跑，别干等）。领到就照它打印的 brief 在这个 worktree 切新分支接着做；没领到它收掉 worktree 和终端`
 
 const freshWorktreeLine = (wt: Worktree) =>
   `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改）。${MERGE_LINE}`
@@ -252,10 +252,9 @@ const reusedWorktreeLine = (wt: Worktree) =>
 type ReportsVia = { ref: string } | { name: string; orch: string }
 
 function briefReportingTo(via: ReportsVia, brief: string, accept: string, worktreeLine: string, firstSteps: string[] = []): string {
-  const nawaban = `node ${CLI}`
   const [task, reportLines] =
     'ref' in via
-      ? [`${via.ref}（${nawaban} show ${via.ref} 看全文；认领、进展、关闭用 ${nawaban} claim|event|close 记）`, [`  ${nawaban} tell ${via.ref} "完成 PR #<号>"`, `  ${nawaban} tell ${via.ref} "受阻，详情在票上"`]]
+      ? [`${via.ref}（nawaban show ${via.ref} 看全文；认领、进展、关闭用 nawaban claim|event|close 记）`, [`  nawaban tell ${via.ref} "完成 PR #<号>"`, `  nawaban tell ${via.ref} "受阻，详情在票上"`]]
       : [via.name, [`  hc send ${via.orch} "回报：${via.name} 完成 PR #<号>"`, `  hc send ${via.orch} "回报：${via.name} 受阻，详情在票上"`]]
   return [
     `任务：${task}`,
@@ -301,16 +300,15 @@ export async function pickupBrief(task: MessageView, worktree: string): Promise<
   const { replies } = await board().thread(task.id)
   const brief = replies.map((r) => r.text).findLast((t) => t.startsWith(BRIEF_NOTE))?.slice(BRIEF_NOTE.length) ?? NEXT_BRIEF
   const accept = lastDispatchOf(replies)?.accept ?? NEXT_ACCEPT
-  const declareFirst = `这张已替你认领，但认领时没登记 KR 影响：先跑 node ${CLI} event ${ref} impact --o "<O 名>" --kr "<KR>=toward|away|hold"（纯基础设施写 --o 无），不然 merge 会拦`
+  const declareFirst = `这张已替你认领，但认领时没登记 KR 影响：先跑 nawaban event ${ref} impact --o "<O 名>" --kr "<KR>=toward|away|hold"（纯基础设施写 --o 无），不然 merge 会拦`
   return briefReportingTo({ ref }, brief, accept, reusedWorktreeLine({ path: worktree, branch: `wt/${ref.toLowerCase()}` }), [declareFirst])
 }
 
 export async function claimReady(wait: string | undefined, project: string | undefined, json: boolean): Promise<number> {
   const worktree = (await stdoutOrNullOnFailure('git', ['rev-parse', '--show-toplevel']))?.trim()
   if (!worktree) throw new Refused('claim --ready runs in the worktree that takes the ticket')
-  const root = (await mainCheckoutRealPathOf(worktree)) ?? worktree
-  const channel = project ?? (await projectOf(boardDirAsConfiguredWhenAsked(), root))
-  if (!channel) throw new Refused(`${root} is no project in repos.json: pass --project`, 2)
+  const channel = project ?? (await projectOfThisRepository(boardDirAsConfiguredWhenAsked(), worktree))
+  if (!channel) throw new Refused(`${worktree} is in no project in repos.json: pass --project`, 2)
   const task = await claimNextReady(channel, wait)
   if (!task) {
     process.stderr.write(`nothing ready for ${profile()} in ${channel}${wait ? ` within ${wait}` : ''}\n`)

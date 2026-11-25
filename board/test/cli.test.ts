@@ -50,9 +50,9 @@ beforeAll(async () => {
 })
 afterAll(() => server.close())
 
-function nawaban(argv: string[], { input = '', more = {} }: { input?: string; more?: Record<string, string> } = {}) {
+function nawaban(argv: string[], { input = '', more = {}, cwd }: { input?: string; more?: Record<string, string>; cwd?: string } = {}) {
   return new Promise<{ code: number; out: string; err: string }>((resolve) => {
-    const child = execFile('node', [CLI, ...argv], { env: { ...env, ...more } }, (error, out, err) => resolve({ code: error ? Number(error.code) : 0, out, err }))
+    const child = execFile('node', [CLI, ...argv], { env: { ...env, ...more }, cwd }, (error, out, err) => resolve({ code: error ? Number(error.code) : 0, out, err }))
     child.stdin!.end(input)
   })
 }
@@ -107,6 +107,32 @@ it('runs each everyday verb that needs only the board on a fresh board', EVERY_S
   expect((await succeeds('status', '--project', 'p1')).out).toContain('C1 一张票')
   await succeeds('close', 'C1', '--done')
   expect((await succeeds('show', 'C1')).out).toContain('completed')
+})
+
+it('takes the project of the repository it runs in for create and status, and still lists every project', EVERY_STEP_STARTS_A_NODE, async () => {
+  const tmp = await realpath(await mkdtemp(join(tmpdir(), 'nawaban-cli-home-')))
+  const repo = join(tmp, 'repo')
+  const outside = join(tmp, 'outside')
+  const homeBoard = join(tmp, 'board')
+  for (const dir of [repo, outside, homeBoard]) await mkdir(dir)
+  await new Promise((resolve, reject) => execFile('git', ['init', '-q', repo], (error) => (error ? reject(error) : resolve(null))))
+  await writeFile(join(homeBoard, 'repos.json'), JSON.stringify({ 'p-home': repo }))
+  const at = (cwd: string) => ({ cwd, more: { NAWABAN_BOARD_DIR: homeBoard } })
+  expect((await nawaban(['create', 'H-IN', '--title', '在仓库里建'], at(repo))).code).toBe(0)
+  expect((await succeeds('show', 'H-IN')).out).toContain('project     p-home')
+  await succeeds('create', 'H-ELSE', '--title', '别的项目', '--project', 'p-else')
+  const refused = await nawaban(['create', 'H-OUT', '--title', '不在仓库里'], at(outside))
+  expect(refused.code).toBe(2)
+  expect(refused.err).toContain('pass --project')
+  const inRepo = await nawaban(['status'], at(repo))
+  expect(inRepo.out).toMatch(/^p-home 进行中的事/)
+  expect(inRepo.out).toContain('H-IN 在仓库里建')
+  expect(inRepo.out).not.toContain('H-ELSE')
+  const elsewhere = await nawaban(['status'], at(outside))
+  expect(elsewhere.out).toMatch(/^看板 进行中的事/)
+  expect(elsewhere.out).toContain('H-ELSE 别的项目')
+  const listed = JSON.parse((await nawaban(['list', '--json'], at(repo))).out) as { tasks: { channel: string }[] }
+  expect(listed.tasks.map((t) => t.channel)).toEqual(expect.arrayContaining(['p-home', 'p-else']))
 })
 
 it('says there is no such verb, lists the ten, and leaves the board alone', async () => {
