@@ -8,11 +8,13 @@ import { Refused } from './said.ts'
 export const ACCOUNT_DECLARED_IN = 'docs/agents/issue-tracker.md'
 const FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END = /^ {0,3}(`{3,}|~{3,})[\s\S]*?(?:^ {0,3}\1|$(?![\s\S]))|<!--[\s\S]*?(?:-->|$(?![\s\S]))/gm
 const DECLARATION = /^github-account:[ \t]*([A-Za-z0-9-]+)[ \t]*\r?$/m
-const GH_IN_COMMAND_POSITION = /(?:^|[;&|(`\n])\s*((?:\w+=(?:"?\$\([^)]*\)"?|\S*)\s+)*)gh(?=\s)/g
+const GH_IN_COMMAND_POSITION = /(?:^|[;&|(`\n])\s*((?:(?:env|command|exec|time|nohup|xargs)\s+|\w+=(?:"?\$\([^)]*\)"?|\S*)\s+)*)gh(?=\s)/g
+const WRAPPER = /\b(?:env|command|exec|time|nohup|xargs)\s+/g
+const RUNS_A_STRING_AS_A_COMMAND = /\b(?:(?:ba|z|da)?sh\s+-\w*c|eval)\b/
+const GRAPHQL_WRITE = /\bmutation\b|--input\b/
 const SEGMENT_END = /[;&|\n)`]|$/
 const HEREDOC_BODY = /<<-?[ \t]*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n[ \t]*\2(?=\s|$)/g
 const QUOTED = /'[^']*'|"(?:\\.|[^"\\])*"/g
-const SUBSTITUTION = /\$\([^)]*\)|`[^`]*`/g
 const TOKEN_SET_OUTSIDE_A_PROVEN_PREFIX = /\b(?:GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN)\b|\bgh\s+auth\s+(?:switch|login)\b/
 const READ_ONLY_GROUPS = new Set(['auth', 'help', 'version', '--version', '--help', 'status', 'browse', 'search', 'completion', 'config', 'alias'])
 const READ_ONLY_VERBS = new Set(['view', 'list', 'status', 'checks', 'diff', 'watch', 'download', 'clone', 'verify'])
@@ -59,10 +61,11 @@ function withoutRepoFlag(args: string[]): string[] {
   return kept
 }
 
-function writesToGithub(args: string[]): boolean {
+function writesToGithub(args: string[], segment: string): boolean {
   const [group, verb] = withoutRepoFlag(args)
   if (group === undefined || READ_ONLY_GROUPS.has(group)) return false
   if (group !== 'api') return !READ_ONLY_VERBS.has(verb ?? '')
+  if (verb === 'graphql') return GRAPHQL_WRITE.test(segment)
   const at = args.findIndex((a) => API_METHOD.test(a))
   const method = at < 0 ? (args.some((a) => API_SENDS_A_BODY.test(a)) ? 'POST' : 'GET') : API_METHOD.exec(args[at]!)![1] || args[at + 1] || ''
   return method.toUpperCase() !== 'GET'
@@ -90,7 +93,9 @@ const blank = (s: string) => s.replace(/[^\n]/g, 'x')
 const keepingSubstitutions = (s: string) => s.split(/(\$\([^)]*\)|`[^`]*`)/).map((part, i) => (i % 2 ? part : blank(part))).join('')
 
 const textBlankedKeepingWhatTheShellRuns = (cmd: string) =>
-  cmd
+  RUNS_A_STRING_AS_A_COMMAND.test(cmd)
+    ? cmd.replace(/['"]/g, '\n')
+    : cmd
     .replace(HEREDOC_BODY, (body, quote: string) => (quote ? blank(body) : keepingSubstitutions(body)))
     .replace(QUOTED, (q) => q[0] + (q[0] === "'" ? blank(q.slice(1, -1)) : keepingSubstitutions(q.slice(1, -1))) + q.at(-1))
 
@@ -98,8 +103,9 @@ export async function whyThisGhWriteMustNotRun(cmd: string, cwd: string, boardDi
   const blanked = textBlankedKeepingWhatTheShellRuns(cmd)
   for (const m of blanked.matchAll(GH_IN_COMMAND_POSITION)) {
     const end = m.index + m[0].length
-    const args = words(cmd.slice(end, end + blanked.slice(end).search(SEGMENT_END)))
-    if (!writesToGithub(args)) continue
+    const segment = cmd.slice(end, end + blanked.slice(end).search(SEGMENT_END))
+    const args = words(segment)
+    if (!writesToGithub(args, segment)) continue
     const target = repoFlagOf(args)
     const checkout = target ? await checkoutOfGithubRepo(target, boardDir) : cwd
     if (!checkout) return `gh 写 ${target}，但它不在 ${join(boardDir, 'repos.json')} 登记的仓库里，不知道该用哪个账号：cd 到它的 checkout 里再写`
@@ -109,7 +115,7 @@ export async function whyThisGhWriteMustNotRun(cmd: string, cwd: string, boardDi
     } catch (error) {
       return `${(error as Error).message}；没声明的仓库不许 gh 写操作`
     }
-    const prefix = cmd.slice(end - 'gh'.length - m[1]!.length, end - 'gh'.length).trim()
+    const prefix = cmd.slice(end - 'gh'.length - m[1]!.length, end - 'gh'.length).replace(WRAPPER, '').trim()
     const rewritten = `${provenPrefix(account)} gh ${cmd.slice(end, end + blanked.slice(end).search(SEGMENT_END)).trim()}`
     const howTo = `这个仓库声明用 ${account} 写 GitHub，写成：${rewritten}`
     if (prefix) {
