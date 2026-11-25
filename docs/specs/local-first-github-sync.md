@@ -81,6 +81,7 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 - **推送**：serve 每 10 秒扫一遍，同一个 issue 按写的先后推，前一条推不出去后一条就等着（保证待决在已决前面）。POST 之前先给那条回复打 `github-push-tried-at`；打过的、两分钟内（GitHub 列表落后写入的窗口）不再试，两分钟后先在该 issue 的评论里按 uid 找，找到就不再 POST。推成了打 `github-comment=<评论 ID>`。token 按仓库取（见「推送身份」），取不到就不推。推不出去时，待决提示行和面板显示「有 N 条还没推到 GitHub（原因）」。
 - **认回声**：入站时评论末尾 marker 的 uid 已经在板上那条 issue 线程里（板上写的）出现过，就不导入。`created`、`edited`、首次见到的 issue 拉全部历史，都走这一处。
 - **待决和已决按并集算**：GitHub 来的和板上写的（带 marker）一起折叠，按 GitHub 评论 ID 排序（板上写的用 `github-comment`，还没推出去的排在最后）。断网时也照常结算：读 GitHub 失败，这一轮照样按上次记下的 issue 结算，所以本地待决立刻挂起，本地已决立刻解除。
+- **面板的最新进展**：同一排序规则，GitHub 上已有的按评论 ID，还没推出去的和板上直接写的（不带 marker）排在后面、按写的先后。
 - **已知限制**：`event --kind ask` 写之前旧 CLI 要读 GitHub 查有没有另一件待决，断网时会失败（进展、决定、PR 不受影响）。本地记的已决推出去之前，同事在 GitHub 上又提了新待决，这条已决排在那件待决之后，会被当成答了它。
 
 **状态外推**（-10，自建）：本地关票、重开、认领时，用 adapter 的 octokit 调 `issues.update`、`addAssignees`、`removeAssignees`。本地新建的票要分享，调 `issues.create`，再 `vb sync <id> github:<owner>/<repo>:issue:<N>` 把线程挂上去。在那之前，旧 CLI 的 claim、close 照旧直接改 GitHub 上的 assignee 和状态，只有随之写的评论先写板。

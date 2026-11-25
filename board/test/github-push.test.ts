@@ -206,6 +206,19 @@ describe('板上写的待决和已决，和 GitHub 来的一起算', () => {
     expect(row.progress?.body).toBe('我断网时写的')
   })
 
+  it('中间夹着板上的记账回复，排序也不乱', async () => {
+    const earlier = commentOn(1730, '进展：同事断网期间写的')
+    await write('note', '我写的')
+    await push()
+    const root = (await team.threads({ channel: 'roubao', label: { issue: `${REPO}#1730` } })).threads[0]!.message
+    await team.reply(root.id, 'coord: 记账')
+    world.comments.splice(0, 0, earlier)
+    await poll()
+    await poll()
+    const row = (await boardData(team, 'roubao')).columns.flatMap((c) => c.tasks as { id: string; progress: { body: string } | null }[]).find((t) => t.id === 'ROUBAO-1730')!
+    expect(row.progress?.body).toBe('我写的')
+  })
+
   it('本地待决、已决都推出去之后，同事在 GitHub 上提新待决，网页显示并能答这一件', async () => {
     await write('ask', '上线吗')
     await write('resolve', '上')

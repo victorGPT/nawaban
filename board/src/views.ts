@@ -1,5 +1,5 @@
 import { realpath } from 'node:fs/promises'
-import { currentGithubAsk, githubAskIn, githubRepliesOf, HELD_FOR_A_GITHUB_ASK, inGithubFormat, inGithubOrder } from './github-tasks.ts'
+import { currentGithubAsk, githubAskIn, githubRepliesOf, HELD_FOR_A_GITHUB_ASK, inGithubFormat, PUSHED_AS } from './github-tasks.ts'
 import { cardFromAGithubAsk } from './github-card.ts'
 import { syncStalledNote } from './github-sync-status.ts'
 import { join } from 'node:path'
@@ -112,7 +112,17 @@ const visibleOnGithub = (r: Reply) => r.message.text.replace(TRAILING_NAWABAN_MA
 const isNote = (r: Reply) => r.message.blocks.length === 0 && (!fromGithub(r) || GITHUB_PROGRESS_PREFIX.test(visibleOnGithub(r)))
 const progress = (r: Reply | undefined) => (r ? { body: fromGithub(r) ? visibleOnGithub(r).replace(GITHUB_PROGRESS_PREFIX, '') : r.message.text, at: r.at } : null)
 
-const asGithubOrdersThemElseWhenWritten = (a: Reply, b: Reply) => (fromGithub(a) && fromGithub(b) ? inGithubOrder(a.message, b.message) : a.at - b.at)
+const ON_GITHUB_YET = 0
+const NOT_ON_GITHUB_YET = 1
+const githubIdElseNone = (r: Reply) => Number(r.message.from === 'github' ? r.message.origin?.message : r.message.labels[PUSHED_AS])
+const placeOf = (r: Reply): [number, number] => {
+  const id = githubIdElseNone(r)
+  return fromGithub(r) && Number.isFinite(id) ? [ON_GITHUB_YET, id] : [NOT_ON_GITHUB_YET, r.at]
+}
+const asGithubOrdersThemElseWhenWritten = (a: Reply, b: Reply) => {
+  const [x, y] = [placeOf(a), placeOf(b)]
+  return x[0] - y[0] || x[1] - y[1] || a.at - b.at
+}
 
 function row(m: MessageView, h: History, byId: Map<string, MessageView>, githubReplies: MessageView[] = h.replies.map((r) => r.message)) {
   const t = m.task!
