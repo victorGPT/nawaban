@@ -85,7 +85,7 @@ test('a gh write running on the active account instead of the declared one is re
 test('a gh write that proves it runs as the declared account, and every gh read, passes', async () => {
   const repo = await repoDeclaring('nawaban', 'github-account: victorGPT\n')
   for (const cmd of ['GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill', 'GH_TOKEN="$(gh auth token --user victorGPT)" gh pr merge 1 --squash',
-    'gh pr view 1', 'gh pr checks 1', 'gh pr --help', 'gh issue create --help', 'gh pr', 'gh pr checkout 187', 'gh repo deploy-key list', 'gh repo set-default --view', 'gh repo clone o/r', 'gh api repos/o/r', 'gh api --method GET repos/o/r', 'gh api -X GET search/issues -f q=repo:cli/cli', "gh api graphql -f query='query { viewer { login } }'", 'gh api --silent graphql -f query="{ viewer { login } }"', 'for n in 1 2; do GH_TOKEN=$(gh auth token --user victorGPT) gh pr comment $n --body ok; done', 'env -u GITHUB_TOKEN GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill', 'env GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill', 'gh auth status',
+    'gh pr view 1', 'gh pr checks 1', 'gh pr --help', 'gh issue create --help', 'gh pr', 'gh pr checkout 187', 'gh repo deploy-key list', 'GH_TOKEN=$(gh auth token --user victorGPT) gh pr comment 1 --body "先跑 \\`gh pr merge 1\\` 再说"', 'gh repo set-default --view', 'gh repo clone o/r', 'gh api repos/o/r', 'gh api --method GET repos/o/r', 'gh api -X GET search/issues -f q=repo:cli/cli', "gh api graphql -f query='query { viewer { login } }'", 'gh api --silent graphql -f query="{ viewer { login } }"', 'for n in 1 2; do GH_TOKEN=$(gh auth token --user victorGPT) gh pr comment $n --body ok; done', 'env -u GITHUB_TOKEN GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill', 'env GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill', 'gh auth status',
     "GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --body \"$(cat <<'EOF'\nRun this:\ngh pr merge 1 --squash\nEOF\n)\"", 'echo "gh pr create"', 'git commit -m "gh pr merge 1"', 'rg "gh pr create" src']) {
     expect(await whyThisGhWriteMustNotRun(cmd, repo, boardDir), cmd).toBeNull()
   }
@@ -130,4 +130,8 @@ test('the PreToolUse hook as Claude Code runs it refuses a wrong-account gh writ
   expect((await hook('GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill')).code).toBe(0)
   expect((await hook('ls high')).code).toBe(0)
   expect((await hook('true\ngh pr create --fill')).code).toBe(2)
+  await writeFile(join(boardDir, 'repos.json'), '{not json')
+  const unreadableRepos = await hook('GH_TOKEN=$(gh auth token --user victorGPT) gh issue comment 1 -R acme/x -b y')
+  expect(unreadableRepos.code).toBe(2)
+  expect(unreadableRepos.err).toContain('repos.json')
 })

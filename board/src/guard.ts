@@ -21,7 +21,7 @@ async function whyThisBashCallMustNotRun(call: BashCall, team: ReturnType<typeof
 
 export async function ghAccountGuard(dir: string): Promise<number> {
   const call = JSON.parse(await text(process.stdin)) as BashCall
-  const why = await whyThisGhWriteMustNotRun(call.tool_input?.command ?? '', call.cwd || process.cwd(), dir)
+  const why = await whyThisGhWriteMustNotRun(call.tool_input?.command ?? '', call.cwd || process.cwd(), dir).catch((error: Error) => `核不了这次 gh 写操作该用哪个账号：${error.message}`)
   if (!why) return LET_IT_RUN
   process.stderr.write(why + '\n')
   return HOOK_REFUSES_TOOL_CALL

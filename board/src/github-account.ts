@@ -93,7 +93,7 @@ async function checkoutOfGithubRepo(repo: string, boardDir: string): Promise<str
 
 const blank = (s: string) => 'x'.repeat(s.length)
 
-const keepingSubstitutions = (s: string) => s.split(/(\$\([^)]*\)|`[^`]*`)/).map((part, i) => (i % 2 ? part : blank(part))).join('')
+const keepingSubstitutions = (s: string) => s.split(/(\$\([^)]*\)|(?<!\\)`(?:[^`\\]|\\.)*`)/).map((part, i) => (i % 2 ? part : blank(part))).join('')
 
 const textBlankedKeepingWhatTheShellRuns = (cmd: string) =>
   RUNS_A_STRING_AS_A_COMMAND.test(cmd)
