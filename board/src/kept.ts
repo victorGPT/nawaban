@@ -7,11 +7,10 @@ export const KEPT_FRESH_FOR_MS = 30_000
 const STILL_WANTED_FOR_MS = 10 * 60_000
 const KEPT_DIR = 'kept-reads'
 const NAME_HASH_LENGTH = 32
-const READ_BEFORE_THIS_PROCESS = -1
 
 export class StillReading extends Error {}
 
-type Read = { ok: boolean; value: unknown; at: number; generation: number }
+type Read = { ok: boolean; value: unknown; at: number; generation: number; beforeThisProcess?: true }
 type Entry = { group: string; again: () => Promise<unknown>; read?: Read; wanted: number; running?: Promise<boolean>; rerun?: boolean }
 export type Landed = (group: string, changed: boolean) => void
 
@@ -22,8 +21,8 @@ export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
   const generations = new Map<string, number>()
   const generationOf = (group: string) => generations.get(group) ?? 0
   const fileOf = (key: string) => join(dir, KEPT_DIR, createHash('sha256').update(key).digest('hex').slice(0, NAME_HASH_LENGTH) + '.json')
-  const movedSinceRead = (e: Entry) => e.read!.generation !== READ_BEFORE_THIS_PROCESS && e.read!.generation !== generationOf(e.group)
-  const stale = (e: Entry) => e.read!.generation !== generationOf(e.group) || now() - e.read!.at > KEPT_FRESH_FOR_MS
+  const movedSinceRead = (e: Entry) => e.read!.generation !== generationOf(e.group)
+  const stale = (e: Entry) => e.read!.beforeThisProcess || movedSinceRead(e) || now() - e.read!.at > KEPT_FRESH_FOR_MS
 
   async function keepOnDisk(key: string, read: Read) {
     const path = fileOf(key)
@@ -37,10 +36,10 @@ export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
     }
   }
 
-  async function keptOnDiskAsStale(key: string): Promise<Read | undefined> {
+  async function keptOnDiskAsStale(key: string, generation: number): Promise<Read | undefined> {
     try {
       const kept = JSON.parse(await readFile(fileOf(key), 'utf8')) as { key: string; ok: boolean; value: unknown; at: number }
-      return kept.key === key ? { ok: kept.ok, value: kept.value, at: kept.at, generation: READ_BEFORE_THIS_PROCESS } : undefined
+      return kept.key === key ? { ok: kept.ok, value: kept.value, at: kept.at, generation, beforeThisProcess: true } : undefined
     } catch {
       return undefined
     }
@@ -60,11 +59,7 @@ export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
         try {
           read = { ok: true, value: await e.again(), at: now(), generation }
         } catch (error) {
-          if (!(error instanceof Refused)) {
-            if (!e.read) throw error
-            console.error(`reading ${key} again failed, the last read stays:`, error)
-            return changed
-          }
+          if (!(error instanceof Refused)) throw error
           read = { ok: false, value: error.message, at: now(), generation }
         }
         const differs = !sameRead(e.read, read)
@@ -96,7 +91,7 @@ export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
       entries.set(key, e)
       e.again = again
       e.wanted = now()
-      e.read ??= await keptOnDiskAsStale(key)
+      e.read ??= await keptOnDiskAsStale(key, generationOf(group))
       const localWorkCanAnswerNow = local && (!e.read || movedSinceRead(e))
       if (localWorkCanAnswerNow) await refresh(key, e)
       else if (!e.read) {
