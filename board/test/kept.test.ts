@@ -61,3 +61,17 @@ it('answers a background read that failed as that failure and says so, and reads
   while (landed.length < 2) await new Promise((r) => setTimeout(r, 5))
   expect(await kept.read('github:r', 'board', flaky, { local: false })).toBe('board')
 })
+
+it('says a read landed even when the read again it was asked for meanwhile failed', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nawaban-kept-'))
+  const landed: boolean[] = []
+  const kept = keptReads(dir, (_, changed) => void landed.push(changed))
+  let finish!: (value: string) => void
+  let attempts = 0
+  const again = () => (++attempts === 1 ? new Promise<string>((done) => (finish = done)) : Promise.reject(new Error('retry failed')))
+  for (let n = 0; n < 2; n++) await expect(kept.read('github:r', 'board', again, { local: false })).rejects.toBeInstanceOf(StillReading)
+  finish('new board')
+  while (!landed.length) await new Promise((r) => setTimeout(r, 5))
+  expect(landed).toContain(true)
+  expect(await kept.read('github:r', 'board', again, { local: false })).toBe('new board')
+})

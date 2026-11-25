@@ -80,8 +80,7 @@ export function keptReads(dir: string, landed: Landed, now = () => Date.now()) {
       (changed) => landed(e.group, changed),
       (error) => {
         console.error(`reading ${key} failed:`, error)
-        if (e.read) return
-        e.read = { ok: false, value: `读 ${key} 失败：${(error as Error).message}`, at: now(), generation: generationOf(e.group) }
+        e.read ??= { ok: false, value: `读 ${key} 失败：${(error as Error).message}`, at: now(), generation: generationOf(e.group) }
         landed(e.group, true)
       },
     )
