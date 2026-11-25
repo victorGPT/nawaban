@@ -178,6 +178,12 @@ it('turns an inbox item into a ticket in its project and marks it done, once', E
   const again = await nawaban(['create', 'IN-2', '--title', '再转一次', '--inbox', item.id])
   expect([again.code, again.err]).toEqual([1, expect.stringContaining(`收件箱里没有开着的条目 ${item.id}`)])
   expect((await nawaban(['show', 'IN-2'])).code).toBe(1)
+
+  const another = await team.post(inboxChannel('p-inbox'), { text: inboxItemText('导出 CSV'), labels: INBOX_OPEN })
+  const intoAnOldTicket = await nawaban(['create', 'IN-1', '--title', '导出', '--inbox', another.id])
+  expect([intoAnOldTicket.code, intoAnOldTicket.err]).toEqual([1, expect.stringContaining('已经有票 IN-1')])
+  expect((await team.thread(another.id)).message.labels).toMatchObject({ inbox: 'open' })
+  expect((await succeeds('show', 'IN-1')).out).not.toContain('导出 CSV')
 })
 
 it('keeps the JSON the panel reads', async () => {

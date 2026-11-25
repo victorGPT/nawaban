@@ -103,6 +103,9 @@ const create: Verb = async (argv) => {
     throw new Refused('用法：nawaban create <票> --title <标题> [正文] [--parent <票>] [--project <项目>] [--blocked-by <票>]… [--lane <泳道>] [--inbox <条目>]', 2)
   }
   const item = values.inbox === undefined ? null : await openInboxItem(personOwningEveryTaskTheirProfilesMade(), values.inbox)
+  if (item && (await all({ state: 'all', label: { key: keyAsPostIdSoCreatingAgainAnswersTheSameTask } })).length) {
+    throw new Refused(`已经有票 ${keyAsPostIdSoCreatingAgainAnswersTheSameTask}，收件箱条目不转进旧票`, 1, '换一个没用过的票号')
+  }
   const body = (await bodyFrom(bodyWord, values.body, values['body-file'])) ?? item?.words
   if (values.body !== undefined) pointAt(withBody(['create', keyAsPostIdSoCreatingAgainAnswersTheSameTask], values.body, optionWordsBut(tokens, ['body'])))
   const parent = values.parent ? await resolve(values.parent) : null
