@@ -23,12 +23,15 @@ it('lists the board CLI calls still written the old way, and passes the new form
       'nawaban event X note done',
       'nawaban create X --title t --body-file f.md',
       "python3 cli.py --db /b event '#3' --kind note --body x",
+      'nawaban tasks unblock 3',
+      'nawaban board tasks unblock 3',
+      '补上建议用 `event --kind ask` 发',
     ].join('\n'),
   )
   const r = await run(root)
   expect(r.code).toBe(1)
   expect(r.out).toBe(
-    'hooks/stop.sh:1: node "$hooks/../board/src/cli.ts" inbox --project "$p"\nhooks/stop.sh:3: nawaban event X --kind note --body done\n旧写法调用点 2 处\n',
+    'hooks/stop.sh:1: node "$hooks/../board/src/cli.ts" inbox --project "$p"\nhooks/stop.sh:3: nawaban event X --kind note --body done\nhooks/stop.sh:7: nawaban tasks unblock 3\nhooks/stop.sh:9: 补上建议用 `event --kind ask` 发\n旧写法调用点 4 处\n',
   )
   expect(await run(await mkdtemp(join(tmpdir(), 'nawaban-old-forms-empty-')))).toEqual({ code: 0, out: '旧写法调用点 0 处\n' })
 })

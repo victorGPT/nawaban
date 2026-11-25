@@ -801,7 +801,7 @@ export function okr(argv: string[], team: Team, dir: string, { cwd = process.cwd
       const draft = join(dir, 'okr-stop', `${project}-${o.name}.md`)
       await mkdir(join(dir, 'okr-stop'), { recursive: true })
       await writeFile(draft, decisionDraft(o, stop, start, rows, declared))
-      shown.push(`硬停：${o.name}(${stop.why})· 待决策项草稿 ${draft},补上「建议」后用 event --kind ask 发;决策者 resolve 之后跑 okr --resume ${o.name}`)
+      shown.push(`硬停：${o.name}(${stop.why})· 待决策项草稿 ${draft},补上「建议」后用 nawaban event <票> ask 发;决策者 resolve 之后跑 okr --resume ${o.name}`)
       stops.push({ objective: o.name, why: stop.why, draft })
     }
     return { shown: shown.join('\n'), json: { round, ...data, hard_stops: stops }, ...(stops.length ? { exit: HARD_STOP_EXIT } : {}) }

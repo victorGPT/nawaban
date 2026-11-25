@@ -10,7 +10,7 @@ import { githubTokenOf } from './github-account.ts'
 import { mergeGate } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
-import { all, closeDone, live, profile, resolve } from './tasks.ts'
+import { all, closeDone, live, profile, reclaimedIfItLapsedInMyHands, resolve } from './tasks.ts'
 import { answer, EXIT, Refused, type Said } from './said.ts'
 
 const exec = promisify(execFile)
@@ -233,6 +233,7 @@ async function outcomeOf(r: Run): Promise<Outcome> {
   if (!r.root) return { kind: 'refused', why: '在本仓库的 worktree 里跑 merge' }
   const alreadyMerged = pr.state === 'MERGED' && !!pr.mergeCommit
   if (!alreadyMerged) {
+    r.task = await reclaimedIfItLapsedInMyHands(r.task)
     const gate = await gateBeforeTheIrreversibleMerge(pr, r.task)
     if (gate) return gate
     const failed = await mergeElseWhyNot(pr)

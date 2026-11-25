@@ -158,6 +158,27 @@ async function ticketTheCliOwns(key: string, channel: string, assignedTo?: strin
 const holderOf = async (id: string) => (await team.thread(id)).message.task?.claim?.actor ?? null
 const stateOf = async (id: string) => (await team.thread(id)).message.task?.state
 
+const SHORTEST_LEASE_THE_BOARD_TAKES_MS = 30_000
+
+it('claims again a ticket whose lease ran out in its hands while the review ran, but not one another session claimed after it', async () => {
+  const mine = await workerOnItsOwnTicket('M-LAPSED', 't65')
+  const taken = await workerOnItsOwnTicket('M-TAKEN', 't64')
+  await boardCliAsSession('aaaa1111-0000', mine.worktree, 'claim', 'M-LAPSED', '--release')
+  await boardCliAsSession('aaaa1111-0000', taken.worktree, 'claim', 'M-TAKEN', '--release')
+  await boardCliAsSession('aaaa1111-0000', mine.worktree, 'board', 'tasks', 'claim', mine.id, '--as', 'cc-aaaa1111', '--lease', '30s')
+  await boardCliAsSession('other000-0000', taken.worktree, 'board', 'tasks', 'claim', taken.id, '--as', 'cc-other000', '--lease', '30s')
+  await new Promise((wake) => setTimeout(wake, SHORTEST_LEASE_THE_BOARD_TAKES_MS + 1000))
+  const lapsed = await mergeAsTheWorker('M-LAPSED', 't65', mine.worktree)
+  expect(lapsed.stderr).toBe('')
+  expect(lapsed.code).toBe(0)
+  expect(lapsed.gh).toMatch(/^pr merge 5/m)
+  expect(await stateOf(mine.id)).toBe('completed')
+  const refused = await mergeAsTheWorker('M-TAKEN', 't64', taken.worktree)
+  expect(refused.code).toBe(1)
+  expect(refused.stderr).toContain('M-TAKEN 不在 cc-aaaa1111 手里')
+  expect(refused.gh).not.toMatch(/^pr merge/m)
+}, 90_000)
+
 it('waits on a check still running: exit 3, no merge, no one told', async () => {
   const pr = { ...greenCodePr('M-WAIT'), statusCheckRollup: [{ __typename: 'CheckRun', name: 'test', status: 'IN_PROGRESS', conclusion: '' }] }
   const { id, worktree } = await workerOnItsOwnTicket('M-WAIT', 't70', pr)
