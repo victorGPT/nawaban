@@ -166,13 +166,18 @@ async function pullRequestOrWhyNot(sel: string | undefined, repo: string | undef
 
 const namesKeyAsWholeWord = (text: string, key: string) => new RegExp(`(?<![\\w-])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'i').test(text)
 
+const WHAT_A_CLOSES_OR_REFS_LINE_POINTS_AT = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?)\b[:：]?\s+([^\n]+)/gi
+
+const ticketsThePullRequestIsFor = (pr: PullRequest) =>
+  [pr.title, pr.headRefName, ...[...(pr.body ?? '').matchAll(WHAT_A_CLOSES_OR_REFS_LINE_POINTS_AT)].map((m) => m[1]!)].join(' ')
+
 async function whyThisMergeMustWait(team: Team, project: string, pr: PullRequest): Promise<string | null> {
-  const text = [pr.title, pr.body, pr.headRefName].join(' ')
+  const text = ticketsThePullRequestIsFor(pr)
   const named = (await tasksADeclarationCanStillBeOn(team, project)).filter((t) => {
     const key = t.labels.key
     return key && namesKeyAsWholeWord(text, key)
   })
-  if (!named.length) return `PR #${pr.number} 没写到项目 ${project} 的任何一张票(标题、正文、分支名里写票号),核不了 KR 影响声明`
+  if (!named.length) return `PR #${pr.number} 没写到项目 ${project} 的任何一张票(标题、分支名里写票号，或正文写 Closes/Refs <票号>),核不了 KR 影响声明`
   const missed = []
   for (const t of named) if (!(await hasImpactReply(team, t.id))) missed.push(t.labels.key!)
   if (missed.length) return `PR #${pr.number} 的关联票没有 KR 影响声明(${missed.join('、')}),先补再合并:\n${missed.map(howToDeclare).join('\n')}`
