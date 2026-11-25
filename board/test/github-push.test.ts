@@ -61,6 +61,10 @@ const offline = (w: World) => {
 }
 const posterOf = (w: World): Poster => ({
   login: owner.login,
+  userId: async () => {
+    offline(w)
+    return owner.id
+  },
   assign: async (_repo, issue, assigned) => {
     offline(w)
     const had = (w.assignees ??= {})[issue] ?? []
@@ -432,6 +436,25 @@ describe('本地关票、认领、分享推到 GitHub', () => {
     expect((await team.thread(task.id, { limit: 1 })).message.labels.issue).not.toBe(`${REPO}#999`)
     expect(await push(t0 + 3 * 60_000)).toEqual({ unpushed: 0 })
     expect((await team.thread(task.id, { limit: 1 })).message.labels.issue).toBe(`${REPO}#1800`)
+  })
+
+  it('推送账号在分享途中改了名，按用户 ID 仍认得是自己开的', async () => {
+    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    const { task } = await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-8', text: '改名', labels: { key: 'ROUBAO-LOCAL-8' } })
+    await share(['ROUBAO-LOCAL-8'], team, dir)
+    world.openedButNoAnswer = true
+    const t0 = Date.now()
+    await push(t0)
+    world.openedButNoAnswer = false
+    const renamed = owner.login
+    owner.login = 'renamed-gpt'
+    try {
+      await poll()
+      await poll()
+    } finally {
+      owner.login = renamed
+    }
+    expect((await team.threads({ channel: 'roubao', label: { issue: `${REPO}#1800` } })).threads.map((t) => t.message.id)).toEqual([task.id])
   })
 
   it('分享改了票号，子票的 parent 跟着改', async () => {

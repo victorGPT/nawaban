@@ -15,6 +15,7 @@ export const WANTED_STATES = ['completed', 'not_planned', 'open'] as const
 export type WantedState = (typeof WANTED_STATES)[number]
 export type Poster = {
   login: string
+  userId: () => Promise<number>
   commentsSince: (repo: string, issue: number, since: string) => Promise<GithubComment[]>
   post: (repo: string, issue: number, body: string) => Promise<GithubComment>
   assign: (repo: string, issue: number, assigned: boolean) => Promise<void>
@@ -150,7 +151,7 @@ async function shareAsAnIssue(person: Person, root: MessageView, repo: string, p
   const since = triedAt && new Date(Date.parse(triedAt) - LOOK_BACK_BEFORE_WRITTEN_MS).toISOString()
   let issue = since ? (await poster.openedSince(repo, since)).find((i) => i.body?.includes(SHARED_FROM(root.id))) : undefined
   if (!issue) {
-    await person.label(root.id, { set: { [SHARE_TRIED_AT]: new Date(now).toISOString(), [SHARE_OPENED_BY]: poster.login.toLowerCase() } })
+    await person.label(root.id, { set: { [SHARE_TRIED_AT]: new Date(now).toISOString(), [SHARE_OPENED_BY]: String(await poster.userId()) } })
     const [title, ...rest] = root.text.split('\n')
     issue = await poster.open(repo, title!, `${rest.join('\n').trim()}\n\n${SHARED_FROM(root.id)}`.trimStart())
   }
@@ -176,11 +177,11 @@ async function attachShared(person: Pick<Person, 'sync' | 'label' | 'tasks'>, ro
   if (was && was !== key) for (const child of await childrenOf(person as Person, was)) await person.label(child.id, { set: { parent: key } })
 }
 
-export async function attachIfSharedFromHere(person: Pick<Person, 'sync' | 'label' | 'tasks' | 'thread'>, repo: string, issue: { number?: number; body?: string | null; user?: { login?: string } } | undefined) {
+export async function attachIfSharedFromHere(person: Pick<Person, 'sync' | 'label' | 'tasks' | 'thread'>, repo: string, issue: { number?: number; body?: string | null; user?: { id?: number } } | undefined) {
   const id = issue?.number && SHARED_FROM_AT_THE_END.exec(issue.body ?? '')?.[1]
   if (!id) return
   const root = await person.thread(id, { limit: 1 }).then((t) => t.message, () => null)
-  const openedByThePushAccount = !!root?.labels[SHARE_OPENED_BY] && root.labels[SHARE_OPENED_BY] === issue.user?.login?.toLowerCase()
+  const openedByThePushAccount = !!root?.labels[SHARE_OPENED_BY] && root.labels[SHARE_OPENED_BY] === String(issue.user?.id)
   if (root && !root.deleted && root.labels[SHARE_TO] === repo && !root.labels.issue && openedByThePushAccount) await attachShared(person, root, repo, issue.number!)
 }
 
@@ -227,6 +228,7 @@ const gh = (args: string[], token: string) =>
 export function ghPoster(token: string, login: string): Poster {
   return {
     login,
+    userId: async () => (JSON.parse(await gh(['api', '--method', 'GET', 'user'], token)) as { id: number }).id,
     commentsSince: async (repo, issue, since) =>
       (JSON.parse(await gh(['api', '--method', 'GET', '--paginate', '--slurp', `repos/${repo}/issues/${issue}/comments?since=${since}&per_page=100`], token)) as GithubComment[][]).flat(),
     post: async (repo, issue, body) => JSON.parse(await gh(['api', '--method', 'POST', `repos/${repo}/issues/${issue}/comments`, '-f', `body=${body}`], token)) as GithubComment,
