@@ -77,6 +77,11 @@ describe('detailView timeline', () => {
     expect(view.state).toBe('stopped')
   })
 
+  it('reads the note event wait leaves as the question being asked', () => {
+    const view = detailView(detail([ev('note', '等你：这个方向对不对', at(24, 9))]), task({ waiting: '这个方向对不对' }), NOW)
+    expect(view.timeline.everything[0]!.rows[0]).toMatchObject({ kind: 'ask', line: '这个方向对不对' })
+  })
+
   it('keeps links out of the timeline and lists every one at the side', () => {
     const view = detailView(detail([
       ev('link', 'pr:https://github.com/o/r/pull/136', at(24, 9)),

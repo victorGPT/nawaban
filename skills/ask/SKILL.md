@@ -19,4 +19,4 @@ Ask the owner by a card on the ticket, never in words alone.
 4. End the reply there. The Stop hook records the card on the ticket as a 待决策项 and lets the reply through; a ticket already waiting on the owner is left as it is.
 5. When the owner answers, record it: `nawaban event <ID> resolve "<their words>"`.
 
-A field that says nothing (无, -, 待定) sends the reply back; only `kr` may be 无. Show the format without asking by a four-backtick fence. The hook runs only for the orchestrator: any other session records the card itself with `nawaban event <ID> ask` (the nawaban skill has the flags). For a fact you need, not a decision: `nawaban event <ID> note "triage: needs-info — 等你：<question>"`. No padding.
+A field that says nothing (无, -, 待定) sends the reply back; only `kr` may be 无. Show the format without asking by a four-backtick fence. The hook runs only for the orchestrator: any other session records the card itself with `nawaban event <ID> ask` (the nawaban skill has the flags). For a fact you need, not a decision: `nawaban event <ID> wait "<question>"`. No padding.

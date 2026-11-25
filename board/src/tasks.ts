@@ -92,12 +92,13 @@ const create: Verb = async (argv) => {
       parent: { type: 'string' },
       project: { type: 'string' },
       'blocked-by': { type: 'string', multiple: true },
+      lane: { type: 'string' },
       json: { type: 'boolean' },
     },
   })
   const [keyAsPostIdSoCreatingAgainAnswersTheSameTask, bodyWord, ...extra] = positionals
   if (!keyAsPostIdSoCreatingAgainAnswersTheSameTask || extra.length || !values.title) {
-    throw new Refused('用法：nawaban create <票> --title <标题> [正文] [--parent <票>] [--project <项目>] [--blocked-by <票>]…', 2)
+    throw new Refused('用法：nawaban create <票> --title <标题> [正文] [--parent <票>] [--project <项目>] [--blocked-by <票>]… [--lane <泳道>]', 2)
   }
   const body = await bodyFrom(bodyWord, values.body, values['body-file'])
   if (values.body !== undefined) pointAt(withBody(['create', keyAsPostIdSoCreatingAgainAnswersTheSameTask], values.body, optionWordsBut(tokens, ['body'])))
@@ -111,7 +112,8 @@ const create: Verb = async (argv) => {
     labels: { key: keyAsPostIdSoCreatingAgainAnswersTheSameTask, ...(parent ? { parent: key(parent) } : {}) },
     needs,
   })
-  return { done: `建票 ${key(task)}：${title(task)}`, json: { task } }
+  if (values.lane) await personOwningEveryTaskTheirProfilesMade().label(task.id, { set: { lane: values.lane } })
+  return { done: `建票 ${key(task)}：${title(task)}${values.lane ? `（泳道 ${values.lane}）` : ''}`, json: { task } }
 }
 
 const block: Verb = async (argv) => {

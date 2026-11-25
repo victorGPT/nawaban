@@ -6,7 +6,7 @@ description: "For the orchestrator. Handle what the owner wrote on the web page:
 Settle each item this turn, before anything else.
 
 1. 网页已答: the answer is on the ticket and the hold stays. Check that it fits what was asked: an option that exists, words that answer the question.
-2. It fits a 待决策项: `nawaban event <ID> resolve "<their words>"`. It fits a 等你: `nawaban event <ID> decision "<their words>" --by user`, then `nawaban event <ID> note "triage: ready-for-agent"`. It does not fit: ask again through the **ask** skill.
+2. It fits a 待决策项 or a 等你: `nawaban event <ID> resolve "<their words>"`. It does not fit: ask again through the **ask** skill.
 3. 收件箱: each line is `<id> <words>`, the bare id. Decide what the note is: work, a command, or nothing.
 4. Work: open it with the **ticket** skill, with `（收件箱 <id>）` in the body, then `nawaban board label <id> inbox=done task=<KEY> --if inbox=open`.
 5. A command: run it. For a command and for nothing: `nawaban board label <id> inbox=done --if inbox=open`.

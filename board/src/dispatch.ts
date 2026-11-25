@@ -176,6 +176,7 @@ async function refuseBeforeAnythingStarts(a: Args): Promise<Checked> {
 }
 
 async function laneOf(task: MessageView): Promise<string | null> {
+  if (task.labels.lane) return task.labels.lane
   const { replies } = await board().thread(task.id)
   return replies.map((r) => r.text.match(LANE_NOTE)?.[1]).findLast((lane) => lane !== undefined) ?? null
 }

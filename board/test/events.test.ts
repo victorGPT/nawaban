@@ -283,6 +283,22 @@ it('hands the claim back while waiting on the user, and lets any profile take it
   expect((await nawaban('tasks', 'claim', id, '--as', 'cc-bbbb2222')).code).toBe(0)
 })
 
+it('lets the owner wait on a ticket no one holds, and a resolve leaves it in the pool', async () => {
+  const id = await newTask()
+  expect((await nawaban('event', id, 'wait')).code).toBe(2)
+  expect((await nawaban('event', id, 'wait', 'which region?')).code).toBe(0)
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'blocked', blocked: { kind: 'needs_input', reason: 'which region?' }, replies: ['等你：which region?'] })
+  expect((await nawaban('event', id, 'resolve', 'eu')).code).toBe(0)
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', blocked: null, for: null, replies: ['等你：which region?', 'nawaban-resolve@1'] })
+})
+
+it('resolves the wait an old triage note raised', async () => {
+  const id = await newTask()
+  await nawaban('event', id, 'note', 'triage: needs-info — 等你：region?')
+  expect((await nawaban('event', id, 'resolve', 'eu')).code).toBe(0)
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', blocked: null })
+})
+
 it("won't lift a pending decision with a triage note", async () => {
   const id = await newTask()
   await nawaban('event', id, '--kind', 'ask', ...CARD, '--rec', 'ship')

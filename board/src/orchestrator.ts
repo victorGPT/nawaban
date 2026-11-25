@@ -44,7 +44,7 @@ const DECISION_WIDTH = 80
 const OWN_DECISION_WIDTH = 70
 const INBOX_TITLE_WIDTH = 24
 const INBOX_LINE_WIDTH = 90
-const NOTE_THAT_IS_A_LABEL_NOT_PROGRESS = /^\s*(?:triage|wayfinder|impact):/
+const NOTE_THAT_IS_A_LABEL_NOT_PROGRESS = /^\s*(?:(?:triage|wayfinder|impact):|等你：)/
 const MENTION = /(?<![\p{L}\p{N}_.])@([\p{L}\p{N}_-]+)/u
 const NEXT_SPLIT = /[，,]?\s*(?:\/\s*)?(?:下一步|\bNext)[：:]/
 const NEXT = /(?:下一步|\bNext)[：:]\s*(.+?)(?=\s*\/\s*(?:卡点|Blockers)\s*[：:]|[。\n]|$)/

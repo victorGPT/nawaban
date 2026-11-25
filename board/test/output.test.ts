@@ -100,7 +100,7 @@ it('says what a write verb did in one line, and what to do next when it refuses'
   expect(await nawaban(['event', 'OUT-1', 'resolve', '定了'])).toMatchInlineSnapshot(`
     {
       "code": 1,
-      "err": "✗ OUT-1 没有挂着等决策的事
+      "err": "✗ OUT-1 没有挂着等决策或等你的事
     ",
       "out": "",
     }

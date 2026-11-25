@@ -188,6 +188,24 @@ it('shows what waits on the decision-maker under each reply, new items first, th
   expect(await inbox('s1')).toBeNull()
 })
 
+it('puts a ticket its holder waits on into the pending line, and a resolve hands it back to that holder alone', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  await nawaban('create', 'W1', '--title', '等一句话', '--project', 'proj')
+  await nawaban('claim', 'W1')
+  const id = await idOf('W1')
+  expect(await nawaban('event', 'W1', 'wait', '给密钥')).toBe('✓ W1 记下等你，票挂起等决策者答复\n')
+  expect((await team.thread(id)).message.task).toMatchObject({ state: 'blocked', claim: null, blocked: { kind: 'needs_input', reason: '给密钥' } })
+  expect(await inbox('w1')).toMatch(/^待决 \d+ 件：.*W1 等一句话/)
+
+  expect(await nawaban('event', 'W1', 'resolve', '给了，在 1Password')).toBe(`✓ W1 记下已决，挂起已解除，指回 ${AS}\n`)
+  expect((await team.thread(id)).message.task).toMatchObject({ state: 'ready', blocked: null, for: expect.stringMatching(new RegExp(`\\+${AS}$`)) })
+  expect(await inbox('w1')).not.toMatch(/W1/)
+  const another = await runWithTheHooksEnvironment(['node', CLI, 'claim', 'W1'], '', { CLAUDE_CODE_SESSION_ID: 'bbbb2222-0000' })
+  expect(another.code).toBe(1)
+  expect(another.err).toContain('assigned to another profile')
+  await nawaban('claim', 'W1')
+  await nawaban('claim', 'W1', '--release')
+})
+
 it('stays silent when the board is down', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   expect(await inbox('s1', { BOARD_URL: 'http://127.0.0.1:9/api/board' })).toBeNull()
 })

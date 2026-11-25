@@ -30,7 +30,7 @@ The board is written only by agents and read by a person. The panel does not man
 
 - Herdr holds spaces → tabs → panes. Each Claude Code session runs in a terminal and has `HC_TERMINAL_ID` in its environment.
 - The panel follows the project of the focused Herdr space. It runs `python3 ~/nawaban/nawaban/cli.py json …` in that folder.
-- A task is waiting on the owner when its latest `triage:` note is `triage: needs-info — 等你：<question>`.
+- A task is waiting on the owner while it is held for a person (`needs_input`), which `nawaban event <ticket> wait <question>` raises and `resolve` lifts; the old note `triage: needs-info — 等你：<question>` still raises it.
 - In-progress is derived: an open task held by a session.
 
 ## Capabilities and Constraints

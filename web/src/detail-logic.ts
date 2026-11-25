@@ -59,7 +59,7 @@ export type DetailView = {
 }
 
 const OWNER_AUTHOR = 'user'
-const ASK_OPENING = 'triage: needs-info — 等你：'
+const ASK_OPENING = /^(?:triage: needs-info — )?等你：/
 const SAYING_PREFIX = /^(?:决定|进展|已完成)：/
 const BOOKKEEPING_NOTE = /^(?:lane|coord):/
 const QUESTION_LINE = /^背景：(.*)$/m
@@ -138,8 +138,8 @@ const ROW_OF_EVENT: Record<string, (e: Event) => Row | null> = {
   note: (e) =>
     BOOKKEEPING_NOTE.test(e.body)
       ? null
-      : e.body.startsWith(ASK_OPENING)
-      ? { kind: 'ask', at: e.at, line: firstLine(e.body.slice(ASK_OPENING.length)), full: e.body.slice(ASK_OPENING.length).trim() }
+      : ASK_OPENING.test(e.body)
+      ? { kind: 'ask', at: e.at, line: firstLine(e.body.replace(ASK_OPENING, '')), full: e.body.replace(ASK_OPENING, '').trim() }
       : { kind: 'note', ...entryOf(e.at, e.body) },
   ask: (e) => ({ kind: 'ask', ...entryOf(e.at, cardOf(e.body) || e.body) }),
   resolve: (e) => ({ kind: 'decision', by: 'owner', question: null, ...entryOf(e.at, String(dataOf(e.body).words ?? e.body)) }),
