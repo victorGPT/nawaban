@@ -74,9 +74,9 @@ def test_gh_is_asked_for_open_issues_and_those_closed_in_the_last_48_hours(monke
     monkeypatch.setattr(cli.subprocess, "run",
                         lambda args, **kw: calls.append(args) or subprocess.CompletedProcess(args, 0, "[]", ""))
     assert cli._gh_issues(Path(".")) == []
-    assert [c[3:7] for c in calls] == [["--state", "open", "--limit", "1000"],
+    assert [c[3:7] for c in calls if c[0] == "gh"] == [["--state", "open", "--limit", "1000"],
                                       ["--state", "closed", "--search", "closed:>=2026-11-05T12:00:00Z"]]
-    assert all("stateReason" in c[-1] and "comments" in c[-1] for c in calls)
+    assert all("stateReason" in c[-1] and "comments" in c[-1] for c in calls if c[0] == "gh")
 
 
 def test_a_repository_tracked_on_the_board_never_asks_gh(tmp_path, monkeypatch, capsys):

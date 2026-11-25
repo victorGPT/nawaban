@@ -854,9 +854,39 @@ def github_root(cwd: Path | None = None) -> Path | None:
     return root if "GitHub" in first_heading else None
 
 
+_GITHUB_ACCOUNT_DECLARATION = re.compile(r"^github-account:[ \t]*([A-Za-z0-9-]+)[ \t]*\r?$", re.M)
+_FENCED_OR_COMMENTED_EXAMPLE = re.compile(r"^ {0,3}(`{3,}|~{3,})[\s\S]*?(?:^ {0,3}\1|\Z)|<!--[\s\S]*?(?:-->|\Z)", re.M)
+_GITHUB_OWNER_IN_REMOTE = re.compile(r"github\.com[:/]([^/]+)/")
+
+
+def github_account(root: Path) -> str | None:
+    """The repository's declared account, else this machine's account for its origin owner; None leaves gh as it is (a teammate without the map)."""
+    try:
+        tracker = (root / "docs" / "agents" / "issue-tracker.md").read_text()
+    except OSError:
+        tracker = ""
+    if m := _GITHUB_ACCOUNT_DECLARATION.search(_FENCED_OR_COMMENTED_EXAMPLE.sub("", tracker)):
+        return m.group(1)
+    remote = subprocess.run(["git", "-C", str(root), "remote", "get-url", "origin"], capture_output=True, text=True).stdout
+    owner = _GITHUB_OWNER_IN_REMOTE.search(remote)
+    try:
+        accounts = json.loads((Path.home() / ".nawaban" / "github-accounts.json").read_text())
+    except FileNotFoundError:
+        return None
+    return next((a for o, a in accounts.items() if owner and o.lower() == owner.group(1).lower() and isinstance(a, str)), None)
+
+
+def _env_writing_as(root: Path, account: str) -> dict:
+    r = _run_gh(root, "auth", "token", "--user", account)
+    if r.returncode != 0 or not r.stdout.strip():
+        raise Refused(f"本机 gh 没登录 {root} 要用的账号 {account}：先跑 gh auth login，登录 {account}")
+    return os.environ | {"GH_TOKEN": r.stdout.strip()}
+
+
 def _gh(root: Path, *args: str) -> str:
-    r = _run_gh(root, *args)
-    if r.returncode != 0 and "Could not resolve to a Repository" in r.stderr:
+    account = github_account(root)
+    r = _run_gh(root, *args, env=_env_writing_as(root, account)) if account else _run_gh(root, *args)
+    if r.returncode != 0 and not account and "Could not resolve to a Repository" in r.stderr:
         r = _retry_as_an_inactive_login(root, args) or r
     if r.returncode != 0:
         raise Refused(f"gh 失败:{r.stderr.strip()}")

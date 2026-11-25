@@ -7,7 +7,7 @@ import { dispatch, tell } from './dispatch.ts'
 import { askGuard } from './ask-guard.ts'
 import { claimRegistering, event } from './events.ts'
 import { pointAt } from './hint.ts'
-import { guard } from './guard.ts'
+import { ghAccountGuard, guard } from './guard.ts'
 import { importOld } from './import.ts'
 import { merge } from './merge.ts'
 import { jsonOkr, okr, okrStat } from './okr.ts'
@@ -58,6 +58,7 @@ const HOOKS: Record<string, Run> = {
   renew: taskVerb('renew'),
   progress: () => progress(async (session) => [...(await heldBy(session)), ...githubIssuesHeldBy(DIR, session)], DIR),
   guard: () => guard(board(), DIR),
+  'gh-account': () => ghAccountGuard(DIR),
   'ask-guard': (rest) => askGuard(rest, { run: upstreamQuietly, team: board(), oldCli }),
 }
 
@@ -218,14 +219,15 @@ const COMMANDS: Record<string, Command> = {
   hook: {
     group: '本机服务',
     usage: 'hook <名>',
-    about: '钩子入口 renew、progress、guard、ask-guard，不手敲',
+    about: '钩子入口 renew、progress、guard、gh-account、ask-guard，不手敲',
     flags: [
       ['renew [--session <会话>]', '续租这个会话拿着的票'],
       ['progress', '从标准输入读钩子输入，记进展'],
       ['guard', '从标准输入读 PreToolUse 输入，拦下时退出 2'],
+      ['gh-account', '从标准输入读 PreToolUse 输入，gh 写操作的 token 不是仓库声明的账号时拦下，退出 2'],
       ['ask-guard [--tracker old]', '从标准输入读 Stop 输入，按回复里的 ask 块记待决或打回'],
     ],
-    run: ([name, ...rest]) => (name !== undefined && Object.hasOwn(HOOKS, name) ? HOOKS[name]!(rest) : Promise.resolve(misused('hook renew|progress|guard|ask-guard'))),
+    run: ([name, ...rest]) => (name !== undefined && Object.hasOwn(HOOKS, name) ? HOOKS[name]!(rest) : Promise.resolve(misused('hook renew|progress|guard|gh-account|ask-guard'))),
   },
   json: {
     group: '本机服务',

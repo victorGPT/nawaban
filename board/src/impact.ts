@@ -128,7 +128,7 @@ export function closeGate(cmd: string): string | null {
     : null
 }
 
-const words = (s: string) => s.match(/'[^']*'|"(?:\\.|[^"\\])*"|\S+/g)?.map((w) => w.replace(/^(['"])(.*)\1$/s, '$2')) ?? []
+export const words = (s: string) => s.match(/'[^']*'|"(?:\\.|[^"\\])*"|\S+/g)?.map((w) => w.replace(/^(['"])(.*)\1$/s, '$2')) ?? []
 
 async function mainCheckoutOfSessionCwd(cwd: string): Promise<string | null> {
   const common = (await run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd }).catch(() => null))?.stdout.trim()
