@@ -18,7 +18,8 @@ const QUOTED = /'[^']*'|"(?:\\.|[^"\\])*"/g
 const TOKEN_SET_OUTSIDE_A_PROVEN_PREFIX = /\b(?:GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN)\b|\bgh\s+auth\s+(?:switch|login)\b/
 const READ_ONLY_GROUPS = new Set(['auth', 'help', 'version', '--version', '--help', 'status', 'browse', 'search', 'completion', 'config', 'alias'])
 const NESTED_COMMANDS = new Set(['deploy-key', 'autolink'])
-const READ_ONLY_VERBS = new Set(['view', 'list', 'status', 'checks', 'diff', 'watch', 'download', 'clone', 'verify', 'checkout'])
+const READ_ONLY_VERBS = new Set(['view', 'list', 'status', 'checks', 'diff', 'watch', 'download', 'verify', 'checkout', 'set-default'])
+const CLONES_TO_THIS_MACHINE = new Set(['repo', 'gist'])
 const API_SENDS_A_BODY = /^(?:-f|-F|--field(?:=|$)|--raw-field(?:=|$)|--input(?:=|$))/
 const API_METHOD = /^(?:-X=?|--method(?:=|$))(.*)$/
 const REPO_FLAG = /^(?:-R|--repo)(?:=(.*))?$/
@@ -65,6 +66,7 @@ function withoutRepoFlag(args: string[]): string[] {
 function writesToGithub(args: string[], segment: string): boolean {
   const [group, verb, subVerb] = withoutRepoFlag(args).filter((a) => !a.startsWith('-'))
   if (group === undefined || READ_ONLY_GROUPS.has(group) || args.includes('--help')) return false
+  if (verb === 'clone') return !CLONES_TO_THIS_MACHINE.has(group)
   if (group !== 'api') return verb !== undefined && !READ_ONLY_VERBS.has(verb) && !(NESTED_COMMANDS.has(verb) && READ_ONLY_VERBS.has(subVerb ?? ''))
   if (args.some((a) => a === 'graphql')) return GRAPHQL_WRITE.test(segment) || !GRAPHQL_QUERY_WRITTEN_OUT.test(segment)
   const at = args.findIndex((a) => API_METHOD.test(a))
