@@ -1,0 +1,8 @@
+@property --lift {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+[data-skin="hardware"] [data-kit="tab"]:hover:not([aria-selected="true"], [data-selected], [data-active]):not(#_):not(#_) {
+  color: var(--dim);
+}

@@ -1,0 +1,3 @@
+[data-skin="hardware"] {
+  --led-color: var(--key-lamp);
+}

@@ -1,0 +1,12 @@
+[data-skin="hardware"] [data-kit="popup"]:not(#_):not(#_):not(#_):not(#_):not(#_):not(#_) {
+  right: auto;
+  bottom: auto;
+  height: fit-content;
+  max-height: var(--available-height, none);
+  align-content: start;
+  overflow-y: auto;
+}
+[data-skin="hardware"] :is(button, input:not([type="range"]), select, textarea) {
+  -webkit-appearance: none;
+  appearance: none;
+}

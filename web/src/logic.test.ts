@@ -11,17 +11,18 @@ const working = (id: string, over: Partial<BoardTask> = {}) => task(id, { status
 
 describe('routeOf', () => {
   it('takes the token out and keeps the route beside it', () => {
-    expect(routeOf('#k=abc')).toEqual({ route: { tab: 'tasks', task: null }, token: 'abc', hashWithoutToken: '' })
+    expect(routeOf('#k=abc')).toEqual({ route: { tab: 'decide', task: null }, token: 'abc', hashWithoutToken: '' })
     expect(routeOf('#okr&k=abc')).toEqual({ route: { tab: 'okr', task: null }, token: 'abc', hashWithoutToken: '#okr' })
   })
   it('opens a task by its key, even one with # or spaces', () => {
     expect(routeOf(taskHref('#389')).route).toEqual({ tab: 'tasks', task: '#389' })
     expect(routeOf(taskHref('NAWABAN-WEB-06')).route).toEqual({ tab: 'tasks', task: 'NAWABAN-WEB-06' })
   })
-  it('falls back to 任务 on anything it does not know', () => {
-    expect(routeOf('#nope').route.tab).toBe('tasks')
-    expect(routeOf('#task-%E0').route).toEqual({ tab: 'tasks', task: null })
-    expect(routeOf('#inbox').route.tab).toBe('inbox')
+  it('opens on 待决, and falls back to it on anything it does not know', () => {
+    expect(routeOf('').route.tab).toBe('decide')
+    expect(routeOf('#nope').route.tab).toBe('decide')
+    expect(routeOf('#task-%E0').route).toEqual({ tab: 'decide', task: null })
+    expect(routeOf('#notes').route.tab).toBe('notes')
   })
 })
 

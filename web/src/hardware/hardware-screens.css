@@ -1,0 +1,60 @@
+[data-skin="hardware"]
+  :is([data-kit="dialog"], [data-kit="popover"]):not([data-kit="drawer"] *)
+  :is([data-kit="dialog-surface"], [data-kit="popover-surface"]):not([data-size]):not(#_):not(#_):not(#_) {
+  @starting-style {
+    transform: perspective(1000px) rotateX(-90deg);
+  }
+  & [data-kit="dialog-title"] {
+    @starting-style {
+      opacity: 0;
+    }
+  }
+  & [data-kit="dialog-description"] {
+    @starting-style {
+      opacity: 0;
+    }
+  }
+}
+[data-skin="hardware"] [data-kit="popover"] [data-kit="popover-surface"]:not([data-size]):not(#_):not(#_):not(#_) {
+  @starting-style {
+    transform: perspective(1000px) rotateX(90deg);
+  }
+}
+[data-skin="hardware"] [data-kit="dialog-surface"][data-size="command"]:not(#_):not(#_):not(#_) {
+  @starting-style {
+    transform: perspective(1000px) rotateX(-90deg);
+  }
+}
+[data-skin="hardware"] [data-kit="record-dot"] {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: radial-gradient(circle at 40% 35%, color-mix(in oklab, var(--key-color), #fff 18%), var(--key-color) 70%);
+  box-shadow: inset 0 -1px 1px rgb(0 0 0 / 0.18);
+}
+[data-skin="hardware"] [data-kit="hover-lcd"] {
+  @starting-style {
+    transform: perspective(800px) rotateX(90deg);
+  }
+}
+[data-skin="hardware"] [data-kit="dialog"]:not([data-kit="drawer"] *) [data-kit="dialog-surface"]:is(:not([data-size]), [data-size="command"]):not(#_):not(#_):not(#_):not(#_) {
+  @starting-style {
+    transform: none;
+    filter: blur(12px);
+    opacity: 0;
+    scale: 1.03;
+  }
+  & :is([data-kit="dialog-title"], [data-kit="dialog-description"]) {
+    @starting-style {
+      opacity: 1;
+    }
+  }
+}
+[data-skin="hardware"] [data-kit="backdrop"]:not(#_):not(#_) {
+  @starting-style {
+    opacity: 0;
+    -webkit-backdrop-filter: blur(0);
+    backdrop-filter: blur(0);
+  }
+}

@@ -26,7 +26,7 @@ The shared language for tasks recorded by agents and read by people. English ter
 - **偏差** — 实际减目标，按目标方向算：+ 领先，- 落后；百分比按「点」计 — 出处：Variance。
 - **OKR 行** — 「<KR>  <实际> / 目标 <op 目标> · 偏差 <±n 单位> · <红|黄|绿> · 截至 <MM-DD>」，`okr` 输出和面板都用；面板上偏差和灯另用颜色 — 出处：OKR（Grove，Doerr）。
 - **面板 tab** — 待决 / OKR / 票 / 收件箱；编排者每轮回复下方「待决 N 件：…」那一行是待决提示行，不叫收件箱 — 出处：本仓库。
-- **收件箱** — 面板第四个 tab：决策者随手记下的想法，按项目存在面板本地；点「交给编排者」由编排者转成票或命令，交过的标「已交」沉底折叠。网页记的存进看板 `inbox/<项目>` 频道（标签 `inbox=open`），编排者转成票（`create` 后标 `inbox=done task=<KEY>`）或命令（标 `inbox=done`） — 出处：Capture Inbox（GTD，Allen）。
+- **收件箱** — 面板第四个 tab：决策者随手记下的想法，按项目存在面板本地；点「交给编排者」由编排者转成票或命令，交过的标「已交」沉底折叠。网页记的存进看板 `inbox/<项目>` 频道（标签 `inbox=open`），编排者转成票（`create` 后标 `inbox=done task=<KEY>`）或命令（标 `inbox=done`）。网页上这一页叫「随手记」，免得和决策者口中的「收件箱」（待决）撞名 — 出处：Capture Inbox（GTD，Allen）。
 - **网页答复** — 决策者在网页上对待决或等你的回答（`nawaban-web-answer@1`），不解除挂起；编排者核实后自己记已决 — 出处：本仓库（ADR 0003）。
 
 ## Language

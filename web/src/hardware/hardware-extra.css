@@ -1,0 +1,8 @@
+[data-skin="hardware"] {
+  & [data-kit="input"][data-multiline] {
+    height: 96px;
+    padding: 10px 12px;
+    resize: none;
+    align-items: start;
+  }
+}
