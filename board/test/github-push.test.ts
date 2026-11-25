@@ -26,13 +26,13 @@ const asTheOldCliWritesIt = (kind: string, body: string) =>
   `${WORD[kind]}：${body}\n\n<!-- nawaban ${JSON.stringify({ v: 1, uid: `u-${++uids}`, kind, author: 'selftest', at: 1, body }).replaceAll('-', '\\u002d')} -->`
 
 type Comment = GithubComment & { user: typeof yue; created_at: string; updated_at: string; issue_url: string; html_url: string }
-type World = { open: number[]; comments: Comment[]; down: boolean; postedButNoAnswer: boolean; posts: number }
+type World = { open: number[]; closed?: number[]; comments: Comment[]; down: boolean; postedButNoAnswer: boolean; posts: number }
 let nextComment = 9000
 const commentOn = (issue: number, body: string, user = yue): Comment => {
   const at = new Date(Date.parse('2026-11-25T10:00:00Z') + nextComment * 1000).toISOString()
   return { id: ++nextComment, body, user, created_at: at, updated_at: at, issue_url: `https://api.github.com/repos/${REPO}/issues/${issue}`, html_url: '' }
 }
-const issueOf = (n: number) => ({ id: 5000 + n, number: n, title: `issue ${n}`, body: 'x', state: 'open', state_reason: null, user: yue, labels: [], assignees: [], html_url: `https://github.com/${REPO}/issues/${n}`, created_at: '2026-11-24T00:00:00Z', updated_at: '2026-11-24T00:00:00Z' })
+const issueOf = (n: number, state = 'open') => ({ id: 5000 + n, number: n, title: `issue ${n}`, body: 'x', state, state_reason: state === 'closed' ? 'completed' : null, user: yue, labels: [], assignees: [], html_url: `https://github.com/${REPO}/issues/${n}`, created_at: '2026-11-24T00:00:00Z', updated_at: '2026-11-24T00:00:00Z' })
 
 const readerOf = (w: World): Reader => ({
   list: async (path) => {
@@ -40,12 +40,12 @@ const readerOf = (w: World): Reader => ({
     const n = /issues\/(\d+)\/comments/.exec(path)?.[1]
     if (n) return w.comments.filter((c) => c.issue_url.endsWith(`/${n}`))
     if (path.includes('/issues/comments')) return w.comments
-    return w.open.map(issueOf)
+    return [...w.open.map((n) => issueOf(n)), ...(w.closed ?? []).map((n) => issueOf(n, 'closed'))]
   },
   one: async (path) => {
     if (w.down) throw new Error('getaddrinfo ENOTFOUND api.github.com')
     const n = /issues\/(\d+)$/.exec(path)?.[1]
-    return n ? issueOf(Number(n)) : repository
+    return n ? { ...issueOf(Number(n), w.closed?.includes(Number(n)) ? 'closed' : 'open'), closed_by: owner } : repository
   },
   now: async () => {
     if (w.down) throw new Error('getaddrinfo ENOTFOUND api.github.com')
@@ -118,6 +118,8 @@ describe('先写板，联网后推到 GitHub', () => {
     await write('note', 'triage: needs-info')
     await write('note', 'lane: sync')
     await write('note', 'wayfinder: 下一步看 -10')
+    await write('note', '派给 hc t123（worktree /tmp/w，回报给 t0）\n验收：ok')
+    await write('note', 'dispatch: w1 · 派给 hc t124（worktree /tmp/w，回报给 t0）\n验收：ok')
     const root = (await team.threads({ channel: 'roubao', label: { issue: `${REPO}#1730` } })).threads[0]!.message
     await team.reply(root.id, webAnswerText({ option: 'A', words: '网页上答的' }))
     await team.reply(root.id, '板上随手记的')
@@ -146,6 +148,21 @@ describe('先写板，联网后推到 GitHub', () => {
     await push()
     expect(world.posts).toBe(1)
     expect(onGithub()).toEqual([expect.stringMatching(/^待决：上线吗/)])
+  })
+})
+
+describe('GitHub 上重开过的 issue', () => {
+  it('新任务的面板读得到重开后在板上先写的进展', async () => {
+    world = { ...world, open: [], closed: [1730] }
+    await poll()
+    await poll()
+    world = { ...world, open: [1730], closed: [] }
+    await poll()
+    await poll()
+    world.down = true
+    await write('note', '重开后离线写的')
+    const row = (await boardData(team, 'roubao')).columns.flatMap((c) => c.tasks as { id: string; status: string; progress: { body: string } | null }[]).find((t) => t.id === 'ROUBAO-1730' && t.status !== 'done')!
+    expect(row.progress?.body).toBe('重开后离线写的')
   })
 })
 

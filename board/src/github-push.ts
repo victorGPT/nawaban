@@ -13,7 +13,7 @@ export type Poster = {
 }
 
 export const PUSHED_KINDS = new Set(['claim', 'release', 'note', 'decision', 'link', 'ask', 'resolve', 'impact'])
-const BOOKKEEPING_NOTE = /^\s*(?:triage|wayfinder|lane):/
+const BOOKKEEPING_NOTE = /^\s*(?:triage:|wayfinder:|lane:|dispatch:|派给 hc )/
 const TRIED_AT = 'github-push-tried-at'
 const GITHUB_LISTS_A_NEW_COMMENT_WITHIN_MS = 2 * 60_000
 const LOOK_BACK_BEFORE_WRITTEN_MS = 5 * 60_000

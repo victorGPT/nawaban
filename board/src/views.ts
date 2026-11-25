@@ -116,7 +116,8 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, githubR
   const holderElseTheWindowThatAskedSinceAHoldEndsTheClaim = claim ? windowProfileElseName(claim.actor) : ask ? lastClaimer : null
   const session = holderElseTheWindowThatAskedSinceAHoldEndsTheClaim
   const done = t.state === 'completed'
-  const notes = h.replies.filter(isNote)
+  const inTheIssueThreadSinceReopened = m.labels['issue-root'] ? githubReplies.filter((r) => !r.deleted && r.createdAt >= m.createdAt).map((message) => ({ message, at: secs(message.createdAt), by: '' })) : []
+  const notes = [...h.replies, ...inTheIssueThreadSinceReopened].filter(isNote).sort((a, b) => a.at - b.at)
   const latest = (name: string) => h.replies.findLast((r) => data(r.message, name))
   const dispatch = latest('nawaban-dispatch')
   const decision = latest('nawaban-decision')
