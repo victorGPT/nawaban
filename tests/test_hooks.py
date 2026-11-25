@@ -176,3 +176,52 @@ def test_declaring_clears_the_old_orchestrator_in_the_same_repository_only(tmp_p
     calls = log.read_text().splitlines()
     assert "label t2 role=" in calls and "已摘掉同仓库旧编排者 t2" in out
     assert not {"label t1 role=", "label t3 role=", "label t4 role=", "label t5 role="} & set(calls)
+
+
+def _session_start(tmp_path, window=None, claude_code=True, terminal_root="shell"):
+    bin_ = tmp_path / "bin"; bin_.mkdir(parents=True, exist_ok=True)
+    me = os.getpid()
+    info = {"labels": {"role": "orchestrator"}, "pid": me, "foreground": {"pid": me if terminal_root == "claude" else me + 1}}
+    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps(info)}'\n"); (bin_ / "hc").chmod(0o755)
+    proj = tmp_path / "it's here"; (proj / "docs/agents").mkdir(parents=True, exist_ok=True)
+    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDECODE", "CLAUDE_CODE_AUTO_COMPACT_WINDOW")}
+    env.update({"PATH": f"{bin_}:{os.environ['PATH']}", "HC_TERMINAL_ID": "t1", "CLAUDE_PROJECT_DIR": str(proj)})
+    if claude_code:
+        env["CLAUDECODE"] = "1"
+    if window:
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = window
+    return subprocess.run(["sh", str(HOOK)], input=json.dumps({"session_id": "s1", "cwd": str(proj)}),
+                          cwd=tmp_path, env=env, capture_output=True, text=True).stdout
+
+
+def _the_line_to_paste(out):
+    return next(l for l in out.splitlines() if "CLAUDE_CODE_AUTO_COMPACT_WINDOW=250000" in l).split("：")[-1]
+
+
+def test_an_orchestrator_without_the_250k_window_gets_a_resume_line_for_its_own_shell(tmp_path):
+    for window in (None, "600000"):
+        out = _session_start(tmp_path / str(window), window=window)
+        line = _the_line_to_paste(out)
+        assert "/exit" in out and "hc run" not in line
+        proj = tmp_path / str(window) / "it's here"
+        resumed = subprocess.run(["sh", "-c", line.replace("claude --resume", "env | grep AUTO_COMPACT; pwd -P; echo")],
+                                 capture_output=True, text=True).stdout.splitlines()
+        assert resumed == ["CLAUDE_CODE_AUTO_COMPACT_WINDOW=250000", str(proj.resolve()), "s1"], resumed
+
+
+def test_an_orchestrator_whose_terminal_ends_with_claude_moves_its_label_to_the_new_terminal(tmp_path):
+    line = _the_line_to_paste(_session_start(tmp_path, terminal_root="claude"))
+    assert line.startswith("! hc run --bg --no-parent --label role=orchestrator ")
+    assert "env CLAUDE_CODE_AUTO_COMPACT_WINDOW=250000 claude --resume s1 && hc label t1 role= && hc kill t1" in line
+
+
+def test_no_restart_reminder_at_250k_or_outside_claude_code(tmp_path):
+    assert "AUTO_COMPACT" not in _session_start(tmp_path / "a", window="250000")
+    assert "AUTO_COMPACT" not in _session_start(tmp_path / "b", claude_code=False)
+
+
+def test_declaring_the_orchestrator_asks_for_the_restart_too(tmp_path, monkeypatch):
+    monkeypatch.delenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW", raising=False)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    out, _ = _declare(tmp_path, "/nawaban:orchestrator")
+    assert "已给终端 t1" in out and "CLAUDE_CODE_AUTO_COMPACT_WINDOW=250000" in out

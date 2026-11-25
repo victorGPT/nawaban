@@ -32,6 +32,7 @@ print_orchestrator_rules() {
 }
 
 is_the_orchestrator "$input" "${route#* }" || exit 0
+warn_unless_the_compact_window_is_the_orchestrators "$input"
 echo "nawaban status（现状索引，SessionStart 钩子注入；你是编排者，先读它再凭记忆补）："
 print_index_from_the_tracker_this_repository_uses
 warn_when_off_main

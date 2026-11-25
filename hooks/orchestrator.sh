@@ -43,6 +43,38 @@ this_session_was_declared_orchestrator_of() {
   [ -n "$sid" ] && [ -n "$2" ] && [ "$(cat "$(declared_session_file "$2")" 2>/dev/null)" = "$sid" ]
 }
 
+orchestrator_compact_window=250000
+
+quoted() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+the_terminal_root_is_its_own_shell() {
+  hc get "$HC_TERMINAL_ID" --json 2>/dev/null | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+sys.exit(0 if d.get("pid") and d.get("pid") != (d.get("foreground") or {}).get("pid") else 1)' 2>/dev/null
+}
+
+restart_line_with_the_orchestrator_window() {
+  sid=$(session_of "$1")
+  launch_dir=$(printf '%s' "$1" | sed -n 's/.*"cwd" *: *"\([^"]*\)".*/\1/p' | head -n 1)
+  launch_dir=$(quoted "${launch_dir:-${CLAUDE_PROJECT_DIR:-$PWD}}")
+  if [ -n "$HC_TERMINAL_ID" ] && ! the_terminal_root_is_its_own_shell; then
+    printf '在本窗口输入框粘贴这一行回车（新终端带 role=orchestrator 标签接着这个会话，旧终端摘标签后关掉）：! hc run --bg --no-parent --label role=orchestrator --cwd %s env CLAUDE_CODE_AUTO_COMPACT_WINDOW=%s claude --resume %s && hc label %s role= && hc kill %s' \
+      "$launch_dir" "$orchestrator_compact_window" "$sid" "$HC_TERMINAL_ID" "$HC_TERMINAL_ID"
+  else
+    printf '先 /exit 回到这个终端的 shell，再粘贴这一行回车（同一终端、同一会话，标签不动）：cd %s && CLAUDE_CODE_AUTO_COMPACT_WINDOW=%s claude --resume %s' \
+      "$launch_dir" "$orchestrator_compact_window" "$sid"
+  fi
+}
+
+warn_unless_the_compact_window_is_the_orchestrators() {
+  [ -n "$CLAUDECODE" ] || return 0
+  [ "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" = "$orchestrator_compact_window" ] && return 0
+  echo "编排者的自动压缩窗口要 ${orchestrator_compact_window}，这个会话的 CLAUDE_CODE_AUTO_COMPACT_WINDOW 是 ${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-未设}（只在启动时读），要重启一次。把下面这句原样转给吴献忠：$(restart_line_with_the_orchestrator_window "$1")"
+}
+
 is_the_orchestrator() {
   if [ -n "$HC_TERMINAL_ID" ]; then
     this_terminal_is_labelled_orchestrator
