@@ -190,6 +190,30 @@ it('takes a write only from the page\'s own origin', async () => {
   expect((await send('/api/nawaban/board', { method: 'POST', headers: { origin: `http://127.0.0.1:${port}` } })).status).toBe(405)
 })
 
+it('writes an answer to a held question, naming it by its words, and keeps the hold', async () => {
+  await create('create', 'Q1', '--title', '问一句', '--project', 'question')
+  const id = (await team.tasks.list({ state: 'all', label: { key: 'Q1' } })).tasks[0]!.message.id
+  const asPage = (answer: unknown) =>
+    send('/api/nawaban/answer/Q1', { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify(answer) })
+  const waitingOf = async () => JSON.parse((await send('/api/nawaban/board?project=question')).body).columns.flatMap((c: { tasks: { id: string; waiting: string | null }[] }) => c.tasks).find((t: { id: string }) => t.id === 'Q1').waiting as string | null
+
+  expect((await asPage({ ask: '哪天上线', words: '还没问' })).status).toBe(409)
+  await create('event', id, 'wait', '哪天上线')
+  expect(await waitingOf()).toBe('哪天上线')
+  expect((await asPage({ ask: '另一个问题', words: '周五' })).status).toBe(409)
+
+  const written = await asPage({ ask: '哪天上线', words: '周五' })
+  expect(written.status).toBe(201)
+  expect(JSON.parse(written.body)).toMatchObject({ task: 'Q1', option: null, words: '周五', hold: 'needs_input', by: 'victor' })
+  expect((await team.thread(id)).message.task?.blocked?.kind).toBe('needs_input')
+  expect(JSON.parse((await send('/api/nawaban/answers?project=question')).body).answers).toMatchObject([{ task: 'Q1', words: '周五' }])
+
+  await create('event', id, 'resolve', '周五上线')
+  await create('event', id, 'wait', '要不要灰度')
+  expect(JSON.parse((await send('/api/nawaban/answers?project=question')).body).answers).toEqual([])
+  expect((await asPage({ ask: '哪天上线', words: '对旧问题的答复' })).status).toBe(409)
+})
+
 it('writes an answer to a 待决 as the local person, keeps the hold, and reads it back', async () => {
   await create('create', 'D1', '--title', '发不发', '--project', 'decide')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'D1' } })).tasks[0]!.message.id

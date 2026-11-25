@@ -317,11 +317,13 @@ async function answer(team: Team, asThisPerson: (body: unknown) => Promise<Respo
   }
   const said = answerSent(await jsonSent(request, ANSWER_SHAPE))
   const [task] = await team.tasks.list({ state: 'blocked', label: { key: ref } }).then((p) => p.tasks.map((t) => t.message))
-  if (task?.task?.blocked?.kind !== 'awaiting_approval') return refuse(409, `${ref} 没有在等决策者答复`)
+  const hold = task?.task?.blocked
+  if (!task || (hold?.kind !== 'awaiting_approval' && hold?.kind !== 'needs_input')) return refuse(409, `${ref} 没有在等决策者答复`)
   const { replies } = await team.thread(task.id)
   const githubReplies = await githubRepliesOf(team, task, replies)
-  const current = task.task.blocked.reason.startsWith(HELD_FOR_A_GITHUB_ASK) ? currentGithubAsk(githubReplies) : replies.findLast((m) => !m.deleted && m.blocks.some((b) => b.schema === 'nawaban-ask'))
-  if (current?.id !== said.ask) return theCardChanged(ref)
+  const aQuestionNamesItsHoldByItsWords = hold.kind === 'needs_input'
+  const current = aQuestionNamesItsHoldByItsWords ? null : hold.reason.startsWith(HELD_FOR_A_GITHUB_ASK) ? currentGithubAsk(githubReplies) : replies.findLast((m) => !m.deleted && m.blocks.some((b) => b.schema === 'nawaban-ask'))
+  if ((aQuestionNamesItsHoldByItsWords ? hold.reason : current?.id) !== said.ask) return theCardChanged(ref)
   const boundToTheGithubAskItAnswers = current && current.from === 'github' ? { labels: { [ANSWERS_LABEL]: current.id } } : {}
   const posted = await asThisPerson({ re: task.id, after: (replies.at(-1) ?? task).id, text: webAnswerText(said.answer), ...boundToTheGithubAskItAnswers })
   if (posted.status === 409) return theCardChanged(ref)
