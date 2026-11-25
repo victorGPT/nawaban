@@ -18,11 +18,11 @@ importers:
         specifier: 2.0.3
         version: 2.0.3(solid-js@2.0.3)
       '@ui-sdk/core':
-        specifier: 0.1.0-beta.13
-        version: 0.1.0-beta.13
+        specifier: 0.1.0-beta.17
+        version: 0.1.0-beta.17
       '@ui-sdk/solid':
-        specifier: 0.1.0-beta.13
-        version: 0.1.0-beta.13(@solidjs/web@2.0.3(solid-js@2.0.3))(@ui-sdk/core@0.1.0-beta.13)(solid-js@2.0.3)
+        specifier: 0.1.0-beta.17
+        version: 0.1.0-beta.17(@solidjs/web@2.0.3(solid-js@2.0.3))(@ui-sdk/core@0.1.0-beta.17)(solid-js@2.0.3)
       cn:
         specifier: 0.3.0
         version: 0.3.0
@@ -501,14 +501,14 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@ui-sdk/core@0.1.0-beta.13':
-    resolution: {integrity: sha512-URjk9hqdc/cZKDtw6Gb9NqjY48U8l0EgoP4d5ghlooa3av+GrR0iSmsav133UU4oelcuKIO1ZPJ4j7gIPMr1Vg==}
+  '@ui-sdk/core@0.1.0-beta.17':
+    resolution: {integrity: sha512-wBWNqT0Qf1sE6fqD1XuBnSGBFcY6+cek1z7rKl/r4j2bsv2or9i7z44PLy0J9hmflm3IJ5MLW0P4ur2H9BCIvg==}
 
-  '@ui-sdk/solid@0.1.0-beta.13':
-    resolution: {integrity: sha512-/YLOk1OGHzRvgVxmMpTXc4OSOCAucTbQ7XElaVAYlvcGqn6F8ALyc39nkcNAroREqyAKzbdxkVtYTLXPOVV13g==}
+  '@ui-sdk/solid@0.1.0-beta.17':
+    resolution: {integrity: sha512-jdvIex6YOCbCCmMLXp5TzeiBUtyGZOHCE/PdF+DdL3KTJrNJTym+2jIvlJkmpvdkrY4CB6o1zz2DuGJDsdonaA==}
     peerDependencies:
       '@solidjs/web': ^2.0.0
-      '@ui-sdk/core': ^0.1.0-beta.13
+      '@ui-sdk/core': ^0.1.0-beta.17
       solid-js: ^2.0.0
 
   '@vitest/mocker@5.1.1':
@@ -1236,12 +1236,12 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@ui-sdk/core@0.1.0-beta.13': {}
+  '@ui-sdk/core@0.1.0-beta.17': {}
 
-  '@ui-sdk/solid@0.1.0-beta.13(@solidjs/web@2.0.3(solid-js@2.0.3))(@ui-sdk/core@0.1.0-beta.13)(solid-js@2.0.3)':
+  '@ui-sdk/solid@0.1.0-beta.17(@solidjs/web@2.0.3(solid-js@2.0.3))(@ui-sdk/core@0.1.0-beta.17)(solid-js@2.0.3)':
     dependencies:
       '@solidjs/web': 2.0.3(solid-js@2.0.3)
-      '@ui-sdk/core': 0.1.0-beta.13
+      '@ui-sdk/core': 0.1.0-beta.17
       solid-js: 2.0.3
 
   '@vitest/mocker@5.1.1(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0))':

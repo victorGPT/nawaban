@@ -2,7 +2,7 @@
 
 Status: accepted (11-24, orchestrator on delegation; the decision-maker can overturn). The stack (SolidJS 2 + Vercel UI SDK) is the decision-maker's (NAWABAN-WEB, 11-24); the rest are the orchestrator's defaults and can be overturned.
 
-The web page (NAWABAN-WEB) gives someone without Herdr the panel's views of their own board: 待决, OKR, 任务, 收件箱, and a task's detail. It runs on each person's machine and reads the board `nawaban serve` already runs on `127.0.0.1:4100`. We write it in SolidJS 2 (`solid-js` 2.0.3, `@solidjs/web` 2.0.3) with Vercel's UI SDK (`@ui-sdk/solid` and `@ui-sdk/core`, both pinned at `0.1.0-beta.13`), build it with Vite 8 and `@solidjs/vite-plugin` 3, and serve the built files and a read-only view API from the same process that serves the board. The browser never holds the board's token. An answer or an inbox item written on the page lands on the board as a message the orchestrator reads and acts on; the page never records a decision as made.
+The web page (NAWABAN-WEB) gives someone without Herdr the panel's views of their own board: 待决, OKR, 任务, 收件箱, and a task's detail. It runs on each person's machine and reads the board `nawaban serve` already runs on `127.0.0.1:4100`. We write it in SolidJS 2 (`solid-js` 2.0.3, `@solidjs/web` 2.0.3) with Vercel's UI SDK (`@ui-sdk/solid` and `@ui-sdk/core`, both pinned at `0.1.0-beta.17` since 11-25, first at `0.1.0-beta.13`), build it with Vite 8 and `@solidjs/vite-plugin` 3, and serve the built files and a read-only view API from the same process that serves the board. The browser never holds the board's token. An answer or an inbox item written on the page lands on the board as a message the orchestrator reads and acts on; the page never records a decision as made.
 
 `web/` holds the spike that settles the stack: a Solid 2 page that renders a board's tasks in UI SDK's `Listbox`, built and typechecked by `pnpm check`.
 
@@ -63,6 +63,7 @@ The board token stays in the process. `/api/nawaban/*` answers only:
 ## Consequences
 
 - UI SDK is beta and ships almost daily. Both packages are pinned exactly and move together on purpose; a breaking beta is a pin we don't take yet.
+- On 11-25 the pin moved from `0.1.0-beta.13` to `0.1.0-beta.17` (npm `latest` that day), the decision-maker's call for NAWABAN-HOME-A: the approved canvas is built on spec-01, whose React parts run on `@ui-sdk/react` `0.1.0-beta.17`, and its skin styles the `data-*` state attributes UI SDK emits, so the Solid page takes the same release to emit the same markup. `pnpm check` (typecheck, 65 tests, build) passed on beta.17 with no code change.
 - The page needs Node and pnpm at install to build, the same as the board.
 - `web/` has its own `package.json` and lockfile, checked in CI by `pnpm check` (typecheck, vitest and build).
 - The page imports the Herdr panel's `logic.js` for what both draw alike (a task group's fold and its 3-row cap, time labels, words), so the two can't drift. Without Herdr's window states, a held task reads 停滞 when it is asking, or quiet for 24 hours (the orchestrator's `STALLED_AFTER_QUIET_FOR`).
