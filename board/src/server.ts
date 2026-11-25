@@ -13,8 +13,10 @@ import { inspector } from '@vercel/board/inspect'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { githubBoards, githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type OldCli } from './github.ts'
-import { currentGithubAsk, githubRepliesOf, HELD_FOR_A_GITHUB_ASK, settleIssueTasks, type KnownIssue } from './github-tasks.ts'
+import { currentGithubAsk, githubRepliesOf, inGithubFormat, HELD_FOR_A_GITHUB_ASK, settleIssueTasks, type KnownIssue } from './github-tasks.ts'
 import { deliverAsSignedWebhook, ghReader, githubSyncConfig, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
+import { ghPoster, pushForever } from './github-push.ts'
+import { githubTokenOf } from './github-account.ts'
 import { okrData } from './okr.ts'
 import { noPullStates, pullStateFromGitHub, type PullStateOf } from './pulls.ts'
 import { Refused } from './said.ts'
@@ -331,7 +333,7 @@ async function answer(team: Team, asThisPerson: (body: unknown) => Promise<Respo
   const aQuestionNamesItsHoldByItsWords = hold.kind === 'needs_input'
   const current = aQuestionNamesItsHoldByItsWords ? null : hold.reason.startsWith(HELD_FOR_A_GITHUB_ASK) ? currentGithubAsk(githubReplies) : replies.findLast((m) => !m.deleted && m.blocks.some((b) => b.schema === 'nawaban-ask'))
   if ((aQuestionNamesItsHoldByItsWords ? hold.reason : current?.id) !== said.ask) return theCardChanged(ref)
-  const boundToTheGithubAskItAnswers = current && current.from === 'github' ? { labels: { [ANSWERS_LABEL]: current.id } } : {}
+  const boundToTheGithubAskItAnswers = current && inGithubFormat(current) ? { labels: { [ANSWERS_LABEL]: current.id } } : {}
   const posted = await asThisPerson({ re: task.id, after: (replies.at(-1) ?? task).id, text: webAnswerText(said.answer), ...boundToTheGithubAskItAnswers })
   if (posted.status === 409) return theCardChanged(ref)
   if (!posted.ok) return refuse(502, `看板没收下答复：${posted.status}`)
@@ -472,6 +474,13 @@ export async function serve(dir = DIR, port = PORT) {
     const reader = async () => ghReader(await readerToken(syncConfig.reader))
     const settleFor = (repo: string, channel: string) => (known: KnownIssue[]) => settleIssueTasks(team, channel, repo, known)
     pollForever(syncConfig, dir, reader, deliverAsSignedWebhook((request) => team.fetch(request), url, secret), settleFor, (line) => console.error(line))
+    const pushed = Object.fromEntries((syncConfig.push ?? []).map((repo) => [repo, syncConfig.repos[repo]!]))
+    const posterFor = async (channel: string) => {
+      const checkout = (await reposReadOnEveryUseSoEditsNeedNoRestart(dir))[channel]
+      if (!checkout) throw new Refused(`${join(dir, 'repos.json')} 里没有 ${channel} 的本地路径，不知道用哪个 GitHub 账号推`)
+      return ghPoster(await githubTokenOf(checkout))
+    }
+    pushForever(team, dir, pushed, posterFor, (line) => console.error(line))
   }
   const server = await listen(site(team, { dir, webToken: await token(dir, WEB_TOKEN), boardToken: await token(dir), port, tailnet, pullStateOf: pullStateFromGitHub }), port)
   const tailnetPage = tailnet ? ` and https://${tailnet}/ through tailscale serve` : ''

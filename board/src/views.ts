@@ -1,5 +1,5 @@
 import { realpath } from 'node:fs/promises'
-import { currentGithubAsk, githubAskIn, githubRepliesOf, HELD_FOR_A_GITHUB_ASK } from './github-tasks.ts'
+import { currentGithubAsk, githubAskIn, githubRepliesOf, HELD_FOR_A_GITHUB_ASK, inGithubFormat, PUSHED_AS } from './github-tasks.ts'
 import { cardFromAGithubAsk } from './github-card.ts'
 import { syncStalledNote } from './github-sync-status.ts'
 import { join } from 'node:path'
@@ -63,10 +63,14 @@ async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: Message
     if (feedEndsWhereTheCursorStaysNotAtAnEmptyPage) return out
     after = cursor
     for (const e of events as BoardEventView[]) {
-      const p = e.payload as { id?: string; by?: { actor: string }; text?: string }
+      const p = e.payload as { id?: string; by?: { actor: string }; text?: string; set?: Record<string, string>; unset?: string[] }
       const changed = p.id ? replyOf.get(p.id) : undefined
       if (changed && e.type === 'message.edited') changed.reply.message = { ...changed.reply.message, text: p.text ?? changed.reply.message.text }
       if (changed && e.type === 'message.deleted') changed.h.replies = changed.h.replies.filter((r) => r !== changed.reply)
+      if (changed && e.type === 'labels.changed') {
+        const labels = Object.fromEntries(Object.entries({ ...changed.reply.message.labels, ...p.set }).filter(([name]) => !p.unset?.includes(name)))
+        changed.reply.message = { ...changed.reply.message, labels }
+      }
       const at = secs(e.createdAt)
       const m = e.message
       const thread = e.type === 'message.posted' ? m?.re : p.id
@@ -103,10 +107,22 @@ const orchestratorAsTheGlossaryDefinesIt = (latestDispatch: Reply | undefined, h
 
 const GITHUB_PROGRESS_PREFIX = /^\s*(?:#{1,6}\s*)?\**进展\**\s*(?:[（(][^）)\n]*[）)])?\**\s*[：:]\**\s*/
 const TRAILING_NAWABAN_MARKER = /\n*<!-- nawaban \{[^\n]*\} -->\s*$/
-const fromGithub = (r: Reply) => r.message.from === 'github'
+const fromGithub = (r: Reply) => inGithubFormat(r.message)
 const visibleOnGithub = (r: Reply) => r.message.text.replace(TRAILING_NAWABAN_MARKER, '')
 const isNote = (r: Reply) => r.message.blocks.length === 0 && (!fromGithub(r) || GITHUB_PROGRESS_PREFIX.test(visibleOnGithub(r)))
 const progress = (r: Reply | undefined) => (r ? { body: fromGithub(r) ? visibleOnGithub(r).replace(GITHUB_PROGRESS_PREFIX, '') : r.message.text, at: r.at } : null)
+
+const ON_GITHUB_YET = 0
+const NOT_ON_GITHUB_YET = 1
+const githubIdElseNone = (r: Reply) => Number(r.message.from === 'github' ? r.message.origin?.message : r.message.labels[PUSHED_AS])
+const placeOf = (r: Reply): [number, number] => {
+  const id = githubIdElseNone(r)
+  return fromGithub(r) && Number.isFinite(id) ? [ON_GITHUB_YET, id] : [NOT_ON_GITHUB_YET, r.at]
+}
+const asGithubOrdersThemElseWhenWritten = (a: Reply, b: Reply) => {
+  const [x, y] = [placeOf(a), placeOf(b)]
+  return x[0] - y[0] || x[1] - y[1] || a.at - b.at
+}
 
 function row(m: MessageView, h: History, byId: Map<string, MessageView>, githubReplies: MessageView[] = h.replies.map((r) => r.message)) {
   const t = m.task!
@@ -116,7 +132,8 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, githubR
   const holderElseTheWindowThatAskedSinceAHoldEndsTheClaim = claim ? windowProfileElseName(claim.actor) : ask ? lastClaimer : null
   const session = holderElseTheWindowThatAskedSinceAHoldEndsTheClaim
   const done = t.state === 'completed'
-  const notes = h.replies.filter(isNote)
+  const inTheIssueThreadSinceReopened = m.labels['issue-root'] ? githubReplies.filter((r) => !r.deleted && r.createdAt >= m.createdAt).map((message) => ({ message, at: secs(message.createdAt), by: '' })) : []
+  const notes = [...h.replies, ...inTheIssueThreadSinceReopened].filter(isNote).sort(asGithubOrdersThemElseWhenWritten)
   const latest = (name: string) => h.replies.findLast((r) => data(r.message, name))
   const dispatch = latest('nawaban-dispatch')
   const decision = latest('nawaban-decision')

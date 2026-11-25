@@ -414,3 +414,49 @@ def test_a_declaration_in_the_tracker_doc_overrides_the_owner_map_and_a_teammate
     assert cli.github_account(gh.repo) is None
     (gh.repo / "docs" / "agents" / "issue-tracker.md").write_text("# Issue tracker: GitHub\n\ngithub-account: victorGPT\n")
     assert cli.github_account(gh.repo) == "victorGPT"
+
+
+@pytest.fixture
+def board_pushes(gh, monkeypatch, tmp_path):
+    """This machine's board syncs and pushes roubao: what the old CLI hands the board, by `hook github-reply`."""
+    board_dir = tmp_path / "board"
+    board_dir.mkdir()
+    (board_dir / "github-sync.json").write_text(json.dumps({"repos": {"acme/roubao": "roubao"}, "reader": "x", "push": ["acme/roubao"]}))
+    monkeypatch.setenv("NAWABAN_BOARD_DIR", str(board_dir))
+    handed = type("Handed", (list,), {"refusal": ""})()
+    faked = subprocess.run
+
+    def run(args, **kw):
+        if args[0] == "node" and args[2:4] == ["hook", "github-reply"]:
+            handed.append((args[4:], kw["input"]))
+            return subprocess.CompletedProcess(args, 1 if handed.refusal else 0, "", handed.refusal)
+        return faked(args, **kw)
+    monkeypatch.setattr(subprocess, "run", run)
+    return handed
+
+
+def test_a_repo_the_board_pushes_gets_its_comment_on_the_board_first_word_for_word(gh, board_pushes):
+    code, out = gh.nawaban("event", "#950", "--kind", "note", "--body", "多行\n第二行")
+    assert code == 0, out
+    assert posted(gh) == []
+    [(where, text)] = board_pushes
+    assert where == ["acme/roubao", "950"]
+    assert text.startswith("进展：多行\n第二行\n\n<!-- nawaban ")
+    ev = cli.read_marker(text)
+    assert ev["kind"] == "note" and ev["body"] == "多行\n第二行" and ev["uid"]
+
+
+def test_a_board_that_refuses_the_write_leaves_github_untouched_and_says_why(gh, board_pushes):
+    board_pushes.refusal = "✗ 板上还没有 acme/roubao#950"
+    code, out = gh.nawaban("event", "#950", "--kind", "note", "--body", "x")
+    assert code != 0 and "板写不进" in out and "acme/roubao#950" in out
+    assert posted(gh) == []
+
+
+def test_a_synced_repo_not_listed_under_push_still_posts_to_github(gh, monkeypatch, tmp_path):
+    board_dir = tmp_path / "board"
+    board_dir.mkdir()
+    (board_dir / "github-sync.json").write_text(json.dumps({"repos": {"acme/roubao": "roubao"}, "reader": "x"}))
+    monkeypatch.setenv("NAWABAN_BOARD_DIR", str(board_dir))
+    assert gh.nawaban("event", "#950", "--kind", "note", "--body", "x")[0] == 0
+    assert len(posted(gh)) == 1
