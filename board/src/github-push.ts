@@ -30,6 +30,7 @@ export const WANTED_STATE = 'github-state-wanted'
 export const SHARE_TO = 'github-share'
 const SHARE_TRIED_AT = 'github-share-tried-at'
 const STATE_SENT = 'github-state-sent'
+const SHARE_OPENED_BY = 'github-share-by'
 const SHARED_FROM_AT_THE_END = /<!-- nawaban-share (\S+) -->\s*$/
 const STALE_LABEL_READ = 'label_conflict'
 const ASSIGNS = { claim: true, release: false } as Record<string, boolean>
@@ -149,7 +150,7 @@ async function shareAsAnIssue(person: Person, root: MessageView, repo: string, p
   const since = triedAt && new Date(Date.parse(triedAt) - LOOK_BACK_BEFORE_WRITTEN_MS).toISOString()
   let issue = since ? (await poster.openedSince(repo, since)).find((i) => i.body?.includes(SHARED_FROM(root.id))) : undefined
   if (!issue) {
-    await person.label(root.id, { set: { [SHARE_TRIED_AT]: new Date(now).toISOString() } })
+    await person.label(root.id, { set: { [SHARE_TRIED_AT]: new Date(now).toISOString(), [SHARE_OPENED_BY]: poster.login.toLowerCase() } })
     const [title, ...rest] = root.text.split('\n')
     issue = await poster.open(repo, title!, `${rest.join('\n').trim()}\n\n${SHARED_FROM(root.id)}`.trimStart())
   }
@@ -171,15 +172,16 @@ async function attachShared(person: Pick<Person, 'sync' | 'label' | 'tasks'>, ro
   await person.sync(root.id, `github:${repo}:issue:${issue}`)
   const key = keyOf(root.channel, issue)
   const was = root.labels.key
-  await person.label(root.id, { set: { issue: `${repo}#${issue}`, key }, unset: [SHARE_TO, SHARE_TRIED_AT] })
+  await person.label(root.id, { set: { issue: `${repo}#${issue}`, key }, unset: [SHARE_TO, SHARE_TRIED_AT, SHARE_OPENED_BY] })
   if (was && was !== key) for (const child of await childrenOf(person as Person, was)) await person.label(child.id, { set: { parent: key } })
 }
 
-export async function attachIfSharedFromHere(person: Pick<Person, 'sync' | 'label' | 'tasks' | 'thread'>, repo: string, issue: { number?: number; body?: string | null } | undefined) {
+export async function attachIfSharedFromHere(person: Pick<Person, 'sync' | 'label' | 'tasks' | 'thread'>, repo: string, issue: { number?: number; body?: string | null; user?: { login?: string } } | undefined) {
   const id = issue?.number && SHARED_FROM_AT_THE_END.exec(issue.body ?? '')?.[1]
   if (!id) return
   const root = await person.thread(id, { limit: 1 }).then((t) => t.message, () => null)
-  if (root && !root.deleted && root.labels[SHARE_TO] === repo && !root.labels.issue) await attachShared(person, root, repo, issue.number!)
+  const openedByThePushAccount = !!root?.labels[SHARE_OPENED_BY] && root.labels[SHARE_OPENED_BY] === issue.user?.login?.toLowerCase()
+  if (root && !root.deleted && root.labels[SHARE_TO] === repo && !root.labels.issue && openedByThePushAccount) await attachShared(person, root, repo, issue.number!)
 }
 
 async function sharesWaiting(person: Person, channel: string, repo: string) {

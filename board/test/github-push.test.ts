@@ -26,7 +26,7 @@ const asTheOldCliWritesIt = (kind: string, body: string) =>
   `${WORD[kind]}：${body}\n\n<!-- nawaban ${JSON.stringify({ v: 1, uid: `u-${++uids}`, kind, author: 'selftest', at: 1, body }).replaceAll('-', '\\u002d')} -->`
 
 type Comment = GithubComment & { user: typeof yue; created_at: string; updated_at: string; issue_url: string; html_url: string }
-type World = { duringStateChange?: () => Promise<unknown>; open: number[]; closed?: number[]; comments: Comment[]; down: boolean; postedButNoAnswer: boolean; posts: number; reasons?: Record<number, string>; assignees?: Record<number, string[]>; opened?: { number: number; title: string; body: string }[]; openedButNoAnswer?: boolean; stateChanges?: number }
+type World = { bodies?: Record<number, string>; duringStateChange?: () => Promise<unknown>; open: number[]; closed?: number[]; comments: Comment[]; down: boolean; postedButNoAnswer: boolean; posts: number; reasons?: Record<number, string>; assignees?: Record<number, string[]>; opened?: { number: number; title: string; body: string }[]; openedButNoAnswer?: boolean; stateChanges?: number }
 let nextComment = 9000
 const commentOn = (issue: number, body: string, user = yue): Comment => {
   const at = new Date(Date.parse('2026-11-25T10:00:00Z') + nextComment * 1000).toISOString()
@@ -34,7 +34,7 @@ const commentOn = (issue: number, body: string, user = yue): Comment => {
 }
 const issueOf = (n: number, state = 'open', w: World = world) => {
   const opened = w.opened?.find((i) => i.number === n)
-  return { id: 5000 + n, number: n, title: opened?.title ?? `issue ${n}`, body: opened?.body ?? 'x', state, state_reason: state === 'closed' ? (w.reasons?.[n] ?? 'completed') : null, user: yue, labels: [], assignees: (w.assignees?.[n] ?? []).map((login) => ({ login, id: login.length, type: 'User' })), html_url: `https://github.com/${REPO}/issues/${n}`, created_at: '2026-11-24T00:00:00Z', updated_at: '2026-11-24T00:00:00Z' }
+  return { id: 5000 + n, number: n, title: opened?.title ?? `issue ${n}`, body: opened?.body ?? w.bodies?.[n] ?? 'x', state, state_reason: state === 'closed' ? (w.reasons?.[n] ?? 'completed') : null, user: opened ? owner : yue, labels: [], assignees: (w.assignees?.[n] ?? []).map((login) => ({ login, id: login.length, type: 'User' })), html_url: `https://github.com/${REPO}/issues/${n}`, created_at: '2026-11-24T00:00:00Z', updated_at: '2026-11-24T00:00:00Z' }
 }
 
 const readerOf = (w: World): Reader => ({
@@ -415,6 +415,23 @@ describe('本地关票、认领、分享推到 GitHub', () => {
     expect(roots).toEqual([task.id])
     expect((await team.tasks.list({ channel: 'roubao', state: 'all', label: { key: 'ROUBAO-1800' } })).tasks.map((t) => t.message.id)).toEqual([task.id])
     expect((await team.thread(task.id)).replies.map((r) => r.text)).toContain('同事抢先评论')
+  })
+
+  it('别人在 GitHub 上开的 issue 抄了分享标记，挂不走待分享的线程', async () => {
+    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    const { task } = await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-7', text: '待分享', labels: { key: 'ROUBAO-LOCAL-7' } })
+    await share(['ROUBAO-LOCAL-7'], team, dir)
+    world.openedButNoAnswer = true
+    const t0 = Date.now()
+    await push(t0)
+    world.openedButNoAnswer = false
+    world.open.push(999)
+    world.bodies = { 999: `抢\n\n<!-- nawaban-share ${task.id} -->` }
+    await poll()
+    await poll()
+    expect((await team.thread(task.id, { limit: 1 })).message.labels.issue).not.toBe(`${REPO}#999`)
+    expect(await push(t0 + 3 * 60_000)).toEqual({ unpushed: 0 })
+    expect((await team.thread(task.id, { limit: 1 })).message.labels.issue).toBe(`${REPO}#1800`)
   })
 
   it('分享改了票号，子票的 parent 跟着改', async () => {

@@ -53,7 +53,7 @@ export function refusingGithubWrites(fetch: typeof globalThis.fetch): typeof glo
   }
 }
 
-type Subject = { subject?: { repo?: string; number?: number }; text?: string; raw?: { issue?: { number?: number; body?: string | null } } }
+type Subject = { subject?: { repo?: string; number?: number }; text?: string; raw?: { issue?: { number?: number; body?: string | null; user?: { login?: string } } } }
 
 const intoExceptWhatWasWrittenHereFirst = (repo: string, channel: string) => async (sync: Parameters<ReturnType<typeof into>>[0]) => {
   if (sync.direction !== 'in') return
