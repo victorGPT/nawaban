@@ -166,7 +166,7 @@ async function pullRequestOrWhyNot(sel: string | undefined, repo: string | undef
 
 const namesKeyAsWholeWord = (text: string, key: string) => new RegExp(`(?<![\\w-])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'i').test(text)
 
-const WHAT_A_CLOSES_OR_REFS_LINE_POINTS_AT = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?)\b[:：]?\s+([^\n]+)/gi
+const WHAT_A_CLOSES_OR_REFS_LINE_POINTS_AT = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?)\b[:：]?[ \t]+([\w#-]+(?:[ \t]*(?:[,，、]|\band\b)[ \t]*[\w#-]+)*)/gi
 
 const ticketsThePullRequestIsFor = (pr: PullRequest) =>
   [pr.title, pr.headRefName, ...[...(pr.body ?? '').matchAll(WHAT_A_CLOSES_OR_REFS_LINE_POINTS_AT)].map((m) => m[1]!)].join(' ')
