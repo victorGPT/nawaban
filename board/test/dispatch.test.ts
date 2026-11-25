@@ -11,6 +11,7 @@ import { local } from '@vercel/board/backend-local'
 import { workerTitle } from '../src/dispatch.ts'
 import { registerSchemas } from '../src/schemas.ts'
 import { listen, verifier } from '../src/server.ts'
+import { stable } from './stable.ts'
 
 const exec = promisify(execFile)
 const CLI = join(import.meta.dirname, '../src/cli.ts')
@@ -87,10 +88,21 @@ it('refuses to dispatch with no live orchestrator, and starts nothing', async ()
   const id = await newTask('D-NONE')
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-NONE', '--brief', 'b', '--accept', 'a'], {})
   expect(r.code).toBe(1)
-  expect(r.stderr).toContain('no live orchestrator')
+  expect(r.stderr).toMatchInlineSnapshot(`
+    "✗ 没有活着的编排者收回报
+      在本仓库的编排者终端里跑，或给它打上 role=orchestrator 标签
+    "
+  `)
   expect(r.hc).not.toMatch(/^run/m)
   expect(existsSync(join(tmp, 'repo-d-none'))).toBe(false)
   expect(await replies(id)).toEqual([])
+})
+
+it('prints one object for --json', async () => {
+  await newTask('D-JSON')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-JSON', '--brief', 'b', '--accept', 'a', '--json'], { HC_ORCH: 'to1' })
+  expect([r.code, r.stderr]).toEqual([0, ''])
+  expect(JSON.parse(r.stdout)).toMatchObject({ ticket: 'D-JSON', terminal: 't99', worktree: join(tmp, 'repo-d-json'), orchestrator: 'to1', assigned: false })
 })
 
 it('starts the worker in its own worktree, briefed to report to the orchestrator, and records it as this window', async () => {
@@ -98,6 +110,10 @@ it('starts the worker in its own worktree, briefed to report to the orchestrator
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-GO', '--brief', 'do it', '--accept', 'it is done'], { HC_ORCH: 'to1' })
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
+  expect(stable(r.stdout, tmp)).toMatchInlineSnapshot(`
+    "✓ 派出 D-GO → hc t99 · <tmp>/repo-d-go · 回报给 to1
+    "
+  `)
   const run = r.hc.slice(r.hc.indexOf('run --bg'))
   expect(run).toMatch(/^run --bg --outlive-parent --json --name d-go /)
   expect(run).toContain(`--name d-go --cwd ${join(tmp, 'repo-d-go')} env BOARD_URL=${url} claude -n D-GO D-GO --model opus`)
@@ -132,7 +148,7 @@ it('removes the worktree and records nothing when hc run fails', async () => {
   const id = await newTask('D-FAIL')
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-FAIL', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1', HC_RUN_FAIL: '1' })
   expect(r.code).toBe(1)
-  expect(r.stderr).toContain('hc run failed, worktree removed')
+  expect(r.stderr).toContain('hc run 失败，worktree 已删')
   expect(existsSync(join(tmp, 'repo-d-fail'))).toBe(false)
   expect((await git(repo, 'branch', '--list', 'wt/d-fail')).stdout).toBe('')
   expect(await replies(id)).toEqual([])
@@ -242,7 +258,7 @@ it('assigns the next task of a lane to the worker running it, which alone may cl
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LN-B', '--brief', 'second', '--accept', 'b done'], hc)
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
-  expect(r.stdout).toBe('assigned LN-B to running hc t99 (profile cc-bbbb2222) (lane board) · it claims it once its ticket is done · reports to to1\n')
+  expect(r.stdout).toBe('✓ LN-B 指派给在跑的 hc t99（泳道 board），它做完手上那张自己领 · 回报给 to1\n')
   expect(r.hc).not.toMatch(/^(run|send)/m)
   expect(r.stdout + r.hc).not.toContain('next turn')
   expect(existsSync(join(tmp, 'repo-ln-b'))).toBe(false)
@@ -257,7 +273,7 @@ it('assigns the next task of a lane to the worker running it, which alone may cl
     cwd: worktree,
     env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, NAWABAN_BOARD_DIR: tmp, CLAUDE_CODE_SESSION_ID: WORKER_SESSION, HC_TERMINAL_ID: '' },
   })
-  expect(closedByTheWorker.stdout).toContain('completed')
+  expect(closedByTheWorker.stdout).toBe('✓ 关了 LN-B（做完）\n')
   expect((await team.thread(second)).message.task?.state).toBe('completed')
 })
 
@@ -265,7 +281,7 @@ it('assigns a task still blocked in its lane to the same worker and leaves the c
   const { second, worktree } = await laneOfTwoWhereFirstBlocksSecond('LQ', 'queue')
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LQ-B', '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, 'queue', 10_000))
   expect(r.stderr).toBe('')
-  expect(r.stdout).toContain('assigned LQ-B to running hc t99 (profile cc-bbbb2222) (lane queue)')
+  expect(r.stdout).toContain('✓ LQ-B 指派给在跑的 hc t99（泳道 queue）')
   expect(r.hc).not.toMatch(/^send/m)
   expect((await team.thread(second)).message.task?.claim ?? null).toBeNull()
   expect((await replies(second)).find((m) => m.blocks.length)?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { terminal: 't99' } }])
@@ -286,15 +302,15 @@ it('refuses to assign to a running worker whose profile its labels do not name, 
   await writeFile(join(tmp, 'workers', 't93.json'), JSON.stringify({ state: 'live', name: 'anon', cwd: worktree, labels: {} }))
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-NOPROF', '--to', 't93', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
   expect(r.code).toBe(1)
-  expect(r.stderr).toContain('dispatch --new')
+  expect(r.stderr).toContain('加 --new')
   expect(await replies(id)).toEqual([])
 })
 
 it.each([
-  { why: 'its worker has used half its context', lane: 'half', secondLane: 'half', tokens: 500_000, argv: [], passedOver: 't99 has used 50% of its context' },
+  { why: 'its worker has used half its context', lane: 'half', secondLane: 'half', tokens: 500_000, argv: [], passedOver: 't99 上下文已用 50%' },
   { why: 'it is in another lane', lane: 'one', secondLane: 'other', tokens: 10_000, argv: [], passedOver: undefined },
-  { why: 'it asks for another model', lane: 'model', secondLane: 'model', tokens: 10_000, argv: ['--model', 'sonnet'], passedOver: 't99 runs another agent or model' },
-  { why: 'it asks for Codex on its default model and the worker runs another', lane: 'cxm', secondLane: 'cxm', tokens: 10_000, argv: ['--agent', 'codex'], startedAs: ['codex', '-m', 'other'], passedOver: 't99 runs another agent or model' },
+  { why: 'it asks for another model', lane: 'model', secondLane: 'model', tokens: 10_000, argv: ['--model', 'sonnet'], passedOver: 't99 跑的是别的 agent 或模型' },
+  { why: 'it asks for Codex on its default model and the worker runs another', lane: 'cxm', secondLane: 'cxm', tokens: 10_000, argv: ['--agent', 'codex'], startedAs: ['codex', '-m', 'other'], passedOver: 't99 跑的是别的 agent 或模型' },
   { why: '--new asks for parallel work', lane: 'par', secondLane: 'par', tokens: 10_000, argv: ['--new'], passedOver: undefined },
 ])('starts a new worker when $why', async ({ lane, secondLane, tokens, argv, passedOver, startedAs }) => {
   const prefix = `LF${lane.toUpperCase()}`
@@ -304,7 +320,7 @@ it.each([
   expect(r.code).toBe(0)
   expect(r.hc).toMatch(/^run --bg/m)
   expect(r.hc).not.toMatch(/^send/m)
-  expect(r.stdout).toContain(`dispatched ${prefix}-B → hc t99 (lane ${secondLane})`)
+  expect(r.stdout).toContain(`✓ 派出 ${prefix}-B → hc t99（泳道 ${secondLane}）`)
   if (passedOver) expect(r.stdout).toContain(passedOver)
   expect(existsSync(join(tmp, `repo-${prefix.toLowerCase()}-b`))).toBe(true)
 })
@@ -313,7 +329,7 @@ it('refuses --to a terminal outside this repository, and starts nothing', async 
   await newTask('D-TO')
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-TO', '--to', 'tnowhere', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
   expect(r.code).toBe(1)
-  expect(r.stderr).toContain('--to tnowhere is no live terminal in this repository')
+  expect(r.stderr).toContain('--to tnowhere 不是本仓库里活着的终端')
   expect(r.hc).not.toMatch(/^(run|send)/m)
 })
 
@@ -394,7 +410,7 @@ it('lists a worker in the main checkout by the ticket it holds, and leaves out a
 it('refuses to tell about a ticket that does not exist', async () => {
   const r = await tellAsWorker(['T-NOSUCH', '完成 PR #8'], { HC_ORCH: 'to1' })
   expect(r.code).not.toBe(0)
-  expect(r.stderr).toContain('no task T-NOSUCH')
+  expect(r.stderr).toContain('没有票 T-NOSUCH')
   expect(sent(r.hc)).toEqual([])
 })
 

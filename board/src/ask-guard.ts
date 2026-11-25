@@ -5,7 +5,8 @@ import { checkValue, findBlocks, type FoundBlock } from '@vercel/board/schemas'
 import { askOn } from './events.ts'
 import type { OldCli } from './github.ts'
 import { gapsOfADecisionCard, SCHEMAS } from './schemas.ts'
-import { live, profilesTheHookSessionMayHold, Refused, resolve, sessionProfile } from './tasks.ts'
+import { live, profilesTheHookSessionMayHold, resolve, sessionProfile } from './tasks.ts'
+import { Refused } from './said.ts'
 
 type Team = ReturnType<typeof board>
 type Run = (argv: string[]) => Promise<number>
@@ -120,8 +121,13 @@ const SEND_BACK_OR_LET_THROUGH: Answer = {
   missing: async (r) => `${REQUEST} 块的 ticket 找不到：${r.ticket}（${r.why}）`,
   held: async () => null,
   open: async (r, _stop, { run, team }) => {
-    const { code, said } = await saidOnStderrWithStdoutMuted(() => askOn(r.id, cardOf(r.request), r.as, run, team))
-    return code ? `${r.request.ticket} 记不成待决：${said}` : null
+    try {
+      const { code, said } = await saidOnStderrWithStdoutMuted(() => askOn(r.id, cardOf(r.request), r.as, run, team))
+      return code ? `${r.request.ticket} 记不成待决：${said}` : null
+    } catch (error) {
+      if (error instanceof Refused) return `${r.request.ticket} 记不成待决：${error.message}`
+      throw error
+    }
   },
   old: (r, stop, trackers) => recordedOnTheOldCli(r.request, stop, trackers),
 }

@@ -7,6 +7,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { block, board, type MessageView } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { gapsOfADecisionCard, registerSchemas } from '../src/schemas.ts'
+import { stable } from './stable.ts'
 import { defHash, okrStat, standingText, hardStop, HARD_STOP_EXIT, judge, jsonOkr, load, keepEachNewReadingOnce, okr, run, type Declared, type Heading, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
 
 const OKR_PORTED_FROM_THE_OLD_TEST_OKR_PY = `
@@ -865,6 +866,7 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect(doneNowStillStopped.code).toBe(HARD_STOP_EXIT)
     const acceptRefused = await nawabanOkr(p, '--accept', 'O')
     expect([acceptRefused.code, acceptRefused.err]).toEqual([1, expect.stringContaining('硬停中,不收 accept')])
+    expect(acceptRefused.out).toMatch(/^OKR · 定义/)
     expect((await measuring(p, 99, 13)).code).toBe(HARD_STOP_EXIT)
   })
 
@@ -1098,4 +1100,32 @@ describe('okr-stat: the measures of nawaban’s own KRs', () => {
     const p = await projectOnItsOwnBoardWithItsOwnReposJson()
     expect((await stat(p, 'all')).code).toBe(2)
   })
+})
+
+it('shows the round it ran, and refuses outside a git repository', async () => {
+  const p = await projectOnItsOwnBoardWithItsOwnReposJson('[[objective]]\nname = "O"\n[[objective.kr]]\nname = "K"\ntarget = ">= 1"\nmeasure = "echo \'2 2026-11-17\'"\n')
+  const ran = await nawabanOkr(p)
+  expect({ ...ran, out: stable(ran.out) }).toMatchInlineSnapshot(`
+    {
+      "code": 0,
+      "err": "",
+      "out": "OKR · 定义 docs/agents/okr.toml @ <提交> <日期>
+    O O · 1/1 达标
+      K  2.0 / 目标 >= 1 · 偏差 +1.0 · 绿 · 截至 11-17
+    第 1 轮 · 读数新记 1 条
+    O O · 进取均分 1.00 · 收工
+    ",
+    }
+  `)
+  const asJson = await nawabanOkr(p, '--json')
+  expect([asJson.code, JSON.parse(asJson.out).round.n]).toEqual([0, 2])
+  const notARepository = await mkdtemp(join(tmpdir(), 'nawaban-okr-outside-'))
+  expect(await capture(() => okr([], team, p.dir, { cwd: notARepository }))).toMatchInlineSnapshot(`
+    {
+      "code": 1,
+      "err": "✗ okr 要在 git 仓库里跑
+    ",
+      "out": "",
+    }
+  `)
 })

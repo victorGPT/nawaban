@@ -9,17 +9,18 @@ import { claimNextReady, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, or
 import { mergeGate } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
-import { all, live, profile, Refused, resolve, run as taskVerb } from './tasks.ts'
+import { all, closeDone, live, profile, resolve } from './tasks.ts'
+import { answer, EXIT, Refused, type Said } from './said.ts'
 
 const exec = promisify(execFile)
 const CLAIM_WAIT = '10m'
-const USAGE = `usage: nawaban merge <PR 号> [--wait <时长>，领下一张最多等多久，默认 ${CLAIM_WAIT}]`
+const USAGE = `用法：nawaban merge <PR 号> [--wait <时长>，领下一张最多等多久，默认 ${CLAIM_WAIT}]`
 const PR_FIELDS = 'number,state,url,title,headRefName,headRefOid,files,statusCheckRollup,comments,mergeCommit'
 const NO_BLOCKER_REVIEW_LINE = /review[:：]\s*无挡/i
 const SHA_PREFIX_A_REVIEW_NAMES = /\b[0-9a-f]{7,40}\b/gi
 const WORKTREE_BRANCH = /^wt\/(.+)$/
 const SCHEMA_FILE = 'board/src/schemas.ts'
-const EXIT_CODE = { waiting: 3, refused: 1, mergedButUnfinished: 1, done: 0 } as const
+const EXIT_CODE = { waiting: EXIT.waiting, refused: EXIT.refused, mergedButUnfinished: EXIT.refused, done: EXIT.done } as const
 const pluginDir = () => process.env.NAWABAN_PLUGIN_DIR ?? join(homedir(), '.nawaban', 'plugin')
 
 type PullRequest = {
@@ -170,7 +171,10 @@ async function linkThenClose(task: MessageView, pr: PullRequest, did: string[]):
     return { kind: 'mergedButUnfinished', left: `补 pr link 失败：${failureOf(error)}` }
   }
   const key = task.labels.key ?? task.id
-  if ((await resolve(key)).task?.state !== 'completed' && (await taskVerb(['close', key, '--done'])) !== 0) return { kind: 'mergedButUnfinished', left: `close ${key} --done 失败` }
+  if ((await resolve(key)).task?.state !== 'completed') {
+    const unclosed = await closeDone(key).then(() => null, (error: Error) => error.message)
+    if (unclosed) return { kind: 'mergedButUnfinished', left: `close ${key} --done 失败：${unclosed}` }
+  }
   did.push(`${key} 已关`)
   return null
 }
@@ -248,15 +252,17 @@ async function outcomeOf(r: Run): Promise<Outcome> {
 const noteOf = (o: Exclude<Outcome, { kind: 'waiting' }>, n: string) =>
   o.kind === 'done' ? `merge: 已合 PR #${n}，${o.did.slice(1).join('，')}` : o.kind === 'refused' ? `merge: 拒合 — ${o.why}` : `merge: 已合未收完 — ${o.left}`
 
+const lineOf = (o: Exclude<Outcome, { kind: 'waiting' }>, n: string) =>
+  o.kind === 'done' ? `已合 PR #${n}，${o.did.slice(1).join('，')}` : o.kind === 'refused' ? `拒合 PR #${n}：${o.why}` : `已合 PR #${n}，没收完：${o.left}`
+
 async function tellOrchestrator(r: Run, line: string) {
   const orch = await orchestratorToReportTo(r.root, r.task)
-  if (!orch) return process.stderr.write(`no live orchestrator to tell: ${line}\n`)
+  if (!orch) return process.stderr.write(`没有活着的编排者可告知：${line}\n`)
   const failed = await failureElseNull('hc', ['send', orch, line])
-  if (failed) process.stderr.write(`hc send ${orch} failed (${failed}): ${line}\n`)
+  if (failed) process.stderr.write(`hc send ${orch} 失败（${failed}）：${line}\n`)
 }
 
 async function noteElseWhyNot(r: Run, note: string): Promise<string | null> {
-  process.stdout.write(note + '\n')
   try {
     if (r.task) await board().as(profile()).reply(r.task.id, note)
     return null
@@ -265,50 +271,39 @@ async function noteElseWhyNot(r: Run, note: string): Promise<string | null> {
   }
 }
 
-async function unfinished(r: Run, o: Exclude<Outcome, { kind: 'waiting' | 'done' }>): Promise<number> {
+async function unfinished(r: Run, o: Exclude<Outcome, { kind: 'waiting' | 'done' }>): Promise<never> {
   const note = noteOf(o, r.n)
   const unrecorded = await noteElseWhyNot(r, note)
   await tellOrchestrator(r, `${r.task?.labels.key ?? ''} PR #${r.n} ${note}${unrecorded ? `（${unrecorded}）` : ''}`.replace(/\s*\n\s*/g, ' ').trim())
-  return EXIT_CODE[o.kind]
+  throw new Refused(lineOf(o, r.n) + (unrecorded ? `（${unrecorded}）` : ''), EXIT_CODE[o.kind], `修好后重跑 nawaban merge ${r.n}`)
 }
 
-async function report(o: Outcome, r: Run): Promise<number> {
-  if (o.kind === 'waiting') {
-    process.stdout.write(`PR #${r.n} 等着：${o.on}\n`)
-    return EXIT_CODE.waiting
-  }
+async function report(o: Outcome, r: Run): Promise<Said> {
+  if (o.kind === 'waiting') throw new Refused(`PR #${r.n} 还在等：${o.on}`, EXIT_CODE.waiting, `过一会儿再跑 nawaban merge ${r.n}`)
   if (o.kind !== 'done') return unfinished(r, o)
-  if (o.pickedUp) process.stdout.write(o.pickedUp + '\n\n')
   const unrecorded = await noteElseWhyNot(r, noteOf(o, r.n))
   if (unrecorded) return unfinished(r, { kind: 'mergedButUnfinished', left: `${unrecorded}，worker 没收` })
-  if (!o.thenRetire) return EXIT_CODE.done
+  const said = { done: lineOf(o, r.n), more: o.pickedUp, json: { pr: Number(r.n), ticket: r.task?.labels.key ?? null, did: o.did, retired: o.thenRetire?.terminal ?? null, ...(o.pickedUp ? { brief: o.pickedUp } : {}) } }
+  if (!o.thenRetire) return said
   const { terminal, worktree } = o.thenRetire
   const notRemoved = worktree && (await failureElseNull('git', ['-C', r.root!, 'worktree', 'remove', worktree]))
   if (notRemoved) return unfinished(r, { kind: 'mergedButUnfinished', left: `worktree remove ${worktree} 失败：${notRemoved}` })
   const notKilled = await failureElseNull('hc', ['kill', terminal])
-  return notKilled ? unfinished(r, { kind: 'mergedButUnfinished', left: `hc kill ${terminal} 失败：${notKilled}，重跑 merge 会再收` }) : EXIT_CODE.done
+  return notKilled ? unfinished(r, { kind: 'mergedButUnfinished', left: `hc kill ${terminal} 失败：${notKilled}，重跑 merge 会再收` }) : said
 }
 
-const misused = () => {
-  process.stderr.write(`error: ${USAGE}\n`)
-  return 2
-}
-
-export async function merge(argv: string[]): Promise<number> {
-  let parsed
-  try {
-    parsed = parseArgs({ args: argv, allowPositionals: true, options: { wait: { type: 'string', default: CLAIM_WAIT } } })
-  } catch {
-    return misused()
-  }
-  const [n] = parsed.positionals
-  if (parsed.positionals.length !== 1 || !/^\d+$/.test(n!)) return misused()
-  const r: Run = { n: n!, wait: parsed.values.wait, task: null, root: await mainCheckoutRealPathOf(process.cwd()) }
-  try {
+export function merge(argv: string[]): Promise<number> {
+  return answer(argv, async () => {
+    let parsed
+    try {
+      parsed = parseArgs({ args: argv, allowPositionals: true, options: { wait: { type: 'string', default: CLAIM_WAIT }, json: { type: 'boolean' } } })
+    } catch {
+      throw new Refused(USAGE, EXIT.misused)
+    }
+    const [n] = parsed.positionals
+    if (parsed.positionals.length !== 1 || !/^\d+$/.test(n!)) throw new Refused(USAGE, EXIT.misused)
+    const r: Run = { n: n!, wait: parsed.values.wait, task: null, root: await mainCheckoutRealPathOf(process.cwd()) }
     profile()
-    return await report(await outcomeOf(r), r)
-  } catch (error) {
-    process.stderr.write(`error: ${(error as Error).message}\n`)
-    return error instanceof Refused ? error.code : 1
-  }
+    return report(await outcomeOf(r), r)
+  })
 }

@@ -17,7 +17,7 @@ import { deliverAsSignedWebhook, ghReader, githubSyncConfig, importOnlySync, pol
 import { okrData } from './okr.ts'
 import { isLiveFileName, progressDir } from './progress.ts'
 import { noPullStates, pullStateFromGitHub, type PullStateOf } from './pulls.ts'
-import { Refused } from './tasks.ts'
+import { Refused } from './said.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
 import { ANSWERS_LABEL, answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, webAnswers, webAnswerText } from './page.ts'
 

@@ -7,7 +7,7 @@ import { parseArgs, promisify } from 'node:util'
 import { block, BoardError, type board, type MessageView } from '@vercel/board'
 import { parse } from 'smol-toml'
 import { OKR_FILE, projectOf } from './impact.ts'
-import { Refused } from './tasks.ts'
+import { answer, Refused } from './said.ts'
 
 type Team = ReturnType<typeof board>
 export type Kr = { name: string; target: string; kind?: string; baseline?: string; unit?: string; measure?: string; wait?: string; max_age_days?: number; inputs?: string[] }
@@ -746,10 +746,10 @@ const exitCodeOfRefusalOrBoardError = (error: unknown) => {
   return error instanceof Refused ? error.code : misuse ? 2 : 1
 }
 
-export async function okr(argv: string[], team: Team, dir: string, { cwd = process.cwd(), timeout = MEASURE_READS_RESULTS_NEVER_RUNS_AN_EVAL_TIMEOUT } = {}): Promise<number> {
-  try {
-    const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { accept: { type: 'string' }, resume: { type: 'string' } } })
-    if (positionals.length) throw new Refused('usage: nawaban okr [--accept <O>] [--resume <O>]', 2)
+export function okr(argv: string[], team: Team, dir: string, { cwd = process.cwd(), timeout = MEASURE_READS_RESULTS_NEVER_RUNS_AN_EVAL_TIMEOUT } = {}): Promise<number> {
+  return answer(argv, async () => {
+    const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { accept: { type: 'string' }, resume: { type: 'string' }, json: { type: 'boolean' } } })
+    if (positionals.length) throw new Refused('用法：nawaban okr [--accept <O>] [--resume <O>]', 2)
     const top = await git(cwd, 'rev-parse', '--show-toplevel')
     if (!top) throw new Refused('okr 要在 git 仓库里跑')
     if (await keptByTheOldCli(top)) throw new Refused('这个仓库还在旧 CLI 记账(hooks/route.mjs 说 old):板 CLI 的 okr 会另记一本面板不读的账,改用旧 CLI 跑 okr')
@@ -760,11 +760,11 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
       await resumeOnceADecisionOnItWasResolved(team, project, await defs(repo), values.resume)
     }
     const { text, readings, live, commit } = await run(top, timeout)
-    process.stdout.write(text + '\n')
+    if (!values.json) process.stdout.write(text + '\n')
     if (!project) {
       if (values.accept === undefined) {
         process.stderr.write(`(仓库 ${repo} 不在 ${join(dir, 'repos.json')},读数没记)\n`)
-        return 0
+        return { shown: '', json: { repo, readings } }
       }
       throw new Refused(`仓库 ${repo} 不在 ${join(dir, 'repos.json')},记不了 accept`)
     }
@@ -789,12 +789,11 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
       const done = new Map(judged.map((x) => [x.name, x.done && thisRunAgrees(x.name)]))
       await acceptAfterThisRunsReadingsSoNoneCountsAsAMissSince(team, project, values.accept, done, kept.length)
     }
-    process.stdout.write(`第 ${round.n} 轮${round.kept ? '' : '(空转)'} · 读数新记 ${kept.length} 条${values.accept !== undefined ? ` · ✓ accept ${values.accept}` : ''}\n`)
+    const shown = [`第 ${round.n} 轮${round.kept ? '' : '(空转)'} · 读数新记 ${kept.length} 条${values.accept !== undefined ? ` · ✓ accept ${values.accept}` : ''}`]
     const { rows, accepts, resumes, rounds, declared } = await load(team, project)
     const data = judge(objectives, rows, accepts, declared, repo, null)
-    const lines = [standingText(data), impactText(data)].filter(Boolean).join('\n')
-    if (lines) process.stdout.write(lines + '\n')
-    let stopped = false
+    shown.push(...[standingText(data), impactText(data)].filter(Boolean))
+    const stops = []
     for (const o of objectives) {
       const start = later(accepts.get(o.name), resumes.get(o.name))
       const stop = hardStop(o, rounds, start, rows)
@@ -802,13 +801,11 @@ export async function okr(argv: string[], team: Team, dir: string, { cwd = proce
       const draft = join(dir, 'okr-stop', `${project}-${o.name}.md`)
       await mkdir(join(dir, 'okr-stop'), { recursive: true })
       await writeFile(draft, decisionDraft(o, stop, start, rows, declared))
-      process.stdout.write(`硬停：${o.name}(${stop.why})· 待决策项草稿 ${draft},补上「建议」后用 event --kind ask 发;决策者 resolve 之后跑 okr --resume ${o.name}\n`)
-      stopped = true
+      shown.push(`硬停：${o.name}(${stop.why})· 待决策项草稿 ${draft},补上「建议」后用 event --kind ask 发;决策者 resolve 之后跑 okr --resume ${o.name}`)
+      stops.push({ objective: o.name, why: stop.why, draft })
     }
-    return stopped ? HARD_STOP_EXIT : 0
-  } catch (error) {
-    return exitCodeOfRefusalOrBoardError(error)
-  }
+    return { shown: shown.join('\n'), json: { round, ...data, hard_stops: stops }, ...(stops.length ? { exit: HARD_STOP_EXIT } : {}) }
+  })
 }
 
 async function resumeOnceADecisionOnItWasResolved(team: Team, project: string, objectives: Objective[], name: string) {

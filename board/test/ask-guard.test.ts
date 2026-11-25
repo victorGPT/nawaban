@@ -8,7 +8,7 @@ import { block, board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { checkValue, findBlocks } from '@vercel/board/schemas'
 import { whyToSendBack } from '../src/ask-guard.ts'
-import { Refused } from '../src/tasks.ts'
+import { Refused } from '../src/said.ts'
 import { listen, verifier } from '../src/server.ts'
 import { registerSchemas, SCHEMAS } from '../src/schemas.ts'
 

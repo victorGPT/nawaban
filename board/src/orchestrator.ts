@@ -8,7 +8,8 @@ import { mainCheckoutRealPathOf, terminalsThatMayBeWorkers } from './dispatch.ts
 import { projectOfThisRepository } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { seenOf } from './merge.ts'
-import { all, Refused } from './tasks.ts'
+import { all, key } from './tasks.ts'
+import { answer, Refused } from './said.ts'
 import { boardData, tasksOf } from './views.ts'
 import { openInboxItems, pageText, webAnswers, type InboxItem, type WebAnswer } from './page.ts'
 
@@ -68,6 +69,8 @@ const stamp = (at: number) => {
   return `${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`
 }
 
+const bare = (idThePanelReadsWithAHash: string) => idThePanelReadsWithAHash.replace(/^#/, '')
+
 const progressNotBookkeeping = (t: Row) => (t.progress && !NOTE_THAT_IS_A_LABEL_NOT_PROGRESS.test(t.progress.body) ? t.progress : null)
 
 function stateOf(t: Row, now: number): State {
@@ -93,8 +96,8 @@ function taskLines(k: State, t: Row, belongs: (t: Row) => string, now: number): 
   const out = []
   if (k === '停滞') {
     const mention = p ? MENTION.exec(p.body) : null
-    out.push(`- ${t.id} ${short(t.title, TITLE_WIDTH)}${belongs(t)}（${ago(now, t.active_at)}没动静 · 停在：${mention ? '@' + mention[1] : '没写'}）`)
-  } else out.push(`- ${t.id} ${short(t.title, TITLE_WIDTH)}${belongs(t)}`)
+    out.push(`- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}${belongs(t)}（${ago(now, t.active_at)}没动静 · 停在：${mention ? '@' + mention[1] : '没写'}）`)
+  } else out.push(`- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}${belongs(t)}`)
   if (p) out.push(`  进展 ${ago(now, p.at)}前：${short(p.body.split(NEXT_SPLIT)[0]!.replace(DONE_LABEL, ''), PROGRESS_WIDTH)}`)
   const next = nextStepLine(t, now)
   if (next) out.push(next)
@@ -106,7 +109,7 @@ function decisionsLines(data: Data, now: number): string[] {
   const own = decided.filter((d) => d.owner)
   return [
     `## 48 小时内你的决策记录 ${own.length}（agent 自己定的另有 ${decided.length - own.length} 条，在各任务里）`,
-    ...own.map((d) => `- ${ago(now, d.at)}前 ${d.task} ${short(d.verdict, OWN_DECISION_WIDTH)}`),
+    ...own.map((d) => `- ${ago(now, d.at)}前 ${bare(d.task)} ${short(d.verdict, OWN_DECISION_WIDTH)}`),
   ]
 }
 
@@ -117,7 +120,7 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
   const belongs = (t: Row) => {
     if (!t.parent) return ''
     const p = byId.get(t.parent)
-    return ` · 属于 ${t.parent}` + (p ? ` ${short(p.title.replace(/^[\p{L}\p{N}_]+:\s*/u, ''), SPEC_TITLE_WIDTH)}` : '')
+    return ` · 属于 ${bare(t.parent)}` + (p ? ` ${short(p.title.replace(/^[\p{L}\p{N}_]+:\s*/u, ''), SPEC_TITLE_WIDTH)}` : '')
   }
   const groups = (['等你', '停滞', '进行中'] as const).map(
     (k) => [k, live.filter((t) => stateOf(t, now) === k).sort((a, b) => a.active_at - b.active_at)] as const,
@@ -135,7 +138,7 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
   }
   out.push(...decisionsLines(data, now))
   out.push('', `## 待办 ${idle.length}（开着，从没认领也没写进展）`)
-  out.push(...idle.map((t) => `- ${t.id} ${short(t.title, IDLE_TITLE_WIDTH)}${belongs(t)}`))
+  out.push(...idle.map((t) => `- ${bare(t.id)} ${short(t.title, IDLE_TITLE_WIDTH)}${belongs(t)}`))
   const closedMayUndercount = tasks.filter((t) => t.status === 'done' && now - (t.done_at ?? 0) < CLOSED_COUNTED_WITHIN_BUT_BOARD_KEEPS_ONLY_LATEST_DONE).length
   return [...out, '', `48 小时内关了 ${closedMayUndercount} 个。`].join('\n')
 }
@@ -145,18 +148,13 @@ const fail = (error: unknown) => {
   return error instanceof Refused ? error.code : 1
 }
 
-export async function index(argv: string[], team: Team): Promise<number> {
-  try {
-    const { values } = parseArgs({ args: argv, options: { project: { type: 'string' } } })
+export function index(argv: string[], team: Team): Promise<number> {
+  return answer(argv, async () => {
+    const { values } = parseArgs({ args: argv, options: { project: { type: 'string' }, json: { type: 'boolean' } } })
     const project = values.project ?? (await projectOfThisRepository(boardDirAsConfiguredWhenAsked()))
     const [data, fromThePage, workers] = await Promise.all([boardData(team, project), whatThePageWrote(team, project), liveWorkersText(project)])
-    process.stdout.write(indexText(data as Data, project ?? '看板') + '\n')
-    if (workers) process.stdout.write('\n' + workers + '\n')
-    if (fromThePage) process.stdout.write('\n' + fromThePage + '\n')
-    return 0
-  } catch (error) {
-    return fail(error)
-  }
+    return { shown: [indexText(data as Data, project ?? '看板'), workers, fromThePage].filter(Boolean).join('\n\n'), json: data }
+  })
 }
 
 async function liveWorkersText(project?: string): Promise<string> {
@@ -164,7 +162,7 @@ async function liveWorkersText(project?: string): Promise<string> {
   const terminals = root ? await terminalsThatMayBeWorkers(root) : []
   if (!terminals.length) return ''
   const seen = await Promise.all((await all({ channel: project, state: 'open' })).map(seenOf))
-  const keysHeldBy = (terminal: string) => seen.filter((s) => s.terminal === terminal).map((s) => s.task.labels.key ?? `#${s.task.id}`)
+  const keysHeldBy = (terminal: string) => seen.filter((s) => s.terminal === terminal).map((s) => key(s.task))
   const workers = terminals.filter((t) => t.inAWorktree || keysHeldBy(t.address).length)
   if (!workers.length) return ''
   return [`## 活着的 worker ${workers.length}`, ...workers.map((w) => `- ${[w.address, w.name, ...keysHeldBy(w.address)].filter(Boolean).join(' ')}`)].join('\n')
@@ -253,7 +251,7 @@ export async function inbox(argv: string[], team: Team, dir: string): Promise<nu
     const stop = JSON.parse((await text(process.stdin)) || '{}') as { session_id?: string }
     const items = (await tasksOf(team, values.project, 'blocked'))
       .filter((m) => HOLDS_THE_DECISION_MAKER_ANSWERS.has(m.task?.blocked?.kind ?? ''))
-      .map((m) => ({ id: m.labels.key ?? `#${m.id}`, title: m.text.split('\n')[0]! }))
+      .map((m) => ({ id: key(m), title: m.text.split('\n')[0]! }))
     const [answered, open] = values.project ? await Promise.all([webAnswers(team, values.project), openInboxItems(team, values.project)]) : [[], []]
     const file = join(dir, 'inbox', `seen-${(stop.session_id || 'x').replace(/[^\w-]/g, '_')}.json`)
     const shownLast = await readFile(file, 'utf8').then((s) => JSON.parse(s) as unknown, () => null)

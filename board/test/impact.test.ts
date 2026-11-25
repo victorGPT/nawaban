@@ -109,7 +109,7 @@ it('registers with the kind as a word, and points the old --kind at that form, w
     { objective: 'O1', change: 'measure', krs: [{ name: 'KR2', heading: 'hold' }] },
     { objective: 'O1', change: 'measure', krs: [{ name: 'KR2', heading: 'hold' }] },
   ])
-  expect((await nawaban('event', id, 'note', '已完成：x', '--change', 'gold')).err).toMatch('--change goes only with impact')
+  expect((await nawaban('event', id, 'note', '已完成：x', '--change', 'gold')).err).toMatch('--change 只跟 impact 一起用')
 })
 
 it('refuses a KR or an O the okr.toml does not have', async () => {
@@ -239,7 +239,7 @@ it('writes no result for a ticket someone else holds', async () => {
   const id = await newTask('nawaban', 'NAWABAN-R-03')
   await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=toward')
   await team.as('someone-else').tasks.claim(id)
-  expect((await close('NAWABAN-R-03', '--kr', 'KR1=999 实测')).err).toMatch(/is held by/)
+  expect((await close('NAWABAN-R-03', '--kr', 'KR1=999 实测')).err).toMatch(/^✗ NAWABAN-R-03 在 someone-else 手里/)
   expect((await team.thread(id)).replies.flatMap((r) => r.blocks).filter((b) => b.schema === 'nawaban-impact-result')).toEqual([])
 })
 
