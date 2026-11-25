@@ -38,7 +38,7 @@ test('a repository declares its account on its own line of the tracker doc and w
 })
 
 test('a repository without a declaration is refused, never falling back to the active gh account', async () => {
-  for (const repo of [await repoDeclaring('none', null), await repoDeclaring('prose', 'Writes use github-account: victorGPT, see above.\n')]) {
+  for (const repo of [await repoDeclaring('none', null), await repoDeclaring('prose', 'Writes use github-account: victorGPT, see above.\n'), await repoDeclaring('fenced', '# Example\n```text\ngithub-account: victorGPT\n```\n')]) {
     await expect(githubTokenOf(repo)).rejects.toThrow(`在 ${ACCOUNT_DECLARED_IN} 加一行 github-account: <账号>`)
   }
 })

@@ -5,11 +5,12 @@ import { promisify } from 'node:util'
 import { Refused } from './said.ts'
 
 export const ACCOUNT_DECLARED_IN = 'docs/agents/issue-tracker.md'
+const FENCED_EXAMPLE = /^ {0,3}(`{3,}|~{3,})[\s\S]*?^ {0,3}\1/gm
 const DECLARATION = /^github-account:[ \t]*([A-Za-z0-9-]+)[ \t]*$/m
 const run = promisify(execFile)
 
 export async function githubAccountOf(repo: string): Promise<string> {
-  const text = await readFile(join(repo, ACCOUNT_DECLARED_IN), 'utf8').catch(() => '')
+  const text = (await readFile(join(repo, ACCOUNT_DECLARED_IN), 'utf8').catch(() => '')).replace(FENCED_EXAMPLE, '')
   const account = DECLARATION.exec(text)?.[1]
   if (!account) throw new Refused(`${repo} 没声明用哪个 GitHub 账号写：在 ${ACCOUNT_DECLARED_IN} 加一行 github-account: <账号>`)
   return account
