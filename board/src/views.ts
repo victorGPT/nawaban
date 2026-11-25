@@ -245,6 +245,7 @@ export async function taskDetail(team: Team, ref: string, pullStateOf: PullState
   const pullStates = await Promise.all(pullUrls.map(pullStateOf))
   return {
     id: key(task),
+    thread: task.id,
     title: title(task),
     body: body(task),
     status: status(task),

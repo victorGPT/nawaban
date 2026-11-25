@@ -62,7 +62,10 @@ export function TaskPage(props: { id: string; project: string; changes: number }
           return (
             <>
               <PageHead title={<><Lamp tone={f().cancelled ? 'off' : STATE_LAMPS[v().state]} /> {s().detail.title}</>} meta={[f().stateWord, s().detail.id, s().detail.project].join(' · ')}>
-                <QuietLink href="#tasks">回到任务</QuietLink>
+                <span data-page-links>
+                  <Show when={v().record}>{(href) => <QuietLink href={href()}>原始记录</QuietLink>}</Show>
+                  <QuietLink href="#tasks">回到任务</QuietLink>
+                </span>
               </PageHead>
               <Facts
                 rows={[

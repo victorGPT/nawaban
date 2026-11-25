@@ -12,6 +12,13 @@ const detail = (events: Event[], over: Partial<Detail> = {}): Detail => ({
 const task = (over: Partial<BoardTask> = {}): BoardTask => ({ id: 'T', title: 'T', status: 'in_progress', parent: null, session: 'cc-1', active_at: NOW - 60, claimed_at: NOW - 600, ...over })
 const lines = (view: ReturnType<typeof detailView>) => view.timeline.everything.map((d) => [d.label, d.rows.map((r) => r.kind + ' ' + r.line)])
 
+describe('detailView record', () => {
+  it('links to the ticket\'s thread in the board\'s own inspector, and nowhere when it has no thread there', () => {
+    expect(detailView(detail([], { thread: '0f3/a b' }), task(), NOW).record).toBe('/board/tasks?thread=0f3%2Fa%20b')
+    expect(detailView(detail([]), task(), NOW).record).toBeNull()
+  })
+})
+
 describe('detailView timeline', () => {
   it('groups rows by local day, newest day and newest row on top', () => {
     const view = detailView(detail([

@@ -5,7 +5,7 @@ export type Ref = { id: string; title: string; status: string }
 export type Event = { kind: string; body: string; author: string; at: number }
 export type Narrated = { at: number; kind: 'said' | 'edited' | 'tested'; text: string }
 export type Detail = {
-  id: string; title: string; body: string; status: string; project: string; session: string | null; created_at: number
+  id: string; thread?: string; title: string; body: string; status: string; project: string; session: string | null; created_at: number
   parent: Ref | null; children: Ref[]; blocked_by: Ref[]; dependents: Ref[]
   latest_note: Event | null; decisions: Event[]; links: Event[]; events: Event[]
   pulls?: Record<string, PullState>
@@ -56,6 +56,7 @@ export type DetailView = {
   sections: Section[]
   timeline: Timeline
   facts: Facts
+  record: string | null
 }
 
 const OWNER_AUTHOR = 'user'
@@ -278,6 +279,7 @@ export function detailView(detail: Detail, boardTask: BoardTask | null, now: num
     waiting: boardTask?.waiting ? firstLine(boardTask.waiting) : null,
     ruling: latestDecision ? { at: latestDecision.at, line: latestDecision.line, full: latestDecision.full, by: latestDecision.by, question: latestDecision.question } : null,
     sections: sectionsOf(detail.body ?? ''),
+    record: detail.thread ? '/board/tasks?thread=' + encodeURIComponent(detail.thread) : null,
     timeline: { forTheOwner: daysOf(said.filter(isForTheOwner), now), everything: daysOf(everything, now), total: everything.length },
     facts: {
       stateWord: cancelled ? '取消' : STATE_WORDS[state](!!boardTask?.waiting),
