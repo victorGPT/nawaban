@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { githubSyncConfig } from './github-sync-status.ts'
-import { Refused } from './tasks.ts'
+import { Refused } from './said.ts'
 
 const OLD_CLI = fileURLToPath(new URL('../../nawaban/cli.py', import.meta.url))
 const ISSUE_TRACKER = 'docs/agents/issue-tracker.md'

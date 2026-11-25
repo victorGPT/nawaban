@@ -9,7 +9,8 @@ import { projectOfThisRepository } from './impact.ts'
 import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
-import { labelTerminalThePanelReadsWhileClaimed, profile, Refused, resolve, row, sessionProfile } from './tasks.ts'
+import { key, labelTerminalThePanelReadsWhileClaimed, profile, resolve, row, sessionProfile } from './tasks.ts'
+import { answer, Refused, type Said } from './said.ts'
 
 const exec = promisify(execFile)
 const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
@@ -50,8 +51,8 @@ export const NEXT_ACCEPT = '照票上 Acceptance criteria；开 PR 不合并'
 const NOTHING_TO_CLAIM = ['nothing_ready', 'timeout']
 type Agent = keyof typeof WORKER_ARGV
 const isAgent = (name: string): name is Agent => Object.hasOwn(WORKER_ARGV, name)
-const USAGE =
-  `usage: nawaban dispatch [<key>] --brief "<goal, scope>" --accept "<what counts as done>" [--name <worker>] [--agent ${Object.keys(WORKER_ARGV).join('|')}] [--model <m>, opus for claude] [--to <terminal> | --new]; --to, or a task with a lane: note while that lane has a live worker, assigns the task to that worker, which claims it once its ticket is done; --new starts a worker; no key (a nightly retro, say) takes --name and records nothing`
+const USAGE = `用法：nawaban dispatch [<票>] --brief "<目标、范围>" --accept "<怎样算做完>" [--name <worker>] [--agent ${Object.keys(WORKER_ARGV).join('|')}] [--model <m>] [--to <终端> | --new]`
+const USAGE_NEXT = 'nawaban dispatch --help 看每个参数'
 
 type Args = { ref: string | undefined; name: string | undefined; brief: string; accept: string; agent: Agent; model: string | undefined; to: string | undefined; fresh: boolean }
 type Checked = { as: string; task: MessageView | null; root: string; orch: string; name: string; who: string; lane: string | null }
@@ -152,24 +153,25 @@ function parseDispatchArgs(argv: string[]): Args {
       model: { type: 'string' },
       to: { type: 'string' },
       new: { type: 'boolean' },
+      json: { type: 'boolean' },
     },
   })
   const [ref] = positionals
-  if (positionals.length > 1 || !(ref || a.name) || !a.brief || !a.accept || !isAgent(a.agent!) || (a.to && a.new)) throw new Refused(USAGE, 2)
+  if (positionals.length > 1 || !(ref || a.name) || !a.brief || !a.accept || !isAgent(a.agent!) || (a.to && a.new)) throw new Refused(USAGE, 2, USAGE_NEXT)
   return { ref, name: a.name, brief: a.brief, accept: a.accept, agent: a.agent, model: a.model, to: a.to, fresh: !!a.new }
 }
 
 async function refuseBeforeAnythingStarts(a: Args): Promise<Checked> {
   const as = profile()
   const task = a.ref ? await resolve(a.ref) : null
-  if (task && CLOSED_STATES.includes(task.task?.state ?? '')) throw new Refused(`${a.ref} is ${task.task?.state}, not open`)
+  if (task && CLOSED_STATES.includes(task.task?.state ?? '')) throw new Refused(`${a.ref} 已经是 ${task.task?.state}，不开着`)
   const root = await mainCheckoutRealPathOf(process.cwd())
-  if (!root) throw new Refused('run dispatch inside the git repository the worker changes')
+  if (!root) throw new Refused('dispatch 要在 worker 改的那个 git 仓库里跑')
   const orch = await orchestratorFor(root)
-  if (!orch) throw new Refused('no live orchestrator (a terminal labelled role=orchestrator in this repository) to take the report')
+  if (!orch) throw new Refused('没有活着的编排者收回报', 1, '在本仓库的编排者终端里跑，或给它打上 role=orchestrator 标签')
   const name = a.name ?? a.ref!.toLowerCase()
   const who = a.ref ?? name
-  if (!WORKER_NAME.test(name)) throw new Refused(`--name takes 1-32 of a-z 0-9 - _: ${name}`, 2)
+  if (!WORKER_NAME.test(name)) throw new Refused(`--name 只收 1 到 32 个 a-z 0-9 - _：${name}`, 2)
   return { as, task, root, orch, name, who, lane: task ? await laneOf(task) : null }
 }
 
@@ -212,17 +214,17 @@ async function laneWorkersInRepository(root: string, lane: string): Promise<Term
 
 async function seatFor(c: Checked, a: Args): Promise<Seat> {
   if (a.to) {
-    if (!c.task) throw new Refused('--to assigns a ticket for the worker to claim: with no ticket, start a worker without --to', 2)
+    if (!c.task) throw new Refused('--to 把票指派给 worker 去领：不带票时去掉 --to，新开 worker', 2)
     const t = await terminalOf(a.to)
-    if (t?.state !== 'live' || !t.cwd || (await mainCheckoutRealPathOf(t.cwd)) !== c.root) throw new Refused(`--to ${a.to} is no live terminal in this repository`)
+    if (t?.state !== 'live' || !t.cwd || (await mainCheckoutRealPathOf(t.cwd)) !== c.root) throw new Refused(`--to ${a.to} 不是本仓库里活着的终端`)
     return { reuse: t, task: c.task }
   }
   if (a.fresh || !c.lane || !c.task) return { reuse: null, passedOver: [] }
   const passedOver: string[] = []
   for (const t of await laneWorkersInRepository(c.root, c.lane)) {
     const share = await contextShareOf(t)
-    if (!startsTheWayThisDispatchWould(t, a)) passedOver.push(`${t.address} runs another agent or model`)
-    else if (share !== null && share >= REUSE_WHILE_CONTEXT_SHARE_BELOW) passedOver.push(`${t.address} has used ${Math.round(share * 100)}% of its context`)
+    if (!startsTheWayThisDispatchWould(t, a)) passedOver.push(`${t.address} 跑的是别的 agent 或模型`)
+    else if (share !== null && share >= REUSE_WHILE_CONTEXT_SHARE_BELOW) passedOver.push(`${t.address} 上下文已用 ${Math.round(share * 100)}%`)
     else return { reuse: t, task: c.task }
   }
   return { reuse: null, passedOver }
@@ -235,7 +237,7 @@ async function worktreeOffOriginMain(root: string, name: string): Promise<Worktr
     try {
       await exec('git', ['-C', root, ...args])
     } catch (error) {
-      throw new Refused(`git ${args[0]} failed: ${String((error as { stderr?: string }).stderr ?? error).trim()}`)
+      throw new Refused(`git ${args[0]} 失败：${String((error as { stderr?: string }).stderr ?? error).trim()}`)
     }
   }
   return { path, branch }
@@ -286,7 +288,7 @@ export async function claimNextReady(project: string, wait?: string): Promise<Me
     const { code, stderr } = error as { code?: unknown; stderr?: string }
     const { reason, said } = refusalOf(stderr || (error as Error).message)
     if (code === 1 && reason && NOTHING_TO_CLAIM.includes(reason)) return null
-    throw new Refused(`claim --ready in ${project} failed: ${said}`)
+    throw new Refused(`在 ${project} 领下一张失败：${said}`)
   }
   const { task } = JSON.parse(claimed) as { task: MessageView }
   await labelTerminalThePanelReadsWhileClaimed(task.id).catch((error) =>
@@ -304,19 +306,15 @@ export async function pickupBrief(task: MessageView, worktree: string): Promise<
   return briefReportingTo({ ref }, brief, accept, reusedWorktreeLine({ path: worktree, branch: `wt/${ref.toLowerCase()}` }), [declareFirst])
 }
 
-export async function claimReady(wait: string | undefined, project: string | undefined, json: boolean): Promise<number> {
+export async function claimReady(wait: string | undefined, project: string | undefined): Promise<Said> {
   const worktree = (await stdoutOrNullOnFailure('git', ['rev-parse', '--show-toplevel']))?.trim()
-  if (!worktree) throw new Refused('claim --ready runs in the worktree that takes the ticket')
+  if (!worktree) throw new Refused('claim --ready 要在接票的 worktree 里跑')
   const channel = project ?? (await projectOfThisRepository(boardDirAsConfiguredWhenAsked(), worktree))
-  if (!channel) throw new Refused(`${worktree} is in no project in repos.json: pass --project`, 2)
+  if (!channel) throw new Refused(`${worktree} 不在 repos.json 的任何项目里`, 2, '加 --project <项目>')
   const task = await claimNextReady(channel, wait)
-  if (!task) {
-    process.stderr.write(`nothing ready for ${profile()} in ${channel}${wait ? ` within ${wait}` : ''}\n`)
-    return 1
-  }
+  if (!task) throw new Refused(`${channel} 里没有给 ${profile()} 的票${wait ? `，等了 ${wait}` : ''}`, 1, '等编排者派，或过会儿再跑 nawaban claim --ready')
   const brief = await pickupBrief(task, worktree)
-  process.stdout.write(json ? JSON.stringify({ task, brief }) + '\n' : `${row(task)}\n\n${brief}\n`)
-  return 0
+  return { done: `领到 ${row(task)}`, more: brief, json: { task, brief } }
 }
 
 const envReachingThisBoardWithoutToken = () => ENV_NAMING_THIS_BOARD_AND_CODEX_CONFIG_NOT_THE_BOARD_TOKEN.flatMap((k) => (process.env[k] ? [`${k}=${process.env[k]}`] : []))
@@ -331,7 +329,7 @@ async function startWorkerElseRemoveWorktree(c: Checked, a: Args, wt: Worktree, 
   } catch (error) {
     await stdoutOrNullOnFailure('git', ['-C', c.root, 'worktree', 'remove', '--force', wt.path])
     await stdoutOrNullOnFailure('git', ['-C', c.root, 'branch', '-D', wt.branch])
-    throw new Refused(`hc run failed, worktree removed: ${String((error as { stderr?: string }).stderr || (error as Error).message).trim()}`)
+    throw new Refused(`hc run 失败，worktree 已删：${String((error as { stderr?: string }).stderr || (error as Error).message).trim()}`)
   }
 }
 
@@ -343,11 +341,11 @@ export const workerProfileOf = (t: Terminal) => {
 
 async function assignToRunningWorker(task: MessageView, worker: Terminal): Promise<string> {
   const as = workerProfileOf(worker)
-  if (!as) throw new Refused(`hc ${worker.address} has no revive.agent and revive.session labels to name the profile it claims as: dispatch --new`)
+  if (!as) throw new Refused(`hc ${worker.address} 没有 revive.agent 和 revive.session 标签，认不出它用哪个身份领票`, 1, '加 --new 新开 worker')
   try {
     await exec('node', [CLI, 'board', 'tasks', 'assign', task.id, as])
   } catch (error) {
-    throw new Refused(`assigning ${task.labels.key ?? task.id} to ${as} failed, nothing recorded: ${String((error as { stderr?: string }).stderr || (error as Error).message).trim()}`)
+    throw new Refused(`把 ${key(task)} 指派给 ${as} 失败，什么都没记：${String((error as { stderr?: string }).stderr || (error as Error).message).trim()}`)
   }
   return as
 }
@@ -360,7 +358,7 @@ async function recordDispatchAsThisWindow(c: Checked, a: Args, address: string, 
     if (why) throw new Error(why)
     if (c.task) await board().as(c.as).reply(c.task.id, block('nawaban-dispatch@2', value))
   } catch (error) {
-    throw new Refused(`dispatched to hc ${address}, but recording it on ${a.ref} failed: ${(error as Error).message}`)
+    throw new Refused(`已派给 hc ${address}，但记到 ${a.ref} 上失败：${(error as Error).message}`)
   }
 }
 
@@ -368,39 +366,40 @@ async function recordBriefThePickupReads(c: Checked, a: Args, task: MessageView,
   try {
     await board().as(c.as).reply(task.id, `${BRIEF_NOTE}${a.brief}`)
   } catch (error) {
-    throw new Refused(`assigned ${a.ref} for hc ${address}, but recording its brief failed: ${(error as Error).message}`)
+    throw new Refused(`已把 ${a.ref} 指派给 hc ${address}，但记 brief 失败：${(error as Error).message}`)
   }
 }
 
 const exitCodeOf = (error: unknown) =>
   error instanceof Refused ? error.code : PARSE_ARGS_MISTAKES.includes((error as { code?: string }).code ?? '') ? 2 : 1
 
-export async function dispatch(argv: string[]): Promise<number> {
-  try {
+export function dispatch(argv: string[]): Promise<number> {
+  return answer(argv, async () => {
     const a = parseDispatchArgs(argv)
     const checked = await refuseBeforeAnythingStarts(a)
     const seat = await seatFor(checked, a)
-    const lane = checked.lane ? ` (lane ${checked.lane})` : ''
+    const lane = checked.lane ? `（泳道 ${checked.lane}）` : ''
     if (seat.reuse) {
       const worker = seat.reuse
       const as = await assignToRunningWorker(seat.task, worker)
       await recordDispatchAsThisWindow(checked, a, worker.address, worker.name ?? worker.address)
       await recordBriefThePickupReads(checked, a, seat.task, worker.address)
-      process.stdout.write(`assigned ${checked.who} to running hc ${worker.address} (profile ${as})${lane} · it claims it once its ticket is done · reports to ${checked.orch}\n`)
-      return 0
+      return {
+        done: `${checked.who} 指派给在跑的 hc ${worker.address}${lane}，它做完手上那张自己领 · 回报给 ${checked.orch}`,
+        json: { ticket: checked.who, terminal: worker.address, profile: as, lane: checked.lane, orchestrator: checked.orch, assigned: true },
+      }
     }
     const wt = await worktreeOffOriginMain(checked.root, checked.name)
     const brief = briefReportingTo(a.ref ? { ref: a.ref } : { name: checked.name, orch: checked.orch }, a.brief, a.accept, freshWorktreeLine(wt))
     const address = await startWorkerElseRemoveWorktree(checked, a, wt, brief)
     await recordDispatchAsThisWindow(checked, a, address)
     if (checked.lane) await stdoutOrNullOnFailure('hc', ['label', address, `lane=${checked.lane}`])
-    const passedOver = seat.passedOver.length ? `, passed over ${seat.passedOver.join('; ')}` : ''
-    process.stdout.write(`dispatched ${checked.who} → hc ${address}${lane}${passedOver} · ${wt.path} · reports to ${checked.orch}\n`)
-    return 0
-  } catch (error) {
-    process.stderr.write(`error: ${(error as Error).message}\n`)
-    return exitCodeOf(error)
-  }
+    const passedOver = seat.passedOver.length ? `，跳过了 ${seat.passedOver.join('；')}` : ''
+    return {
+      done: `派出 ${checked.who} → hc ${address}${lane}${passedOver} · ${wt.path} · 回报给 ${checked.orch}`,
+      json: { ticket: checked.who, terminal: address, worktree: wt.path, branch: wt.branch, lane: checked.lane, passedOver: seat.passedOver, orchestrator: checked.orch, assigned: false },
+    }
+  })
 }
 
 const TELL_USAGE = 'usage: nawaban tell <票> <一句>'

@@ -110,7 +110,7 @@ const krNamesIn = (blocks: Registered[]) => blocks.flatMap((b) => (b.data as { k
 export async function undeclared(team: Team, id: string, dir: string): Promise<string | null> {
   const { message, replies } = await team.thread(id)
   if (!(await okrOf(dir, message.channel))) return null
-  const ref = message.labels.key ?? '#' + id
+  const ref = message.labels.key ?? id
   const blocks = replies.filter((r) => !r.deleted).flatMap((r) => r.blocks)
   const declared = blocks.filter((b) => b.schema === 'nawaban-impact' && b.data)
   if (!declared.length) return `${ref} 没有 KR 影响声明,不能 close --done。先补:\n${howToDeclare(ref)}`

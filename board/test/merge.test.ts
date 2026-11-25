@@ -110,7 +110,7 @@ async function workerOnItsOwnTicket(key: string, terminal: string, pr: Pr = gree
   return { id, worktree }
 }
 
-async function mergeAsTheWorker(key: string, terminal: string, worktree: string, extra: Record<string, string> = {}, wait = '0s') {
+async function mergeAsTheWorker(key: string, terminal: string, worktree: string, extra: Record<string, string> = {}, wait = '0s', more: string[] = []) {
   const hcLog = join(tmp, `hc-${key}.log`)
   const ghLog = join(tmp, `gh-${key}.log`)
   const env: NodeJS.ProcessEnv = {
@@ -133,7 +133,7 @@ async function mergeAsTheWorker(key: string, terminal: string, worktree: string,
     ...extra,
   }
   delete env.NAWABAN_BOARD_PORT
-  const r = await exec('node', [CLI, 'merge', '5', '--wait', wait], { cwd: worktree, env }).then(
+  const r = await exec('node', [CLI, 'merge', '5', '--wait', wait, ...more], { cwd: worktree, env }).then(
     (ok) => ({ code: 0, ...ok }),
     (error) => ({ code: error.code as number, stdout: error.stdout as string, stderr: error.stderr as string }),
   )
@@ -159,7 +159,11 @@ it('waits on a check still running: exit 3, no merge, no one told', async () => 
   const { id, worktree } = await workerOnItsOwnTicket('M-WAIT', 't70', pr)
   const r = await mergeAsTheWorker('M-WAIT', 't70', worktree)
   expect(r.code).toBe(3)
-  expect(r.stdout).toContain('CI 还在跑：test')
+  expect(r.stderr).toMatchInlineSnapshot(`
+    "✗ PR #5 还在等：CI 还在跑：test
+      过一会儿再跑 nawaban merge 5
+    "
+  `)
   expect(r.gh).not.toMatch(/^pr merge/m)
   expect(r.hc).not.toMatch(/^send/m)
   expect(await stateOf(id)).not.toBe('completed')
@@ -192,7 +196,7 @@ it('waits while the head carries workflows that have not run on it yet, however 
   expect(none.gh).not.toMatch(/^pr merge/m)
   const running = await mergeAsTheWorker('M-NORUN', 't67', worktree, { GH_RUNS: JSON.stringify([{ name: 'ci', status: 'in_progress', conclusion: '' }]) })
   expect(running.code).toBe(3)
-  expect(running.stdout).toContain('CI 还在跑：ci')
+  expect(running.stderr).toContain('CI 还在跑：ci')
 })
 
 it('refuses a ticket the merging session does not hold, before anything changes', async () => {
@@ -202,7 +206,11 @@ it('refuses a ticket the merging session does not hold, before anything changes'
   expect(id).toBeTruthy()
   const r = await mergeAsTheWorker('M-THEIRS', 't66', worktree)
   expect(r.code).toBe(1)
-  expect(r.stdout).toContain('不在 cc-aaaa1111 手里')
+  expect(r.stderr).toMatchInlineSnapshot(`
+    "✗ 拒合 PR #5：M-THEIRS 不在 cc-aaaa1111 手里：持票的 worker 才能合并（先 claim）
+      修好后重跑 nawaban merge 5
+    "
+  `)
   expect(r.gh).not.toMatch(/^pr merge/m)
 })
 
@@ -256,12 +264,27 @@ it('merges a docs-only PR with no review', async () => {
   expect(await stateOf(id)).toBe('completed')
 })
 
+it('prints one object for --json, merged or waiting', async () => {
+  const { worktree } = await workerOnItsOwnTicket('M-JSON', 't7j')
+  const merged = await mergeAsTheWorker('M-JSON', 't7j', worktree, {}, '0s', ['--json'])
+  expect([merged.code, merged.stderr]).toEqual([0, ''])
+  expect(JSON.parse(merged.stdout)).toMatchObject({ pr: 5, ticket: 'M-JSON', retired: 't7j' })
+  const pr = { ...greenCodePr('M-JSONW'), statusCheckRollup: [{ __typename: 'CheckRun', name: 'test', status: 'IN_PROGRESS', conclusion: '' }] }
+  const waiting = await workerOnItsOwnTicket('M-JSONW', 't7w', pr)
+  const r = await mergeAsTheWorker('M-JSONW', 't7w', waiting.worktree, {}, '0s', ['--json'])
+  expect([r.code, r.stdout, JSON.parse(r.stderr)]).toEqual([3, '', { error: 'PR #5 还在等：CI 还在跑：test', next: '过一会儿再跑 nawaban merge 5', code: 3 }])
+})
+
 it('merges a green reviewed PR, pulls the main checkout, closes the ticket with its link, and retires the worker last once the wait finds nothing ready', async () => {
   const { id, worktree } = await workerOnItsOwnTicket('M-GO', 't74')
   await upstreamCommit('landed M-GO')
   const r = await mergeAsTheWorker('M-GO', 't74', worktree, {}, '1s')
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
+  expect(r.stdout).toMatchInlineSnapshot(`
+    "✓ 已合 PR #5，主检出已 pull，M-GO 已关，收 worker t74
+    "
+  `)
   expect(r.gh).toContain(`pr merge 5 --squash --match-head-commit ${HEAD}`)
   expect(r.gh).not.toContain('--delete-branch')
   expect((await git(repo, 'log', '-1', '--format=%s')).stdout.trim()).toBe('landed M-GO')
@@ -291,7 +314,7 @@ it('refuses when the head is not readable locally, so its workflows can not be s
   const { worktree } = await workerOnItsOwnTicket('M-UNSEEN', 't64', { ...greenCodePr('M-UNSEEN'), headRefOid: '1234567890abcdef1234567890abcdef12345678', comments: [{ body: 'Codex review：无挡 1234567890ab' }] })
   const r = await mergeAsTheWorker('M-UNSEEN', 't64', worktree)
   expect(r.code).toBe(1)
-  expect(r.stdout).toContain('本地读不到 head')
+  expect(r.stderr).toContain('本地读不到 head')
   expect(r.gh).not.toMatch(/^pr merge/m)
 })
 
@@ -404,7 +427,7 @@ it('keeps the worker and tells the orchestrator when claiming its next ticket fa
   const r = await mergeAsTheWorker('M-CLAIMERR', 't7d', worktree, {}, 'soon')
   expect(r.code).toBe(1)
   expect(await stateOf(id)).toBe('completed')
-  expect(r.stdout).toContain("领下一张出错，worker t7d 留着：claim --ready in m-claimerr failed: invalid_arguments: --wait takes a duration like 30s or 10m, and soon isn't one.")
+  expect(r.stderr).toContain("领下一张出错，worker t7d 留着：在 m-claimerr 领下一张失败：invalid_arguments: --wait takes a duration like 30s or 10m, and soon isn't one.")
   expect(r.hc).not.toMatch(/^kill/m)
   expect(r.hc).toMatch(/^send to1 M-CLAIMERR PR #5 merge: 已合未收完 — 领下一张出错/m)
   expect(existsSync(worktree)).toBe(true)
@@ -483,7 +506,7 @@ it('holds a schema change when the main checkout is the plugin, never pulling it
   const r = await mergeAsTheWorker('M-SAME', 't63', worktree, { NAWABAN_PLUGIN_DIR: repo })
   expect(r.code).toBe(1)
   expect((await git(repo, 'rev-parse', 'HEAD')).stdout).toBe(before)
-  expect(r.stdout).toContain('插件要拉进来的改动里有 schema')
+  expect(r.stderr).toContain('插件要拉进来的改动里有 schema')
 })
 
 it('pulls the plugin when it tracks this repository and the PR touches no schema', async () => {
@@ -546,7 +569,7 @@ it('claims an unassigned ticket from the pool with claim --ready, and prints the
   const r = await claimReadyIn(repo, ['--project', 'claim-pool'])
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
-  expect(r.stdout).toMatch(/^#\d+\s+claimed\s+C-POOL/)
+  expect(r.stdout).toMatch(/^✓ 领到 C-POOL\s+claimed\s+C-POOL/)
   expect(r.stdout).toContain(`接着用 ${repo}，先 git fetch origin main && git switch -c wt/c-pool origin/main`)
   expect(r.stdout).toContain('先跑 nawaban event C-POOL impact')
   expect(r.stdout).toContain('nawaban merge <PR 号>')
@@ -554,8 +577,16 @@ it('claims an unassigned ticket from the pool with claim --ready, and prints the
   expect(await holderOf(id)).toMatch(/\+cc-bbbb2222$/)
   expect((await team.thread(id)).message.labels.terminal).toBe('t7h')
   const closed = await exec('node', [CLI, 'close', 'C-POOL', '--done'], { cwd: repo, env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, NAWABAN_BOARD_DIR: join(tmp, 'board'), CLAUDE_CODE_SESSION_ID: 'bbbb2222-0000', HC_TERMINAL_ID: '' } })
-  expect(closed.stdout).toContain('completed')
+  expect(closed.stdout).toBe('✓ 关了 C-POOL（做完）\n')
   expect(await stateOf(id)).toBe('completed')
+})
+
+it('prints the claimed ticket and its brief as one object for claim --ready --json', async () => {
+  await ticketTheCliOwns('C-JSON', 'claim-json')
+  const r = await claimReadyIn(repo, ['--project', 'claim-json', '--json'])
+  expect([r.code, r.stderr]).toEqual([0, ''])
+  const { task, brief } = JSON.parse(r.stdout)
+  expect([task.labels.key, brief]).toEqual(['C-JSON', expect.stringContaining('先跑 nawaban event C-JSON impact')])
 })
 
 it('takes the project of this checkout from repos.json when claim --ready names none', async () => {
@@ -569,18 +600,18 @@ it('takes the project of this checkout from repos.json when claim --ready names 
   expect(await holderOf(id)).toMatch(/\+cc-bbbb2222$/)
 })
 
-it('exits 1 on one stderr line when claim --ready finds nothing ready within its wait', async () => {
+it('exits 1 with the next step on stderr when claim --ready finds nothing ready within its wait', async () => {
   const r = await claimReadyIn(repo, ['--project', 'claim-none', '--wait', '1s'])
   expect(r.code).toBe(1)
   expect(r.stdout).toBe('')
-  expect(r.stderr).toBe('nothing ready for cc-bbbb2222 in claim-none within 1s\n')
+  expect(r.stderr).toBe('✗ claim-none 里没有给 cc-bbbb2222 的票，等了 1s\n  等编排者派，或过会儿再跑 nawaban claim --ready\n')
 })
 
 it('reports a board claim --ready can not reach as an error, never as nothing ready', async () => {
   const r = await claimReadyIn(repo, ['--project', 'claim-none'], { BOARD_URL: 'http://127.0.0.1:9/api/board' })
   expect(r.code).toBe(1)
-  expect(r.stderr).toContain('claim --ready in claim-none failed')
-  expect(r.stderr).not.toContain('nothing ready')
+  expect(r.stderr).toContain('在 claim-none 领下一张失败')
+  expect(r.stderr).not.toContain('里没有给')
 })
 
 it.each([{ argv: ['C-POOL'] }, { argv: ['--o', '无'] }, { argv: ['--release'] }])('refuses claim --ready with $argv', async ({ argv }) => {

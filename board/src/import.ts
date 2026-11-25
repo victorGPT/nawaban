@@ -9,7 +9,7 @@ import { block, BoardError, type board, type MessageView } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
 import { okrChannel, keepAs, key, type Reading } from './okr.ts'
 import { SCHEMAS } from './schemas.ts'
-import { Refused } from './tasks.ts'
+import { Refused } from './said.ts'
 
 type Team = ReturnType<typeof board>
 type Task = { id: string; project: string; parent: string | null; title: string; body: string; session: string | null }

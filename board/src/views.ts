@@ -9,7 +9,7 @@ import { narrationOf, type Hold } from './narrate.ts'
 import { readLive } from './progress.ts'
 import { noPullStates, type PullStateOf } from './pulls.ts'
 import { gapsOfADecisionCard, type DecisionCard } from './schemas.ts'
-import { Refused } from './tasks.ts'
+import { Refused } from './said.ts'
 
 type Team = ReturnType<typeof board>
 type Task = NonNullable<MessageView['task']>

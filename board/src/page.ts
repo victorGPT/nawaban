@@ -1,6 +1,6 @@
 import { block, BoardError, type board, type MessageView } from '@vercel/board'
 import { currentGithubAsk, githubRepliesOf, HELD_FOR_A_GITHUB_ASK } from './github-tasks.ts'
-import { Refused } from './tasks.ts'
+import { Refused } from './said.ts'
 import { tasksOf } from './views.ts'
 
 type Team = ReturnType<typeof board>

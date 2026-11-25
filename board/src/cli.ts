@@ -17,6 +17,7 @@ import { oldCli } from './github.ts'
 import { githubIssuesHeldBy, progress } from './progress.ts'
 import { heldBy, run } from './tasks.ts'
 import { json } from './views.ts'
+import { upstreamQuietly } from './said.ts'
 
 type Group = '看' | '写' | '派' | '少用' | '本机服务' | '上游'
 type Run = (rest: string[]) => Promise<number>
@@ -45,7 +46,6 @@ function pointAtThisMachinesBoard() {
   if (token !== undefined) process.env.BOARD_TOKEN = token
 }
 
-const app = createApp({ appName: 'nawaban' })
 const upstream = createApp({ appName: 'nawaban board' })
 const taskVerb = (verb: string): Run => async (rest) => (await run([verb, ...rest]))!
 
@@ -58,7 +58,7 @@ const HOOKS: Record<string, Run> = {
   renew: taskVerb('renew'),
   progress: () => progress(async (session) => [...(await heldBy(session)), ...githubIssuesHeldBy(DIR, session)], DIR),
   guard: () => guard(board(), DIR),
-  'ask-guard': (rest) => askGuard(rest, { run: (args) => app.run(args), team: board(), oldCli }),
+  'ask-guard': (rest) => askGuard(rest, { run: upstreamQuietly, team: board(), oldCli }),
 }
 
 const COMMANDS: Record<string, Command> = {
@@ -66,7 +66,10 @@ const COMMANDS: Record<string, Command> = {
     group: '看',
     usage: 'status',
     about: '现在要管的：待决、停滞、进行中、可开工',
-    flags: [['--project <项目>', '只看这个项目，末尾接上网页已答和收件箱；缺省是当前仓库的，不在仓库里看全部']],
+    flags: [
+      ['--project <项目>', '只看这个项目，末尾接上网页已答和收件箱；缺省是当前仓库的，不在仓库里看全部'],
+      ['--json', '输出 JSON'],
+    ],
     run: (rest) => index(rest, board()),
   },
   show: { group: '看', usage: 'show <票>', about: '一张票：正文、负责人、被挡、最近事件', flags: [['--json', '输出 JSON']], run: taskVerb('show') },
@@ -89,6 +92,7 @@ const COMMANDS: Record<string, Command> = {
     flags: [
       ['--accept <O>', '记下决策者验收这个 O，只在它这一轮全达标时'],
       ['--resume <O>', '硬停之后开新冲刺，要先有挂在这个 O 上、已 resolve 的待决策项'],
+      ['--json', '输出 JSON'],
     ],
     run: (rest) => okr(rest, board(), DIR),
   },
@@ -123,7 +127,7 @@ const COMMANDS: Record<string, Command> = {
       ['--change product|measure|gold', '改产品、改量法或改金标，默认 product'],
       ['--json', '输出 JSON'],
     ],
-    run: (rest) => claimRegistering(rest, taskVerb('claim'), (args) => app.run(args), board()),
+    run: (rest) => claimRegistering(rest, taskVerb('claim'), upstreamQuietly, board()),
   },
   event: {
     group: '写',
@@ -143,8 +147,9 @@ const COMMANDS: Record<string, Command> = {
       ['resolve <正文>', '已决，解除 ask 留下的挂起'],
       ['--as <身份>', '用这个身份记'],
       ['-', '正文写 - 从标准输入读'],
+      ['--json', '输出 JSON'],
     ],
-    run: (rest) => event(rest, (args) => app.run(args), board()),
+    run: (rest) => event(rest, upstreamQuietly, board()),
   },
   close: {
     group: '写',
@@ -170,10 +175,11 @@ const COMMANDS: Record<string, Command> = {
       ['--model <模型>', 'claude 默认 opus'],
       ['--to <终端>', '指派给这个终端里在跑的 worker，它做完手上那张自己领'],
       ['--new', '新开 worker，不指派给泳道里在跑的'],
+      ['--json', '输出 JSON'],
     ],
     run: (rest) => dispatch(rest),
   },
-  merge: { group: '派', usage: 'merge <PR>', about: '合并 PR，关票，领下一张或收掉 worker', flags: [['--wait <时长>', '领指派给你的下一张最多等多久，默认 10m']], run: (rest) => merge(rest) },
+  merge: { group: '派', usage: 'merge <PR>', about: '合并 PR，关票，领下一张或收掉 worker', flags: [['--wait <时长>', '领指派给你的下一张最多等多久，默认 10m'], ['--json', '输出 JSON']], run: (rest) => merge(rest) },
   'okr-stat': { group: '少用', usage: 'okr-stat verdicts|prereg|drift', about: 'nawaban 自己 KR 的量法：声明符合率、预注册占比、账本漂移', run: (rest) => okrStat(rest, board(), DIR) },
   tell: { group: '少用', usage: 'tell <票> <一句>', about: 'worker 把「回报：<票> <一句>」发给当前编排者；没找到就记在票上', run: (rest) => tell(rest) },
   block: { group: '少用', usage: 'block <票> <挡它的票>', about: '建票之后补一条被挡', flags: [['--json', '输出 JSON']], run: taskVerb('block') },
@@ -279,7 +285,7 @@ const MAIN_HELP = [
   ...screen(MAIN_SCREEN),
   '',
   '<票> 是 KEY 或板上的编号。',
-  '每个动词加 --help 看参数。',
+  '每个动词加 --help 看参数，加 --json 给机器读。',
   '少用的和本机服务：nawaban help more',
 ]
 const MORE_HELP = screen(MORE_SCREEN)
