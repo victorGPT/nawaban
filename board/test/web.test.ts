@@ -111,6 +111,7 @@ it('opens the board\'s own inspector at /board only for whoever the web token le
   expect((await send('/board/board/inbox/held/next', { headers: { ...page, cookie } })).status).toBe(405)
   expect((await (await team.request('/inbox/held/next')).json()).items).toHaveLength(1)
   expect((await send('/board/board/inbox/held', { headers: { ...page, cookie } })).status).toBe(200)
+  expect((await send('/board/board/watchers/matches', { headers: { ...page, cookie } })).status).toBe(405)
 })
 
 it('answers a missing task 404, a bad key 400, an unknown view 404, okr without a repo 400', async () => {

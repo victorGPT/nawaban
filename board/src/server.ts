@@ -35,7 +35,7 @@ const INSPECTOR_OPENS_ON = '/board/tasks'
 const INSPECTOR_API = INSPECTOR + '/board'
 const SEGMENT = '[^/]+'
 const NATIVE_GETS_THAT_ONLY_READ = new RegExp(
-  `^(?:/|/me|/channels|/actors|/messages|/messages/${SEGMENT}(?:/sync)?|/threads|/links|/schedules|/tasks|/tasks/batch/${SEGMENT}|/grants|/grants/explain|/schemas|/schemas/${SEGMENT}|/posts/${SEGMENT}|/inbox/${SEGMENT}|/sync/threads/${SEGMENT}|/sync/find|/sync/copies|/events|/avatars/${SEGMENT}|/attachments/${SEGMENT}|/openapi\\.json|/watchers|/watchers/matches)$`,
+  `^(?:/|/me|/channels|/actors|/messages|/messages/${SEGMENT}(?:/sync)?|/threads|/links|/schedules|/tasks|/tasks/batch/${SEGMENT}|/grants|/grants/explain|/schemas|/schemas/${SEGMENT}|/posts/${SEGMENT}|/inbox/${SEGMENT}|/sync/threads/${SEGMENT}|/sync/find|/sync/copies|/events|/avatars/${SEGMENT}|/attachments/${SEGMENT}|/openapi\\.json|/watchers)$`,
 )
 const WEB_TOKEN_COOKIE = 'nawaban-web-token'
 const READS = new Set(['GET', 'HEAD'])
