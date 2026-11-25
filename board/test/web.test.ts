@@ -42,14 +42,14 @@ beforeAll(async () => {
 })
 afterAll(() => server.close())
 
-type Sent = { status: number; type: string; body: string }
+type Sent = { status: number; type: string; body: string; cookie: string }
 
 function send(path: string, { method = 'GET', headers = {} as Record<string, string>, raw = false, body = '' } = {}): Promise<Sent> {
   const withPageDefaults = raw ? headers : { host: `127.0.0.1:${port}`, authorization: `Bearer ${WEB_SECRET}`, ...headers }
   return new Promise((done, fail) => {
     const req = http({ host: '127.0.0.1', port, path, method, headers: withPageDefaults, setHost: false }, (res) => {
       let body = ''
-      res.setEncoding('utf8').on('data', (c) => (body += c)).on('end', () => done({ status: res.statusCode!, type: String(res.headers['content-type']), body }))
+      res.setEncoding('utf8').on('data', (c) => (body += c)).on('end', () => done({ status: res.statusCode!, type: String(res.headers['content-type']), body, cookie: String(res.headers['set-cookie'] ?? '') }))
     })
     req.on('error', fail).end(body)
   })
@@ -83,6 +83,26 @@ it('answers the views with the JSON nawaban json prints, read through the board 
   expect(JSON.parse((await send('/api/nawaban/board?project=nawaban')).body)).toEqual(JSON.parse(JSON.stringify(cliBoard)))
   expect(JSON.parse((await send('/api/nawaban/task/W-01')).body)).toEqual(JSON.parse(JSON.stringify(cliTask)))
   expect(JSON.parse((await send('/api/nawaban/projects')).body).projects).toEqual([{ name: 'nawaban', open: 2, total: 2, waiting: 0 }])
+})
+
+it('opens the board\'s own inspector at /board only for whoever the web token let read the API, and names each ticket\'s thread there', async () => {
+  await create('create', 'INSPECT', '--title', '看原始记录', '--project', 'nawaban')
+  const read = await send('/api/nawaban/task/INSPECT')
+  const { thread } = JSON.parse(read.body)
+  const cookie = read.cookie.split(';')[0]!
+  expect(read.cookie).toBe(`nawaban-web-token=${WEB_SECRET}; Path=/board; HttpOnly; SameSite=Strict`)
+  const page = { 'x-inspect-token': 'page', 'sec-fetch-site': 'same-origin' }
+  for (const path of ['/board', '/board/tasks', '/board/app.js', `/board/board/messages/${thread}`]) {
+    expect((await send(path, { headers: page })).status).toBe(401)
+    expect((await send(path, { headers: { ...page, cookie: 'nawaban-web-token=wrong' } })).status).toBe(401)
+    expect((await send(path, { headers: { ...page, cookie, host: 'evil.example' } })).status).toBe(421)
+    expect((await send(path, { headers: { ...page, cookie } })).status).toBe(200)
+  }
+  expect((await send('/board', { headers: { cookie } })).type).toContain('text/html')
+  expect(JSON.parse((await send(`/board/board/messages/${thread}`, { headers: { ...page, cookie } })).body).message).toMatchObject({ id: thread, labels: { key: 'INSPECT' } })
+  const post = { method: 'POST', body: '{}', headers: { ...page, cookie, 'x-board-profile': 'ada', 'content-type': 'application/json' } }
+  expect((await send(`/board/board/threads/${thread}/replies`, post)).status).toBe(403)
+  expect((await send(`/board/board/threads/${thread}/replies`, { ...post, headers: { ...post.headers, origin: 'http://evil.example' } })).status).toBe(403)
 })
 
 it('answers a missing task 404, a bad key 400, an unknown view 404, okr without a repo 400', async () => {

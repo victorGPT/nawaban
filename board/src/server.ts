@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { board } from '@vercel/board'
 import type { CallerRequest } from '@vercel/board/access'
 import { local } from '@vercel/board/backend-local'
+import { inspector } from '@vercel/board/inspect'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { githubBoards, githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type OldCli } from './github.ts'
@@ -29,6 +30,8 @@ const TAILNET_ADDRESS = /^(?:100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\
 const WEB = fileURLToPath(new URL('../../web/', import.meta.url))
 const BUILT_PAGE = join(WEB, 'dist')
 const API = '/api/nawaban/'
+const INSPECTOR = '/board'
+const WEB_TOKEN_COOKIE = 'nawaban-web-token'
 const READS = new Set(['GET', 'HEAD'])
 const WRITE_BODY_MAX_BYTES = 16 * 1024
 const PROXY_HEADERS = /^(?:x-forwarded-.*|forwarded|x-real-ip)$/
@@ -147,8 +150,12 @@ function fromThisMachineOrTheTailnetElseRefusal(request: Request, port: number, 
   return null
 }
 
-function holdsTheWebTokenElseRefusal(request: Request, want: Buffer) {
-  const got = Buffer.from(request.headers.get('authorization')?.replace(/^Bearer /, '') ?? '')
+const bearerOf = (request: Request) => request.headers.get('authorization')?.replace(/^Bearer /, '') ?? ''
+const webTokenCookieOf = (request: Request) =>
+  request.headers.get('cookie')?.split(/;\s*/).find((c) => c.startsWith(WEB_TOKEN_COOKIE + '='))?.slice(WEB_TOKEN_COOKIE.length + 1) ?? ''
+
+function holdsTheWebTokenElseRefusal(presented: string, want: Buffer) {
+  const got = Buffer.from(presented)
   if (got.length !== want.length || !timingSafeEqual(got, want)) return refuse(401, 'open the page with nawaban web')
   return null
 }
@@ -386,18 +393,25 @@ export function site(
   const github: Github = { cli, boards: githubBoards(cli), wrote: new EventTarget() }
   const asThisPerson = (body: unknown) =>
     team.fetch(new Request(`${urlFor(port)}/messages`, { method: 'POST', headers: { authorization: `Bearer ${boardToken}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }))
+  const inspect = inspector({ board: team, basePath: INSPECTOR })
+  const theInspectorOpensForWhoeverTheApiAnswered = `${WEB_TOKEN_COOKIE}=${webToken}; Path=${INSPECTOR}; HttpOnly; SameSite=Strict`
   return async (request: Request): Promise<Response> => {
     const { pathname, searchParams } = new URL(request.url)
     if (pathname === '/api/board' || pathname.startsWith('/api/board/')) return team.fetch(request)
     const isApi = pathname.startsWith(API)
+    const isInspector = pathname === INSPECTOR || pathname.startsWith(INSPECTOR + '/')
+    const presented = isApi ? bearerOf(request) : isInspector ? webTokenCookieOf(request) : null
     const refusal =
       fromThisMachineOrTheTailnetElseRefusal(request, port, tailnet) ??
-      (isApi ? (holdsTheWebTokenElseRefusal(request, want) ?? writesOnlyFromThePagesOwnOriginElseRefusal(request, tailnet)) : null)
+      (presented !== null ? (holdsTheWebTokenElseRefusal(presented, want) ?? writesOnlyFromThePagesOwnOriginElseRefusal(request, tailnet)) : null)
     if (refusal) return refusal
+    if (isInspector) return inspect(request)
     if (!isApi) return READS.has(request.method) ? builtFile(pathname, dist) : refuse(405, 'read-only')
     const path = pathname.slice(API.length)
     try {
-      return await (READS.has(request.method) ? view(team, dir, pullStateOf, github, path, searchParams, request.signal) : write(team, asThisPerson, github, dir, path, searchParams, request))
+      const answered = await (READS.has(request.method) ? view(team, dir, pullStateOf, github, path, searchParams, request.signal) : write(team, asThisPerson, github, dir, path, searchParams, request))
+      answered.headers.append('set-cookie', theInspectorOpensForWhoeverTheApiAnswered)
+      return answered
     } catch (error) {
       if (error instanceof Refused) return refuse(400, error.message)
       throw error
