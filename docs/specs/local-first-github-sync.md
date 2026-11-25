@@ -35,7 +35,8 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 - `repos`：仓库到板上 channel。只同步 issue，不同步 PR（PR 的同步以后再说，VN §3 最后一行）。
 - `reader`：轮询用哪个 gh 账号的 token 读，只读。
 - webhook secret 由 serve 首次启动时生成，存在 `~/.nawaban/board/github-webhook-secret`（同 `token` 文件的做法）。
-- 推送身份（GitHub App 还是专用账号）**待决策者定**，定之前没有推送，见第 4 节。
+- 推送身份：就用 agent 现在写 GitHub 的 `wuxianzhong-gpt`，不建 GitHub App，也不开专用账号（决策者 11-25 问「能不能两个都不建」，临时板实测可以，见第 4 节「推送身份」）。
+- **只推公司仓库**：只有和同事共用、记账在 GitHub 上的仓库（现在只有 roubao）才写进 `github-sync.json`，也只有它们推送。个人仓库（nawaban、bzkanbanv2 等只有决策者的）记账本来就在板上，不进 `github-sync.json`，什么都不推。
 
 ## 2. 入站：本机轮询器
 
@@ -54,7 +55,7 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 
 **sync 函数（入站这一侧）**：`direction === 'in'` 时 `import(channel)`。
 
-**botUserId**：原生把 `botUserId` 写的评论当成自己发的，不导入。决策者的 agent 都用 `wuxianzhong-gpt` 写 GitHub，所以 `botUserId` 绝不能是这个账号的 ID（VN 结论 4）。没定推送身份之前，`botUserId` 填一个不存在的 ID，所有人的评论都导入。
+**botUserId**：原生把 `botUserId` 写的评论当成自己发的，不导入。决策者的 agent 都用 `wuxianzhong-gpt` 写 GitHub，所以 `botUserId` 绝不能是这个账号的 ID（VN 结论 4）。`botUserId` 一直填一个不存在的 ID，所有人的评论都导入；推送也用 `wuxianzhong-gpt` 之后仍然这样填，推出去的评论靠原生的同步映射认回，不靠 `botUserId`（第 4 节）。
 
 **不往 GitHub 写**：没定推送身份之前，serve 进程里对 `api.github.com` 的非 GET 请求一律拒绝（GraphQL 的 `viewer` 查询也是 POST，所以 `botUserId` 必须显式给，原生就不会去查）。轮询器用 `gh api` 只发 GET。
 
@@ -71,7 +72,7 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 - middleware（`impactNames` 和决策卡校验）按作者前缀 `github:` 放行导入的消息，原文照存；读的一侧照旧用旧 CLI 的规则判断待决有没有就绪。
 - 排序：导入的评论在板上的时间就是导入的时间，补导入的旧评论会落到线程末尾。取「最新」（最新进展、最新待决）时按 GitHub 的 `created_at` 排，原生的导入记录里有平台时间就用它，没有的话由 -07 在导入时补一个 `at` label。
 
-## 4. 出站：推送（等推送身份定了再做）
+## 4. 出站：推送（只推公司仓库）
 
 **推哪些**（sync 函数 `direction === 'out'` 里过滤，只推映射到 issue 的线程）：认领和交还、进展同步（`triage:`、`wayfinder:`、`lane:` 这几种记账备注不推）、决策记录、PR 链接、待决、已决、影响声明。不推：派活记录、triage、网页答复、收件箱、OKR 读数、租约续期。
 
@@ -83,7 +84,19 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 
 **写路径切换**：`nawaban event '#N'`、`claim '#N'`、`close '#N'` 先写本地板，再由 sync 推出去。旧 CLI 在本机有 `github-sync.json` 时转给板；没有的（岳不同的机器）照旧直写 GitHub，轮询器再带回来。网页记已决（`server.ts` 调 `cli.py`）改成先写板。
 
-**推送身份**：用 GitHub App（显示成 bot），还是专用账号，**待决策者定**（票上 1428）。不能用 `wuxianzhong-gpt`：推送账号写的评论不会被导入，而决策者的 agent 和旧 CLI 都用这个账号直写。
+**推送身份**：用 `wuxianzhong-gpt`，`botUserId` 仍填不存在的 ID。11-25 在临时板上实测（内存板，GitHub API 打桩，不碰真 GitHub），一来一回的结果：
+
+| 情形 | 结果 |
+| --- | --- |
+| 同一账号绕过板直写 GitHub 的评论 | 照常导入，作者 `github:user:<id>` |
+| 板上写的一条推出去（POST 成功），再以 `issue_comment created` 拉回来 | 原生按「评论 ID ↔ 板消息」的同步映射认出是同一条，不多一条，原文不变 |
+| 同一条再以 `created` 送一次 | 还是不多 |
+| 同一条以 `edited` 拉回来 | 不多一条，也不再推回 GitHub（只有那一次 POST），但板上那条原文被改成推出去的样子（带前缀和 marker）。轮询器只在 GitHub 上真被编辑过（`updated_at` 不等于 `created_at`）时才送 `edited`，正常推送碰不到 |
+| GitHub 收下了但响应丢了（桩先回 502） | 原生重试，GitHub 上出现两条一样的评论；拉回来时有映射的那条认成同一条，没映射的那条被当成新评论导入，板上多一份 |
+
+结论：正常一来一回不重复，不建新身份。最后一种和用哪个身份无关：换专用账号并把 `botUserId` 设成它，板上不会多，但 GitHub 上仍是两条。-09 里补两处（估计 sync 函数加 40 行左右，外加两条回归测试）：
+- 认回声：入站时评论末尾带 nawaban marker，且 marker 的 `uid` 是板上已有消息的，就不 `import`。
+- 重推前先查：推送失败要重试前，先在该 issue 最近的评论里找同一个 `uid`，找到就不再 POST，这和第 3 节「补推」是同一处代码。
 
 ## 5. 开关和认领的合并
 
@@ -115,7 +128,7 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 | -06 只读入站 | 第 1、2 节：配置、轮询器、签名载荷交给本机路由、原生 `into` 导入 channel，首次全量，非 GET 一律拒绝 | 无 |
 | -07 任务化与前缀语义 | 第 3 节：root 转任务加 key，前缀变 block/unblock，`state` 变 complete/cancel，重开开新任务，middleware 放行，按平台时间排序 | -06 |
 | -08 读切换 | 面板、索引、待决提示行、brief、网页对同步仓库改读本地板，删掉旧的 GitHub 读路径和缓存；同步停了要露出来；每日对账补删除 | -07 |
-| -09 推送 | 第 4 节的过滤、`render`、补推，写路径切换 | -08，以及推送身份（待决策者定） |
+| -09 推送 | 第 4 节的过滤、`render`、补推、认回声，写路径切换；只对 `github-sync.json` 里的公司仓库 | -08 |
 | -10 状态外推与分享 | 第 4 节「状态外推」，第 5 节「本地 → GitHub」那一列 | -09 |
 | -11 收尾 | 导入 roubao 的 OKR 三张表；删掉插件和面板按 issue-tracker.md 标题的分流（只限有本机配置的仓库）；GLOSSARY 加术语；T8 编排者场景在 roubao 重跑；在 roubao 的 issue 上知会岳不同 | -10 |
 
