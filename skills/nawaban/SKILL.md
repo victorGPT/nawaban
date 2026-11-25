@@ -1,208 +1,100 @@
 ---
 name: nawaban
-description: The nawaban board is the issue tracker. Use when a skill says to publish a spec, "publish the tickets" or "fetch the ticket" (each ticket is a task), or to find the frontier; before working on a task; and when recording a note, a decision between options, or a link such as a pull request.
+description: The nawaban board is the issue tracker. Use when a skill says to publish a spec, "publish the tickets" or "fetch the ticket", or to find the frontier; before working on a ticket; and when recording a note, a decision between options, or a link such as a pull request.
 ---
 
 # nawaban issue tracker
 
-A nawaban board records **tasks** and an append-only **event** log per task. It holds no workflow: the engineering skills (`/to-spec`, `/to-tickets`, `/implement-spec`, `tdd`, `code-review`) decide what to do; the board records what was decided and done.
+The board holds 票 and an append-only event log per 票. The engineering skills decide what to do. The board records what was decided and done. Nouns are the Chinese terms in `GLOSSARY.md`.
+
+Run `node <plugin root>/hooks/route.mjs` in the repository, with the plugin root two directories above this skill. It prints `board <project>` or `old`. On `board`, follow "Repositories on the board". On `old`, and for every GitHub issue `'#N'`, follow the board section with the differences in "Repositories on the old CLI or GitHub". A session outside Codex, Antigravity and Claude Code sets `NAWABAN_OWNER` to a stable name before it writes.
 
 ## Rules
+1. **Three questions for the user.** Bring the user only questions about how the product behaves, what is said to the outside, and whether something goes to production. Settle every other choice yourself. A step the running skill marks as the user's, such as approving the split in `/to-tickets`, `grilling` or a wayfinder HITL 票, still goes to the user.
+2. **Every choice becomes a 决策记录.** Record each choice between options as a `decision` event, the user's answers included.
+3. **Claim before work.** Claim a 票 before you work on it. Close or release it when you stop.
 
-1. **Three questions for the user.** Bring the user only questions about how the product should behave, what is said to the outside, and whether something goes to production. Settle every other choice yourself. A step the running skill marks as the user's (approving the split in `/to-tickets`, confirming the seam in `/to-spec`, `grilling`, a wayfinder HITL ticket) goes to the user as written; this rule governs only the choices outside those steps.
-2. **Every choice becomes a 决策记录.** Whenever you choose between options, record it (see "Record events"), including the user's answers to the three questions above.
-
-Nouns are the Chinese terms in `GLOSSARY.md` (each entry names its English source): 待决策项（待决）, 上升, 就绪标准, 决策记录, 完成标准, 停滞 / 进行中 / 待办 / 已完成, 负责人, 红黄绿灯, 偏差. What people and agents read uses these; the English names (BLUF, Context, …) are still read where formats are parsed.
-3. **Claim before work.** Claim a task before working on it, and close or release it when you stop.
-
-## The command
-
-The CLI is `nawaban/cli.py` in the plugin root, two directories above this skill's base directory. Below, `nawaban` stands for:
-
+## Repositories on the board
+Run `nawaban <verb>` from PATH. `<票>` is the KEY or the board number, with no `#`. Every verb takes `--help` and `--json`. Do not type `nawaban json`, which only the Herdr panel reads. Output is one or two lines of Chinese that start with `✓` or `✗`. Exit 0 is success, 1 a refusal, 2 a usage error, and 3 still waiting. `nawaban board <native verb>` runs an `@vercel/board` verb, such as `board label` or `board tasks assign`.
+- `nawaban status` prints 等你, 停滞, 进行中 and 待办, each 票 with its latest 进展同步 and next step. `--project` defaults to this repository's project. With a project it ends with the live workers, 网页已答 and 收件箱. As the orchestrator, read it at the start and after compaction, before you rebuild the state from memory.
+- `nawaban show <票>` prints the 票, its holder, its blockers and its latest event. `show <票> --all` prints every event.
+- `nawaban list [--project <p>] [--parent <票>] [--frontier]` prints one line per 票. The frontier is every open 票 that no session holds and whose blockers are all done or cancelled. Nothing stops a claim outside the frontier, so check it yourself.
+- `nawaban okr` runs each KR's `measure` in `docs/agents/okr.toml` and prints its reading against the target, its 偏差 and its 红黄绿灯. Report its numbers, not your own. A measure never runs an eval. The OKR 进度 entry in `GLOSSARY.md` gives the `okr.toml` format. `okr --accept "<O>"` records the decision-maker's sign-off while that O is all met. `okr --json` lists under `attention` what the decision-maker must watch.
+### Create
+- `nawaban create <SPEC-ID> --title "<title>" --body-file <spec.md>` publishes a spec. A spec 票's body is the whole spec, and it stays unchanged.
+- `nawaban create <SPEC-ID>-<NN> --title "<title>" --parent <SPEC-ID> --body-file <ticket.md> --blocked-by <票> --lane <name>` publishes a child 票. Its body has `## What to build` and `## Acceptance criteria`. Its title says what a person can see once it is done. A body can also be positional, or `-` to read it from stdin. The project follows `--parent`, then the repository you run in.
+- Create blockers first. `nawaban block <票> <blocker>` adds an edge later. Both refuse unknown ids, a 票 that blocks itself, and cycles.
+- `--lane <name>` labels the 票 `lane=<name>`. Give one lane to the 票 whose worker reads the same docs, changes the same directories and uses the same tools. The 票 in a lane run one after another in dependency order.
+### Claim, release, close
+- `nawaban claim <票>` makes the 票 yours. A 票 that another session holds is refused with the holder and its lease end. Wait for the release or the lease to run out, or have the orchestrator reassign it. A done or cancelled 票 is refused. `nawaban claim <票> --release` returns the 票 to the frontier, after you record a 进展同步.
+- `nawaban close <票> --done` comes after the work merges and its `pr:` or `commit:` link is recorded. That merged link is the 完成标准. `close <票> --cancelled` drops the work and is never refused.
+- A 票 closed by mistake cannot be reopened on the board. Upstream `nawaban board tasks reopen` refuses it with `Can't reopen task #<id>. It's finished.` Create a new 票, then point the old one at it with `nawaban event <old> note "重开为 <new>"`. A closed 票 still takes events.
+### Record events
+An event is `nawaban event <票> <kind> [body]`, and a body of `-` reads stdin.
 ```
-python3 <plugin root>/nawaban/cli.py --db <absolute board path>
-```
-
-Which CLI a repository uses: `node <plugin root>/hooks/route.mjs` run in it prints `board <project>` or `old`. On `board` (a fresh install, where the old CLI finds no board and no GitHub tracker), `nawaban` is the `nawaban` command `install.sh` puts on your PATH, the board CLI, written as `nawaban <verb>` with no `--db`, and the verbs below keep their names; `create` and `status` without `--project` take the project of the repository you run them in (its main checkout in `repos.json`). On `board` an event's kind and body are positional, `event <ID> <kind> [body]`, as the examples below write them; `-` reads the body from stdin, as `nawaban board reply` does; `create` takes its body the same way, or from `--body-file <file>`. The old CLI (`old`, and every `'#N'` on GitHub) does not take that form (`cli.py event X note …` fails with `the following arguments are required: --kind`): there write `--kind <kind> --body <body>`. On `old`, use the board the project names (its `CLAUDE.md` or `docs/agents/issue-tracker.md`); otherwise the CLI finds `.nawaban/nawaban.db` in the repository's main checkout. Always pass the absolute `--db`, also from worktrees, so every worktree writes one board. Write the whole command out in every call. Do not keep it in a shell variable (`N="python3 ..."; $N list`): a subagent's Bash refuses a command whose name is computed at runtime, and zsh does not split the variable. `nawaban <verb> --help` lists a verb's flags. Output is in Chinese: `✓` is success; `✗` with exit 1 is a refusal or an unknown id.
-
-Identity comes from `CODEX_THREAD_ID` (Codex, shown as `cx-<first 8>`), then `ANTIGRAVITY_CONVERSATION_ID` (Antigravity, `agy-<first 8>`), then `CLAUDE_CODE_SESSION_ID` (Claude Code, `cc-<first 8>`), then `NAWABAN_OWNER`. A session with none of them sets `NAWABAN_OWNER` to a stable name before claiming or writing events.
-
-## Task shape
-
-- **id**: any string without whitespace, e.g. `LEAN` or `LEAN-03`.
-- **title**: what a person can see once it is done.
-- **body**: markdown. A task's body has two sections, `## What to build` and `## Acceptance criteria`; a spec task's body is the whole spec. Write the body to a file and pass `--body-file`.
-- **project**: defaults to the parent's project, then to the git repository the command runs in (its main checkout, also from a worktree), then to the repository holding the board. Pass `--project` only to override.
-- **status**: `open`, `done` or `cancelled`. "In progress" is derived: an open task held by a session.
-
-## Publish a spec
-
-```
-nawaban create <SPEC-ID> --title "<title>" --body-file <spec.md>
-```
-
-## When a skill says "publish the tickets"
-
-Create one task per ticket, blockers first:
-
-```
-nawaban create <SPEC-ID>-<NN> --title "<title>" --parent <SPEC-ID> --body-file <task.md> --blocked-by <ID> --blocked-by <ID>
-nawaban block <ID> <blocker ID>
-```
-
-`block` adds an edge afterwards. Both refuse unknown ids, a task blocking itself, and cycles. Leave the spec task unchanged.
-
-## When a skill says "fetch the ticket": fetch a task or a spec
-
-- `nawaban show <ID>`: title, status, project, parent, holding session, current progress (the latest note, shown for open tasks only), the tasks it is blocked by and its dependents with their status, the body, and the latest 20 events (on `board`, the latest event; `show <ID> --all` prints every one).
-- `nawaban list --parent <SPEC-ID>`: every task of a spec, one line each: `<id>  <status>  <project>  <title>`. `nawaban list --project <name>` filters by project.
-- JSON for a script: add `--json` to the verb, `nawaban show <ID> --json`, `nawaban status --json`, `nawaban okr --json`. `nawaban json …` is what the Herdr panel reads; don't type it on `board`. The old CLI has no `--json` on these verbs: there `cli.py json task <ID>`, `json board` and `json okr` still answer.
-
-## Index: read it first
-
-As the orchestrator, run `nawaban index` when you start and again after your context is compacted, before you rebuild what is going on from memory. It prints, from the same data as the panel (the repository's GitHub issues when its `docs/agents/issue-tracker.md` names GitHub, else the board; `--project <name>` on the board), an md index on stdout: on GitHub, first the 待决策项 (`## 待决`, oldest first, each by its issue number and title); then what waits on the user (等你, on the board only), what has had no activity for 24 hours and on whom it stopped (停滞), what moves (进行中), each with the spec it belongs to, its latest progress and its next step (the `下一步：` of a 进展同步), or the 决策记录 that came after that step; the user's 决策记录 of the last 48 hours (on GitHub, every `已决：`, a `决定：` whose marker says `by: user`, and a `决定：` whose marker names no `by` (or that has no marker) that says `拍板` or names one of the comma-separated `NAWABAN_OWNER_NAMES`); what nobody has touched (待办); and how many closed. It writes nothing on the tracker; on GitHub it rewrites the inbox cache. A project on the Vercel Board (`hooks/route.mjs` prints `board`) gets the same index from `nawaban status` (`--project <name>` defaults to this repository's project), which the SessionStart hook runs for it.
-
-For the owner's Progress, run `nawaban okr` in the repository: it reads `docs/agents/okr.toml` (each `[[objective]]` with its `[[objective.kr]]`: `name`, `target` such as `>= 95`, optional `unit`, optional `max_age_days` (a reading dated longer ago than this is stale, not met; the as-of must then start with `YYYY-MM-DD`), optional `wait` (what the decision-maker has to do before a KR without a measure can be measured), and `measure`, a shell command run from the repository root that reads results already produced and prints `<number> <as-of>` as its last line), runs every measure, and prints each Objective with how many KRs are met (`n/m 达标`), each KR as `<KR>  <实际> / 目标 <op 目标> · 偏差 <±n 单位> · <红|黄|绿> · 截至 <MM-DD>` (红灯 未达标, 黄灯 过期或有风险, 绿灯 达标; a KR with no reading is `未测 / 目标 <target>`, a failed measure adds `· 测量失败：<why>`), and the definitions' commit. 偏差 is actual minus target in the target's direction: `+` ahead, `-` behind; percent is counted in 点. Report its numbers, not your own. A measure never runs an eval. Each reading whose as-of starts with a date is kept on the board once (under the main checkout, even from a worktree); a failed or untested KR keeps nothing. `nawaban okr --accept "<Objective>"` records the decision-maker's sign-off, only while that Objective is all ✓ in the same run. `nawaban okr --json` runs the same measures, keeps the same readings, prints the result as JSON and lists, under `attention`, what the decision-maker must watch: `stuck` (missed, two rounds not closer), `five` (missed five rounds in a row), `wait` and `accept` (all met, not accepted since the last miss).
-
-In a repository whose `docs/agents/issue-tracker.md` names GitHub, write an issue's state with the same verbs on `'#N'`, run from that repository: `claim '#N'` (assigns you and posts the claim; `--release` hands it back), `event '#N' --kind note|decision|link|ask|resolve --body …` (进展, 决定, PR, 待决, 已决), `close '#N' --done|--cancelled|--reopen`. Each comment carries a marker the readers trust over its text; a hand-written prefixed `gh issue comment` is blocked by the plugin's hook. An issue holds one 待决策项: a second `ask` is refused until a `resolve`. 上升 means raising a 待决策项; the owner is the one who decides. An `ask` is written as
-
-    决策事项：<the one decision asked>      (--body)
-    关联 KR：<Objective / KR, or 无>        (--kr)
-    背景：<only the facts it turns on>       (--context)
-    备选方案：                              (--option, at least twice)
-    - <方案> ｜ <代价> ｜ 单向门|双向门
-    建议：<which 方案 and why>               (--rec)
-
-就绪标准: every part present and not a placeholder (`无`, `none`, `-`; 关联 KR may be `无`), each 方案 with its 代价; on the Vercel Board each also names its door. A 待决策项 that is 未就绪 is refused when written, and one read off an issue is kept out of the panel and returned to the orchestrator. Readers still take the English `BLUF: / KR: / Context: / Options: / Recommendation:` form and the older `【Decision】…【Recommendation】` form. A `decision` you take yourself on the owner's behalf names its KR with `--kr`, so the owner's report can list the delegated decisions that move a KR. When you relay the decision-maker's own call, record it as `event '#N' --kind decision --by user` (its marker carries `by: user`, which the index counts whatever the text says), or as `resolve` on an issue with a 待决.
-
-On GitHub, `nawaban brief` gathers the raw material for 待决策项: for each one, oldest first, its issue number, title, when it was raised (`MM-DD HH:MM 提出`) and URL, its text verbatim (`原文：`), and its issue's last 3 `进展：` comments (`近期进展：`). When the user says 同步, run it and turn that material into 待决策项 yourself; it is not for pasting as it is. It is refused on the board.
-
-As the orchestrator you also get the pending line (待决提示行): after each of your replies the plugin's Stop hook shows the decision-maker one line, `待决 N 件：<new items>｜说「同步」看待决` (or `待决 N 件（无变化）`), counted from the tracker only: the 待决 on GitHub, the 等你 tasks on the board. A question you ask only in chat is not in it. To ask for a decision, put one `json#nawaban-ask-request@1` block at the top level of your reply (a sample follows this paragraph). A second Stop hook (`hooks/ask-guard.sh`, which runs `nawaban hook ask-guard`) records it on its ticket as an `ask`, unless the ticket already waits on the owner, and sends the reply back only when the block doesn't match the schema, a field says nothing, the ticket doesn't exist, or the ask can't be recorded. It reads only that block: a reply without one goes through. A question for facts is `nawaban event <ID> wait <question>` (board). To show the format without asking, put it in a four-backtick fence. On GitHub the line reads a cache that `index`, `brief`, `json board`, `ask` and `resolve` refresh; past 5 minutes it carries its age while the hook refreshes it in the background. For a project moved to the Vercel Board the hook runs `nawaban status --line`, which reads that project's tasks held as 等你 (`needs_input`) or for a 待决策项 (`awaiting_approval`) off the board each time, with no cache.
-
-```json#nawaban-ask-request@1
-{
-  "ticket": "NAWABAN-12",
-  "decision": "详情页先上只读版，还是等编辑功能一起上",
-  "kr": "O1 / 决策者每周拍板轮数",
-  "context": "只读版今天能合；编辑还差两张票，预计周五",
-  "options": [
-    { "choice": "先上只读版", "tradeoff": "多发一次版", "door": "two-way" },
-    { "choice": "等编辑一起上", "tradeoff": "晚三天拿到反馈", "door": "two-way" }
-  ],
-  "recommendation": "先上只读版：能撤，早三天拿到反馈"
-}
-```
-
-### What the web page writes (Vercel Board)
-
-The web page never records a decision. It writes two things the orchestrator handles. Here `event`, `create`, `board label` and `page` are the board CLI, `nawaban <verb>`, not `nawaban/cli.py`; ids are bare numbers, no `#`.
-
-- **网页答复**: a reply on a held task carrying `nawaban-web-answer@1` `{ option?, words }`; the hold stays. It counts only after the card or wait that raised the current hold. The pending line says `，网页已答 M 件` and marks the item `（网页已答）`. Check it, then record it yourself: `event <ID> resolve "<words>"`, for a 待决策项 and a 等你 alike.
-- **收件箱条目**: a root message in channel `inbox/<project>` labelled `inbox=open`, carrying `nawaban-inbox@1` `{ words }`. The pending line says `；收件箱 K 条`. Make a ticket with `create <KEY> --title … --inbox <id>`: it takes the item's project and, with no body given, its words, and marks the item done; for a command or nothing, `board label <id> inbox=done --if inbox=open`. Not `board tasks create <id>`: that leaves the task in `inbox/<project>` with no key, where the project's board never shows it.
-
-`nawaban status --project <p>` ends with both, with each item's id and words; the UserPromptSubmit hook `hooks/page-writes.sh` runs `status --project <p> --unseen <session>`, which prints in full only what that session has not been shown yet (a new answer, a new item) and one line naming what is still open and the command for the full text, so a long answer is not repeated every prompt. The readers live in `board/src/page.ts` (`webAnswers`, `openInboxItems`).
-
-Outside Herdr there is no terminal to label: `/nawaban:orchestrator` records the session as the project's orchestrator (`~/.nawaban/board/orchestrator/<project>`, the last declared wins), and the index, pending-line, page and ask-guard hooks run for that session only. This works for a project on the Vercel Board only: one `hooks/route.mjs` prints `board` for, which is one in `BOARD_PROJECTS` (`herdr/mods/nawaban-board/logic.js`), any repository the old CLI does not track, or any repository with `NAWABAN_CLI=board` in the environment Claude Code runs hooks in. A new session id (a new session, `/clear`) means typing `/nawaban:orchestrator` again.
-
-On Codex the owner declares with `$orchestrator` (Codex completes it to `$nawaban:orchestrator`), and the same hooks run once trusted: the pending line shows under each reply as `↳ Hook · 待决 …`, and a reply sent back shows as `Blocked by hook`. Codex reviews plugin hooks in `/hooks` (`t` trusts all; a session started with untrusted hooks opens that panel first), and again after any `codex plugin add` that changes the plugin; a session already open then shows `Hook failed: plugin contents changed; hook approval required` each turn until it is restarted after the trust. By default the Codex sessions of one `CODEX_HOME` share a background app-server, which runs every session's hooks with the environment of the terminal that started it. The hooks therefore ignore `HC_TERMINAL_ID` under that server and record the session as outside Herdr, and `NAWABAN_BOARD_DIR` and `NAWABAN_BOARD_PORT` reach them from that first terminal. To have the terminal labelled in Herdr (dispatch sends its reports to the labelled terminal), start that Codex with `codex --no-daemon`. Degraded rule, for an orchestrator whose hooks don't run (untrusted on Codex, or an agent without hooks): nothing records the declaration; run `nawaban status --project <p>` at the start of every turn and act on its 等你 section and the 网页已答 and 收件箱 sections it ends with, as the hooks would have shown them. Not `nawaban status --line`: it writes under the board directory, which Codex's sandbox refuses (`EPERM`). No command stands in for the ask guard: record the ask before you ask, every time.
-
-On Antigravity the owner declares with `/nawaban:orchestrator`, and the plugin's root `hooks.json` runs the same hooks through `hooks/agy.mjs`. Inside Herdr the terminal is labelled, as in Claude Code, and outside it the conversation is recorded. Antigravity has no line under a reply for the person, so the pending line reaches you as a system message at the start of each prompt. Degraded rule on Antigravity: open your reply with that `待决 …` line, word for word, whenever one came this prompt. A reply sent back by the ask guard arrives as a system message that begins `Stop hook blocked termination:`. Fix the ask block it names, then reply again. A resumed conversation (`agy --conversation`, `-c`) gets no SessionStart index, so run `nawaban status --project <p>` once after resuming.
-
-## Frontier
-
-```
-nawaban list --parent <SPEC-ID> --frontier
-```
-
-The frontier is every open task that no session holds and whose blockers are all done or cancelled. Without `--parent`, the list includes spec tasks too. Nothing stops a claim on a task outside the frontier; check it yourself.
-
-## Claim, release, close
-
-- `nawaban claim <ID>`: the task becomes yours. A task held by another session is refused with the holder's session id; take it over only on purpose, with `--take`, which is logged. A done or cancelled task is refused; reopen it with `close --reopen` first.
-- `nawaban claim <ID> --release`: hand back a task you will not finish; it returns to the frontier. Record a 进展同步 (`已完成：… / 下一步：… / 卡点：…`) first.
-- `nawaban close <ID> --done` once its work is merged into the integration branch, after a link event for the pull request or commit: that merged link is the 完成标准. In a repository with `docs/agents/okr.toml` it is refused until the task has a KR impact declaration (see "Record events"); `--cancelled` is never refused. `--cancelled` for work dropped; `--reopen` for a task closed by mistake. Closing clears the session.
-
-Every claim, takeover, release and close writes a status event by itself.
-
-As the orchestrator you decide, plan and dispatch; you do not change repository files yourself. A PreToolUse hook (`hooks/orchestrator-nocode.sh`, the checks in `hooks/repo_write.py`) refuses, in the terminal labelled `role=orchestrator` (outside Herdr, the declared session), an `Edit`, `Write`, `MultiEdit` or `NotebookEdit` of a file inside a git repository, and a shell command that writes one: `git commit`, `push`, `apply`, `am`, `cherry-pick`, `rebase` or `revert`, `sed -i`, `tee`, `apply_patch`, or a `>`/`>>` redirect into the repository. Files under the board directory, the temporary directory (the scratchpad included) and files the repository ignores stay writable, and `nawaban`, `hc`, `gh pr merge`/`view` and read-only commands run as before; words inside a quoted body or a heredoc are not commands. Hand the change to a worker (`nawaban dispatch`) or a subagent: a subagent's calls carry `agent_id` and pass. On Codex the same hook covers `Bash` and `apply_patch`; on Antigravity `run_command`, `write_to_file`, `replace_file_content` and `multi_replace_file_content` go through `hooks/agy.mjs`. It is a guardrail, not a sandbox: `python -c` writing a file, `cp`, `mv`, `rm`, or a write through a tool the hook does not see goes through, and that is accepted. Degraded rule, where the hooks don't run (untrusted on Codex, an agent without hooks): nothing refuses the write, so dispatch it anyway.
-
-## Dispatch tasks to Herdr workers
-
-    nawaban dispatch <ID> --brief "<goal, scope, what not to touch>" --accept "<checkable done, output to paste>"
-
-In a GitHub-tracked repository `<ID>` is `#N`. It refuses a closed ticket, pulls a worktree off `origin/main` beside the repository, starts the worker there with the one report protocol in its brief, and records the worker's terminal and the acceptance on the ticket (on a local board as a `dispatch: <name>` note, which names you the task's orchestrator in the Herdr panel). Reports go to the repository's orchestrator, the terminal the owner labelled `role=orchestrator`; with none alive, nothing starts. The worker reports with `nawaban tell <ID> "<one line>"` (the board CLI's brief names it; the old `nawaban/cli.py dispatch` and a dispatch with no ticket still name `hc send <terminal>`), which sends `回报：<ID> <one line>` to whoever is the orchestrator when it runs: the live `role=orchestrator` terminal in this repository, else the orchestrator on the ticket's latest dispatch record while it lives and keeps the label. With neither, or when `hc send` fails, it notes `回报未送达：<one line>` on the ticket and exits 0; `nawaban status --project <p>` shows that note as the ticket's progress until a later note replaces it. Workers start with `hc run --outlive-parent`, so closing the orchestrator's window leaves them running; a newly declared orchestrator takes their reports with no further step, and `status --project` lists the live workers of this repository with the tickets they hold. While dispatching, hold no task yourself; progress is on the ticket. On the board, the worker ends its own ticket with `nawaban merge <PR>` (see "Merge" below), which merges, closes the ticket, then claims the worker's next ticket or retires it; you hear only of a failure. Without it, once the task is closed and nothing is assigned to that worker, `hc kill <name>`, then `git worktree remove <its worktree>`: a worker keeps its worktree between the tickets it claims. A hook refuses `hc kill` and `hc rm` while the worker's terminal still holds an open ticket (claimed on the board, or assigned on GitHub with that terminal on its latest dispatch or claim): have the worker close it with `--done` after recording the `pr:` link, or release it with `claim --release` after a note on where it stopped (on GitHub you can do either yourself).
-
-**Recovering a lost worker.** A worker started before `--outlive-parent` ended with its orchestrator's window. `hc get <terminal> --json` still shows it; its label `revive.session` is the Claude Code session. In its worktree (`cwd` of the same output), run `claude --resume <revive.session>` in a new terminal; it picks up where it stopped and reports with `tell`.
-
-**Lanes, and work a running worker pulls.** When you split tickets, give each a lane as you create it: `nawaban create <ID> --title … --lane <name>` labels the ticket `lane=<name>`. An old note `lane: <name>` is still read, and is no longer written. Tickets share a lane when the worker must load the same things before starting: the ADRs and docs to read, the directories to change, the external tools or environment. Within a lane, tickets run one after another in dependency order. `dispatch` on a ticket with a lane gives it to that lane's live worker in this repository, the terminal labelled `lane=<name>` (dispatch labels each worker it starts for a lane). Giving a running worker a ticket sends it nothing: dispatch assigns the ticket on the board to the worker's profile (`board tasks assign <id> <profile>`, the profile named by the terminal's `revive.agent` and `revive.session` labels; without them it refuses, and `--new` starts a worker instead), and records the dispatch, the acceptance and a `派发 brief：<brief>` note on the ticket. An assigned ticket is kept for that profile: another profile's claim fails, and the board gives it to that profile before anything in the pool. The worker takes it when the ticket it holds is done: `nawaban merge` claims it (below; merge takes only a ticket assigned to the worker, never one from the pool), or `nawaban claim --ready [--wait <d>] [--project <p>]` does by hand, a thin wrapper over the board's `tasks claim <project> --ready` as this session's profile, the project by default this repository's in `repos.json`. Either prints the brief to carry on, read off the ticket (the latest `派发 brief：` note and the latest dispatch's acceptance, else the ticket body and its acceptance criteria): cut `wt/<key>` off the latest `origin/main` in the same worktree, and declare the KR impact first, since the claim registered none. Nothing ready: `claim --ready` says so on stderr and exits 1; a board it can't reach is an error, never "nothing ready". A ticket no one is assigned stays in the pool, and any worker's `claim --ready` in that project takes the oldest one. When the worker a ticket is assigned to has closed its window, return the ticket to the pool (`nawaban board tasks assign <id> --pool`) and dispatch it `--new`: the new worker's claim is refused while the ticket is assigned to the old profile. Dispatch starts a new worker instead when the lane has no live worker, when the lane's workers run another agent or model than you ask for, or when a Claude worker has used half its context window or more (read from its transcript, against a 1M-token window). A worker whose context dispatch cannot read (Codex, Antigravity) counts as having room. `--new` starts a new worker anyway: tickets in one lane that don't block each other and should run in parallel. `--to <terminal>` assigns the ticket to the worker in that live terminal in this repository, with or without a lane; it needs a ticket. Only the board CLI's `nawaban dispatch` routes by lane; the old `nawaban/cli.py dispatch` always starts a new worker.
-
-## Merge
-
-    nawaban merge <PR>
-
-The worker that holds the ticket runs it from its worktree once its pull request is open, on the board CLI only. It finds the ticket from the branch (`wt/<key in lower case>`), then checks, before anything changes: the session running it holds the ticket; the pull request is open; every check has passed, at least one has run rather than been skipped, and a head that carries `.github/workflows` has a workflow run of its own (anything still running or not yet started: it prints what it waits for and exits 3, telling no one; run it again later); a pull request that changes more than `.md` files has a comment with a line `<reviewer> review：无挡…` that names the current head commit (7 characters or more), so a commit pushed after the review is not merged; and the KR impact declaration, as for `gh pr merge`. It then squash-merges with `--match-head-commit`, pulls the main checkout, pulls `~/.nawaban/plugin` when that is this repository (not when what it would pull changes a schema, from this pull request or any other: that waits for the owner, and a rerun after the owner pulls finishes), records the `pr:` link and closes the ticket as done. Last, the worker: while its terminal or its profile still holds a live claim on another open ticket, it stays; a worker that has exited is left alone, and one whose worktree is gone is retired; else, when merge runs in the worker's own terminal, it claims the next ticket assigned to the worker's profile (`board tasks --for <profile>`, then a claim by its id), looking every 15 seconds for up to `--wait` (10m by default). It never takes a ticket from the pool: the orchestrator assigns, so an unassigned ticket waits for it. Claimed: it prints the brief to carry on and leaves the worktree and terminal, so in Claude Code run merge in the background (`run_in_background`) rather than block on the wait. None within the wait: its worktree is removed and its terminal killed, the last step. A claim that fails, the board unreachable say, keeps the worker and counts as a step that failed. Run from another terminal, merge claims nothing for the worker and leaves it with its worktree (the note says so): have it run `claim --ready`, or retire it. Before retiring after the wait, merge looks once more for a claim the worker took meanwhile (a second merge of its own, say) and keeps it if there is one. A ticket only dispatched or assigned to the worker, with no live claim, no longer keeps it alive: merge claims it instead, when it is assigned. A refusal, or a step after the merge that fails, is noted on the ticket (`merge: …`) and sent in one line to the orchestrator, found as `tell` finds it, and it exits 1; run it again once fixed, and it carries on after the merge. Success is noted on the ticket only. It merges as whichever `gh` account the worker runs under.
-
-## Record events
-
-```
-nawaban event <ID> note "已完成：<what is done> / 下一步：<next step> / 卡点：<what stops it, or 无>"
-nawaban event <ID> decision "决定：<what was chosen and why>
+nawaban event <票> note "已完成：<what is done> / 下一步：<next step> / 卡点：<what stops it, or 无>"
+nawaban event <票> decision "决定：<what was chosen and why>
 背景：<the question and the facts it turned on>
-否决方案：<option> — <why not>
+否决方案：<option>，<why not>
 影响：<what follows, optional>"
-nawaban event <ID> link "pr:<url>"
+nawaban event <票> link "pr:<url>"
 ```
-
-- A note is the 进展同步 others see; record one at each stopping point, and as the handoff before a release, in the 已完成 / 下一步 / 卡点 form. The index shows its 已完成 as progress and its 下一步 as the next step. `Done: / Next: / Blockers:` is still read.
-- A decision is a 决策记录. `Decision: / Context: / Rejected: / Consequences:` and the older `Question:` / `Verdict:` are still read. On the Vercel Board, 背景 is kept as the question and 影响 after the decision.
-- A decision the user made gets `--by user`; without it the author is your identity.
-- Link prefixes: `pr:`, `commit:`, `artifact:`, `adr:`.
-
+- A note is the 进展同步. Record one at each stopping point and before a release.
+- A decision is a 决策记录. Add `--by user` when the user made the choice. Add `--kr "<O / KR>"` when you decide on the owner's behalf and the choice moves a KR.
+- Link prefixes are `pr:`, `commit:`, `artifact:` and `adr:`. A triage label is a note `triage: <label>`.
 ### KR impact declaration
-
-Register which KRs a ticket moves as you claim it, before its first pull request, and report the result as you close it:
-
+- `nawaban claim <票> --o "<O>" --kr "<KR>=toward" --kr "<KR>=hold" [--change measure|gold]` declares as you claim, before the 票's first PR link. A declaration after the first PR link is 事后. It satisfies the close lock and is never judged or counted.
+- `nawaban event <票> impact --o "<O>" --kr "<KR>=away"` declares later. Pure infrastructure and docs-only work declare `nawaban event <票> impact --o 无`. `--kr` takes `toward`, `away` or `hold` and repeats. The O and KR names must exist in this repository's `docs/agents/okr.toml`. `--change measure` or `--change gold` marks a change to the ruler, which is counted apart and not judged.
+- `nawaban close <票> --done --kr "<KR>=95 实测" --kr "<KR>=83.3% 预计"` reports each registered KR's value after.
+- In a repository with `okr.toml`, `close --done` is refused without a declaration, or with registered KRs and no result. A hook denies `gh pr merge` and `scripts/merge.sh <PR>` until every 票 the PR links has a declaration.
+### Ask the decision-maker
+After each orchestrator reply the Stop hook shows the pending line, `待决 N 件：<new items>｜说「同步」看待决`. On the board it runs `nawaban status --line`. It counts only the tracker, so a question asked only in chat is not in it. To ask for a decision, put one `json#nawaban-ask-request@1` block at the top level of your reply. The ask-guard Stop hook records it as an `ask` on its 票, unless the 票 already waits on the owner. It sends the reply back when the block breaks the schema, a field says nothing, the 票 does not exist, or the ask cannot be recorded. A reply without the block goes through. To show the format without asking, put it in a four-backtick fence.
+A session that is not the orchestrator records the ask itself with `nawaban event <票> ask "<决策事项>" --kr "<O / KR, or 无>" --context "<only the facts it turns on>" --option "<方案>｜<代价>｜单向门" --option "<方案>｜<代价>｜双向门" --rec "<which 方案 and why>"`. An ask meets the 就绪标准 when every field is present and none is a placeholder such as `无`, `none` or `-`. Only the KR may be `无`. Each option names its 代价 and its door. An ask that is 未就绪 is refused.
+```json#nawaban-ask-request@1
+{ "ticket": "NAWABAN-12", "decision": "详情页先上只读版，还是等编辑功能一起上", "kr": "O1 / 决策者每周拍板轮数", "context": "只读版今天能合；编辑还差两张票，预计周五",
+  "options": [{ "choice": "先上只读版", "tradeoff": "多发一次版", "door": "two-way" }, { "choice": "等编辑一起上", "tradeoff": "晚三天拿到反馈", "door": "two-way" }], "recommendation": "先上只读版：能撤，早三天拿到反馈" }
 ```
-nawaban claim <ID> --o "<Objective name>" --kr "<KR name>=toward" --kr "<KR name>=hold" [--change measure|gold]
-nawaban event <ID> impact --o "<Objective name>" --kr "<KR name>=away"
-nawaban event <ID> impact --o 无
-nawaban close <ID> --done --kr "<KR name>=95 实测" --kr "<KR name>=83.3% 预计"
-```
+### Waiting on the user
+When the work needs the user to answer or act, ask in the conversation as usual and run `nawaban event <票> wait "<one-line question or what the user must do>"`. The 票 is held as 等你 (`needs_input`), and your claim ends. The Herdr panel and the pending line show it. When the user answers, `nawaban event <票> resolve "<their words>"` lifts the hold. The 票 goes back to the profile that waited, so only that profile's `claim` or `claim --ready` takes it. A wait that no profile raised returns the 票 to the pool. Do not write the old `triage: needs-info` note.
+### What the web page writes
+The web page never records a decision. `nawaban status --project <p>` ends with its two kinds of writes, each with its id and words. The UserPromptSubmit hook runs `status --project <p> --unseen <session>`, which prints only what that session has not seen yet.
+- A 网页答复 is an answer on a held 票, and the hold stays. The pending line marks it `（网页已答）`. Check that it fits the question, then record `nawaban event <票> resolve "<words>"`, for a 待决 and a 等你 alike.
+- A 收件箱条目 is an open message in `inbox/<project>`. Turn it into a 票 with `nawaban create <KEY> --title "<title>" --inbox <id>`, which takes the item's project and words and marks the item done. For a command or nothing, run `nawaban board label <id> inbox=done --if inbox=open`. Never use `board tasks create`, which leaves a 票 with no key that the board never shows.
+### Dispatch
+Run `nawaban dispatch <票> --brief "<goal, scope, what not to touch>" --accept "<checkable done, output to paste>"`.
+- It refuses a closed 票. It cuts a worktree off `origin/main`, starts the worker there with `hc run --outlive-parent`, and records the terminal and the acceptance on the 票. While you dispatch, hold no 票 yourself.
+- Reports go to the terminal labelled `role=orchestrator`, and with none alive nothing starts. The worker reports with `nawaban tell <票> "<one line>"`. With no orchestrator to reach, it notes `回报未送达：<line>` on the 票 and exits 0.
+- On a 票 with a lane, `dispatch` assigns it to the profile of that lane's live worker and records a `派发 brief：` note. It sends that worker nothing. Only that profile can claim an assigned 票. When that worker has closed its window, run `nawaban board tasks assign <id> --pool`, then dispatch the 票 with `--new`.
+- It starts a new worker instead when the lane has no live worker, when that worker runs another agent or model, or when a Claude worker has used half its context window. `--new` starts one anyway, for 票 in one lane that should run in parallel. `--to <terminal>` assigns the 票 to the worker in that live terminal.
+- `nawaban claim --ready [--wait <d>] [--project <p>]` takes the next 票 assigned to you, else the oldest one in the pool, and prints the brief. Cut `wt/<key>` off the latest `origin/main` in the same worktree, and declare the KR impact first. With nothing ready it exits 1.
+- To retire a worker without `merge`, wait until its 票 is closed and nothing is assigned to it, then run `hc kill <name>` and `git worktree remove <worktree>`. A hook refuses `hc kill` and `hc rm` while the terminal still holds an open 票. A worker whose window died still shows in `hc get <terminal> --json`. Resume it with `claude --resume <revive.session>` from its `cwd` in a new terminal.
+### Merge
+The worker that holds the 票 runs `nawaban merge <PR>` from its worktree once the pull request is open. It finds the 票 from the branch `wt/<key in lower case>`.
+- Before it changes anything, it checks that your session holds the 票, the pull request is open, and the KR impact declaration is complete. Every check must pass, at least one must have run, and a head that carries `.github/workflows` needs a workflow run of its own. While a check runs or has not started, it prints what it waits for and exits 3, so run it again later.
+- A pull request that changes more than `.md` files needs a comment line `<reviewer> review：无挡…` that names the current head commit in 7 or more characters. A push after the review needs a new review.
+- Then it squash-merges with `--match-head-commit`, pulls the main checkout, and pulls `~/.nawaban/plugin` when that is this repository. A pull that changes a schema waits for the owner. It records the `pr:` link and closes the 票 as done.
+- Last it claims the next 票 assigned to the worker's profile, never one from the pool, and looks for up to `--wait` (10m by default). In Claude Code, run it in the background. With nothing assigned, it removes the worktree and kills the terminal. Run from another terminal, it claims nothing and leaves the worker.
+- A refusal or a failed step is noted on the 票 and sent to the orchestrator, and merge exits 1. Fix it and run merge again, and it carries on after the merge.
+### Orchestrator
+- You decide, plan and dispatch. You do not change repository files. In the `role=orchestrator` terminal, or the declared session outside Herdr, a PreToolUse hook refuses edits and shell writes, such as `git commit` or `sed -i`, to files inside a git repository. The board directory, the temporary directory and ignored files stay writable. Hand the change to a worker or a subagent, whose calls pass. Where the hooks do not run, dispatch the change anyway.
+- Outside Herdr, `/nawaban:orchestrator` records the session as the project's orchestrator. Type it again after a new session id, such as after `/clear`.
+- On Codex, declare with `$orchestrator`. The hooks run once you trust them in `/hooks`. Trust them again after a `codex plugin add` that changes the plugin, then restart the session. Start Codex with `codex --no-daemon` to have its terminal labelled in Herdr. The degraded rule, for Codex with untrusted hooks or an agent without hooks, is to run `nawaban status --project <p>` at the start of every turn and act on its 等你, 网页已答 and 收件箱. Do not run `status --line`, which Codex's sandbox refuses. Record every ask yourself before you ask.
+- On Antigravity, declare with `/nawaban:orchestrator`. The pending line arrives as a system message at the start of each prompt. The degraded rule on Antigravity is to open your reply with that `待决 …` line, word for word. A reply that the ask guard sends back arrives as `Stop hook blocked termination:`. Fix the block it names and reply again. After you resume with `agy -c`, run `nawaban status --project <p>` once.
+### Wayfinder maps
+A wayfinder map is a parent 票 with a note `wayfinder: map`. Its body stays as first written, and its events carry the changes.
+- A 票 on the map is `nawaban create <票> --parent <MAP>` plus a note `wayfinder: <type>`, with no `triage:` prefix. Its frontier is `nawaban list --parent <MAP> --frontier`.
+- To resolve a 票, record its conclusion as a decision on it and a note `decided: <票> <title>: <one-line conclusion>` on the map, then close it as done. A research 票 first gets a link `commit:<sha on the research branch>`. An out-of-scope 票 instead gets `close --cancelled` and a map note `out-of-scope: …`.
+- Fog that becomes a 票 gets a map note `graduated: <fog> → <票>`. To remove a 票, cancel it with a note that gives the reason.
 
-- `--kr` is `<KR name>=toward|away|hold` (toward the target, away from it, or holding), repeatable; the CLI adds the KR's latest reading and measure hash. A KR not listed is unchanged. Pure infrastructure is `--o 无` with no `--kr`.
-- `--change` is `product` (the default), `measure` or `gold`: a change to the measure or the gold is not judged and is counted apart as changing the ruler.
-- One registered after the ticket's first PR link is late (事后): it satisfies the close lock but is never judged or counted.
-- `close --done --kr "<KR name>=<after> 实测|预计"` reports each registered KR's value after; heading, reading and measure stay as registered.
-- The Objective and KR names must exist in the repository's `docs/agents/okr.toml`; run it from that repository. In a GitHub-tracked repository the ID is `'#N'` and the kind goes as `--kind impact`.
-- The declaration is kept on the local board (`kr_impacts`) and recorded on the ticket: a note `impact: …` on the board, a `影响：` comment with its marker on GitHub. The locks read only the local board.
-- nawaban itself keeps an `okr.toml`, so every nawaban ticket declares too; a docs-only ticket declares `--o 无`.
-- In a repository with `okr.toml`, `close --done` is refused without one, or with registered KRs and no result, and the plugin's hook denies `gh pr merge` and `scripts/merge.sh <PR>` until every ticket the PR is linked to (its closing issues, `Refs #N` in its body, or an open board task named in its title, body or branch) has one: GitHub closes an issue on merge without `nawaban close`.
-- Triage labels are notes: `note "triage: <label>"`.
-
-## Waiting on the user
-
-When the work needs the user to answer or act, ask in the conversation as usual and record
-
-```
-nawaban event <ID> wait "<one-line question or what the user must do>"
-```
-
-The ticket is held for a person (`needs_input`) and your claim ends. The Herdr panel shows it under 等你 with that question, and the pending line lists it. Once the user answers, `nawaban event <ID> resolve "<their words>"` records it and lifts the hold, and the ticket goes back to the profile that waited: assigned to it, so `nawaban claim <ID>` or `claim --ready` takes it again and no one else can. A wait no profile raised leaves the ticket in the pool. The old note `triage: needs-info — 等你：…` is still read as a wait; don't write it.
-
-## Wayfinder maps
-
-A wayfinder map is a parent task with a note `wayfinder: map`. The board has no command that edits a body, so the map's body stays as first written and its events carry the changes:
-
-- A ticket is `nawaban create <ID> --parent <MAP>` plus a note `wayfinder: <type>`, with no `triage:` prefix. A ticket blocking another is `nawaban block`. The frontier is `nawaban list --parent <MAP> --frontier`.
-- Resolving a ticket:
-  1. Record its full conclusion as a decision on the ticket, and a note on the map `decided: <ticket ID> <ticket title>: <one-line conclusion>`. These notes are the map's Decisions so far.
-  2. A research ticket: a link `commit:<sha on the research branch>`, then `close --done`.
-  3. A grilling ticket: `close --done` after its decision.
-  4. A ticket out of scope: `close --cancelled`, and a note on the map `out-of-scope: …`.
-- Fog that becomes a ticket: a note on the map `graduated: <fog> → <new ticket ID>`.
-- Removing a ticket: `close --cancelled` plus a note with the reason.
-
-## Back up
-
-- `nawaban backup`: copy the board into `backups/` beside it with a timestamp; copies older than 14 days are pruned. Run it before risky changes.
-- `nawaban init`: create an empty board, only when connecting a new project.
+## Repositories on the old CLI or GitHub
+Here `nawaban` stands for `python3 <plugin root>/nawaban/cli.py --db <absolute board path>`. Write it out in full in every call, because a subagent's Bash refuses a command name kept in a shell variable. Pass the absolute `--db` from every worktree. It is the board that the project's `CLAUDE.md` or `docs/agents/issue-tracker.md` names, else `.nawaban/nawaban.db` in the main checkout. On GitHub, run the verbs on `'#N'` from that repository. The board section applies, with these differences.
+- An event is `nawaban event <ID> --kind <kind> --body <body>`, where `<ID>` is a KEY or `'#N'`. A positional kind fails with `the following arguments are required: --kind`.
+- There is no `--lane`, `--inbox`, `show --all`, `claim --ready`, `status`, `merge` or `tell`. `create` needs `--body-file <file>`. Verbs take `--help` but not `--json`, so JSON comes from `nawaban json task <ID>`, `nawaban json board` and `nawaban json okr`.
+- There is no lease, so a held 票 stays held until its holder releases or closes it. There is no `wait`. On an old local board, write a note `triage: needs-info — 等你：<question>`, which `cli.py` shows under 等你.
+- The index is `nawaban index`, which only `cli.py` has. As the orchestrator, run it at the start and after compaction. On GitHub it opens with the `## 待决` items, oldest first.
+- `nawaban brief` works on GitHub only. For each 待决策项 it prints the issue, the text and the issue's last 3 进展. When the user says 同步, turn that material into 待决策项 yourself, and do not paste it as it is.
+- KR impact is declared only by an event, such as `nawaban event '#N' --kind impact --o "<O>" --kr "<KR>=↑|↓|=[ <before>→<after> 实测|预计]"`. `claim` and `close` take no `--kr`, and there is no `--change`.
+- On GitHub, `nawaban claim '#N'` assigns you and posts the claim. The kinds add `ask` and `resolve`. Each comment carries a marker that the readers trust, and the plugin's hook blocks a hand-written prefixed `gh issue comment`.
+- An issue holds one 待决策项, so a second `ask` is refused until a `resolve`. The ask is `nawaban event '#N' --kind ask --body "<决策事项>"` with the same `--kr`, `--context`, `--option` and `--rec`. Relay the decision-maker's own call as `--kind decision --by user` on `'#N'`, or as a `resolve` of its 待决.
+- `nawaban dispatch` always starts a new worker, and its brief has the worker report with `hc send <terminal>`. `close` also has a flag that reopens a 票 closed by mistake, which `nawaban close --help` names.
+- `nawaban backup` copies the board into `backups/` beside it and prunes copies older than 14 days, so run it before risky changes. `nawaban init` creates an empty board, only when you connect a new project.

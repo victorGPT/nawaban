@@ -6,7 +6,7 @@ The shared language for tasks recorded by agents and read by people. English ter
 
 人和 agent 读到的名词用中文领域约定俗成的说法，英文原名只作出处。一行一条：词 — 在 nawaban 里的确切含义 — 出处。
 
-- **例外管理** — 决策者只看偏离计划的：待决、红灯或黄灯的 KR、停滞的任务 — 出处：Management by Exception（Taylor；ITIL）。
+- **例外管理** — 决策者只看偏离计划的：待决、红灯或黄灯的 KR、停滞的票 — 出处：Management by Exception（Taylor；ITIL）。
 - **渐进披露** — 面板和索引先给一行，细节按需展开 — 出处：Progressive Disclosure（Nielsen）。
 - **任务式指挥** — 决策者定 O、点头 KR；KR 以下 agent 自己定，记成决策记录 — 出处：Mission Command（Auftragstaktik）。
 - **待决策项（待决）** — 交给决策者拍板的一件事：「决策事项：」「关联 KR：」「背景：」「备选方案：」（每条「- 方案 ｜ 代价 ｜ 单向门/双向门」，至少两条）「建议：」；英文 BLUF / KR / Context / Options / Recommendation 和旧【Decision】…【Recommendation】照样读 — 出处：Decision Request；BLUF、COA（参谋作业）。
@@ -14,64 +14,64 @@ The shared language for tasks recorded by agents and read by people. English ter
 - **上升** — 把一件事记成待决交给决策者 — 出处：Escalate。
 - **就绪标准** — 待决每项都写了且不是占位（无 / none / -），每条方案有代价；不满足即「未就绪」，写入时被拒，读出来的不进面板、退回编排者重写 — 出处：Definition of Ready（Scrum）。
 - **决策记录** — 一次选择：「决定：」「背景：」「否决方案：<方案> — <原因>」，可选「影响：」；英文 Decision / Context / Rejected / Consequences 和旧 Question / Verdict 照样读 — 出处：Decision Record（ADR，Nygard）。
-- **完成标准** — 任务记了已合并的 `pr:` 或 `commit:` 链接才能关成完成 — 出处：Definition of Done（Scrum）。
-- **进展同步** — 一条备注「已完成：… / 下一步：… / 卡点：…」，交还任务时同样格式；英文 Done / Next / Blockers 照样读 — 出处：Status update（站会三问）。
+- **完成标准** — 票记了已合并的 `pr:` 或 `commit:` 链接才能关成完成 — 出处：Definition of Done（Scrum）。
+- **进展同步** — 一条备注「已完成：… / 下一步：… / 卡点：…」，交还票时同样格式；英文 Done / Next / Blockers 照样读 — 出处：Status update（站会三问）。
 - **停滞** — 开着、开工过、24 小时没动静 — 出处：Stale（Kanban）。
 - **进行中** — 开着、开工过、24 小时内有动静 — 出处：WIP（Kanban）。
 - **待办** — 开着、从没认领也没写进展 — 出处：Backlog（Scrum / Kanban）。
 - **已完成** — 关成完成 — 出处：Done。
-- **泳道** — 开工前要装进脑子的东西（要读的 ADR 和文档、要改的目录、要用的工具或环境）基本相同的一组任务，建票时记成 `create --lane <名>`（票上的标签 `lane=<名>`；旧的 note「lane: <名>」照样读，不再写）；`dispatch` 把同泳道的下一张指派给该泳道在跑的 worker，它做完手上那张自己领，按依赖顺序串行 — 出处：Swimlane（Kanban）。
+- **泳道** — 开工前要装进脑子的东西（要读的 ADR 和文档、要改的目录、要用的工具或环境）基本相同的一组票，建票时记成 `create --lane <名>`（票上的标签 `lane=<名>`；旧的 note「lane: <名>」照样读，不再写）；`dispatch` 把同泳道的下一张指派给该泳道在跑的 worker，它做完手上那张自己领，按依赖顺序串行 — 出处：Swimlane（Kanban）。
 - **负责人** — 持有一张票的那一个会话或终端 — 出处：DRI（Apple）。
 - **红黄绿灯** — KR 状态：红＝未达标，黄＝过期或有风险，绿＝达标；没有读数的写「未测」 — 出处：RAG status（PRINCE2）。
 - **偏差** — 实际减目标，按目标方向算：+ 领先，- 落后；百分比按「点」计 — 出处：Variance。
 - **OKR 行** — 「<KR>  <实际> / 目标 <op 目标> · 偏差 <±n 单位> · <红|黄|绿> · 截至 <MM-DD>」，`okr` 输出和面板都用；面板上偏差和灯另用颜色 — 出处：OKR（Grove，Doerr）。
-- **面板 tab** — 待决 / OKR / 任务 / 收件箱；编排者每轮回复下方「待决 N 件：…」那一行是待决提示行，不叫收件箱 — 出处：本仓库。
-- **收件箱** — 面板第四个 tab：决策者随手记下的想法，按项目存在面板本地；点「交给编排者」由编排者转成任务或命令，交过的标「已交」沉底折叠。网页记的存进看板 `inbox/<项目>` 频道（标签 `inbox=open`），编排者转成任务（`create` 后标 `inbox=done task=<KEY>`）或命令（标 `inbox=done`） — 出处：Capture Inbox（GTD，Allen）。
+- **面板 tab** — 待决 / OKR / 票 / 收件箱；编排者每轮回复下方「待决 N 件：…」那一行是待决提示行，不叫收件箱 — 出处：本仓库。
+- **收件箱** — 面板第四个 tab：决策者随手记下的想法，按项目存在面板本地；点「交给编排者」由编排者转成票或命令，交过的标「已交」沉底折叠。网页记的存进看板 `inbox/<项目>` 频道（标签 `inbox=open`），编排者转成票（`create` 后标 `inbox=done task=<KEY>`）或命令（标 `inbox=done`） — 出处：Capture Inbox（GTD，Allen）。
 - **网页答复** — 决策者在网页上对待决或等你的回答（`nawaban-web-answer@1`），不解除挂起；编排者核实后自己记已决 — 出处：本仓库（ADR 0003）。
 
 ## Language
 
 ### Tasks
 
-**Task**(任务)
+**Task**(票)
 A bounded unit of work with a title and a markdown body that holds what to build and its acceptance criteria. A spec is a task whose body is the whole spec.
-任务是有标题和 markdown 正文的工作单元，正文写明要做什么和成功判据。spec 本身也是一个任务，正文就是整份 spec。
-_Avoid_: ticket, card, issue, 票, 卡.
+票是有标题和 markdown 正文的工作单元，正文写明要做什么和成功判据。spec 本身也是一张票，正文就是整份 spec。
+_Avoid_: ticket, card, issue, 任务, 卡.
 _Current identifiers_: `tasks`; CLI `create`, `show`, `list`.
 
 **Body**(正文)
 The markdown text of a task. By convention it has the sections "What to build" and "Acceptance criteria"; nothing enforces them.
-正文是任务的 markdown 文本，约定分「What to build」和「Acceptance criteria」两节，不做强制检查。
+正文是票的 markdown 文本，约定分「What to build」和「Acceptance criteria」两节，不做强制检查。
 _Avoid_: context, origin, success list as separate fields.
 _Current identifiers_: `tasks.body`; CLI `create --body`, `create --body-file`.
 
 **Acceptance criteria**(成功判据)
 The section of a task's body that says when the task counts as done.
-成功判据是任务正文里说明何时算完成的那一节。
+成功判据是票正文里说明何时算完成的那一节。
 _Avoid_: success, done gate.
 _Current identifiers_: body heading `Acceptance criteria`.
 
 **Project**(项目)
 The repository a task belongs to. Several projects share one board and the board filters by project.
-项目是任务所属的仓库。多个项目共用一张看板，看板可以按项目筛选。
+项目是票所属的仓库。多个项目共用一张看板，看板可以按项目筛选。
 _Avoid_: repo as a field name, workspace.
 _Current identifiers_: `tasks.project`; CLI `create --project`, `list --project`.
 
-**Parent**(父任务)
+**Parent**(父票)
 The task a task was split from, usually a spec. A child task without a project inherits its parent's project.
-父任务是本任务拆分自的任务，通常是一份 spec。子任务不填项目时继承父任务的项目。
+父票是本票拆分自的票，通常是一份 spec。子票不填项目时继承父票的项目。
 _Avoid_: epic, module, split-from edge.
 _Current identifiers_: `tasks.parent`; CLI `create --parent`, `list --parent`.
 
 **Blocked by**(被挡)
 The tasks that must be done or cancelled before a task can start. The reverse relation is its dependents.
-被挡是一个任务开工前必须完成或作废的那些任务；反过来看就是它的下游任务。
+被挡是一张票开工前必须完成或作废的那些票；反过来看就是它的下游票。
 _Avoid_: depends on, waiting on, upstream gate.
 _Current identifiers_: `blockers`; CLI `block`, `create --blocked-by`.
 
 **Frontier**(可开工)
 The open tasks that no session holds and whose blockers are all done or cancelled.
-可开工是没有被会话认领、所有前置都已完成或作废的未关闭任务。
+可开工是没有被会话认领、所有前置都已完成或作废的未关闭票。
 _Avoid_: ready queue. 待办 (Backlog) is the index group of never-started tasks, blocked ones included.
 _Current identifiers_: CLI `list --frontier`.
 
@@ -79,19 +79,19 @@ _Current identifiers_: CLI `list --frontier`.
 
 **Status**(状态)
 A task is open, done or cancelled. Every status change is written to the event log.
-任务状态只有未关闭、完成、作废三种，每次变化都自动记进事件流。
+票状态只有未关闭、完成、作废三种，每次变化都自动记进事件流。
 _Avoid_: claimed, staging-verified, waiting as statuses.
 _Current identifiers_: `tasks.status` = `open`, `done`, `cancelled`; CLI `close`, `close --done`, `close --cancelled`, `close --reopen`.
 
 **Unassigned**(待认领)
 An open task that no session holds.
-待认领是没有会话持有的未关闭任务。
+待认领是没有会话持有的未关闭票。
 _Avoid_: claimed, assigned.
 _Current identifiers_: `tasks.status` = `open` with no `tasks.session`.
 
 **In progress**(进行中)
 An open task that a session holds. It is derived, never stored.
-进行中是有会话持有的未关闭任务，由数据推导，不单独存储。
+进行中是有会话持有的未关闭票，由数据推导，不单独存储。
 _Avoid_: in_progress as a stored status, doing.
 _Current identifiers_: `in_progress` in `show`, `list` and board responses.
 
@@ -103,31 +103,31 @@ _Current identifiers_: `waiting` on open tasks in `json board` (the question, or
 
 **Done**(完成)
 A task closed because its acceptance criteria are met. Closing clears its session.
-完成是成功判据满足后关闭的任务，关闭时清掉会话。
+完成是成功判据满足后关闭的票，关闭时清掉会话。
 _Avoid_: merged, shipped as statuses.
 _Current identifiers_: `tasks.status` = `done`; CLI `close --done`.
 
 **Cancelled**(作废)
 A task closed without being done. Closing clears its session.
-作废是没有完成就关闭的任务，关闭时清掉会话。
+作废是没有完成就关闭的票，关闭时清掉会话。
 _Avoid_: deleted, abandoned.
 _Current identifiers_: `tasks.status` = `cancelled`; CLI `close --cancelled`.
 
 **Session**(窗口)
 The Claude Code, Codex or Antigravity session working on a task, identified from `CODEX_THREAD_ID` (as `cx-<first 8>`), then `ANTIGRAVITY_CONVERSATION_ID` (as `agy-<first 8>`), then `CLAUDE_CODE_SESSION_ID` (as `cc-<first 8>`), then `NAWABAN_OWNER`. Codex and Antigravity come first because a session started from Claude Code inherits its `CLAUDE_CODE_SESSION_ID`.
-窗口是正在做这个任务的 Claude Code、Codex 或 Antigravity 会话，身份依次取 `CODEX_THREAD_ID`（记作 `cx-<前 8 位>`）、`ANTIGRAVITY_CONVERSATION_ID`（记作 `agy-<前 8 位>`）、`CLAUDE_CODE_SESSION_ID`（记作 `cc-<前 8 位>`）、`NAWABAN_OWNER`。Codex 和 Antigravity 排在前面，因为从 Claude Code 里启动的会话会继承它的 `CLAUDE_CODE_SESSION_ID`。
+窗口是正在做这张票的 Claude Code、Codex 或 Antigravity 会话，身份依次取 `CODEX_THREAD_ID`（记作 `cx-<前 8 位>`）、`ANTIGRAVITY_CONVERSATION_ID`（记作 `agy-<前 8 位>`）、`CLAUDE_CODE_SESSION_ID`（记作 `cc-<前 8 位>`）、`NAWABAN_OWNER`。Codex 和 Antigravity 排在前面，因为从 Claude Code 里启动的会话会继承它的 `CLAUDE_CODE_SESSION_ID`。
 _Avoid_: owner, worker, agent as the holder field.
 _Current identifiers_: `tasks.session`; `CODEX_THREAD_ID`; `ANTIGRAVITY_CONVERSATION_ID`; `CLAUDE_CODE_SESSION_ID`; `NAWABAN_OWNER`; `profile()` in `board/src/tasks.ts`.
 
 **Claim**(认领)
 Setting a task's session. A claim on a task another session holds fails and names the holder, unless it is a takeover; releasing returns the task to the frontier. Inside Herdr a claim also records the terminal it ran in.
-认领是把任务的会话设成自己。别的会话已持有时认领失败并说出持有者，除非显式接手；交还后任务回到可开工列表。在 Herdr 里认领还会记下所在终端。
+认领是把票的会话设成自己。别的会话已持有时认领失败并说出持有者，除非显式接手；交还后票回到可开工列表。在 Herdr 里认领还会记下所在终端。
 _Avoid_: assign, start, lock.
 _Current identifiers_: CLI `claim`, `claim --take`, `claim --release`.
 
 **Orchestrator**(编排者)
 The session the user talks to about a piece of work, declared by the owner typing `/nawaban:orchestrator`, which labels its terminal `role=orchestrator`; one per repository. It starts worker sessions and receives their reports. In Herdr an orchestrator is a terminal with child terminals (`parent` in `terminals()`, the tree in Herdr's sidebar), and its workers are those children, whatever tracker they work from. On the board, a task's orchestrator is the author of its latest `dispatch:` note, else the session holding it, else the session that last claimed it; the panel uses that only for tasks no window holds yet.
-编排者是用户就一摊工作直接对话的那个会话，由决策者敲 `/nawaban:orchestrator` 声明，终端打上 `role=orchestrator` 标签；一个仓库一个。它开 worker 会话、收它们的回报。在 Herdr 里，编排者是有子终端的终端（`terminals()` 的 `parent`，即 Herdr 侧边栏里的树），它的 worker 就是这些子终端，不管它们用哪个 tracker。在看板上，一个任务的编排者是它最新一条 `dispatch:` note 的作者，没有时是持有它的会话，没人持有时是最后认领它的会话；面板只对还没有窗口在做的任务用这条。
+编排者是用户就一摊工作直接对话的那个会话，由决策者敲 `/nawaban:orchestrator` 声明，终端打上 `role=orchestrator` 标签；一个仓库一个。它开 worker 会话、收它们的回报。在 Herdr 里，编排者是有子终端的终端（`terminals()` 的 `parent`，即 Herdr 侧边栏里的树），它的 worker 就是这些子终端，不管它们用哪个 tracker。在看板上，一张票的编排者是它最新一条 `dispatch:` note 的作者，没有时是持有它的会话，没人持有时是最后认领它的会话；面板只对还没有窗口在做的票用这条。
 _Avoid_: leader, 带队会话, 总经理, lead agent, dispatcher, coordinator.
 _Current identifiers_: note `dispatch: <worker name>` (agent-center also writes `coord: dispatch {…}`).
 
@@ -145,8 +145,8 @@ _Current identifiers_: CLI `event --kind ask --kr --context --option --rec`; blo
 
 **Objective**(目标，O)
 Where the work is going, set by the decision-maker alone: qualitative, a direction rather than a number, not a task or an output, important now, measurable by one or two result KRs, not overlapping an existing Objective, said in one sentence. An internal Objective (nawaban's 「编排者不用决策者盯也能把 O 推完」) is legitimate. An agent checks every new or changed Objective against these with the `o-check` skill (O 体检) and answers 是 O, 差一点 or 不是 O with one next step; it never writes one into `okr.toml` on its own.
-目标（O）是工作要去的方向，只由决策者定：定性、说方向而不是一个数，不是任务或产出，现在重要，能用一两个结果型 KR 量，和现有 O 不重叠，一句话说清。内部 O（如 nawaban「编排者不用决策者盯也能把 O 推完」）合法。决策者提出或改动 O 时，agent 用 `o-check` skill 照这几条做 O 体检，答「是 O / 差一点 / 不是 O」并给一个下一步；不擅自写进 `okr.toml`。
-_Avoid_: 目标值（那是 KR 的 target）, 任务, 里程碑.
+目标（O）是工作要去的方向，只由决策者定：定性、说方向而不是一个数，不是票或产出，现在重要，能用一两个结果型 KR 量，和现有 O 不重叠，一句话说清。内部 O（如 nawaban「编排者不用决策者盯也能把 O 推完」）合法。决策者提出或改动 O 时，agent 用 `o-check` skill 照这几条做 O 体检，答「是 O / 差一点 / 不是 O」并给一个下一步；不擅自写进 `okr.toml`。
+_Avoid_: 目标值（那是 KR 的 target）, 票, 里程碑.
 _Current identifiers_: `[[objective]] name` in `docs/agents/okr.toml`; CLI `event --kind impact --o`; skill `o-check`.
 
 **Key Result**(关键结果，KR)
@@ -201,13 +201,13 @@ _Current identifiers_: CLI `okr --resume <O>`, exit code 3, directory `~/.nawaba
 
 **Event**(事件)
 One append-only entry in a task's log, with a time, an author and a kind: note, status, decision or link.
-事件是任务日志里只增不改的一条记录，带时间、作者和类别：note、status、decision、link。
+事件是票日志里只增不改的一条记录，带时间、作者和类别：note、status、decision、link。
 _Avoid_: comment, history row.
 _Current identifiers_: `events`; CLI `event`.
 
 **Note**(备注)
 A free-text event. The latest note is the task's current progress. A triage label is a note `triage: <label>`.
-备注是自由文本事件。最新一条备注就是任务的当前进展；分诊标签记成 `triage: <label>` 备注。
+备注是自由文本事件。最新一条备注就是票的当前进展；分诊标签记成 `triage: <label>` 备注。
 _Avoid_: now, handoff, label field.
 _Current identifiers_: `events.kind` = `note`; CLI `event --kind note`.
 
@@ -247,7 +247,7 @@ _Current identifiers_: line prefix `已决：`.
 
 **Board**(看板)
 The one SQLite file that holds every task and event.
-看板是存放全部任务和事件的那一个 SQLite 文件。
+看板是存放全部票和事件的那一个 SQLite 文件。
 _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `.nawaban/nawaban.db`; `NAWABAN_DB`; CLI `init`, `json`.
 
@@ -265,7 +265,7 @@ _Current identifiers_: `hooks/inbox.sh` (Stop hook); `~/.nawaban/inbox/`; `hooks
 
 **Herdr panel**(Herdr 面板)
 A read-only view of the board docked in a Herdr window beside the terminals, listing, for the project of the current space, what each orchestrator and its workers are doing. On GitHub the top shows the blocked windows' waiting cards, when there are any, then the pending decisions, each opening its issue, with the window groups folded under them. Claiming, closing and dispatching stay with agents and the CLI.
-Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按编排者列出当前 space 所在项目里每个编排者和它的 worker 在做什么。自上而下三层，所有项目一样：四个 tab：待决（等你卡和待决策项，展开为决策事项、关联 KR、背景、最新进展、备选方案、建议）、OKR（每条 KR 一行 OKR 行，状态用红黄绿灯）、任务（停滞、进行中、待办、已完成四组）、收件箱（决策者记下的想法，可一键交给编排者）。认领、关闭、派活仍由 agent 通过 CLI 完成。
+Herdr 面板是停靠在 Herdr 窗口终端旁的只读看板视图，按编排者列出当前 space 所在项目里每个编排者和它的 worker 在做什么。自上而下三层，所有项目一样：四个 tab：待决（等你卡和待决策项，展开为决策事项、关联 KR、背景、最新进展、备选方案、建议）、OKR（每条 KR 一行 OKR 行，状态用红黄绿灯）、票（停滞、进行中、待办、已完成四组）、收件箱（决策者记下的想法，可一键交给编排者）。认领、关闭、派活仍由 agent 通过 CLI 完成。
 _Avoid_: sidebar, shepherdr, board tab.
 _Current identifiers_: `herdr/mods/nawaban-board`; layout block `nawaban`; key `cmd-shift-j`.
 
