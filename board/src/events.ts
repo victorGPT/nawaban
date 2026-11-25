@@ -6,7 +6,7 @@ import { IMPACT_FORMAT, whyNotDeclarable } from './impact.ts'
 import { registeredReadings } from './okr.ts'
 import { claimReady } from './dispatch.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
-import { bodyFrom, key, resolve } from './tasks.ts'
+import { bodyFrom, key, live, profile, resolve } from './tasks.ts'
 import { answer, orRefusal, Refused } from './said.ts'
 import { optionWordsBut, pointAt, withBody } from './hint.ts'
 
@@ -15,15 +15,16 @@ type Team = ReturnType<typeof board>
 type Thread = Awaited<ReturnType<Team['thread']>>
 type Newest = { blocks: { schema: string }[]; text: string }
 
-const KINDS = ['note', 'decision', 'link', 'ask', 'resolve', 'impact'] as const
+const KINDS = ['note', 'decision', 'link', 'ask', 'wait', 'resolve', 'impact'] as const
 type Kind = (typeof KINDS)[number]
 const HOLD_FOR_PERSON = 'needs_input'
 const HOLD_FOR_DECISION = 'awaiting_approval'
 const KR_HEADING = /^(.+)=(toward|away|hold)\s*$/
 const TRIAGE_LABEL = /^\s*triage:\s*([\w-]+)/
 const QUESTION_AFTER_DENGNI = /等你[：:]/
+const WAIT_NOTE = '等你：'
 const USAGE = `用法：nawaban event <票> <类> [正文]（类：${KINDS.join(' ')}）`
-const DONE_LINE: Record<Kind, string> = { note: '记下进展', decision: '记下决策', link: '记下链接', ask: '记下待决，票挂起等决策者', resolve: '记下已决，挂起已解除', impact: '记下 KR 影响声明' }
+const DONE_LINE: Record<Kind, string> = { note: '记下进展', decision: '记下决策', link: '记下链接', ask: '记下待决，票挂起等决策者', wait: '记下等你，票挂起等决策者答复', resolve: '记下已决，挂起已解除', impact: '记下 KR 影响声明' }
 const THE_OLD_FLAGS_A_POSITIONAL_REPLACES = ['kind', 'body']
 
 const OPTIONS = {
@@ -47,9 +48,10 @@ type Event = {
   team: Team
   a: Args
   kr: string | undefined
+  run: Run
   reply: (text: string) => Promise<number>
   holdFirstThenReply: (reason: string, kind: string, text: string) => Promise<number>
-  answerThenLiftIfStillOurs: (kind: string, text: string, ours: (newest: Newest) => boolean) => Promise<number | null>
+  answerThenLiftIfStillOurs: (kind: string, text: string, ours: (newest: Newest) => boolean, beforeLift?: () => Promise<unknown>) => Promise<number | null>
   holdAndNewest: () => Promise<{ hold: NonNullable<Thread['message']['task']>['blocked']; newest: Thread['message'] }>
 }
 
@@ -103,7 +105,7 @@ function eventOn(id: string, key: string, a: Args, run: Run, team: Team): Event 
     return 0
   }
 
-  const answerThenLiftIfStillOurs = async (kind: string, text: string, ours: (newest: Newest) => boolean) => {
+  const answerThenLiftIfStillOurs = async (kind: string, text: string, ours: (newest: Newest) => boolean, beforeLift = async () => undefined as unknown) => {
     const before = await holdAndNewest()
     if (before.hold?.kind !== kind) return null
     const posted = await run(['reply', id, '--after', before.newest.id, ...as, '--', text])
@@ -111,6 +113,7 @@ function eventOn(id: string, key: string, a: Args, run: Run, team: Team): Event 
     const after = await holdAndNewest()
     const holdRaisedMeanwhile = after.hold?.kind !== kind || !ours(after.newest)
     if (holdRaisedMeanwhile) refuse(`${key} 在答的时候变了：答复记下了，挂起没动`)
+    await beforeLift()
     return unblockAsPersonWhicheverWindowHeld()
   }
 
@@ -124,7 +127,7 @@ function eventOn(id: string, key: string, a: Args, run: Run, team: Team): Event 
     return posted as number
   }
 
-  return { id, key, team, a, kr: a.kr?.[0], reply, holdFirstThenReply, answerThenLiftIfStillOurs, holdAndNewest }
+  return { id, key, team, a, kr: a.kr?.[0], run, reply, holdFirstThenReply, answerThenLiftIfStillOurs, holdAndNewest }
 }
 
 async function note(e: Event): Promise<number> {
@@ -204,22 +207,51 @@ async function impactShapeHereNamesAtTheBoard(e: Event): Promise<number> {
   return e.reply(await registration(e.team, e.id, a.o, a.kr ?? [], a.change))
 }
 
-async function resolveDecision(e: Event): Promise<number> {
-  const words = checkedBeforeAnythingLands('nawaban-resolve@1', { words: e.a.body })
-  if ('why' in words) return refuse(words.why)
-  return (
-    (await e.answerThenLiftIfStillOurs(HOLD_FOR_DECISION, words.text, (newest) => newest.blocks.some((b) => b.schema === 'nawaban-resolve'))) ??
-    refuse(`${e.key} 没有挂着等决策的事`)
-  )
+async function wait(e: Event): Promise<number> {
+  const question = e.a.body?.trim()
+  if (!question) return refuse('wait 要有一行问题', 2)
+  return e.holdFirstThenReply(question, HOLD_FOR_PERSON, `${WAIT_NOTE}${question}`)
 }
 
-const BY_KIND: Record<Kind, (e: Event) => Promise<number>> = {
+async function profileThatRaisedTheHold(team: Team, id: string): Promise<string | null> {
+  const { channel } = (await team.thread(id, { limit: 1 })).message
+  let raisedBy: string | null = null
+  for (let after = id; ; ) {
+    const { events, cursor } = await team.poll({ channel, after })
+    for (const ev of events) {
+      const p = ev.payload as { id?: string | number; by?: { profile: string | null } }
+      if (ev.type === 'task.blocked' && String(p.id) === id) raisedBy = p.by?.profile ?? null
+    }
+    if (cursor === after) return raisedBy
+    after = cursor
+  }
+}
+
+async function resolveHold(e: Event): Promise<number | string> {
+  const words = checkedBeforeAnythingLands('nawaban-resolve@1', { words: e.a.body })
+  if ('why' in words) return refuse(words.why)
+  const ours = (newest: Newest) => newest.blocks.some((b) => b.schema === 'nawaban-resolve')
+  const { hold } = await e.holdAndNewest()
+  if (hold?.kind !== HOLD_FOR_PERSON) return (await e.answerThenLiftIfStillOurs(HOLD_FOR_DECISION, words.text, ours)) ?? refuse(`${e.key} 没有挂着等决策或等你的事`)
+  const holder = await profileThatRaisedTheHold(e.team, e.id)
+  let back: string | null = null
+  const assignBackBeforeTheLiftSoNoOtherClaimSlipsIn = async () => {
+    if (holder) back = await e.run(['tasks', 'assign', e.id, holder]).then((code) => (code ? null : holder), () => null)
+  }
+  const code = await e.answerThenLiftIfStillOurs(HOLD_FOR_PERSON, words.text, ours, assignBackBeforeTheLiftSoNoOtherClaimSlipsIn)
+  if (code === null) return refuse(`${e.key} 没有挂着等决策或等你的事`)
+  if (code) return code
+  return back ? `，指回 ${back}` : '，留在池里'
+}
+
+const BY_KIND: Record<Kind, (e: Event) => Promise<number | string>> = {
   note,
   decision,
   link,
   ask,
   impact: impactShapeHereNamesAtTheBoard,
-  resolve: resolveDecision,
+  wait,
+  resolve: resolveHold,
 }
 
 export function event(argv: string[], run: Run, team: Team): Promise<number> {
@@ -235,13 +267,14 @@ export function event(argv: string[], run: Run, team: Team): Promise<number> {
     if (values.kind !== undefined || values.body !== undefined) {
       pointAt(withBody(['event', ref, kind], values.body ?? bodyWord, optionWordsBut(tokens, THE_OLD_FLAGS_A_POSITIONAL_REPLACES)))
     }
-    const a: Args = { ...values, kind, body }
     const task = await resolve(ref)
+    const holderWaitsWithItsClaimSinceOnlyTheClaimMayHoldAClaimedTask = kind === 'wait' && values.as === undefined && live(task)
+    const a: Args = { ...values, kind, body, ...(holderWaitsWithItsClaimSinceOnlyTheClaimMayHoldAClaimedTask ? { as: profile() } : {}) }
     const why = misuse(kind, a)
     if (why) refuse(why, 2)
-    const code = await BY_KIND[kind](eventOn(task.id, key(task), a, run, team))
-    if (code) refuse(`看板没记下 ${key(task)} 的 ${kind}`, code)
-    return { done: `${key(task)} ${DONE_LINE[kind]}`, json: { key: key(task), id: task.id, kind } }
+    const got = await BY_KIND[kind](eventOn(task.id, key(task), a, run, team))
+    if (typeof got === 'number' && got) refuse(`看板没记下 ${key(task)} 的 ${kind}`, got)
+    return { done: `${key(task)} ${DONE_LINE[kind]}${typeof got === 'string' ? got : ''}`, json: { key: key(task), id: task.id, kind } }
   })
 }
 

@@ -11,7 +11,7 @@ export const INBOX_DONE = { inbox: 'done' } as const
 
 const THREADS_PAGE = 50
 const HOLDS_THE_DECISION_MAKER_ANSWERS = new Set(['needs_input', 'awaiting_approval'])
-const NOTE_THAT_RAISES_OR_ENDS_A_HOLD_FOR_A_PERSON = /^\s*triage:\s*(?:needs-info|ready-for-agent)\b/
+const NOTE_THAT_RAISES_OR_ENDS_A_HOLD_FOR_A_PERSON = /^\s*(?:triage:\s*(?:needs-info|ready-for-agent)\b|等你：)/
 
 const key = (m: MessageView) => m.labels.key ?? `#${m.id}`
 const author = (m: MessageView) => m.author?.name || m.author?.handle || ''
@@ -114,7 +114,7 @@ export async function dropInboxItem(team: Team, id: string) {
 export function pageText(answers: WebAnswer[], items: InboxItem[], project: string): string {
   const out = []
   if (answers.length) {
-    out.push(`## 网页已答 ${answers.length}（还挂着；核实后 nawaban event <号> resolve "<原话>" 记已决，等你的改记 nawaban event <号> decision "<决策记录>" --by user 再 nawaban event <号> note "triage: ready-for-agent"）`)
+    out.push(`## 网页已答 ${answers.length}（还挂着；核实后 nawaban event <号> resolve "<原话>" 记已决，待决和等你都这样解）`)
     for (const a of answers) out.push(`- ${a.task} ${a.title}：${a.option ? `选「${a.option}」，` : ''}${a.words}${a.by ? `（${a.by}）` : ''}`)
   }
   if (items.length) {

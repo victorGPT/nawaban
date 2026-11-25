@@ -277,6 +277,22 @@ it('assigns the next task of a lane to the worker running it, which alone may cl
   expect((await team.thread(second)).message.task?.state).toBe('completed')
 })
 
+it('routes a ticket made with create --lane to that lane\'s running worker, with no lane note', async () => {
+  const made = async (key: string) => JSON.parse((await cliAsWindowOf('orch0000-0000', ['create', key, '--title', key, '--project', 'nawaban', '--lane', 'cli', '--json'])).stdout).task.id as string
+  const first = await made('LL-A')
+  const second = await made('LL-B')
+  expect((await team.thread(second)).message.labels.lane).toBe('cli')
+  const a = await dispatchInTheRepositoryAsWindowAaaa1111(['LL-A', '--brief', 'first', '--accept', 'a'], { HC_ORCH: 'to1' })
+  expect(a.stderr).toBe('')
+  expect(a.hc).toContain('label t99 lane=cli')
+  await cliAsWindowOf(WORKER_SESSION, ['claim', 'LL-A'])
+  await cliAsWindowOf(WORKER_SESSION, ['close', 'LL-A', '--done'])
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LL-B', '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(join(tmp, 'repo-ll-a'), 'cli', 10_000))
+  expect(r.stderr).toBe('')
+  expect(r.stdout).toBe('✓ LL-B 指派给在跑的 hc t99（泳道 cli），它做完手上那张自己领 · 回报给 to1\n')
+  expect((await team.thread(first)).message.task?.state).toBe('completed')
+})
+
 it('assigns a task still blocked in its lane to the same worker and leaves the claim to it', async () => {
   const { second, worktree } = await laneOfTwoWhereFirstBlocksSecond('LQ', 'queue')
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['LQ-B', '--brief', 'second', '--accept', 'b'], await fileTheLaneWorkerAt(worktree, 'queue', 10_000))

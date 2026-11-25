@@ -109,6 +109,14 @@ it('lets a block through on a ticket already waiting for the person, and records
   expect(await asksOn(id)).toMatchObject({ blocked: { kind: 'needs_input' }, asks: [] })
 })
 
+it('lets a block through on a ticket held by event wait, and records nothing', EVERY_CASE_STARTS_A_NODE, async () => {
+  const { key, id } = await newTicket()
+  const waiting = await node(['event', key, 'wait', 'region?'], '')
+  expect(waiting.code, waiting.err).toBe(0)
+  expect(await guard(replyWith(requestFor(key)))).toBeNull()
+  expect(await asksOn(id)).toMatchObject({ blocked: { kind: 'needs_input', reason: 'region?' }, asks: [] })
+})
+
 it('records it as the session that holds the ticket', EVERY_CASE_STARTS_A_NODE, async () => {
   const { key, id } = await newTicket()
   await claimAs(SESSIONS_PROFILE, id)

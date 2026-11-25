@@ -20,7 +20,7 @@ The shared language for tasks recorded by agents and read by people. English ter
 - **进行中** — 开着、开工过、24 小时内有动静 — 出处：WIP（Kanban）。
 - **待办** — 开着、从没认领也没写进展 — 出处：Backlog（Scrum / Kanban）。
 - **已完成** — 关成完成 — 出处：Done。
-- **泳道** — 开工前要装进脑子的东西（要读的 ADR 和文档、要改的目录、要用的工具或环境）基本相同的一组任务，记成任务上的 note「lane: <名>」；`dispatch` 把同泳道的下一张指派给该泳道在跑的 worker，它做完手上那张自己领，按依赖顺序串行 — 出处：Swimlane（Kanban）。
+- **泳道** — 开工前要装进脑子的东西（要读的 ADR 和文档、要改的目录、要用的工具或环境）基本相同的一组任务，建票时记成 `create --lane <名>`（票上的标签 `lane=<名>`；旧的 note「lane: <名>」照样读，不再写）；`dispatch` 把同泳道的下一张指派给该泳道在跑的 worker，它做完手上那张自己领，按依赖顺序串行 — 出处：Swimlane（Kanban）。
 - **负责人** — 持有一张票的那一个会话或终端 — 出处：DRI（Apple）。
 - **红黄绿灯** — KR 状态：红＝未达标，黄＝过期或有风险，绿＝达标；没有读数的写「未测」 — 出处：RAG status（PRINCE2）。
 - **偏差** — 实际减目标，按目标方向算：+ 领先，- 落后；百分比按「点」计 — 出处：Variance。
@@ -96,10 +96,10 @@ _Avoid_: in_progress as a stored status, doing.
 _Current identifiers_: `in_progress` in `show`, `list` and board responses.
 
 **Waiting on you**(等你)
-An open task whose latest `triage:` note is `triage: needs-info — 等你：<question>`: the agent needs the user to answer or act. It is derived, never stored; its session keeps holding it, and a later `triage:` note such as `triage: ready-for-agent` ends the wait. The Herdr panel shows these first, as cards, each with its question. A window Herdr reports blocked (an agent waiting for a permission) is a waiting card too, with "在等你确认" for its question. Questions apply only when the board is the local nawaban board; when work is tracked on GitHub, a pending decision takes their place, while a blocked window still makes a card above the pending decisions: it is a window waiting on you, not a pending decision.
-等你是最新一条 `triage:` 备注为 `triage: needs-info — 等你：<问题>` 的未关闭任务：agent 需要用户回答或动手。由数据推导，不单独存储；会话继续持有它，之后再记一条 `triage:` 备注（如 `triage: ready-for-agent`）就不再等。Herdr 面板把它们做成卡片放在最上面，并显示那句问题。Herdr 显示 blocked 的窗口（agent 在等权限确认）也出等你卡，问题写「在等你确认」。问题只用于 nawaban 本地看板模式，在 GitHub 上记账时改用待决；blocked 的窗口在 GitHub 上照样出卡，放在待决上方：它是「窗口在等你」，不是待决。
+An open task held for a person (`needs_input`), raised by `nawaban event <ticket> wait <question>`: the agent needs the user to answer or act. The hold is the board's own, its reason the question; a holder that waits hands its claim back. `nawaban event <ticket> resolve <words>` records the answer and lifts the hold, and the ticket goes back to the profile that raised it (assigned to it, so it alone claims it next); a wait raised by no profile leaves it in the pool. The old note `triage: needs-info — 等你：<question>` is still read as a wait, and is no longer written. The Herdr panel shows these first, as cards, each with its question. A window Herdr reports blocked (an agent waiting for a permission) is a waiting card too, with "在等你确认" for its question. Questions apply only when the board is the local nawaban board; when work is tracked on GitHub, a pending decision takes their place, while a blocked window still makes a card above the pending decisions: it is a window waiting on you, not a pending decision.
+等你是挂起等人（`needs_input`）的未关闭票，由 `nawaban event <票> wait <问题>` 挂起：agent 需要用户回答或动手。挂起是看板原生的，理由就是那句问题；持票人挂起会交出认领。`nawaban event <票> resolve <原话>` 记下答复、解除挂起，票回到挂起它的那个身份（指派给它，下次只有它能领）；不是哪个身份挂的就留在池里。旧备注 `triage: needs-info — 等你：<问题>` 照样读成等你，不再写。Herdr 面板把它们做成卡片放在最上面，并显示那句问题。Herdr 显示 blocked 的窗口（agent 在等权限确认）也出等你卡，问题写「在等你确认」。问题只用于 nawaban 本地看板模式，在 GitHub 上记账时改用待决；blocked 的窗口在 GitHub 上照样出卡，放在待决上方：它是「窗口在等你」，不是待决。
 _Avoid_: needs-info as a status, a stored question.
-_Current identifiers_: `waiting` on open tasks in `json board` (the question, or null); panel window state `waiting`.
+_Current identifiers_: `waiting` on open tasks in `json board` (the question, or null); panel window state `waiting`; `event <ticket> wait`; the board hold kind `needs_input`.
 
 **Done**(完成)
 A task closed because its acceptance criteria are met. Closing clears its session.
