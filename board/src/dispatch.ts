@@ -279,13 +279,13 @@ const refusalOf = (stderr: string): { reason?: string; said: string } => {
   }
 }
 
-async function boardCliElseNothingToClaim(argv: string[], failing: string): Promise<string | null> {
+async function boardCliElseNothingToClaim(argv: string[], failing: string, nothingWhen: string[] = NOTHING_TO_CLAIM): Promise<string | null> {
   try {
     return (await exec('node', [CLI, 'board', ...argv])).stdout
   } catch (error) {
     const { code, stderr } = error as { code?: unknown; stderr?: string }
     const { reason, said } = refusalOf(stderr || (error as Error).message)
-    if (code === 1 && reason && NOTHING_TO_CLAIM.includes(reason)) return null
+    if (code === 1 && reason && nothingWhen.includes(reason)) return null
     throw new Refused(`${failing}：${said}`)
   }
 }
@@ -306,6 +306,7 @@ export async function claimNextReady(project: string, wait?: string): Promise<Me
 const DURATION = /^(\d+)(s|m|h)$/
 const MS_PER = { s: 1_000, m: 60_000, h: 3_600_000 } as const
 const LOOK_FOR_AN_ASSIGNED_TICKET_EVERY_MS = 15_000
+const GONE_BETWEEN_LISTING_AND_CLAIMING = [...NOTHING_TO_CLAIM, 'task_assigned', 'task_claimed', 'task_not_ready']
 
 function msOf(wait: string): number {
   const [, n, unit] = DURATION.exec(wait) ?? []
@@ -324,10 +325,10 @@ export async function claimAssignedToMe(project: string, wait: string): Promise<
   const until = Date.now() + msOf(wait)
   for (;;) {
     const [id] = await readyAssignedTo(project, as)
-    if (id) {
-      const claimed = await boardCliElseNothingToClaim(['tasks', 'claim', id, '--as', as, '--lease', CLAIM_LEASE, '--json'], `领指派给 ${as} 的 #${id} 失败`)
-      if (claimed !== null) return labelledForThePanel(claimed)
-    }
+    const claimed = id ? await boardCliElseNothingToClaim(['tasks', 'claim', id, '--as', as, '--lease', CLAIM_LEASE, '--json'], `领指派给 ${as} 的 #${id} 失败`, GONE_BETWEEN_LISTING_AND_CLAIMING) : null
+    const task = claimed === null ? null : (JSON.parse(claimed) as { task: MessageView }).task
+    if (task && task.task?.for?.endsWith(`+${as}`)) return labelledForThePanel(claimed!)
+    if (task) await boardCliElseNothingToClaim(['tasks', 'release', task.id, '--as', as, '--json'], `#${task.id} 认领时已回到公共池，交还失败`)
     const left = until - Date.now()
     if (left <= 0) return null
     await new Promise((r) => setTimeout(r, Math.min(LOOK_FOR_AN_ASSIGNED_TICKET_EVERY_MS, left)))
