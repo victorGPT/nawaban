@@ -697,6 +697,14 @@ it('refuses on a failing check: no merge, the ticket failed with the output tail
   expect(await stateOf(id)).toBe('completed')
 })
 
+it('runs the checks from the repository root even when merge runs in a subdirectory', async () => {
+  const { id, worktree } = await workerWithChecksOnItsHead('M-CHKROOT', 't7j', ['test "$(pwd -P)" = "$(git rev-parse --show-toplevel)"'])
+  await mkdir(join(worktree, 'sub'))
+  const r = await mergeAsTheWorker('M-CHKROOT', 't7j', join(worktree, 'sub'))
+  expect([r.code, r.stderr]).toEqual([0, ''])
+  expect(await stateOf(id)).toBe('completed')
+})
+
 async function githubFailingTheMerge(key: string, errors: string[]) {
   const fails = join(tmp, `merge-fails-${key}`)
   const sleeps = join(tmp, `sleeps-${key}`)

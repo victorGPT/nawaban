@@ -151,9 +151,9 @@ const mergeRetryingGithubHiccups = (pr: PullRequest) => [
 const eachCheckThenTheMerge = (checks: string[], pr: PullRequest) =>
   [...checks.flatMap((c) => [`printf '%s\\n' ${shQuoted(`$ ${c}`)}`, `sh -c ${shQuoted(c)} || exit $?`]), ...mergeRetryingGithubHiccups(pr)].join('\n')
 
-function boardTasksRun(argv: string[]): Promise<{ settled: { outcome?: string; task?: MessageView } | null; tail: string }> {
+function boardTasksRun(argv: string[], cwd: string): Promise<{ settled: { outcome?: string; task?: MessageView } | null; tail: string }> {
   return new Promise((done) => {
-    const child = spawn('node', [CLI, 'board', 'tasks', 'run', ...argv], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn('node', [CLI, 'board', 'tasks', 'run', ...argv], { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
     let tail = ''
     child.stdout.on('data', (chunk) => (out += chunk))
@@ -176,9 +176,11 @@ async function checksThenMergeAsOneTasksRunElseWhyNot(pr: PullRequest, task: Mes
   if (kr.length) await board().as(profile()).reply(task.id, resultsOf(kr))
   const unreported = await whyNotCloseable(task.id)
   if (unreported) return `${unreported.split('\n')[0]}：验收检查通过就直接关票，KR 结果在 merge 时报：nawaban merge ${pr.number} --kr "<KR 名>=<后值> 实测|预计"`
+  const top = (await stdoutOrNullOnFailure('git', ['rev-parse', '--show-toplevel']))?.trim()
+  if (!top) return '读不到仓库根目录，验收检查要在那里跑'
   const as = profile()
   await upstreamAnswer(['tasks', 'release', task.id, '--as', as])
-  const { settled, tail } = await boardTasksRun([task.id, '--as', as, '--result', `验收检查全过，已合 PR #${pr.number}`, '--json', '--', 'sh', '-c', eachCheckThenTheMerge(checks, pr)])
+  const { settled, tail } = await boardTasksRun([task.id, '--as', as, '--result', `验收检查全过，已合 PR #${pr.number}`, '--json', '--', 'sh', '-c', eachCheckThenTheMerge(checks, pr)], top)
   if (settled?.outcome === 'completed') return null
   const shown = tail.trim() || '（没有输出）'
   if (settled?.outcome === 'failed' && tail.includes(MERGE_FAILED_MARK)) {
