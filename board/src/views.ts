@@ -63,10 +63,14 @@ async function historiesFromTheFeedSinceTheOldestTask(team: Team, tasks: Message
     if (feedEndsWhereTheCursorStaysNotAtAnEmptyPage) return out
     after = cursor
     for (const e of events as BoardEventView[]) {
-      const p = e.payload as { id?: string; by?: { actor: string }; text?: string }
+      const p = e.payload as { id?: string; by?: { actor: string }; text?: string; set?: Record<string, string>; unset?: string[] }
       const changed = p.id ? replyOf.get(p.id) : undefined
       if (changed && e.type === 'message.edited') changed.reply.message = { ...changed.reply.message, text: p.text ?? changed.reply.message.text }
       if (changed && e.type === 'message.deleted') changed.h.replies = changed.h.replies.filter((r) => r !== changed.reply)
+      if (changed && e.type === 'labels.changed') {
+        const labels = Object.fromEntries(Object.entries({ ...changed.reply.message.labels, ...p.set }).filter(([name]) => !p.unset?.includes(name)))
+        changed.reply.message = { ...changed.reply.message, labels }
+      }
       const at = secs(e.createdAt)
       const m = e.message
       const thread = e.type === 'message.posted' ? m?.re : p.id

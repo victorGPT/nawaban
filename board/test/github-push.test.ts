@@ -193,6 +193,19 @@ describe('板上写的待决和已决，和 GitHub 来的一起算', () => {
     expect((await theTask()).task?.blocked).toBeFalsy()
   })
 
+  it('本地待决、已决都推出去之后，同事在 GitHub 上提新待决，网页显示并能答这一件', async () => {
+    await write('ask', '上线吗')
+    await write('resolve', '上')
+    await push()
+    world.comments.push(commentOn(1730, '待决：决策事项：换渠道吗\n关联 KR：O1\n背景：分享\n备选方案：\n- A：换｜成本\n- B：不换｜延迟\n建议：B'))
+    await poll()
+    await poll()
+    expect((await theTask()).task?.blocked?.reason).toMatch(/换渠道吗/)
+    const row = (await boardData(team, 'roubao')).columns.flatMap((c) => c.tasks as { id: string; pending?: { ask: string | null; card: { decision: string } | null } }[]).find((t) => t.id === 'ROUBAO-1730')!
+    expect(row.pending?.card?.decision).toBe('换渠道吗')
+    expect(row.pending?.ask).toBeTruthy()
+  })
+
   it('本地待决推出去之后，同事在 GitHub 上记已决，挂起解除', async () => {
     await write('ask', '上线吗')
     await push()
