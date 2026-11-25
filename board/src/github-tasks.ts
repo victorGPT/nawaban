@@ -96,14 +96,19 @@ const pendingGithubAsk = (replies: MessageView[]) => {
   return asked ? githubAskIn(asked) : null
 }
 
-async function finishAsGithubClosedIt(person: Person, task: MessageView, closedAs: string | undefined) {
+async function finishAsClosed(person: Person, task: MessageView, closedAs: string | undefined, where = 'GitHub 上') {
   if (FINISHED.has(stateOf(task)) || task.task?.for) return
   const heldByThisSync = task.task?.blocked?.reason.startsWith(HELD_FOR_A_GITHUB_ASK)
   if (heldByThisSync) task = await person.tasks.unblock(task.id)
   if (stateOf(task) !== 'ready') return
-  if (closedAs === 'not_planned') return void (await person.tasks.cancel(task.id, 'GitHub 上按 not planned 关了'))
+  if (closedAs === 'not_planned') return void (await person.tasks.cancel(task.id, `${where}按 not planned 关了`))
   const claim = await person.tasks.claim(task.id, { lease: CLOSE_LEASE_S })
-  await claim.complete('GitHub 上关了')
+  await claim.complete(`${where}关了`)
+}
+
+export async function closeTaskOfRootHere(person: Person, root: MessageView, closedAs: string) {
+  const task = unfinishedElseLatest(await tasksKeyed(person, root.channel, keyOf(root.channel, issueNumberOf(root))))
+  if (task) await finishAsClosed(person, task, closedAs, '本地')
 }
 
 async function holdWhileGithubAsks(person: Person, task: MessageView, ask: string | null) {
@@ -132,7 +137,7 @@ async function settleRoot(person: Person, root: MessageView, issue: KnownIssue) 
   if (reopenedOnGithubSinceTheTaskFinished) task = await reopenedAsANewTask(person, root, task, key)
   if (issueOpen && (root.labels['reopens-settled'] ?? '0') !== reopensSeen) await person.label(root.id, { set: { 'reopens-settled': reopensSeen } })
   const whyClosed = closedAs ?? root.labels['closed-as']
-  if (!issueOpen) return issue.state_reason === undefined && whyClosed === undefined ? undefined : finishAsGithubClosedIt(person, task, whyClosed)
+  if (!issueOpen) return issue.state_reason === undefined && whyClosed === undefined ? undefined : finishAsClosed(person, task, whyClosed)
   await holdWhileGithubAsks(person, task, pendingGithubAsk((await person.thread(root.id)).replies))
 }
 

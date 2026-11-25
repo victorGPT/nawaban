@@ -1386,7 +1386,7 @@ def gh_post(root: Path, number: str, kind: str, body: str, kr: str | None = None
     text = f"{GH_WORDS[kind]}：{body}\n\n{marker(ev)}"
     pushed_by_the_board = _repo_the_board_pushes(root)
     if pushed_by_the_board:
-        _write_on_the_board_first(pushed_by_the_board, number, text)
+        _write_on_the_board_first(["github-reply", pushed_by_the_board, number], text)
     else:
         _gh(root, "issue", "comment", number, "--body", text)
 
@@ -1401,9 +1401,9 @@ def _repo_the_board_pushes(root: Path) -> str | None:
     return next((repo for repo in config.get("push") or [] if repos.get(repo) == root.name), None)
 
 
-def _write_on_the_board_first(repo: str, number: str, text: str) -> None:
+def _write_on_the_board_first(hook: list[str], text: str = "") -> None:
     try:
-        r = subprocess.run(["node", str(_PLUGIN / "board" / "src" / "cli.ts"), "hook", "github-reply", repo, number],
+        r = subprocess.run(["node", str(_PLUGIN / "board" / "src" / "cli.ts"), "hook", *hook],
                            input=text, capture_output=True, text=True, timeout=BOARD_WRITE_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError) as e:
         raise Refused(f"板写不进:{e}")
@@ -1683,7 +1683,8 @@ def gh_write(root: Path, a) -> str:
 
 
 def _gh_claim(root: Path, a, n: str, who: str) -> str:
-    _gh(root, "issue", "edit", n, "--remove-assignee" if a.release else "--add-assignee", "@me")
+    if not _repo_the_board_pushes(root):
+        _gh(root, "issue", "edit", n, "--remove-assignee" if a.release else "--add-assignee", "@me")
     if a.release:
         gh_post(root, n, "release", who)
         _forget_the_claim_here(root, n)
@@ -1695,7 +1696,12 @@ def _gh_claim(root: Path, a, n: str, who: str) -> str:
 
 
 def _gh_close(root: Path, a, n: str) -> str:
-    if a.reopen:
+    pushed_by_the_board = _repo_the_board_pushes(root)
+    if pushed_by_the_board:
+        _write_on_the_board_first(["github-state", pushed_by_the_board, n, "open" if a.reopen else "completed" if a.done else "not_planned"])
+        if not a.reopen:
+            _forget_the_claim_here(root, n)
+    elif a.reopen:
         _gh(root, "issue", "reopen", n)
     else:
         _gh(root, "issue", "close", n, "--reason", "completed" if a.done else "not planned")

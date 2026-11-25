@@ -427,8 +427,8 @@ def board_pushes(gh, monkeypatch, tmp_path):
     faked = subprocess.run
 
     def run(args, **kw):
-        if args[0] == "node" and args[2:4] == ["hook", "github-reply"]:
-            handed.append((args[4:], kw["input"]))
+        if args[0] == "node" and args[2] == "hook":
+            handed.append((args[3:] if args[3] != "github-reply" else args[4:], kw["input"]))
             return subprocess.CompletedProcess(args, 1 if handed.refusal else 0, "", handed.refusal)
         return faked(args, **kw)
     monkeypatch.setattr(subprocess, "run", run)
@@ -460,3 +460,26 @@ def test_a_synced_repo_not_listed_under_push_still_posts_to_github(gh, monkeypat
     monkeypatch.setenv("NAWABAN_BOARD_DIR", str(board_dir))
     assert gh.nawaban("event", "#950", "--kind", "note", "--body", "x")[0] == 0
     assert len(posted(gh)) == 1
+
+
+def test_a_repo_the_board_pushes_claims_on_the_board_and_leaves_the_assignee_to_the_push(gh, board_pushes):
+    assert gh.nawaban("claim", "#950")[0] == 0
+    assert gh.nawaban("claim", "#950", "--release")[0] == 0
+    assert not any(c[:2] == ["issue", "edit"] for c in gh)
+    assert [where for where, _ in board_pushes] == [["acme/roubao", "950"], ["acme/roubao", "950"]]
+    assert [cli.read_marker(text)["kind"] for _, text in board_pushes] == ["claim", "release"]
+
+
+def test_a_claim_the_board_refuses_because_someone_else_is_assigned_fails_and_leaves_github_untouched(gh, board_pushes):
+    board_pushes.refusal = "✗ acme/roubao#950 在 GitHub 上已指派给 yuebutong"
+    code, out = gh.nawaban("claim", "#950")
+    assert code != 0 and "yuebutong" in out
+    assert not any(c[:2] == ["issue", "edit"] for c in gh) and posted(gh) == []
+
+
+@pytest.mark.parametrize("flags, wanted", [(["--done"], "completed"), (["--cancelled"], "not_planned"), (["--reopen"], "open")])
+def test_a_repo_the_board_pushes_closes_and_reopens_on_the_board_first(gh, board_pushes, flags, wanted):
+    code, out = gh.nawaban("close", "#950", *flags)
+    assert code == 0, out
+    assert not any(c[:2] in (["issue", "close"], ["issue", "reopen"]) for c in gh)
+    assert board_pushes == [(["github-state", "acme/roubao", "950", wanted], "")]
