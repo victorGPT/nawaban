@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { text } from 'node:stream/consumers'
 import { block as blockOf, board, type MessageView } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
-import { RESULT_FORMAT, undeclared } from './impact.ts'
+import { projectOfThisRepository, RESULT_FORMAT, undeclared } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { forgetLive } from './progress.ts'
 import { optionWordsBut, pointAt, withBody } from './hint.ts'
@@ -111,8 +111,8 @@ const create: Verb = async (argv) => {
   const body = await bodyFrom(bodyWord, values.body, values['body-file'])
   if (values.body !== undefined) pointAt(withBody(['create', keyAsPostIdSoCreatingAgainAnswersTheSameTask], values.body, optionWordsBut(tokens, ['body'])))
   const parent = values.parent ? await resolve(values.parent) : null
-  const project = values.project ?? parent?.channel
-  if (!project) throw new Refused('no project: pass --project, or a --parent that has one', 2)
+  const project = values.project ?? parent?.channel ?? (await projectOfThisRepository(boardDirAsConfiguredWhenAsked()))
+  if (!project) throw new Refused(`no project: ${process.cwd()} is in no repository in repos.json; pass --project, or a --parent that has one`, 2)
   const needs = await Promise.all((values['blocked-by'] ?? []).map(async (b) => (await resolve(b)).id))
   const { task } = await personOwningEveryTaskTheirProfilesMade().tasks.create(project, {
     id: keyAsPostIdSoCreatingAgainAnswersTheSameTask,

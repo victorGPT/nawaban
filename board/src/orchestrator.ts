@@ -5,6 +5,8 @@ import { text } from 'node:stream/consumers'
 import { parseArgs } from 'node:util'
 import type { board } from '@vercel/board'
 import { mainCheckoutRealPathOf, terminalsThatMayBeWorkers } from './dispatch.ts'
+import { projectOfThisRepository } from './impact.ts'
+import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { seenOf } from './merge.ts'
 import { all, Refused } from './tasks.ts'
 import { boardData, tasksOf } from './views.ts'
@@ -146,8 +148,9 @@ const fail = (error: unknown) => {
 export async function index(argv: string[], team: Team): Promise<number> {
   try {
     const { values } = parseArgs({ args: argv, options: { project: { type: 'string' } } })
-    const [data, fromThePage, workers] = await Promise.all([boardData(team, values.project), whatThePageWrote(team, values.project), liveWorkersText(values.project)])
-    process.stdout.write(indexText(data as Data, values.project ?? '看板') + '\n')
+    const project = values.project ?? (await projectOfThisRepository(boardDirAsConfiguredWhenAsked()))
+    const [data, fromThePage, workers] = await Promise.all([boardData(team, project), whatThePageWrote(team, project), liveWorkersText(project)])
+    process.stdout.write(indexText(data as Data, project ?? '看板') + '\n')
     if (workers) process.stdout.write('\n' + workers + '\n')
     if (fromThePage) process.stdout.write('\n' + fromThePage + '\n')
     return 0
@@ -202,7 +205,7 @@ export function stillOpenLine(answers: Pick<WebAnswer, 'task'>[], items: Pick<In
     answers.length ? `网页已答 ${answers.length} 件（${answers.map((a) => a.task).join('、')}）` : '',
     items.length ? `收件箱 ${items.length} 条（${items.map((i) => i.id).join('、')}）` : '',
   ].filter(Boolean)
-  return `${parts.join('，')}上次已给过全文，还开着；要全文跑 node <插件>/board/src/cli.ts page --project ${project}`
+  return `${parts.join('，')}上次已给过全文，还开着；要全文跑 nawaban page --project ${project}`
 }
 
 async function whatThisSessionHasNotSeen(team: Team, project: string, dir: string, session: string) {

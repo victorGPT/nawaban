@@ -135,6 +135,11 @@ async function mainCheckoutOfSessionCwd(cwd: string): Promise<string | null> {
   return common ? resolve(common, '..') : null
 }
 
+export async function projectOfThisRepository(boardDir: string, cwd = process.cwd()): Promise<string | undefined> {
+  const top = await mainCheckoutOfSessionCwd(cwd)
+  return top ? projectOf(boardDir, top) : undefined
+}
+
 function prSelectorAndRepo(cmd: string, blanked: string, m: RegExpExecArray): { sel: string | undefined; repo: string | undefined } {
   const end = m.index + m[0].length
   const stop = blanked.slice(end).search(/[;&|\n)]|$/)
