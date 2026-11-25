@@ -149,11 +149,11 @@ const REPLIES_PAGE = 500
 async function everyReplyOf(id: string): Promise<MessageView[]> {
   const team = personOwningEveryTaskTheirProfilesMade()
   const out: MessageView[] = []
-  for (let after: string | undefined; ; ) {
-    const { replies, cursor } = await team.thread(id, { after, limit: REPLIES_PAGE })
+  for (let afterTheRootTheBoardPagesFromTheOldest = id; ; ) {
+    const { replies } = await team.thread(id, { after: afterTheRootTheBoardPagesFromTheOldest, limit: REPLIES_PAGE })
     out.push(...replies)
-    if (replies.length < REPLIES_PAGE || cursor === after) return out
-    after = cursor
+    if (replies.length < REPLIES_PAGE) return out
+    afterTheRootTheBoardPagesFromTheOldest = replies.at(-1)!.id
   }
 }
 
