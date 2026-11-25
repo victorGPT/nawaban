@@ -62,7 +62,7 @@ function withoutRepoFlag(args: string[]): string[] {
 
 function writesToGithub(args: string[], segment: string): boolean {
   const [group, verb] = withoutRepoFlag(args)
-  if (group === undefined || READ_ONLY_GROUPS.has(group)) return false
+  if (group === undefined || READ_ONLY_GROUPS.has(group) || args.includes('--help')) return false
   if (group !== 'api') return !READ_ONLY_VERBS.has(verb ?? '')
   if (args.some((a) => a === 'graphql')) return GRAPHQL_WRITE.test(segment)
   const at = args.findIndex((a) => API_METHOD.test(a))
@@ -87,7 +87,7 @@ async function checkoutOfGithubRepo(repo: string, boardDir: string): Promise<str
   return null
 }
 
-const blank = (s: string) => s.replace(/[^\n]/g, 'x')
+const blank = (s: string) => 'x'.repeat(s.length)
 
 const keepingSubstitutions = (s: string) => s.split(/(\$\([^)]*\)|`[^`]*`)/).map((part, i) => (i % 2 ? part : blank(part))).join('')
 
@@ -134,7 +134,7 @@ export async function whyThisGhWriteMustNotRun(cmd: string, cwd: string, boardDi
     const lead = cmd.slice(leadStart, m.index)
     const howTo = `这个仓库声明用 ${account} 写 GitHub，写成：${provenPrefix(account)} gh ${segment.trim()}`
     const assignments = (lead.match(TOKEN_ASSIGNMENT) ?? []).length
-    if (assignments === 1 && PROVEN_ASSIGNMENT(account).test(lead)) continue
+    if (assignments === 1 && (lead.match(/\bGH_TOKEN\b/g) ?? []).length === 1 && PROVEN_ASSIGNMENT(account).test(lead)) continue
     if (assignments) return `gh 写操作前面的 token 赋值证明不了是 ${account}。${howTo}`
     if (TOKEN_SET_OUTSIDE_A_PROVEN_PREFIX.test(blanked.replaceAll(/\$\(gh auth token --user [\w-]+\)/g, ''))) return `命令里改了 gh 的 token 或账号，核不了这次 gh 写操作用的是谁。${howTo}`
     const effective = await stdoutElseNull('gh', ['auth', 'token'])
