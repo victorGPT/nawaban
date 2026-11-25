@@ -186,6 +186,21 @@ it('turns an inbox item into a ticket in its project and marks it done, once', E
   expect((await succeeds('show', 'IN-1')).out).not.toContain('导出 CSV')
 })
 
+it('refuses to reopen a ticket closed done or cancelled, so a mistaken close takes a new ticket', EVERY_STEP_STARTS_A_NODE, async () => {
+  for (const [key, how] of [['RO-1', '--done'], ['RO-2', '--cancelled']] as const) {
+    await succeeds('create', key, '--title', '关错了', '--project', 'p-reopen')
+    await succeeds('claim', key)
+    await succeeds('close', key, how)
+    const { task } = JSON.parse((await succeeds('show', key, '--json')).out) as { task: { id: string } }
+    const reopen = await nawaban(['board', 'tasks', 'reopen', task.id])
+    expect(reopen.code).not.toBe(0)
+    expect(reopen.out + reopen.err).toMatch(/Can't reopen task #\d+\. It's finished\./)
+    await succeeds('create', `${key}-AGAIN`, '--title', '关错了，重开', '--project', 'p-reopen')
+    await succeeds('event', key, 'note', `重开为 ${key}-AGAIN`)
+    expect((await succeeds('show', key)).out).toContain(`重开为 ${key}-AGAIN`)
+  }
+})
+
 it('keeps the JSON the panel reads', async () => {
   await writeFile(join(boardDir, 'local.db'), '')
   expect((await succeeds('json', 'db')).out).toBe(JSON.stringify({ db: await realpath(join(boardDir, 'local.db')) }) + '\n')
