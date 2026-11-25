@@ -353,13 +353,24 @@ export async function reclaimedIfItLapsedInMyHands(task: MessageView): Promise<M
   return resolve(key(task))
 }
 
+const STALE_HEARTBEAT = 'label_conflict'
+
+async function keptOnlyWhileStillHeldAsRead(taskId: string, read: Record<string, string>, live: Live) {
+  const stillAsRead = { 'board.task': 'claimed', terminal: read.terminal ?? null, 'progress.at': read['progress.at'] ?? null }
+  await personOwningEveryTaskTheirProfilesMade()
+    .label(taskId, { set: labelsOfLive(live), if: stillAsRead })
+    .catch((error: { code?: string }) => {
+      if (error.code !== STALE_HEARTBEAT) throw error
+    })
+}
+
 export const heldBy = async (session: string): Promise<Held[]> =>
   Promise.all(
     (await heldByAnyOf(profilesTheHookSessionMayHold(session))).map(async (t) => ({
       id: t.id,
       claimedAt: await lastClaimedAt(t, t.as),
       live: liveOfLabels(t.labels),
-      keep: (live: Live) => personOwningEveryTaskTheirProfilesMade().label(t.id, { set: labelsOfLive(live) }),
+      keep: (live: Live) => keptOnlyWhileStillHeldAsRead(t.id, t.labels, live),
     })),
   )
 
