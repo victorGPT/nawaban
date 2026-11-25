@@ -32,6 +32,11 @@ const BUILT_PAGE = join(WEB, 'dist')
 const API = '/api/nawaban/'
 const INSPECTOR = '/board'
 const INSPECTOR_OPENS_ON = '/board/tasks'
+const INSPECTOR_API = INSPECTOR + '/board'
+const SEGMENT = '[^/]+'
+const NATIVE_GETS_THAT_ONLY_READ = new RegExp(
+  `^(?:/|/me|/channels|/actors|/messages|/messages/${SEGMENT}(?:/sync)?|/threads|/links|/schedules|/tasks|/tasks/batch/${SEGMENT}|/grants|/grants/explain|/schemas|/schemas/${SEGMENT}|/posts/${SEGMENT}|/inbox/${SEGMENT}|/sync/threads/${SEGMENT}|/sync/find|/sync/copies|/events|/avatars/${SEGMENT}|/attachments/${SEGMENT}|/openapi\\.json|/watchers|/watchers/matches)$`,
+)
 const WEB_TOKEN_COOKIE = 'nawaban-web-token'
 const READS = new Set(['GET', 'HEAD'])
 const WRITE_BODY_MAX_BYTES = 16 * 1024
@@ -395,6 +400,13 @@ export function site(
   const asThisPerson = (body: unknown) =>
     team.fetch(new Request(`${urlFor(port)}/messages`, { method: 'POST', headers: { authorization: `Bearer ${boardToken}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }))
   const inspect = inspector({ board: team, basePath: INSPECTOR })
+  const inspectReadOnly = (request: Request, pathname: string) => {
+    if (!READS.has(request.method)) return refuse(405, 'the inspector here is read-only: write through nawaban')
+    if (pathname === INSPECTOR || pathname === INSPECTOR + '/') return new Response(null, { status: 302, headers: { location: INSPECTOR_OPENS_ON } })
+    const apiPath = pathname === INSPECTOR_API ? '/' : pathname.startsWith(INSPECTOR_API + '/') ? pathname.slice(INSPECTOR_API.length) : null
+    if (apiPath !== null && !NATIVE_GETS_THAT_ONLY_READ.test(apiPath)) return refuse(405, 'the inspector here is read-only: this read changes state')
+    return inspect(request)
+  }
   const theInspectorOpensForWhoeverTheApiAnswered = `${WEB_TOKEN_COOKIE}=${webToken}; Path=${INSPECTOR}; HttpOnly; SameSite=Strict`
   return async (request: Request): Promise<Response> => {
     const { pathname, searchParams } = new URL(request.url)
@@ -406,7 +418,7 @@ export function site(
       fromThisMachineOrTheTailnetElseRefusal(request, port, tailnet) ??
       (presented !== null ? (holdsTheWebTokenElseRefusal(presented, want) ?? writesOnlyFromThePagesOwnOriginElseRefusal(request, tailnet)) : null)
     if (refusal) return refusal
-    if (isInspector) return READS.has(request.method) ? (pathname === INSPECTOR || pathname === INSPECTOR + '/' ? new Response(null, { status: 302, headers: { location: INSPECTOR_OPENS_ON } }) : inspect(request)) : refuse(405, 'the inspector here is read-only: write through nawaban')
+    if (isInspector) return inspectReadOnly(request, pathname)
     if (!isApi) return READS.has(request.method) ? builtFile(pathname, dist) : refuse(405, 'read-only')
     const path = pathname.slice(API.length)
     try {

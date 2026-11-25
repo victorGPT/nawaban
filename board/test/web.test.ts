@@ -107,6 +107,10 @@ it('opens the board\'s own inspector at /board only for whoever the web token le
   const ownOrigin = { ...post, headers: { ...post.headers, origin: `http://127.0.0.1:${port}` } }
   expect((await send(`/board/board/tasks/${thread}/cancel`, ownOrigin)).status).toBe(405)
   expect((await team.thread(thread)).message.task?.state).toBe('ready')
+  await team.request('/inbox/held', { method: 'POST', headers: { 'content-type': 'application/json' }, body: new TextEncoder().encode(JSON.stringify({ events: [{ id: 'e1', event: { kind: 'deleted', channel: 'held:c', thread: 'held:t', subthread: null, message: 'm1' }, raw: {} }] })) })
+  expect((await send('/board/board/inbox/held/next', { headers: { ...page, cookie } })).status).toBe(405)
+  expect((await (await team.request('/inbox/held/next')).json()).items).toHaveLength(1)
+  expect((await send('/board/board/inbox/held', { headers: { ...page, cookie } })).status).toBe(200)
 })
 
 it('answers a missing task 404, a bad key 400, an unknown view 404, okr without a repo 400', async () => {
