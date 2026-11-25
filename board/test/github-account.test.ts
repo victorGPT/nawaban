@@ -121,6 +121,11 @@ test('without a declaration the account comes from this machine owner map, and a
   expect(await whyThisGhWriteMustNotRun('gh issue comment 1 -b x', roubao, boardDir)).toBeNull()
 })
 
+test('a cd the hook cannot follow is refused in a repository that declares its account, even without the owner map', async () => {
+  const declared = await repoDeclaring('declared', 'github-account: victorGPT\n')
+  expect(await whyThisGhWriteMustNotRun('cd $PWD && gh pr create --fill', declared, boardDir)).toContain('cd')
+})
+
 test('a repository neither declared nor owned by a mapped owner is left alone, as on a teammate machine without the map', async () => {
   const theirs = await repoDeclaring('theirs', null, 'https://github.com/Business-Center-AI-Efficiency/roubao.git')
   expect(await whyThisGhWriteMustNotRun('GH_TOKEN=$(gh auth token --user victorGPT) gh issue comment 1 -b x', theirs, boardDir)).toBeNull()

@@ -152,7 +152,7 @@ export async function whyThisGhWriteMustNotRun(typed: string, cwd: string, board
     if (!writesToGithub(args, segment)) continue
     const target = repoFlagOf(args)
     const here = directoryTheCommandIsInAt(cmd, blanked, m.index, cwd)
-    if (!here && !(await readFile(ownerAccountsFile()).catch(() => null))) continue
+    if (!here && !(await readFile(ownerAccountsFile()).catch(() => null)) && !(await accountElseNull(cwd))) continue
     if (!here) return 'gh 写操作前 cd 到的目录核不了（带变量或 cd -），不知道是哪个仓库：cd 写成字面路径，或在那个仓库里另起一条命令'
     const checkout = target ? await checkoutOfGithubRepo(target, boardDir) : here
     const account = checkout ? await accountElseNull(checkout) : await accountOfOwner(ownerOf(target!))
