@@ -744,6 +744,15 @@ it('reports a merge GitHub keeps failing as a merge failure, not failed checks: 
   expect(await stateOf(id)).toBe('completed')
 })
 
+it('keeps a failing check that prints the merge-failed words as failed checks', async () => {
+  const { id, worktree } = await workerWithChecksOnItsHead('M-FORGE', 't7k', ['echo "nawaban: gh pr merge 没成" >&2; exit 7'])
+  const r = await mergeAsTheWorker('M-FORGE', 't7k', worktree)
+  expect(r.code).toBe(1)
+  expect(r.gh).not.toMatch(/^pr merge/m)
+  expect(r.stderr).toContain('验收检查没过')
+  expect(await stateOf(id)).toBe('failed')
+})
+
 it('does not retry a merge GitHub refuses for good', async () => {
   const { id, worktree } = await workerWithChecksOnItsHead('M-UNMERGEABLE', 't7i', ['true'])
   const github = await githubFailingTheMerge('M-UNMERGEABLE', ['Pull request #5 is not mergeable: the merge commit cannot be cleanly created.'])
