@@ -197,7 +197,7 @@ const COMMANDS: Record<string, Command> = {
       ['--name <名>', 'worker 名；不带票时必填，什么都不记'],
       ['--agent claude|codex|agy', '默认 claude'],
       ['--model <模型>', 'claude 默认 opus'],
-      ['--to <终端>', '指派给这个终端里在跑的 worker，它做完手上那张自己领'],
+      ['--to <终端>', '指派给这个终端里在跑的 worker：它空着就叫它现在领，否则做完手上那张自己领'],
       ['--new', '新开 worker，不指派给泳道里在跑的'],
       ['--json', '输出 JSON'],
     ],
