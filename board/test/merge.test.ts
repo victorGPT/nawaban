@@ -376,17 +376,29 @@ it('retires a worker that took its ticket without a dispatch, found by the termi
   expect(r.hc.trim().split('\n').at(-1)).toBe('kill t79')
 })
 
-it('claims an unassigned ticket from the pool for a worker that took its own ticket without a dispatch, and does not retire it', async () => {
+it('leaves an unassigned ticket in the pool and retires the worker once nothing is assigned to it within the wait', async () => {
   const { worktree } = await workerOnItsOwnTicket('M-SELFN', 't7a', greenCodePr('M-SELFN'), 'claimedInItsTerminal', 'selfn-chan')
-  const next = await ticketTheCliOwns('M-SELFN-NEXT', 'selfn-chan')
-  const r = await mergeAsTheWorker('M-SELFN', 't7a', worktree)
+  const pooled = await ticketTheCliOwns('M-SELFN-NEXT', 'selfn-chan')
+  const r = await mergeAsTheWorker('M-SELFN', 't7a', worktree, {}, '1s')
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
-  expect(r.hc).not.toMatch(/^(kill|send)/m)
-  expect(await holderOf(next)).toMatch(/\+cc-aaaa1111$/)
-  expect(r.stdout).toContain('照票正文和票上最新的决定')
-  expect(existsSync(worktree)).toBe(true)
+  expect(await holderOf(pooled)).toBeNull()
+  expect(existsSync(worktree)).toBe(false)
+  expect(r.hc.trim().split('\n').at(-1)).toBe('kill t7a')
 })
+
+it('claims a ticket assigned to it while its merge waits', async () => {
+  const { worktree } = await workerOnItsOwnTicket('M-LATE', 't7k', greenCodePr('M-LATE'), 'dispatched', 'late-chan')
+  const late = await ticketTheCliOwns('M-LATE-NEXT', 'late-chan')
+  const merging = mergeAsTheWorker('M-LATE', 't7k', worktree, {}, '20s')
+  await new Promise((r) => setTimeout(r, 3000))
+  await boardCliAsSession(ORCH_SESSION, repo, 'board', 'tasks', 'assign', late, 'cc-aaaa1111')
+  const r = await merging
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(await holderOf(late)).toMatch(/\+cc-aaaa1111$/)
+  expect(r.hc).not.toMatch(/^kill/m)
+}, 40_000)
 
 it('finishes retiring a worker that took its ticket without a dispatch on a rerun after the close unset its terminal label', async () => {
   const { id, worktree } = await workerOnItsOwnTicket('M-SELFK', 't7b', greenCodePr('M-SELFK'), 'claimedInItsTerminal')
@@ -401,7 +413,7 @@ it('finishes retiring a worker that took its ticket without a dispatch on a reru
 
 it('reads a terminal label left by a lapsed claim as no holder, so the worker claims that ticket rather than being kept for it', async () => {
   const { worktree } = await workerOnItsOwnTicket('M-STALE', 't7c', greenCodePr('M-STALE'), 'claimedInItsTerminal', 'stale-chan')
-  const next = await ticketTheCliOwns('M-STALE-NEXT', 'stale-chan')
+  const next = await ticketTheCliOwns('M-STALE-NEXT', 'stale-chan', 'cc-aaaa1111')
   await team.as(null).label(next, { set: { terminal: 't7c' } })
   const r = await mergeAsTheWorker('M-STALE', 't7c', worktree)
   expect(r.stderr).toBe('')
@@ -427,7 +439,7 @@ it('keeps the worker and tells the orchestrator when claiming its next ticket fa
   const r = await mergeAsTheWorker('M-CLAIMERR', 't7d', worktree, {}, 'soon')
   expect(r.code).toBe(1)
   expect(await stateOf(id)).toBe('completed')
-  expect(r.stderr).toContain("领下一张出错，worker t7d 留着：在 m-claimerr 领下一张失败：invalid_arguments: --wait takes a duration like 30s or 10m, and soon isn't one.")
+  expect(r.stderr).toContain("领下一张出错，worker t7d 留着：--wait 要写成 30s、10m、1h 这样的时长，不是 soon")
   expect(r.hc).not.toMatch(/^kill/m)
   expect(r.hc).toMatch(/^send to1 M-CLAIMERR PR #5 merge: 已合未收完 — 领下一张出错/m)
   expect(existsSync(worktree)).toBe(true)

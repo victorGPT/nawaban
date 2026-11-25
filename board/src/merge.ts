@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
-import { claimNextReady, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf, workerProfileOf } from './dispatch.ts'
+import { claimAssignedToMe, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf, workerProfileOf } from './dispatch.ts'
 import { mergeGate } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
@@ -211,7 +211,7 @@ async function claimNextElseRetire(closed: MessageView, root: string, did: strin
   if (worktree) {
     let next: MessageView | null
     try {
-      next = await claimNextReady(closed.channel, wait)
+      next = await claimAssignedToMe(closed.channel, wait)
     } catch (error) {
       return { kind: 'mergedButUnfinished', left: `领下一张出错，worker ${terminal} 留着：${failureOf(error)}` }
     }

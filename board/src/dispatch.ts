@@ -10,7 +10,7 @@ import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { key, labelTerminalThePanelReadsWhileClaimed, profile, resolve, row, sessionProfile } from './tasks.ts'
-import { answer, Refused, type Said } from './said.ts'
+import { answer, EXIT, Refused, type Said } from './said.ts'
 
 const exec = promisify(execFile)
 const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
@@ -279,22 +279,59 @@ const refusalOf = (stderr: string): { reason?: string; said: string } => {
   }
 }
 
-export async function claimNextReady(project: string, wait?: string): Promise<MessageView | null> {
-  const argv = [CLI, 'board', 'tasks', 'claim', project, '--ready', '--as', profile(), '--lease', CLAIM_LEASE, '--json', ...(wait ? ['--wait', wait] : [])]
-  let claimed: string
+async function boardCliElseNothingToClaim(argv: string[], failing: string): Promise<string | null> {
   try {
-    claimed = (await exec('node', argv)).stdout
+    return (await exec('node', [CLI, 'board', ...argv])).stdout
   } catch (error) {
     const { code, stderr } = error as { code?: unknown; stderr?: string }
     const { reason, said } = refusalOf(stderr || (error as Error).message)
     if (code === 1 && reason && NOTHING_TO_CLAIM.includes(reason)) return null
-    throw new Refused(`在 ${project} 领下一张失败：${said}`)
+    throw new Refused(`${failing}：${said}`)
   }
+}
+
+async function labelledForThePanel(claimed: string): Promise<MessageView> {
   const { task } = JSON.parse(claimed) as { task: MessageView }
   await labelTerminalThePanelReadsWhileClaimed(task.id).catch((error) =>
     process.stderr.write(`claimed ${task.labels.key ?? task.id}; its terminal label for the panel failed: ${(error as Error).message}\n`),
   )
   return task
+}
+
+export async function claimNextReady(project: string, wait?: string): Promise<MessageView | null> {
+  const claimed = await boardCliElseNothingToClaim(['tasks', 'claim', project, '--ready', '--as', profile(), '--lease', CLAIM_LEASE, '--json', ...(wait ? ['--wait', wait] : [])], `在 ${project} 领下一张失败`)
+  return claimed === null ? null : labelledForThePanel(claimed)
+}
+
+const DURATION = /^(\d+)(s|m|h)$/
+const MS_PER = { s: 1_000, m: 60_000, h: 3_600_000 } as const
+const LOOK_FOR_AN_ASSIGNED_TICKET_EVERY_MS = 15_000
+
+function msOf(wait: string): number {
+  const [, n, unit] = DURATION.exec(wait) ?? []
+  if (!n) throw new Refused(`--wait 要写成 30s、10m、1h 这样的时长，不是 ${wait}`, EXIT.misused)
+  return Number(n) * MS_PER[unit as keyof typeof MS_PER]
+}
+
+async function readyAssignedTo(project: string, as: string): Promise<string[]> {
+  const listed = await boardCliElseNothingToClaim(['tasks', project, '--state', 'ready', '--for', as, '--json'], `在 ${project} 查指派给 ${as} 的票失败`)
+  const { tasks } = JSON.parse(listed ?? '{"tasks":[]}') as { tasks: { message?: MessageView; id?: string }[] }
+  return tasks.map((t) => t.message?.id ?? t.id!).filter(Boolean)
+}
+
+export async function claimAssignedToMe(project: string, wait: string): Promise<MessageView | null> {
+  const as = profile()
+  const until = Date.now() + msOf(wait)
+  for (;;) {
+    const [id] = await readyAssignedTo(project, as)
+    if (id) {
+      const claimed = await boardCliElseNothingToClaim(['tasks', 'claim', id, '--as', as, '--lease', CLAIM_LEASE, '--json'], `领指派给 ${as} 的 #${id} 失败`)
+      if (claimed !== null) return labelledForThePanel(claimed)
+    }
+    const left = until - Date.now()
+    if (left <= 0) return null
+    await new Promise((r) => setTimeout(r, Math.min(LOOK_FOR_AN_ASSIGNED_TICKET_EVERY_MS, left)))
+  }
 }
 
 export async function pickupBrief(task: MessageView, worktree: string): Promise<string> {
