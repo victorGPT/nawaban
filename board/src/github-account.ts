@@ -10,13 +10,14 @@ export const ACCOUNT_DECLARED_IN = 'docs/agents/issue-tracker.md'
 const FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END = /^ {0,3}(`{3,}|~{3,})[\s\S]*?(?:^ {0,3}\1|$(?![\s\S]))|<!--[\s\S]*?(?:-->|$(?![\s\S]))/gm
 const DECLARATION = /^github-account:[ \t]*([A-Za-z0-9-]+)[ \t]*\r?$/m
 const RUNS_A_STRING_AS_A_COMMAND = /\b(?:(?:ba|z|da)?sh\s+-\w*c|eval)\b/
-const GRAPHQL_WRITE = /\bmutation\b|--input\b/
+const GRAPHQL_WRITE = /\bmutation\b|--input\b|=@/
 const SEGMENT_END = /[;&|\n)`]|$/
 const HEREDOC_BODY = /<<-?[ \t]*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n[ \t]*\2(?=\s|$)/g
 const QUOTED = /'[^']*'|"(?:\\.|[^"\\])*"/g
 const TOKEN_SET_OUTSIDE_A_PROVEN_PREFIX = /\b(?:GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN)\b|\bgh\s+auth\s+(?:switch|login)\b/
 const READ_ONLY_GROUPS = new Set(['auth', 'help', 'version', '--version', '--help', 'status', 'browse', 'search', 'completion', 'config', 'alias'])
-const READ_ONLY_VERBS = new Set(['view', 'list', 'status', 'checks', 'diff', 'watch', 'download', 'clone', 'verify'])
+const NESTED_COMMANDS = new Set(['deploy-key', 'autolink'])
+const READ_ONLY_VERBS = new Set(['view', 'list', 'status', 'checks', 'diff', 'watch', 'download', 'clone', 'verify', 'checkout'])
 const API_SENDS_A_BODY = /^(?:-f|-F|--field(?:=|$)|--raw-field(?:=|$)|--input(?:=|$))/
 const API_METHOD = /^(?:-X=?|--method(?:=|$))(.*)$/
 const REPO_FLAG = /^(?:-R|--repo)(?:=(.*))?$/
@@ -61,9 +62,9 @@ function withoutRepoFlag(args: string[]): string[] {
 }
 
 function writesToGithub(args: string[], segment: string): boolean {
-  const [group, verb] = withoutRepoFlag(args)
+  const [group, verb, subVerb] = withoutRepoFlag(args).filter((a) => !a.startsWith('-'))
   if (group === undefined || READ_ONLY_GROUPS.has(group) || args.includes('--help')) return false
-  if (group !== 'api') return !READ_ONLY_VERBS.has(verb ?? '')
+  if (group !== 'api') return verb !== undefined && !READ_ONLY_VERBS.has(verb) && !(NESTED_COMMANDS.has(verb) && READ_ONLY_VERBS.has(subVerb ?? ''))
   if (args.some((a) => a === 'graphql')) return GRAPHQL_WRITE.test(segment)
   const at = args.findIndex((a) => API_METHOD.test(a))
   const method = at < 0 ? (args.some((a) => API_SENDS_A_BODY.test(a)) ? 'POST' : 'GET') : API_METHOD.exec(args[at]!)![1] || args[at + 1] || ''
