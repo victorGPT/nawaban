@@ -9,7 +9,7 @@ import { projectOfThisRepository } from './impact.ts'
 import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
-import { all, key, labelTerminalThePanelReadsWhileClaimed, live, profile, resolve, row, sessionProfile } from './tasks.ts'
+import { all, key, labelTerminalThePanelReadsWhileClaimed, live, profile, resolve, row, sessionProfile, state } from './tasks.ts'
 import { answer, EXIT, Refused, type Said } from './said.ts'
 
 const exec = promisify(execFile)
@@ -403,7 +403,7 @@ async function assignToRunningWorker(task: MessageView, worker: Terminal): Promi
 }
 
 const claimableNowByAnIdleWorkerHoldingNothing = async (task: MessageView, worker: Terminal, as: string) =>
-  task.task?.state === 'ready' &&
+  state(task) === 'ready' &&
   WAITING_FOR_INPUT.includes(worker.status?.state ?? '') &&
   !(await all({ channel: task.channel, state: 'open' })).some((t) => live(t)?.actor?.endsWith(`+${as}`))
 
