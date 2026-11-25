@@ -12,12 +12,13 @@ import { local } from '@vercel/board/backend-local'
 import { inspector } from '@vercel/board/inspect'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
-import { githubBoards, githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type OldCli } from './github.ts'
+import { githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type GithubBoard, type OldCli } from './github.ts'
 import { currentGithubAsk, githubRepliesOf, inGithubFormat, HELD_FOR_A_GITHUB_ASK, settleIssueTasks, type KnownIssue } from './github-tasks.ts'
 import { deliverAsSignedWebhook, ghReader, githubSyncConfig, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
 import { ghPoster, pushForever } from './github-push.ts'
 import { githubTokenOf } from './github-account.ts'
 import { okrData } from './okr.ts'
+import { keptReads, StillReading } from './kept.ts'
 import { noPullStates, pullStateFromGitHub, type PullStateOf } from './pulls.ts'
 import { Refused } from './said.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
@@ -55,8 +56,11 @@ const TYPES: Record<string, string> = {
 }
 
 type Team = ReturnType<typeof board>
-type Github = { cli: OldCli; boards: ReturnType<typeof githubBoards>; wrote: EventTarget }
-const WROTE = 'wrote'
+type Github = { cli: OldCli; read: <T>(repo: string, args: string[]) => Promise<T>; moved: (repo: string) => void }
+const CHANGED = 'changed'
+const VIEWS = 'views'
+const PULLS = 'pulls'
+const githubGroup = (repo: string) => `github:${repo}`
 
 export const boardDirAsConfiguredWhenAsked = () => process.env.NAWABAN_BOARD_DIR ?? join(homedir(), '.nawaban', 'board')
 export const DIR = boardDirAsConfiguredWhenAsked()
@@ -176,7 +180,7 @@ function writesOnlyFromThePagesOwnOriginElseRefusal(request: Request, tailnet: s
   return null
 }
 
-function changes(team: Team, signal: AbortSignal, githubWrote: EventTarget) {
+function changes(signal: AbortSignal, viewsChanged: EventTarget) {
   const stop = new AbortController()
   signal.addEventListener('abort', () => stop.abort())
   const line = (text: string) => new TextEncoder().encode(text)
@@ -189,18 +193,12 @@ function changes(team: Team, signal: AbortSignal, githubWrote: EventTarget) {
             out.enqueue(line('data: changed\n\n'))
           } catch {}
         }
-        githubWrote.addEventListener(WROTE, changed, { signal: stop.signal })
-        void (async () => {
+        viewsChanged.addEventListener(CHANGED, changed, { signal: stop.signal })
+        stop.signal.addEventListener('abort', () => {
           try {
-            for await (const _ of team.events({}, { signal: stop.signal })) changed()
-          } catch {
-          } finally {
-            stop.abort()
-            try {
-              out.close()
-            } catch {}
-          }
-        })()
+            out.close()
+          } catch {}
+        })
       },
       cancel() {
         stop.abort()
@@ -219,8 +217,8 @@ async function allProjects(team: Team, dir: string, github: Github) {
   const onTheBoard = (await projectsData(team)).projects
   const shown = new Set(onTheBoard.map((p) => p.name))
   const onGithub = Object.entries(await githubRepos(dir)).filter(([name]) => !shown.has(name))
-  for (const [, repo] of onGithub) github.boards.board(repo).catch(() => {})
-  const projects = [...onTheBoard, ...onGithub.map(([name, repo]) => projectOfGithub(name, github.boards.latest(repo)))]
+  const boards = await Promise.all(onGithub.map(([, repo]) => github.read<GithubBoard>(repo, ['json', 'board']).catch(() => null)))
+  const projects = [...onTheBoard, ...onGithub.map(([name], i) => projectOfGithub(name, boards[i]!))]
   return { projects: projects.sort((a, b) => (a.name < b.name ? -1 : 1)) }
 }
 
@@ -230,8 +228,8 @@ const issueKeyOf = (segment: string) => {
 }
 
 async function githubView(github: Github, repo: string, what: string | undefined, rest: string[]) {
-  if (what === 'board' && !rest.length) return Response.json(await github.boards.board(repo))
-  if (what === 'okr' && !rest.length) return Response.json(JSON.parse(await github.cli(repo, ['json', 'okr', '--repo', repo])))
+  if (what === 'board' && !rest.length) return Response.json(await github.read(repo, ['json', 'board']))
+  if (what === 'okr' && !rest.length) return Response.json(await github.read(repo, ['json', 'okr', '--repo', repo]))
   if (what === 'task' && rest.length === 1 && rest[0]) {
     let key
     try {
@@ -241,7 +239,7 @@ async function githubView(github: Github, repo: string, what: string | undefined
     }
     if (!key) return refuse(404, `任务不存在:${rest[0]}`)
     try {
-      return Response.json(JSON.parse(await github.cli(repo, ['json', 'task', key])))
+      return Response.json(await github.read(repo, ['json', 'task', key]))
     } catch (error) {
       if (error instanceof Refused) return refuse(404, error.message)
       throw error
@@ -250,7 +248,7 @@ async function githubView(github: Github, repo: string, what: string | undefined
   return null
 }
 
-async function view(team: Team, dir: string, pullStateOf: PullStateOf, github: Github, path: string, query: URLSearchParams, signal: AbortSignal) {
+async function view(team: Team, dir: string, pullStateOf: PullStateOf, github: Github, path: string, query: URLSearchParams) {
   const [what, ...rest] = path.split('/')
   const okrStaysOnGithubUntilItsReadingsMove = what === 'okr'
   const repo = await githubRepoOf(dir, query.get('project'), okrStaysOnGithubUntilItsReadingsMove)
@@ -265,7 +263,6 @@ async function view(team: Team, dir: string, pullStateOf: PullStateOf, github: G
     if (repo) return Response.json(await okrData(team, dir, repo))
     return project ? refuse(404, `项目 ${project} 没在 repos.json 登记仓库`) : refuse(400, 'usage: /api/nawaban/okr?project=<name>|repo=<path>')
   }
-  if (what === 'changes' && !rest.length) return changes(team, signal, github.wrote)
   if (what === 'answers' && !rest.length) return Response.json({ answers: await webAnswers(team, query.get('project') || undefined) })
   if (what === 'inbox' && !rest.length) {
     const project = query.get('project')
@@ -355,8 +352,7 @@ async function answerOnGithub(github: Github, repo: string, segment: string, req
   if (pending.ask !== said.ask) return theCardChanged(key)
   const { option, words } = said.answer
   await github.cli(repo, ['event', key, '--kind', 'resolve', '--by', 'user', '--body', option ? `选 ${option}：${words}` : words])
-  github.boards.forget(repo)
-  github.wrote.dispatchEvent(new Event(WROTE))
+  github.moved(repo)
   return Response.json({ task: key, option: option ?? null, words, at: new Date().toISOString() }, { status: 201 })
 }
 
@@ -398,7 +394,32 @@ export function site(
   { dir, webToken, boardToken, port, dist = BUILT_PAGE, tailnet, pullStateOf = noPullStates, cli = oldCli }: { dir: string; webToken: string; boardToken: string; port: number; dist?: string; tailnet?: string; pullStateOf?: PullStateOf; cli?: OldCli },
 ) {
   const want = Buffer.from(webToken)
-  const github: Github = { cli, boards: githubBoards(cli), wrote: new EventTarget() }
+  const viewsChanged = new EventTarget()
+  const tellThePage = () => void viewsChanged.dispatchEvent(new Event(CHANGED))
+  const movedThenTell = (group: string) =>
+    kept
+      .moved(group)
+      .then(() => group !== VIEWS && kept.moved(VIEWS))
+      .then(tellThePage)
+  const kept = keptReads(dir, (group, changed) => {
+    if (changed) void (group === VIEWS ? tellThePage() : movedThenTell(VIEWS))
+  })
+  const github: Github = {
+    cli,
+    read: (repo, args) => kept.read(githubGroup(repo), `github:${repo}:${JSON.stringify(args)}`, () => cli(repo, args).then((out) => JSON.parse(out)), { local: false }),
+    moved: (repo) => void movedThenTell(githubGroup(repo)),
+  }
+  const pullStateInTheBackground: PullStateOf = (url) => kept.read(PULLS, `pull:${url}`, () => pullStateOf(url), { local: false }).catch(() => null)
+  const keptView = async (path: string, query: URLSearchParams) => {
+    const answered = await kept.read(VIEWS, `view:${path}?${[...query].sort().join('&')}`, async () => {
+      const r = await view(team, dir, pullStateInTheBackground, github, path, query)
+      return { status: r.status, body: await r.text() }
+    }, { local: true })
+    return new Response(answered.body, { status: answered.status, headers: { 'content-type': 'application/json' } })
+  }
+  void (async () => {
+    for await (const _ of team.events({})) void movedThenTell(VIEWS)
+  })().catch((error) => console.error('stopped hearing the board move:', error))
   const asThisPerson = (body: unknown) =>
     team.fetch(new Request(`${urlFor(port)}/messages`, { method: 'POST', headers: { authorization: `Bearer ${boardToken}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }))
   const inspect = inspector({ board: team, basePath: INSPECTOR })
@@ -412,7 +433,10 @@ export function site(
   const theInspectorOpensForWhoeverTheApiAnswered = `${WEB_TOKEN_COOKIE}=${webToken}; Path=${INSPECTOR}; HttpOnly; SameSite=Strict`
   return async (request: Request): Promise<Response> => {
     const { pathname, searchParams } = new URL(request.url)
-    if (pathname === '/api/board' || pathname.startsWith('/api/board/')) return team.fetch(request)
+    if (pathname === '/api/board' || pathname.startsWith('/api/board/')) {
+      const done = team.fetch(request)
+      return READS.has(request.method) ? done : done.finally(() => void movedThenTell(VIEWS))
+    }
     const isApi = pathname.startsWith(API)
     const isInspector = pathname === INSPECTOR || pathname.startsWith(INSPECTOR + '/')
     const presented = isApi ? bearerOf(request) : isInspector ? webTokenCookieOf(request) : null
@@ -424,11 +448,16 @@ export function site(
     if (!isApi) return READS.has(request.method) ? builtFile(pathname, dist) : refuse(405, 'read-only')
     const path = pathname.slice(API.length)
     try {
-      const answered = await (READS.has(request.method) ? view(team, dir, pullStateOf, github, path, searchParams, request.signal) : write(team, asThisPerson, github, dir, path, searchParams, request))
+      const answered = await (!READS.has(request.method)
+        ? write(team, asThisPerson, github, dir, path, searchParams, request).finally(() => void movedThenTell(VIEWS))
+        : path === 'changes'
+          ? changes(request.signal, viewsChanged)
+          : keptView(path, searchParams))
       answered.headers.append('set-cookie', theInspectorOpensForWhoeverTheApiAnswered)
       return answered
     } catch (error) {
       if (error instanceof Refused) return refuse(400, error.message)
+      if (error instanceof StillReading) return refuse(503, '还在从 GitHub 读，读到了页面会自己刷新')
       throw error
     }
   }

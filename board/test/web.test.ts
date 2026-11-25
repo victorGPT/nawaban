@@ -55,6 +55,13 @@ function send(path: string, { method = 'GET', headers = {} as Record<string, str
   })
 }
 
+async function eventually<T>(read: () => Promise<T>, done: (got: T) => boolean): Promise<T> {
+  for (const deadline = Date.now() + 5_000; ; await new Promise((r) => setTimeout(r, 10))) {
+    const got = await read()
+    if (done(got) || Date.now() > deadline) return got
+  }
+}
+
 async function create(...argv: string[]) {
   vi.stubEnv('BOARD_URL', `http://127.0.0.1:${port}/api/board`)
   vi.stubEnv('BOARD_TOKEN', SECRET)
@@ -454,12 +461,14 @@ it('reads a GitHub-tracked repository in repos.json through the old CLI, and ans
   }
   handler = site(team, { dir: ghDir, webToken: WEB_SECRET, boardToken: SECRET, port, dist, cli })
   try {
-    expect(JSON.parse((await send('/api/nawaban/board?project=roubao')).body)).toEqual(githubBoard)
+    const stillReading = await send('/api/nawaban/board?project=roubao')
+    expect(stillReading.status, 'the first read of a GitHub board waits for no one').toBe(503)
+    expect(JSON.parse((await eventually(() => send('/api/nawaban/board?project=roubao'), (r) => r.status === 200)).body)).toEqual(githubBoard)
     await send('/api/nawaban/board?project=roubao')
     expect(calls.filter((c) => c[1] === 'board'), 'one gh read serves reads close together').toHaveLength(1)
     expect(JSON.parse((await send('/api/nawaban/projects')).body).projects).toContainEqual({ name: 'roubao', open: 1, total: 2, waiting: 1 })
-    expect(JSON.parse((await send('/api/nawaban/okr?project=roubao')).body)).toEqual({ repo, objectives: [] })
-    expect(JSON.parse((await send('/api/nawaban/task/%237?project=roubao')).body)).toEqual({ id: '#7', pending })
+    expect(JSON.parse((await eventually(() => send('/api/nawaban/okr?project=roubao'), (r) => r.status === 200)).body)).toEqual({ repo, objectives: [] })
+    expect(JSON.parse((await eventually(() => send('/api/nawaban/task/%237?project=roubao'), (r) => r.status === 200)).body)).toEqual({ id: '#7', pending })
     expect((await send('/api/nawaban/task/--help?project=roubao')).status).toBe(404)
 
     const asPage = (key: string, answer: unknown) =>
@@ -469,18 +478,27 @@ it('reads a GitHub-tracked repository in repos.json through the old CLI, and ans
     const written = await asPage('#7', { ask: 'c1:0', option: 'A', words: '就这么定' })
     expect(written.status).toBe(201)
     expect(JSON.parse(written.body)).toMatchObject({ task: '#7', option: 'A', words: '就这么定' })
-    expect(calls.at(-1)).toEqual(['event', '#7', '--kind', 'resolve', '--by', 'user', '--body', '选 A：就这么定'])
+    expect(calls).toContainEqual(['event', '#7', '--kind', 'resolve', '--by', 'user', '--body', '选 A：就这么定'])
     expect((await asPage('#7', { ask: 'c1:0', words: '再答一次' })).status).toBe(409)
-    await send('/api/nawaban/board?project=roubao')
-    expect(calls.filter((c) => c[1] === 'board'), 'an answer makes the next read fresh').toHaveLength(2)
+    await eventually(async () => calls.filter((c) => c[1] === 'board').length, (n) => n === 2)
+    expect(JSON.parse((await eventually(() => send('/api/nawaban/task/%237?project=roubao'), (r) => JSON.parse(r.body).pending === null)).body), 'an answer reads the task again').toEqual({ id: '#7', pending: null })
     const later = Date.now() + 60_000
     vi.spyOn(Date, 'now').mockReturnValue(later)
     try {
-      await send('/api/nawaban/projects')
+      await send('/api/nawaban/board?project=roubao')
+      await eventually(async () => calls.filter((c) => c[1] === 'board').length, (n) => n === 3)
     } finally {
       vi.restoreAllMocks()
     }
-    expect(calls.filter((c) => c[1] === 'board'), 'projects reads a stale GitHub board again').toHaveLength(3)
+
+    const ghReadsHang = () => new Promise<string>(() => {})
+    handler = site(team, { dir: ghDir, webToken: WEB_SECRET, boardToken: SECRET, port, dist, cli: ghReadsHang, pullStateOf: () => new Promise(() => {}) })
+    const afterARestart = await send('/api/nawaban/board?project=roubao')
+    expect(afterARestart.status, 'a restart answers from what it read last').toBe(200)
+    expect(JSON.parse(afterARestart.body)).toEqual(githubBoard)
+    for (const path of ['projects', 'okr?project=roubao', 'task/%237?project=roubao', 'task/%238?project=roubao', 'board?project=nawaban', 'answers?project=roubao']) {
+      expect([200, 503], `${path} answers while GitHub never does`).toContain((await send('/api/nawaban/' + path)).status)
+    }
   } finally {
     handler = site(team, { dir, webToken: WEB_SECRET, boardToken: SECRET, port, dist })
   }
