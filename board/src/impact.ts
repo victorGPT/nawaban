@@ -120,7 +120,7 @@ export async function undeclared(team: Team, id: string, dir: string): Promise<s
   return `${ref} 登记了 KR 却没补结果(${unreported.join('、')}),不能 close --done。关票时补:\n  nawaban close ${ref} --done ${unreported.map((n) => `--kr "${n}=<后值> 实测|预计"`).join(' ')}`
 }
 
-export const quotedStringsBlankedSoAMentionIsNeverACommand = (cmd: string) => cmd.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, (q) => "'" + 'x'.repeat(q.length - 2) + "'")
+const quotedStringsBlankedSoAMentionIsNeverACommand = (cmd: string) => cmd.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, (q) => "'" + 'x'.repeat(q.length - 2) + "'")
 
 export function closeGate(cmd: string): string | null {
   return BOARD_CLI_CLOSING_TASK_IN_COMMAND_POSITION.test(quotedStringsBlankedSoAMentionIsNeverACommand(cmd))

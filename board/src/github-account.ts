@@ -2,19 +2,22 @@ import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { quotedStringsBlankedSoAMentionIsNeverACommand, reposReadOnEveryUseSoEditsNeedNoRestart, words } from './impact.ts'
+import { reposReadOnEveryUseSoEditsNeedNoRestart, words } from './impact.ts'
 import { Refused } from './said.ts'
 
 export const ACCOUNT_DECLARED_IN = 'docs/agents/issue-tracker.md'
 const FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END = /^ {0,3}(`{3,}|~{3,})[\s\S]*?(?:^ {0,3}\1|$(?![\s\S]))|<!--[\s\S]*?(?:-->|$(?![\s\S]))/gm
 const DECLARATION = /^github-account:[ \t]*([A-Za-z0-9-]+)[ \t]*\r?$/m
-const GH_IN_COMMAND_POSITION = /(?:^|[;&|(\n])\s*((?:\w+=(?:"?\$\([^)]*\)"?|\S*)\s+)*)gh(?=\s)/g
-const SEGMENT_END = /[;&|\n)]|$/
+const GH_IN_COMMAND_POSITION = /(?:^|[;&|(`\n])\s*((?:\w+=(?:"?\$\([^)]*\)"?|\S*)\s+)*)gh(?=\s)/g
+const SEGMENT_END = /[;&|\n)`]|$/
+const HEREDOC_BODY = /<<-?[ \t]*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n[ \t]*\2(?=\s|$)/g
+const QUOTED = /'[^']*'|"(?:\\.|[^"\\])*"/g
+const SUBSTITUTION = /\$\([^)]*\)|`[^`]*`/g
 const TOKEN_SET_OUTSIDE_A_PROVEN_PREFIX = /\b(?:GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN)\b|\bgh\s+auth\s+(?:switch|login)\b/
 const READ_ONLY_GROUPS = new Set(['auth', 'help', 'version', '--version', '--help', 'status', 'browse', 'search', 'completion', 'config', 'alias'])
 const READ_ONLY_VERBS = new Set(['view', 'list', 'status', 'checks', 'diff', 'watch', 'download', 'clone', 'verify'])
-const API_SENDS_A_BODY = /^(?:-f|-F|--field|--raw-field|--input)(?:=|$)/
-const API_METHOD = /^(?:-X|--method)(?:=(.*))?$/
+const API_SENDS_A_BODY = /^(?:-f|-F|--field(?:=|$)|--raw-field(?:=|$)|--input(?:=|$))/
+const API_METHOD = /^(?:-X=?|--method(?:=|$))(.*)$/
 const REPO_FLAG = /^(?:-R|--repo)(?:=(.*))?$/
 const GITHUB_REPO_IN_REMOTE = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/
 const run = promisify(execFile)
@@ -60,7 +63,9 @@ function writesToGithub(args: string[]): boolean {
   const [group, verb] = withoutRepoFlag(args)
   if (group === undefined || READ_ONLY_GROUPS.has(group)) return false
   if (group !== 'api') return !READ_ONLY_VERBS.has(verb ?? '')
-  return args.some((a, i) => API_SENDS_A_BODY.test(a) || (API_METHOD.test(a) && (API_METHOD.exec(a)![1] ?? args[i + 1] ?? '').toUpperCase() !== 'GET'))
+  const at = args.findIndex((a) => API_METHOD.test(a))
+  const method = at < 0 ? (args.some((a) => API_SENDS_A_BODY.test(a)) ? 'POST' : 'GET') : API_METHOD.exec(args[at]!)![1] || args[at + 1] || ''
+  return method.toUpperCase() !== 'GET'
 }
 
 function repoFlagOf(args: string[]): string | undefined {
@@ -80,8 +85,17 @@ async function checkoutOfGithubRepo(repo: string, boardDir: string): Promise<str
   return null
 }
 
+const blank = (s: string) => s.replace(/[^\n]/g, 'x')
+
+const keepingSubstitutions = (s: string) => s.split(/(\$\([^)]*\)|`[^`]*`)/).map((part, i) => (i % 2 ? part : blank(part))).join('')
+
+const textBlankedKeepingWhatTheShellRuns = (cmd: string) =>
+  cmd
+    .replace(HEREDOC_BODY, (body, quote: string) => (quote ? blank(body) : keepingSubstitutions(body)))
+    .replace(QUOTED, (q) => q[0] + (q[0] === "'" ? blank(q.slice(1, -1)) : keepingSubstitutions(q.slice(1, -1))) + q.at(-1))
+
 export async function whyThisGhWriteMustNotRun(cmd: string, cwd: string, boardDir: string): Promise<string | null> {
-  const blanked = quotedStringsBlankedSoAMentionIsNeverACommand(cmd)
+  const blanked = textBlankedKeepingWhatTheShellRuns(cmd)
   for (const m of blanked.matchAll(GH_IN_COMMAND_POSITION)) {
     const end = m.index + m[0].length
     const args = words(cmd.slice(end, end + blanked.slice(end).search(SEGMENT_END)))

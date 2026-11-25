@@ -76,7 +76,8 @@ test('a gh write running on the active account instead of the declared one is re
   const why = await whyThisGhWriteMustNotRun('gh pr create --fill', repo, boardDir)
   expect(why).toContain('GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill')
   for (const cmd of ['GH_TOKEN=$(gh auth token --user wuxianzhong-gpt) gh pr create --fill', 'export GH_TOKEN=x; gh pr comment 1 -b hi', 'gh auth switch -u victorGPT && gh pr merge 1',
-    'gh api -X POST repos/o/r/issues', 'gh api repos/o/r/issues -f title=a', 'cd x && gh issue comment 3 --body "进展：y"', 'gh pr review 4 --approve', 'GH_TOKEN=$TOK gh pr edit 4 --title t']) {
+    'gh api -X POST repos/o/r/issues', 'gh api repos/o/r/issues -f title=a', 'gh api -XPOST repos/o/r/issues', 'gh api repos/o/r/issues -ftitle=a', 'gh api --method=PATCH repos/o/r/issues/1',
+    'echo "$(gh pr create --fill)"', 'echo `gh pr create --fill`', 'cat <<EOF\n$(gh pr create --fill)\nEOF', 'true\ngh pr create --fill', 'cd x && gh issue comment 3 --body "进展：y"', 'gh pr review 4 --approve', 'GH_TOKEN=$TOK gh pr edit 4 --title t']) {
     expect(await whyThisGhWriteMustNotRun(cmd, repo, boardDir), cmd).toContain('victorGPT')
   }
 })
@@ -84,7 +85,8 @@ test('a gh write running on the active account instead of the declared one is re
 test('a gh write that proves it runs as the declared account, and every gh read, passes', async () => {
   const repo = await repoDeclaring('nawaban', 'github-account: victorGPT\n')
   for (const cmd of ['GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill', 'GH_TOKEN="$(gh auth token --user victorGPT)" gh pr merge 1 --squash',
-    'gh pr view 1', 'gh pr checks 1', 'gh api repos/o/r', 'gh api --method GET repos/o/r', 'gh auth status', 'echo "gh pr create"', 'git commit -m "gh pr merge 1"', 'rg "gh pr create" src']) {
+    'gh pr view 1', 'gh pr checks 1', 'gh api repos/o/r', 'gh api --method GET repos/o/r', 'gh api -X GET search/issues -f q=repo:cli/cli', 'gh auth status',
+    "GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --body \"$(cat <<'EOF'\nRun this:\ngh pr merge 1 --squash\nEOF\n)\"", 'echo "gh pr create"', 'git commit -m "gh pr merge 1"', 'rg "gh pr create" src']) {
     expect(await whyThisGhWriteMustNotRun(cmd, repo, boardDir), cmd).toBeNull()
   }
   process.env.GH_TOKEN = 'tok-victor'
@@ -119,4 +121,5 @@ test('the PreToolUse hook as Claude Code runs it refuses a wrong-account gh writ
   expect(refused.err).toContain('GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill')
   expect((await hook('GH_TOKEN=$(gh auth token --user victorGPT) gh pr create --fill')).code).toBe(0)
   expect((await hook('ls high')).code).toBe(0)
+  expect((await hook('true\ngh pr create --fill')).code).toBe(2)
 })
