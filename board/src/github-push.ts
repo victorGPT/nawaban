@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { text as wholeOf } from 'node:stream/consumers'
 import type { board, MessageView } from '@vercel/board'
-import { closeTaskOfRootHere, markerOf, PUSHED_AS } from './github-tasks.ts'
+import { closeTaskOfRootHere, keyOf, markerOf, PUSHED_AS } from './github-tasks.ts'
 import { githubSyncConfig, recordPush } from './github-sync-status.ts'
 import { githubAccountOf } from './github-account.ts'
 import { reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
@@ -29,6 +29,8 @@ const TRIED_AT = 'github-push-tried-at'
 export const WANTED_STATE = 'github-state-wanted'
 export const SHARE_TO = 'github-share'
 const SHARE_TRIED_AT = 'github-share-tried-at'
+const STATE_SENT = 'github-state-sent'
+const SHARED_FROM_AT_THE_END = /<!-- nawaban-share (\S+) -->\s*$/
 const STALE_LABEL_READ = 'label_conflict'
 const ASSIGNS = { claim: true, release: false } as Record<string, boolean>
 const GITHUB_LISTS_A_NEW_COMMENT_WITHIN_MS = 2 * 60_000
@@ -129,8 +131,13 @@ async function pushInOrderStoppingAtTheFirstThatCannotGo(person: Person, repo: s
 async function pushWantedState(person: Person, root: MessageView, repo: string, issue: number, poster: Poster) {
   const wanted = root.labels[WANTED_STATE] as WantedState | undefined
   if (!wanted) return
-  const alreadyThereSoTheFirstToArriveStands = root.labels.state === (wanted === 'open' ? 'open' : 'closed')
-  if (!alreadyThereSoTheFirstToArriveStands) await poster.setState(repo, issue, wanted)
+  const target = wanted === 'open' ? 'open' : 'closed'
+  const lastSentElseAsPolled = root.labels[STATE_SENT] ?? root.labels.state
+  const alreadyThereSoTheFirstToArriveStands = root.labels.state === target && lastSentElseAsPolled === target
+  if (!alreadyThereSoTheFirstToArriveStands) {
+    await poster.setState(repo, issue, wanted)
+    await person.label(root.id, { set: { [STATE_SENT]: target } })
+  }
   await unsetUnlessChangedSinceRead(person, root.id, [WANTED_STATE], { [WANTED_STATE]: wanted })
 }
 
@@ -146,9 +153,33 @@ async function shareAsAnIssue(person: Person, root: MessageView, repo: string, p
     const [title, ...rest] = root.text.split('\n')
     issue = await poster.open(repo, title!, `${rest.join('\n').trim()}\n\n${SHARED_FROM(root.id)}`.trimStart())
   }
-  await person.sync(root.id, `github:${repo}:issue:${issue.number}`)
-  await person.label(root.id, { set: { issue: `${repo}#${issue.number}` }, unset: [SHARE_TO, SHARE_TRIED_AT] })
+  await attachShared(person, root, repo, issue.number)
   return true
+}
+
+async function childrenOf(person: Person, key: string) {
+  const children: MessageView[] = []
+  for (let after: string | undefined; ; ) {
+    const page = await person.tasks.list({ state: 'all', label: { parent: key }, after, limit: THREADS_PAGE })
+    children.push(...page.tasks.map((t) => t.message))
+    if (page.tasks.length < THREADS_PAGE) return children
+    after = page.cursor
+  }
+}
+
+async function attachShared(person: Pick<Person, 'sync' | 'label' | 'tasks'>, root: MessageView, repo: string, issue: number) {
+  await person.sync(root.id, `github:${repo}:issue:${issue}`)
+  const key = keyOf(root.channel, issue)
+  const was = root.labels.key
+  await person.label(root.id, { set: { issue: `${repo}#${issue}`, key }, unset: [SHARE_TO, SHARE_TRIED_AT] })
+  if (was && was !== key) for (const child of await childrenOf(person as Person, was)) await person.label(child.id, { set: { parent: key } })
+}
+
+export async function attachIfSharedFromHere(person: Pick<Person, 'sync' | 'label' | 'tasks' | 'thread'>, repo: string, issue: { number?: number; body?: string | null } | undefined) {
+  const id = issue?.number && SHARED_FROM_AT_THE_END.exec(issue.body ?? '')?.[1]
+  if (!id) return
+  const root = await person.thread(id, { limit: 1 }).then((t) => t.message, () => null)
+  if (root && !root.deleted && root.labels[SHARE_TO] === repo && !root.labels.issue) await attachShared(person, root, repo, issue.number!)
 }
 
 async function sharesWaiting(person: Person, channel: string, repo: string) {

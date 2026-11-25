@@ -26,7 +26,7 @@ const asTheOldCliWritesIt = (kind: string, body: string) =>
   `${WORD[kind]}：${body}\n\n<!-- nawaban ${JSON.stringify({ v: 1, uid: `u-${++uids}`, kind, author: 'selftest', at: 1, body }).replaceAll('-', '\\u002d')} -->`
 
 type Comment = GithubComment & { user: typeof yue; created_at: string; updated_at: string; issue_url: string; html_url: string }
-type World = { open: number[]; closed?: number[]; comments: Comment[]; down: boolean; postedButNoAnswer: boolean; posts: number; reasons?: Record<number, string>; assignees?: Record<number, string[]>; opened?: { number: number; title: string; body: string }[]; openedButNoAnswer?: boolean; stateChanges?: number }
+type World = { duringStateChange?: () => Promise<unknown>; open: number[]; closed?: number[]; comments: Comment[]; down: boolean; postedButNoAnswer: boolean; posts: number; reasons?: Record<number, string>; assignees?: Record<number, string[]>; opened?: { number: number; title: string; body: string }[]; openedButNoAnswer?: boolean; stateChanges?: number }
 let nextComment = 9000
 const commentOn = (issue: number, body: string, user = yue): Comment => {
   const at = new Date(Date.parse('2026-11-25T10:00:00Z') + nextComment * 1000).toISOString()
@@ -69,6 +69,9 @@ const posterOf = (w: World): Poster => ({
   setState: async (_repo, issue, wanted) => {
     offline(w)
     w.stateChanges = (w.stateChanges ?? 0) + 1
+    const during = w.duringStateChange
+    w.duringStateChange = undefined
+    await during?.()
     w.open = w.open.filter((n) => n !== issue)
     w.closed = (w.closed ?? []).filter((n) => n !== issue)
     if (wanted === 'open') w.open.push(issue)
@@ -384,6 +387,45 @@ describe('本地关票、认领、分享推到 GitHub', () => {
     expect(await push(t0 + 3 * 60_000)).toEqual({ unpushed: 0 })
     expect(world.opened).toHaveLength(1)
     expect((await team.thread(task.id, { limit: 1 })).message.labels.issue).toBe(`${REPO}#1800`)
+  })
+
+  it('关票推出去的途中又本地重开：下一轮照样把 issue 重开，不因为板上还没拉到关的状态就跳过', async () => {
+    await wantState(team, 'roubao', REPO, 1730, 'completed')
+    world.duringStateChange = () => wantState(team, 'roubao', REPO, 1730, 'open')
+    await push()
+    expect(world.closed).toEqual([1730])
+    expect(await push()).toEqual({ unpushed: 0 })
+    expect(world.open).toEqual([1730])
+  })
+
+  it('分享的响应丢了，重试前轮询先拉到了这个 issue：仍只有原来那条线程和那张票，重试找回同一个 issue', async () => {
+    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    const { task } = await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-4', text: '响应丢了的分享', labels: { key: 'ROUBAO-LOCAL-4' } })
+    await share(['ROUBAO-LOCAL-4'], team, dir)
+    world.openedButNoAnswer = true
+    const t0 = Date.now()
+    await push(t0)
+    world.openedButNoAnswer = false
+    world.comments.push(commentOn(1800, '同事抢先评论'))
+    await poll()
+    await poll()
+    expect(await push(t0 + 3 * 60_000)).toEqual({ unpushed: 0 })
+    expect(world.opened).toHaveLength(1)
+    const roots = (await team.threads({ channel: 'roubao', label: { issue: `${REPO}#1800` } })).threads.map((t) => t.message.id)
+    expect(roots).toEqual([task.id])
+    expect((await team.tasks.list({ channel: 'roubao', state: 'all', label: { key: 'ROUBAO-1800' } })).tasks.map((t) => t.message.id)).toEqual([task.id])
+    expect((await team.thread(task.id)).replies.map((r) => r.text)).toContain('同事抢先评论')
+  })
+
+  it('分享改了票号，子票的 parent 跟着改', async () => {
+    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-5', text: '父票', labels: { key: 'ROUBAO-LOCAL-5' } })
+    const { task: child } = await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-6', text: '子票', labels: { key: 'ROUBAO-LOCAL-6', parent: 'ROUBAO-LOCAL-5' } })
+    await share(['ROUBAO-LOCAL-5'], team, dir)
+    await push()
+    await poll()
+    await poll()
+    expect((await team.thread(child.id, { limit: 1 })).message.labels.parent).toBe('ROUBAO-1800')
   })
 
   it('不在 push 里的项目的票分享不了', async () => {
