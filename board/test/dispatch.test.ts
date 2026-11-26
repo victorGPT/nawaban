@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -32,6 +32,15 @@ case "$1" in
 esac
 `
 
+const GH_STAND_IN_ANSWERING_MERGED_PULL_REQUEST_FILES_FROM_GH_MERGED = `#!/bin/sh
+printf 'gh %s token=%s\\n' "$*" "$GH_TOKEN" >> "$HC_LOG"
+[ "$1 $2" = 'auth token' ] && { echo "tok-$4"; exit 0; }
+branch=$(printf '%s' "$*" | sed -n 's/.*--head \\([^ ]*\\).*/\\1/p')
+files="$GH_MERGED/$(printf '%s' "$branch" | tr / _)"
+[ -n "$branch" ] && [ -f "$files" ] && cat "$files"
+exit 0
+`
+
 const git = (cwd: string, ...args: string[]) => exec('git', ['-C', cwd, ...args])
 
 beforeAll(async () => {
@@ -42,6 +51,8 @@ beforeAll(async () => {
   tmp = await realpath(await mkdtemp(join(tmpdir(), 'nawaban-dispatch-')))
   await writeFile(join(tmp, 'hc'), HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_AND_ANY_WORKER_FILED_IN_HC_WORKERS_STARTING_T99)
   await chmod(join(tmp, 'hc'), 0o755)
+  await writeFile(join(tmp, 'gh'), GH_STAND_IN_ANSWERING_MERGED_PULL_REQUEST_FILES_FROM_GH_MERGED)
+  await chmod(join(tmp, 'gh'), 0o755)
   await exec('git', ['init', '-q', '--bare', '-b', 'main', join(tmp, 'origin.git')])
   repo = join(tmp, 'repo')
   await exec('git', ['clone', '-q', join(tmp, 'origin.git'), repo])
@@ -69,6 +80,7 @@ async function nawabanInTheRepositoryAsWindowAaaa1111(verb: string, argv: string
     HC_SEND_FAIL: '',
     HC_WORKERS: join(tmp, 'workers'),
     HC_LS_WORKERS: '',
+    GH_MERGED: join(tmp, 'merged'),
     CLAUDE_CONFIG_DIR: join(tmp, 'claude'),
     CODEX_HOME: '',
     ...hc,
@@ -520,6 +532,7 @@ it.each([
   { brief: '改 board/src/dispatch.ts 和 nawaban/cli.py 的路由', paths: ['board/src/dispatch.ts', 'nawaban/cli.py'] },
   { brief: '只动 skills/land/ 下的文档，顺带 GLOSSARY.md', paths: ['skills/land', 'GLOSSARY.md'] },
   { brief: '只改 board/ 下的 CLI，别碰 hooks/', paths: ['board', 'hooks'] },
+  { brief: '同线（scripts/gen-diagram.ts、docs/diagrams/hybrid-search*）', paths: ['scripts/gen-diagram.ts', 'docs/diagrams/hybrid-search*'] },
   { brief: '小票：查一下为什么慢', paths: [] },
 ])('reads the paths a brief names: $paths', ({ brief, paths }) => {
   expect(pathsIn(brief)).toEqual(paths)
@@ -576,3 +589,108 @@ it('warns, without refusing, once more than 8 workers live in this repository', 
   const eight = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'crowd8', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls(8) })
   expect(eight.stdout).not.toContain('活着的 worker')
 })
+
+
+const BRIEF_OF_ROUBAO_1973 = "派发判断：#1957 的后续，同线（scripts/gen-diagram.ts、docs/diagrams/hybrid-search*），t1pp 刚交完 → 指派给它。\n\n## 背景\n#1957 试点结论「改进后再试」（PR #1971 已合）：生成版锚点 0 漂移、参数表更全；手写版 648 句里锚点指错 117、行为不符 25。盲评生成版 12/15、手写版 14/15，丢分都在「条件在哪算」。\n\n## 要做的（改动范围：scripts/gen-diagram.ts、scripts/gen-diagram.config.ts、scripts/gen-diagram.test.ts、docs/diagrams/hybrid-search.generated.md）\n1. 生成器加三样：opt 条件里的变量回溯到赋值行；泳道分组、阶段标签、返回箭头（配置里声明）；每个节点加「守着它的测试」一列（从 *.test.ts 的 import / 调用关系出）。\n2. 手写版 S 步骤里的语句级规则：已有测试的列出测试名对照表；没有测试的列清单（补测试另开票，不在本票做）。\n3. 换一批更难的「改 X 要动哪里」题重测盲评，每版 ≥5 次，评测模型和写生成器的不同，答案键在看生成版之前从代码定。\n4. 结论：生成版不比手写版差，就提议把 hybrid-search.md 的「怎么做」换成生成版、手写只留指向 ADR「为什么」的链接（替换本身另开 PR，先报结论）。\n「生成物过期就红」挂进检查属于改闸，归吴献忠，本票只给方案不挂。"
+
+async function fileWorker(address: string, cwd: string, statusMs: number) {
+  await mkdir(join(tmp, 'workers'), { recursive: true })
+  await writeFile(
+    join(tmp, 'workers', `${address}.json`),
+    JSON.stringify({
+      state: 'live',
+      name: address,
+      cwd,
+      argv: ['env', `BOARD_URL=${url}`, 'claude', '--model', 'opus', '/pstack:poteto-mode 任务：x'],
+      labels: { 'revive.agent': 'claude', 'revive.session': `${address}-0000-session` },
+      status: { app: 'claude-code', state: 'done' },
+      status_ms: statusMs,
+    }),
+  )
+  return `,{"address":"${address}","state":"live","cwd":"${cwd}","status_ms":${statusMs}}`
+}
+
+async function mergedPullRequestFrom(branch: string, files: string[]) {
+  await mkdir(join(tmp, 'merged'), { recursive: true })
+  await writeFile(join(tmp, 'merged', branch.replaceAll('/', '_')), files.join('\n') + '\n')
+}
+
+it('routes roubao #1973 to the worker that just merged the generator, not to the one editing a diagram it names', async () => {
+  const editingTheDiagram = await worktreeChanging('w-1942', 'docs/diagrams/hybrid-search.md')
+  const gone = join(tmp, 'repo-w-1957')
+  await mergedPullRequestFrom('wt/w-1957', ['scripts/gen-diagram.ts', 'scripts/gen-diagram.test.ts', 'docs/diagrams/hybrid-search.generated.md'])
+  const ls = (await fileWorker('t1p8', editingTheDiagram, 2_000)) + (await fileWorker('t1pp', gone, 1_000))
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', BRIEF_OF_ROUBAO_1973, '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
+  expect(r.stderr).toBe('')
+  expect(JSON.parse(r.stdout)).toMatchObject({ terminal: 't1pp', cwd: gone, by: '改动文件重叠' })
+  expect(r.hc).toContain('gh pr list --head wt/w-1957 --state merged')
+})
+
+it('reads a worker whose branch is merged and empty by the pull request it merged last', async () => {
+  const worktree = join(tmp, 'held-ra-next')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'wt/ra-done', worktree, 'origin/main')
+  await git(worktree, 'switch', '-q', '-c', 'wt/ra-next', 'origin/main')
+  await mergedPullRequestFrom('wt/ra-done', ['web/src/pages/TaskPage.tsx'])
+  const ls = await fileWorker('t1ra', worktree, 1_000)
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 web/src/pages/TaskPage.tsx', '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
+  expect(JSON.parse(r.stdout)).toMatchObject({ terminal: 't1ra', by: '改动文件重叠' })
+})
+
+it('picks the worker touching the most named files, and the latest active one on a tie', async () => {
+  const one = await worktreeChanging('ra-one', 'hooks/inbox.sh')
+  const two = join(tmp, 'held-ra-two')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'held/ra-two', two, 'origin/main')
+  await mkdir(join(two, 'hooks'), { recursive: true })
+  for (const f of ['hooks/inbox.sh', 'hooks/progress.sh']) await writeFile(join(two, f), 'x')
+  const brief = '改 hooks/inbox.sh 和 hooks/progress.sh'
+  const most = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', brief, '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: (await fileWorker('t1r1', one, 9_000)) + (await fileWorker('t1r2', two, 1_000)) })
+  expect(JSON.parse(most.stdout).terminal).toBe('t1r2')
+  const tie = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 hooks/inbox.sh', '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: (await fileWorker('t1r1', one, 9_000)) + (await fileWorker('t1r2', two, 1_000)) })
+  expect(JSON.parse(tie.stdout).terminal).toBe('t1r1')
+})
+
+
+it('opens a new worker on the board when the routed worker\'s worktree is gone, and says so', async () => {
+  const gone = join(tmp, 'repo-w-gone')
+  await mergedPullRequestFrom('wt/w-gone', ['scripts/gen-gone.ts'])
+  const ls = await fileWorker('t1gn', gone, 1_000)
+  await newTask('RA-GONE')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['RA-GONE', '--brief', '改 scripts/gen-gone.ts', '--accept', 'a'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
+  expect(r.stderr).toBe('')
+  expect(r.stdout).toContain('跳过了 t1gn 的 worktree 已删')
+  expect(r.hc).toMatch(/^run --bg/m)
+})
+
+it('counts a file changed both in a commit and in the working tree once', async () => {
+  const once = join(tmp, 'held-ra-once')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'held/ra-once', once, 'origin/main')
+  await mkdir(join(once, 'lib'), { recursive: true })
+  await writeFile(join(once, 'lib/a.ts'), 'x')
+  await git(once, 'add', '.')
+  await git(once, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'a')
+  await writeFile(join(once, 'lib/a.ts'), 'y')
+  const both = join(tmp, 'held-ra-both')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'held/ra-both', both, 'origin/main')
+  await mkdir(join(both, 'lib'), { recursive: true })
+  for (const f of ['lib/a.ts', 'lib/b.ts']) await writeFile(join(both, f), 'x')
+  const ls = (await fileWorker('t1on', once, 9_000)) + (await fileWorker('t1bo', both, 1_000))
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 lib/a.ts 和 lib/b.ts', '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
+  expect(JSON.parse(r.stdout).terminal).toBe('t1bo')
+})
+
+
+
+it('looks up a merged pull request as the repository\'s GitHub account', async () => {
+  const gone = join(tmp, 'repo-w-acct')
+  await mergedPullRequestFrom('wt/w-acct', ['scripts/acct.ts'])
+  await mkdir(join(repo, 'docs', 'agents'), { recursive: true })
+  await writeFile(join(repo, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n\ngithub-account: owner-acct\n')
+  try {
+    const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 scripts/acct.ts', '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: await fileWorker('t1ac', gone, 1_000) })
+    expect(JSON.parse(r.stdout).terminal).toBe('t1ac')
+    expect(r.hc).toMatch(/^gh pr list --head wt\/w-acct .* token=tok-owner-acct$/m)
+  } finally {
+    await rm(join(repo, 'docs'), { recursive: true, force: true })
+  }
+})
+
