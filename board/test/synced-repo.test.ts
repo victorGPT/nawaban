@@ -498,6 +498,18 @@ describe('切到板上后 roubao worker 照旧的写法', () => {
     expect(await held()).toBeNull()
     await poll()
     expect(await held()).toBeNull()
+    commentOn(1798, '待决：那 C 呢？')
+    await poll()
+    expect((await held())?.reason).toContain('那 C 呢？')
+  })
+
+  it('旧 CLI 写的影响里 KR 带尾随空白，照样读成声明', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    world.issues.push(issue(1804))
+    commentOn(1804, impactSaidOnGithub('O 听得懂需求 · 意图准确率==  · 意图准确率=↑ 91→93 实测 '))
+    await poll()
+    const id = (await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1804' } })).tasks[0]!.message.id
+    const declared = (await team.thread(id)).replies.flatMap((r) => r.blocks).filter((b) => b.schema === 'nawaban-impact').map((b) => b.data)
+    expect(declared).toEqual([{ objective: '听得懂需求', krs: [{ name: '意图准确率', dir: '=' }, { name: '意图准确率', dir: '↑', before: '91', after: '93', basis: '实测' }] }])
   })
 
   it('重开过两次的票，前一张票上记的回复推出去以后读回来也认得是回声', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {

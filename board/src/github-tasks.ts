@@ -100,9 +100,20 @@ export async function githubRepliesOf(person: Person, task: MessageView, own: Me
 const askOrRulingOnTheBoard = (m: MessageView): { ask: string } | 'ruling' | null =>
   m.blocks.some((b) => b.schema === 'nawaban-resolve') ? 'ruling' : m.blocks.some((b) => b.schema === 'nawaban-ask') ? { ask: '' } : null
 
+function inOneOrderWithWhatIsNotOnGithubYet(replies: MessageView[]) {
+  const onGithub = replies.filter((m) => Number.isFinite(githubCommentIdOf(m)))
+  const place = (m: MessageView) => {
+    const id = githubCommentIdOf(m)
+    if (Number.isFinite(id)) return id
+    const seenBefore = onGithub.filter((g) => g.createdAt <= m.createdAt).map(githubCommentIdOf)
+    return Math.max(0, ...seenBefore) + 0.5
+  }
+  return [...replies].sort((a, b) => place(a) - place(b) || (a.createdAt < b.createdAt ? -1 : 1))
+}
+
 export function currentGithubAsk(replies: MessageView[]): MessageView | null {
   let pending: MessageView | null = null
-  for (const r of replies.filter((m) => !m.deleted).sort(inGithubOrder)) {
+  for (const r of inOneOrderWithWhatIsNotOnGithubYet(replies.filter((m) => !m.deleted))) {
     const said = inGithubFormat(r) ? askOrRulingIn(r.text) : r.from === null ? askOrRulingOnTheBoard(r) : null
     if (said === 'ruling') pending = null
     else if (said) pending = r
@@ -146,7 +157,7 @@ async function theOneTaskHoldingTheKey(person: Person, root: MessageView, key: s
 }
 
 function declarationSaidOnGithub(said: string, change: unknown) {
-  const [head, ...krs] = said.trim().split(' · ')
+  const [head, ...krs] = said.split(' · ').map((part) => part.trim())
   const objective = OBJECTIVE_SAID_ON_GITHUB.exec(head!)?.[1]
   const headings = krs.map((kr) => KR_HEADING_SAID_ON_GITHUB.exec(kr))
   if (objective && krs.length && headings.every(Boolean)) {
