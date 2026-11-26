@@ -196,7 +196,7 @@ const COMMANDS: Record<string, Command> = {
     flags: [
       ['--brief <文本>', '目标和范围，必填'],
       ['--accept <文本>', '怎样算做完，必填'],
-      ['--check <命令>', '这张票自己的验收命令（相关测试文件、探针），可多次；整套测试由 CI 管，别放；记到票上，merge 前用看板的 tasks run 跑，全过才合'],
+      ['--check <命令>', '只放 CI 覆盖不到的东西（端到端探针、对真环境的只读核查），代码票不放 vitest；可多次；记到票上，merge 前用看板的 tasks run 跑，全过才合'],
       ['--name <名>', 'worker 名；不带票时必填，什么都不记'],
       ['--agent claude|codex|agy', '默认 claude'],
       ['--model <模型>', 'claude 默认 opus'],
