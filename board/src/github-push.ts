@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { text as wholeOf } from 'node:stream/consumers'
 import type { board, MessageView } from '@vercel/board'
-import { closeTaskOfRootHere, githubIssueOfTask, keyOf, markerOf, PUSHED_AS } from './github-tasks.ts'
+import { closeTaskOfRootHere, githubIssueOfTask, keyOf, markerOf, PUSHED_AS, repliesOnTheIssue } from './github-tasks.ts'
 import { githubSyncConfig, recordPush } from './github-sync-status.ts'
 import { githubAccountOf } from './github-account.ts'
 import { reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
@@ -105,17 +105,12 @@ export async function issueRoot(person: Pick<Person, 'threads'>, channel: string
   return threads[0]?.message ?? null
 }
 
-async function repliesOnTheIssue(person: Pick<Person, 'tasks' | 'thread'>, channel: string, root: MessageView, issue: number) {
-  const reopened = (await person.tasks.list({ channel, state: 'all', label: { key: keyOf(channel, issue) } })).tasks.map((t) => t.message).filter((t) => t.id !== root.id)
-  return (await Promise.all([root, ...reopened].map((m) => person.thread(m.id)))).flatMap((t) => t.replies)
-}
-
 export async function writtenHereFirst(person: Pick<Person, 'threads' | 'thread' | 'tasks'>, channel: string, repo: string, issue: number, text: string) {
   const uid = uidOf(text)
   if (uid === null) return false
   const root = await issueRoot(person, channel, repo, issue)
   if (!root) return false
-  return (await repliesOnTheIssue(person, channel, root, issue)).some((r) => r.from === null && (uidOf(r.text) === uid || r.id === uid))
+  return (await repliesOnTheIssue(person, channel, root)).some((r) => r.from === null && (uidOf(r.text) === uid || r.id === uid))
 }
 
 async function rootOrRefusal(person: Pick<Person, 'threads'>, channel: string, repo: string, issue: number) {
@@ -252,7 +247,7 @@ export async function pushRepo(person: Person, channel: string, repo: string, po
   let unpushed = 0
   const failures: string[] = []
   for (const { root, issue } of await issueRoots(person, channel, repo)) {
-    const waiting = (await repliesOnTheIssue(person, channel, root, issue)).filter(goesToGithub).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+    const waiting = (await repliesOnTheIssue(person, channel, root)).filter(goesToGithub).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
     const pushed = { count: 0 }
     let stateLeft = root.labels[WANTED_STATE] ? 1 : 0
     try {

@@ -500,13 +500,51 @@ describe('切到板上后 roubao worker 照旧的写法', () => {
     expect(await held()).toBeNull()
   })
 
-  it('重开过的票上记的回复，推出去以后读回来认得是回声', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
-    const { task } = await team.tasks.create('roubao', { text: '重开的票', labels: { key: 'ROUBAO-1799' } })
+  it('重开过两次的票，前一张票上记的回复推出去以后读回来也认得是回声', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
     const { task: root } = await team.tasks.create('roubao', { text: '原 issue', labels: { issue: `${REPO}#1799` } })
-    await team.label(task.id, { set: { 'issue-root': root.id } })
-    const said = await team.reply(task.id, { text: '进展一句', labels: { 'github-push': 'note' } })
+    const { task: first } = await team.tasks.create('roubao', { text: '第一次重开，key 已经交出去', labels: { 'issue-root': root.id } })
+    await team.tasks.create('roubao', { text: '第二次重开', labels: { key: 'ROUBAO-1799', 'issue-root': root.id } })
+    const said = await team.reply(first.id, { text: '进展一句', labels: { 'github-push': 'note' } })
     const echo = `进展：进展一句\n\n<!-- nawaban ${JSON.stringify({ v: 1, uid: said.id, kind: 'note', body: '进展一句' })} -->`
     expect(await writtenHereFirst(team, 'roubao', REPO, 1799, echo)).toBe(true)
+  })
+
+  it('影响评论先去掉 marker 再改回来，板上的声明先撤再补', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    world.issues.push(issue(1802))
+    commentOn(1802, impactSaidOnGithub('O 无'))
+    await poll()
+    const id = (await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1802' } })).tasks[0]!.message.id
+    const declared = async () => (await team.thread(id)).replies.filter((r) => !r.deleted).flatMap((r) => r.blocks).filter((b) => b.schema === 'nawaban-impact').length
+    const said = world.comments.at(-1)!
+    const edit = async (body: string) => {
+      Object.assign(said, { body, updated_at: tick() })
+      world.issues.find((i) => i.number === 1802)!.updated_at = said.updated_at as string
+      await poll()
+    }
+    const counts = [await declared()]
+    await edit('影响：随手写的，不算')
+    counts.push(await declared())
+    await edit(impactSaidOnGithub('O 无'))
+    counts.push(await declared())
+    expect(counts).toEqual([1, 0, 1])
+  })
+
+  it('GitHub 待决挂住的票在 GitHub 上关了又重开，板上在新票上答了，下一轮不再挂起', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    world.issues.push(issue(1801))
+    await poll()
+    commentOn(1801, '待决：走 A 还是 B？')
+    await poll()
+    const it1801 = world.issues.find((i) => i.number === 1801)!
+    Object.assign(it1801, { state: 'closed', state_reason: 'completed', updated_at: tick() })
+    await poll()
+    Object.assign(it1801, { state: 'open', state_reason: null, updated_at: tick() })
+    await poll()
+    const current = async () => (await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1801' } })).tasks[0]!.message
+    expect((await current()).labels['issue-root']).toBeDefined()
+    expect((await current()).task?.blocked?.reason).toContain('GitHub 待决')
+    await nawaban(checkouts.roubao!, 'event', 'ROUBAO-1801', 'resolve', '走 A')
+    await poll()
+    expect((await current()).task?.blocked ?? null).toBeNull()
   })
 
   it('读不懂的影响评论让这一轮结算失败：没核对完就不切换', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {

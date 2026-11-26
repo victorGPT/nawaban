@@ -160,29 +160,41 @@ function declarationSaidOnGithub(said: string, change: unknown) {
   })
 }
 
-const declarationIdOf = (githubReply: MessageView) => 'github-impact-' + createHash('sha256').update(githubReply.id).digest('hex').slice(0, 32)
+const DECLARES_WHAT_GITHUB_SAID_IN = 'github-impact-of'
+const declarationIdOf = (githubReply: MessageView, made: number) => 'github-impact-' + createHash('sha256').update(`${githubReply.id}\0${made}`).digest('hex').slice(0, 32)
+
+export async function repliesOnTheIssue(person: Pick<Person, 'tasks' | 'thread'>, channel: string, root: MessageView) {
+  const reopened = (await person.tasks.list({ channel, state: 'all', label: { 'issue-root': root.id } })).tasks.map((t) => t.message)
+  return (await Promise.all([root, ...reopened].map((m) => person.thread(m.id)))).flatMap((t) => t.replies)
+}
 
 const impactSaidIn = (githubReply: MessageView) => {
   const marker = githubReply.deleted ? null : markerOf(githubReply.text)
   return marker?.kind === 'impact' && typeof marker.body === 'string' ? declarationSaidOnGithub(marker.body, marker.change) : null
 }
 
-const liveDeclaration = (person: Person, id: string) =>
+const everPosted = (person: Person, id: string) =>
   person.posted(id).then(
-    (m) => (m.deleted ? null : m),
+    () => true,
     (error) => {
-      if (error instanceof BoardError && error.code === 'post_not_found') return null
+      if (error instanceof BoardError && error.code === 'post_not_found') return false
       throw error
     },
   )
 
+async function unusedDeclarationIdOf(person: Person, githubReply: MessageView) {
+  let made = 0
+  while (await everPosted(person, declarationIdOf(githubReply, made))) made++
+  return declarationIdOf(githubReply, made)
+}
+
 async function declareWhatGithubDeclared(person: Person, root: MessageView, replies: MessageView[]) {
   for (const r of replies.filter((m) => m.from === 'github').sort(inGithubOrder)) {
     const said = impactSaidIn(r)
-    const kept = await liveDeclaration(person, declarationIdOf(r))
-    if (said === null && kept) await person.delete(kept.id)
-    else if (said !== null && !kept) await person.reply(root.id, { id: declarationIdOf(r), text: said })
-    else if (said !== null && kept && kept.text !== said) await person.edit(kept.id, said)
+    const live = replies.filter((m) => !m.deleted && m.labels[DECLARES_WHAT_GITHUB_SAID_IN] === r.id)
+    const kept = said === null ? undefined : live.find((m) => m.text === said)
+    for (const stale of live.filter((m) => m !== kept)) await person.delete(stale.id)
+    if (said !== null && !kept) await person.reply(root.id, { id: await unusedDeclarationIdOf(person, r), text: said, labels: { [DECLARES_WHAT_GITHUB_SAID_IN]: r.id } })
   }
 }
 
@@ -201,7 +213,7 @@ async function settleRoot(person: Person, root: MessageView, issue: KnownIssue, 
   if (issueOpen && (root.labels['reopens-settled'] ?? '0') !== reopensSeen) await person.label(root.id, { set: { 'reopens-settled': reopensSeen } })
   const whyClosed = closedAs ?? root.labels['closed-as']
   if (!issueOpen) return issue.state_reason === undefined && whyClosed === undefined ? undefined : finishAsClosed(person, task, whyClosed)
-  await holdWhileGithubAsks(person, task, pendingGithubAsk(replies))
+  await holdWhileGithubAsks(person, task, pendingGithubAsk(task.id === root.id ? replies : await repliesOnTheIssue(person, root.channel, root)))
 }
 
 export async function openIssuesWithoutAnOpenTask(person: Person, channel: string, issues: number[]) {
