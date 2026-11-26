@@ -162,9 +162,10 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, githubR
     ...out,
     live: session ? liveOfLabels(m.labels) : null,
     ruling: ruling ? { at: ruling.at, verdict: String(data(ruling.message, 'nawaban-decision')!.verdict) } : null,
-    progress: progress(notes.findLast((r) => !/^\s*(?:(?:coord|impact|lane):|派发 brief：)/.test(r.message.text))),
+    progress: progress(notes.findLast((r) => !/^\s*(?:(?:coord|impact|lane):|派发 brief：|巡检：)/.test(r.message.text))),
     blocked_by: open.map((id) => (byId.get(id) ? key(byId.get(id)!) : `#${id}`)).sort(),
     waiting: ask?.reason ?? null,
+    unclaimed_dispatch: dispatch && dispatch.at > (h.holds.at(-1)?.from ?? 0) ? { terminal: String(data(dispatch.message, 'nawaban-dispatch')!.terminal), at: dispatch.at } : null,
     decision: decision ? { at: decision.at, verdict: String(data(decision.message, 'nawaban-decision')!.verdict) } : null,
     pending:
       t.blocked?.kind === 'awaiting_approval'

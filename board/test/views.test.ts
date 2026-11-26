@@ -68,7 +68,7 @@ const ok = async (session: string, terminal: string, ...argv: string[]) => {
 const read = (...argv: string[]) => ok(ORCHESTRATOR_WINDOW_IN_T1, '', 'json', ...argv)
 
 const OLD_BOARD_DATA_ROW_KEYS = ['id', 'title', 'status', 'project', 'parent', 'session', 'created_at', 'active_at', 'open_blockers', 'terminal', 'leader', 'claimed_at']
-const OPEN_ROW_KEYS_PLUS_PENDING = [...OLD_BOARD_DATA_ROW_KEYS, 'progress', 'live', 'ruling', 'blocked_by', 'waiting', 'decision', 'pending'].sort()
+const OPEN_ROW_KEYS_PLUS_PENDING = [...OLD_BOARD_DATA_ROW_KEYS, 'progress', 'live', 'ruling', 'blocked_by', 'waiting', 'unclaimed_dispatch', 'decision', 'pending'].sort()
 const DONE_ROW_KEYS = [...OLD_BOARD_DATA_ROW_KEYS, 'done_at'].sort()
 
 it('prints the board in the shape the panel reads, and the panel draws the 等你 card and the orchestrator group from it', async () => {
@@ -116,6 +116,8 @@ it('prints the board in the shape the panel reads, and the panel draws the 等�
   expect(data.columns.map((c: { key: string }) => c.key)).toEqual(['open', 'in_progress', 'done'])
   for (const t of all) expect(Object.keys(t).sort(), t.id).toEqual(t.status === 'done' ? DONE_ROW_KEYS : OPEN_ROW_KEYS_PLUS_PENDING)
   expect(byId['S-02']).toMatchObject({ status: 'in_progress', session: 'cc-aaaa1111', terminal: 't1', leader: 'cc-aaaa1111', parent: 'S', blocked_by: [], open_blockers: 0, progress: { body: 'verify：测试通过' } })
+  expect(byId['D'].unclaimed_dispatch).toMatchObject({ terminal: 't9' })
+  expect(byId['S-02'].unclaimed_dispatch).toBeNull()
   expect(byId['S-01']).toMatchObject({ status: 'done', leader: 'cc-aaaa1111' })
   expect(byId['S-01'].done_at).toBeGreaterThan(0)
   expect(byId['Q']).toMatchObject({ status: 'in_progress', session: 'cc-bbbb2222', terminal: 't3', waiting: '放行吗？', pending: null })

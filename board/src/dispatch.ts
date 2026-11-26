@@ -106,7 +106,7 @@ export async function liveTerminalsInRepository(root: string): Promise<Terminal[
   return inRepository
 }
 
-async function liveOrchestratorInRepository(root: string): Promise<string | null> {
+export async function liveOrchestratorInRepository(root: string): Promise<string | null> {
   for (const t of await liveTerminalsInRepository(root)) {
     if ((await roleLabelOf(t.address)) === 'orchestrator') return t.address
   }

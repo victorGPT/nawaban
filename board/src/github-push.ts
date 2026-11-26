@@ -25,7 +25,7 @@ export type Poster = {
 }
 
 export const PUSHED_KINDS = new Set(['claim', 'release', 'note', 'decision', 'link', 'ask', 'resolve', 'impact'])
-const BOOKKEEPING_NOTE = /^\s*(?:triage:|wayfinder:|lane:|dispatch:|派给 hc )/
+const BOOKKEEPING_NOTE = /^\s*(?:triage:|wayfinder:|lane:|dispatch:|派给 hc |巡检：)/
 const TRIED_AT = 'github-push-tried-at'
 export const WANTED_STATE = 'github-state-wanted'
 export const SHARE_TO = 'github-share'

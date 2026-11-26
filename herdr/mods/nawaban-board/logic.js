@@ -153,14 +153,15 @@ function boardContext(args) {
 
 const questionsAskedOnBoard = (c) => (c.board ? { ...c, board: withoutQuestionsThatAreDecisions(c.board, c.github) } : c);
 
-function taskState(c, t) {
+export function heldTicketState(t, window) {
   if (isDone(t)) return "done";
   if (isAsking(t)) return "waiting";
   if (!isHeld(t)) return "todo";
-  const window = t.terminal && c.windowAt(t.terminal);
   if (herdrSaysNeedsYou(window?.status)) return "waiting";
   return t.terminal && (!window || window.status === "idle") ? "stopped" : "current";
 }
+
+const taskState = (c, t) => heldTicketState(t, t.terminal && c.windowAt(t.terminal));
 
 const rootOf = (c, t) => {
   while (c.byId.has(t.parent)) t = c.byId.get(t.parent);
