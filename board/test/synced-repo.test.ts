@@ -281,7 +281,8 @@ describe('同步仓库的合并锁、旧 CLI 的声明、待决', () => {
   })
 
   it('GitHub 上重开过的票，声明在新票或原 issue 线程上都算', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
-    const root = await team.post('roubao', { text: 'Issue #1760: 重开过\nx', labels: { issue: `${REPO}#1760`, state: 'open' } })
+    const { task: finishedBeforeTheReopenKeptItsIssueButNotItsKey } = await team.tasks.create('roubao', { text: 'Issue #1760: 重开过\nx', labels: { issue: `${REPO}#1760`, state: 'open' } })
+    const root = finishedBeforeTheReopenKeptItsIssueButNotItsKey
     const { task } = await team.tasks.create('roubao', { text: '重开过（GitHub 上重开）', labels: { key: 'ROUBAO-1760', 'issue-root': root.id } })
     expect(await mergeGateFor('Closes #1760')).toContain('ROUBAO-1760')
     const declaration = oldRowsAsDeclaration([{ repo: checkouts.roubao!, ticket: '#1760', objective: '无', kr: '', dir: '=', before: null, after: null, basis: null, declared_at: 'x' }])

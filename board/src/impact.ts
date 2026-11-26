@@ -180,7 +180,7 @@ async function whyThisMergeMustWait(team: Team, project: string, pr: PullRequest
   const named = (await tasksADeclarationCanStillBeOn(team, project)).filter((t) => {
     const key = t.labels.key
     const issue = githubIssueOfTask(t)
-    return (key && namesKeyAsWholeWord(text, key)) || (issue !== null && namesKeyAsWholeWord(text, `#${issue}`))
+    return !!key && (namesKeyAsWholeWord(text, key) || (issue !== null && namesKeyAsWholeWord(text, `#${issue}`)))
   })
   if (!named.length) return `PR #${pr.number} 没写到项目 ${project} 的任何一张票(标题、分支名里写票号，或正文写 Closes/Refs <票号>),核不了 KR 影响声明`
   const missed = []
