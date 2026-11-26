@@ -102,8 +102,11 @@ export const howToDeclare = (ref: string) =>
   `  nawaban event ${ref} impact --o "<O 名>" --kr "${IMPACT_FORMAT}" [--change measure|gold](--kr 可重复;纯基础设施写 --o 无;认领时就登记:nawaban claim ${ref} --o … --kr …)`
 
 async function hasImpactReply(team: Team, task: MessageView) {
-  const { replies } = await team.thread(task.labels['issue-root'] ?? task.id)
-  return replies.some((r) => r.blocks.some((b) => b.schema === 'nawaban-impact'))
+  for (const id of [task.id, task.labels['issue-root']].filter((id) => id !== undefined)) {
+    const { replies } = await team.thread(id)
+    if (replies.some((r) => r.blocks.some((b) => b.schema === 'nawaban-impact'))) return true
+  }
+  return false
 }
 
 const krNamesIn = (blocks: Registered[]) => blocks.flatMap((b) => (b.data as { krs: { name: string }[] }).krs.map((k) => k.name))

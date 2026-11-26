@@ -12,6 +12,7 @@ import { deliverAsSignedWebhook, importOnlySync, pollRepo, recordRound, refusing
 import { settleIssueTasks } from '../src/github-tasks.ts'
 import { mergeGate } from '../src/impact.ts'
 import { importOld } from '../src/import.ts'
+import { oldRowsAsDeclaration } from '../src/github-impact.ts'
 import { load } from '../src/okr.ts'
 import { listen, verifier } from '../src/server.ts'
 import { registerSchemas } from '../src/schemas.ts'
@@ -277,6 +278,15 @@ describe('同步仓库的合并锁、旧 CLI 的声明、待决', () => {
     expect(await mergeGateFor('Closes #1740')).toBeNull()
     expect(await mergeGateFor('Closes #1730')).toContain('ROUBAO-1730')
     expect(await mergeGateFor('Closes #17300')).toContain('没写到项目 roubao 的任何一张票')
+  })
+
+  it('GitHub 上重开过的票，声明在新票或原 issue 线程上都算', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    const root = await team.post('roubao', { text: 'Issue #1760: 重开过\nx', labels: { issue: `${REPO}#1760`, state: 'open' } })
+    const { task } = await team.tasks.create('roubao', { text: '重开过（GitHub 上重开）', labels: { key: 'ROUBAO-1760', 'issue-root': root.id } })
+    expect(await mergeGateFor('Closes #1760')).toContain('ROUBAO-1760')
+    const declaration = oldRowsAsDeclaration([{ repo: checkouts.roubao!, ticket: '#1760', objective: '无', kr: '', dir: '=', before: null, after: null, basis: null, declared_at: 'x' }])
+    await team.reply(task.id, { text: declaration })
+    expect(await mergeGateFor('Closes #1760')).toBeNull()
   })
 
   it('旧 CLI 在 #N 上声明的影响经 hook 记到同一条线程，重记不多一条，合并锁随即放行', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
