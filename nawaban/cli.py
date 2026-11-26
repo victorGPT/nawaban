@@ -1675,6 +1675,8 @@ def retire_sweep_message(root: Path) -> str | None:
 
 
 def retire_finished_workers(root: Path, just_closed: str | None = None) -> list[tuple[bool, str]]:
+    if _repo_the_board_pushes(root):
+        return [(True, "派发记录在板上、不推 GitHub，按 GitHub 评论认不出 worker，没收：worker 要手动收")]
     me = os.environ.get("HC_TERMINAL_ID")
     said = []
     for t in sorted(_terminals_in_worktrees_of(root), key=lambda t: t["address"] == me):
