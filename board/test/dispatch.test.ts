@@ -8,7 +8,7 @@ import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import { block, board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
-import { workerTitle } from '../src/dispatch.ts'
+import { pathsIn, workerTitle } from '../src/dispatch.ts'
 import { registerSchemas } from '../src/schemas.ts'
 import { listen, verifier } from '../src/server.ts'
 import { stable } from './stable.ts'
@@ -501,4 +501,77 @@ it('refuses --check without a ticket to record it on, and starts nothing', async
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'chk-none', '--brief', 'b', '--accept', 'a', '--check', 'true'], { HC_ORCH: 'to1' })
   expect(r.code).toBe(2)
   expect(r.hc).not.toMatch(/^run/m)
+})
+
+
+async function worktreeChanging(name: string, file: string, committed = true) {
+  const worktree = join(tmp, `held-${name}`)
+  await git(repo, 'worktree', 'add', '-q', '-b', `held/${name}`, worktree, 'origin/main')
+  await mkdir(join(worktree, file, '..'), { recursive: true })
+  await writeFile(join(worktree, file), 'changed')
+  if (committed) {
+    await git(worktree, 'add', '.')
+    await git(worktree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'change')
+  }
+  return worktree
+}
+
+it.each([
+  { brief: '改 board/src/dispatch.ts 和 nawaban/cli.py 的路由', paths: ['board/src/dispatch.ts', 'nawaban/cli.py'] },
+  { brief: '只动 skills/land/ 下的文档，顺带 GLOSSARY.md', paths: ['skills/land', 'GLOSSARY.md'] },
+  { brief: '小票：查一下为什么慢', paths: [] },
+])('reads the paths a brief names: $paths', ({ brief, paths }) => {
+  expect(pathsIn(brief)).toEqual(paths)
+})
+
+it('routes a ticket with no lane to the running worker whose changes the brief names, and opens a new one when none overlap', async () => {
+  const worktree = await worktreeChanging('ov-a', 'board/src/dispatch.ts')
+  const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000)
+  const id = await newTask('OV-B')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['OV-B', '--brief', '改 src/dispatch.ts 的路由', '--accept', 'a'], hc)
+  expect(r.stderr).toBe('')
+  expect(r.stdout).toBe('✓ OV-B 指派给在跑的 hc t99（改动文件重叠），它做完手上那张自己领 · 回报给 to1\n')
+  expect(r.hc).not.toMatch(/^run/m)
+  expect((await team.thread(id)).message.task?.for).toMatch(/\+cc-bbbb2222$/)
+  await newTask('OV-C')
+  const apart = await dispatchInTheRepositoryAsWindowAaaa1111(['OV-C', '--brief', '改 web/src/api.ts', '--accept', 'a'], hc)
+  expect(apart.stdout).toMatch(/^✓ 派出 OV-C → hc t99 /)
+  expect(apart.hc).toMatch(/^run --bg/m)
+})
+
+it('counts uncommitted changes as the worker\'s own', async () => {
+  const worktree = await worktreeChanging('ov-u', 'docs/notes.md', false)
+  const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000)
+  await newTask('OV-U')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['OV-U', '--brief', '补 docs/notes.md 一段', '--accept', 'a'], hc)
+  expect(r.stdout).toContain('指派给在跑的 hc t99（改动文件重叠）')
+})
+
+it('leaves an overlapping worker that runs another model and opens a new one', async () => {
+  const worktree = await worktreeChanging('ov-m', 'herdr/x.js')
+  const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000, ['claude', '--model', 'sonnet'])
+  await newTask('OV-M')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['OV-M', '--brief', '改 herdr/x.js', '--accept', 'a'], hc)
+  expect(r.stdout).toContain('跳过了 t99 跑的是别的 agent 或模型')
+})
+
+it('tells which running worker the brief would go to, for the old CLI, without dispatching', async () => {
+  const worktree = await worktreeChanging('ov-r', 'hooks/route.mjs')
+  const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000)
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 hooks/route.mjs', '--json'], hc)
+  expect(r.stderr).toBe('')
+  expect(JSON.parse(r.stdout)).toMatchObject({ terminal: 't99', cwd: worktree, by: '改动文件重叠', warning: null })
+  expect(r.hc).not.toMatch(/^(run|send)/m)
+  const none = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '查日志', '--json'], hc)
+  expect(JSON.parse(none.stdout)).toMatchObject({ terminal: null, by: null })
+})
+
+it('warns, without refusing, once more than 8 workers live in this repository', async () => {
+  const worktree = await worktreeChanging('crowd-wt', 'a.txt')
+  const ls = (n: number) => Array.from({ length: n }, (_, i) => `,{"address":"tc${i}","state":"live","cwd":"${worktree}"}`).join('')
+  const nine = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'crowd9', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls(9) })
+  expect(nine.code).toBe(0)
+  expect(nine.stdout).toContain('本仓库已有 9 个活着的 worker，超过 8 个')
+  const eight = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'crowd8', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls(8) })
+  expect(eight.stdout).not.toContain('活着的 worker')
 })
