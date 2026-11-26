@@ -18,6 +18,7 @@ import { deliverAsSignedWebhook, ghReader, githubSyncConfig, importOnlySync, pol
 import { ghPoster, pushAccountOf, pushForever } from './github-push.ts'
 import { githubTokenOf } from './github-account.ts'
 import { okrData } from './okr.ts'
+import { patrolForever } from './patrol.ts'
 import { keptReads, StillReading } from './kept.ts'
 import { noPullStates, pullStateFromGitHub, type PullStateOf } from './pulls.ts'
 import { Refused } from './said.ts'
@@ -510,6 +511,7 @@ export async function serve(dir = DIR, port = PORT) {
     }
     pushForever(team, dir, pushed, posterFor, (line) => console.error(line))
   }
+  patrolForever(team, dir, (line) => console.error(line))
   const server = await listen(site(team, { dir, webToken: await token(dir, WEB_TOKEN), boardToken: await token(dir), port, tailnet, pullStateOf: pullStateFromGitHub }), port)
   const tailnetPage = tailnet ? ` and https://${tailnet}/ through tailscale serve` : ''
   console.log(`serving the board at ${url} and its page at http://127.0.0.1:${port}/${tailnetPage}, its log in ${dir.replace(homedir(), '~')}`)
