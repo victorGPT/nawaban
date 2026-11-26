@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util'
 import { readFile } from 'node:fs/promises'
 import { text } from 'node:stream/consumers'
+import { userInfo } from 'node:os'
 import { block as blockOf, board, type MessageView } from '@vercel/board'
 import { createApp } from '@vercel/board/cli'
 import { answer, upstreamAnswer, orRefusal, Refused, type Said } from './said.ts'
@@ -27,13 +28,13 @@ export const sessionProfile = (agent: 'cx' | 'agy' | 'cc', session: string) =>
   boardKeepsProfileNamesLowercase(`${agent}-${session.slice(0, SESSION_PREFIX_LENGTH)}`)
 
 export function profile(): string {
-  const { CODEX_THREAD_ID: codexThread, ANTIGRAVITY_CONVERSATION_ID: antigravity, CLAUDE_CODE_SESSION_ID: claudeCode, NAWABAN_OWNER: owner } = process.env
+  const { CODEX_THREAD_ID: codexThread, ANTIGRAVITY_CONVERSATION_ID: antigravity, CLAUDE_CODE_SESSION_ID: claudeCode, NAWABAN_OWNER: owner = '' } = process.env
   if (codexThread) return sessionProfile('cx', codexThread)
   if (antigravity) return sessionProfile('agy', antigravity)
   if (claudeCode) return sessionProfile('cc', claudeCode)
-  if (!owner) throw new Refused('不知道你是谁：不在 Codex、Antigravity、Claude Code 里跑时设 NAWABAN_OWNER', 2)
-  if (!PROFILE_NAME.test(owner)) throw new Refused(`NAWABAN_OWNER ${owner} 不是身份名：字母开头，后面最多 31 个字母、数字或连字符`, 2)
-  return boardKeepsProfileNamesLowercase(owner)
+  const named = owner || userInfo().username
+  if (!PROFILE_NAME.test(named)) throw new Refused(`身份 ${named} 不是身份名：字母开头，后面最多 31 个字母、数字或连字符；设 NAWABAN_OWNER`, 2)
+  return boardKeepsProfileNamesLowercase(named)
 }
 
 export const key = (m: MessageView) => m.labels.key ?? m.id
