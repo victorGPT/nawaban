@@ -158,6 +158,8 @@ def test_a_synced_github_repo_hands_the_board_only_a_declaration_github_took_and
     board_dir = tmp_path / "board-dir"
     board_dir.mkdir()
     (board_dir / "github-sync.json").write_text(json.dumps({"repos": {"acme/roubao": "roubao"}, "reader": "x"}))
+    (board_dir / "github-sync").mkdir()
+    (board_dir / "github-sync" / "acme%2Froubao.switched.json").write_text("{}")
     monkeypatch.setenv("NAWABAN_BOARD_DIR", str(board_dir))
     calls, handed, refusal = [], [], []
     monkeypatch.setattr(cli, "_gh", lambda root, *a: calls.append(a) or "")

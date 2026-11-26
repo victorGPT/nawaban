@@ -42,7 +42,8 @@ function oldCliFindsABoard(dir, repoRoot) {
 function syncedFromGithubOnThisMachine(project) {
   const boardDir = process.env.NAWABAN_BOARD_DIR || join(homedir(), ".nawaban", "board");
   try {
-    return Object.values(JSON.parse(readFileSync(join(boardDir, "github-sync.json"), "utf8")).repos ?? {}).includes(project);
+    return Object.entries(JSON.parse(readFileSync(join(boardDir, "github-sync.json"), "utf8")).repos ?? {})
+      .some(([repo, channel]) => channel === project && existsSync(join(boardDir, "github-sync", `${encodeURIComponent(repo)}.switched.json`)));
   } catch {
     return false;
   }

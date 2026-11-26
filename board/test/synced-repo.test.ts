@@ -8,8 +8,8 @@ import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { block, board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
-import { deliverAsSignedWebhook, importOnlySync, pollRepo, recordRound, refusingGithubWrites, type Reader } from '../src/github-sync.ts'
-import { settleIssueTasks } from '../src/github-tasks.ts'
+import { deliverAsSignedWebhook, importOnlySync, pollRepo, recordRound, refusingGithubWrites, switchOnceEveryOpenIssueHasATask, type Reader } from '../src/github-sync.ts'
+import { openIssuesWithoutAnOpenTask, settleIssueTasks } from '../src/github-tasks.ts'
 import { mergeGate } from '../src/impact.ts'
 import { importOld } from '../src/import.ts'
 import { oldRowsAsDeclaration } from '../src/github-impact.ts'
@@ -114,6 +114,7 @@ async function poll() {
   for (let round = 0; round < 2; round++) {
     await pollRepo(REPO, dir, reader, deliver, clock, (known) => settleIssueTasks(team, 'roubao', REPO, known))
     await recordRound(dir, REPO)
+    await switchOnceEveryOpenIssueHasATask(dir, REPO, (issues) => openIssuesWithoutAnOpenTask(team, 'roubao', issues))
     await new Promise((done) => setTimeout(done, 300))
   }
 }

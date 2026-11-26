@@ -180,6 +180,8 @@ def test_a_repo_the_board_pushes_retires_nobody_and_says_why(roubao, tmp_path):
     roubao.issues.append(_issue(950, [_dispatched("t9")], state="CLOSED"))
     (tmp_path / "board").mkdir(exist_ok=True)
     (tmp_path / "board" / "github-sync.json").write_text(json.dumps({"repos": {"acme/roubao": "roubao"}, "push": ["acme/roubao"]}))
+    (tmp_path / "board" / "github-sync").mkdir()
+    (tmp_path / "board" / "github-sync" / "acme%2Froubao.switched.json").write_text("{}")
     assert cli.retire_finished_workers(roubao.repo) == [(True, "派发记录在板上、不推 GitHub，按 GitHub 评论认不出 worker，没收：worker 要手动收")]
     assert cli.retire_sweep_message(roubao.repo) is None
     assert roubao.killed == [] and roubao.searched == []

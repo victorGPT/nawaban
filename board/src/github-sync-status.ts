@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const CONFIG_FILE = 'github-sync.json'
@@ -9,7 +9,7 @@ const STALLED_AFTER_MS = 3 * POLL_EVERY_MS
 export type SyncConfig = { repos: Record<string, string>; reader: string; push?: string[] }
 type SyncStatus = { okAt?: string; failedAt?: string; error?: string }
 
-export async function githubSyncConfig(dir: string): Promise<SyncConfig | null> {
+export async function githubSyncConfigToPoll(dir: string): Promise<SyncConfig | null> {
   let text
   try {
     text = await readFile(join(dir, CONFIG_FILE), 'utf8')
@@ -22,6 +22,35 @@ export async function githubSyncConfig(dir: string): Promise<SyncConfig | null> 
   const pushValid = config.push === undefined || (reposValid && Array.isArray(config.push) && config.push.every((r) => typeof r === 'string' && r in config.repos!))
   if (!reposValid || typeof config.reader !== 'string' || !pushValid) throw new Error(`${join(dir, CONFIG_FILE)} 要写成 { "repos": { "<owner>/<repo>": "<channel>" }, "reader": "<gh 账号>", "push": ["<repos 里要推的 owner/repo>"] }`)
   return config as SyncConfig
+}
+
+const switchedFile = (dir: string, repo: string) => join(dir, STATE_FOLDER, `${encodeURIComponent(repo)}.switched.json`)
+
+export async function switchedToTheBoard(dir: string, repo: string): Promise<boolean> {
+  try {
+    await readFile(switchedFile(dir, repo))
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+}
+
+export async function recordSwitch(dir: string, repo: string, checked: { at: string; openIssues: number }) {
+  await mkdir(join(dir, STATE_FOLDER), { recursive: true })
+  const tmp = `${switchedFile(dir, repo)}.${process.pid}.tmp`
+  await writeFile(tmp, JSON.stringify(checked))
+  await rename(tmp, switchedFile(dir, repo))
+}
+
+export const unswitchUntilThisServeChecksAgain = (dir: string, repos: string[]) => Promise.all(repos.map((repo) => rm(switchedFile(dir, repo), { force: true })))
+
+export async function githubSyncConfig(dir: string): Promise<SyncConfig | null> {
+  const config = await githubSyncConfigToPoll(dir)
+  if (!config) return null
+  const kept = (await Promise.all(Object.entries(config.repos).map(async ([repo, channel]) => ((await switchedToTheBoard(dir, repo)) ? [[repo, channel] as const] : [])))).flat()
+  const repos = Object.fromEntries(kept)
+  return { ...config, repos, ...(config.push ? { push: config.push.filter((repo) => repo in repos) } : {}) }
 }
 
 const statusFile = (dir: string, repo: string) => join(dir, STATE_FOLDER, `${encodeURIComponent(repo)}.status.json`)
@@ -66,7 +95,7 @@ async function pushStatusOf(dir: string, repo: string): Promise<PushStatus | nul
 }
 
 export async function syncStalledNote(dir: string, channel: string, now = Date.now()): Promise<string | null> {
-  const repos = Object.entries((await githubSyncConfig(dir))?.repos ?? {}).filter(([, c]) => c === channel).map(([repo]) => repo)
+  const repos = Object.entries((await githubSyncConfigToPoll(dir))?.repos ?? {}).filter(([, c]) => c === channel).map(([repo]) => repo)
   for (const repo of repos) {
     const status = await statusOf(dir, repo)
     if (!status) return `GitHub 同步还没跑过一轮（${repo}；nawaban serve 改了 github-sync.json 后重启了吗）`
