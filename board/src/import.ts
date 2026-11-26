@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { block, BoardError, type board, type MessageView } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
+import { declarationId, declareOnIssueThread, GITHUB_ISSUE_TICKET, githubRepoOfChannel, oldRowsAsDeclaration } from './github-impact.ts'
 import { okrChannel, keepAs, key, type Reading } from './okr.ts'
 import { SCHEMAS } from './schemas.ts'
 import { Refused } from './said.ts'
@@ -18,13 +19,14 @@ type Impact = { repo: string; ticket: string; objective: string; kr: string; dir
 type Counted = 'tasks' | 'replies' | '等你' | 'readings' | 'accepts' | 'impacts'
 type NewAndAlreadyThere = Record<Counted, [number, number]>
 type ProjectOfRepo = (repo: string) => string | null
+type GithubRepoOf = (project: string, checkout: string) => Promise<string | null>
 type OkrWrite = { at: string; kind: 'readings' | 'accepts' | 'impacts'; write: () => Promise<boolean> }
 
 const MESSAGE_TEXT_MAX = 10_000
 const HOLD_REASON_MAX = 1_000
 const OLD_CLI_NEEDS_INFO_TRIAGE = /^triage:\s*needs-info[\s—–:：-]*(?:等你\s*[:：])?\s*/
 const ID_HASH_LENGTH = 32
-const usage = 'usage: nawaban import --from <old nawaban.db> --project <p> [--project <p>]… [--repos <repos.md>]'
+const usage = 'usage: nawaban import --from <old nawaban.db> --project <p> [--project <p>]… [--repos <repos.md>] [--okr-only]'
 
 const hash = (...parts: string[]) => createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, ID_HASH_LENGTH)
 const cut = (s: string, max: number, tail: string) => (s.length <= max ? s : s.slice(0, max - tail.length) + tail)
@@ -219,28 +221,29 @@ function acceptsUnderTheirOwnIds(team: Team, old: Old, projectOf: ProjectOfRepo)
   })
 }
 
-function declarationsOnImportedTasks(team: Team, old: Old, ids: Map<string, string>, projectOf: ProjectOfRepo) {
+async function declarationsOnImportedTasksAndIssues(team: Team, old: Old, ids: Map<string, string>, projectOf: ProjectOfRepo, githubRepoOf: GithubRepoOf) {
   const declared = new Map<string, Impact[]>()
   for (const i of old.impacts) {
     const k = [i.repo, i.ticket, i.objective, i.declared_at].join('\0')
     declared.set(k, [...(declared.get(k) ?? []), i])
   }
   const writes: OkrWrite[] = []
+  const onIssueThreads: { project: string; id: string }[] = []
   const countedNotKeptForHavingNoThreadHere = []
   for (const rows of declared.values()) {
     const i = rows[0]!
-    if (!projectOf(i.repo)) continue
+    const p = projectOf(i.repo)
+    if (!p) continue
+    const id = declarationId(i)
     const task = ids.get(i.ticket)
-    if (!task) {
-      countedNotKeptForHavingNoThreadHere.push(`${i.ticket}(${rows.length})`)
-      continue
-    }
-    const krs = rows.filter((r) => r.kr).map((r) => Object.fromEntries(Object.entries({ name: r.kr, dir: r.dir, before: r.before, after: r.after, basis: r.basis }).filter(([, v]) => v !== null)))
-    const id = 'import-impact-' + hash(i.repo, i.ticket, i.objective, i.declared_at)
-    const text = block('nawaban-impact@1', { objective: i.objective, krs })
-    writes.push({ at: i.declared_at, kind: 'impacts', write: async () => !(await posted(team, id)) && !!(await team.reply(task, { id, text })) })
+    const repo = !task && GITHUB_ISSUE_TICKET.test(i.ticket) ? await githubRepoOf(p, i.repo) : null
+    if (task) writes.push({ at: i.declared_at, kind: 'impacts', write: async () => !(await posted(team, id)) && !!(await team.reply(task, { id, text: oldRowsAsDeclaration(rows) })) })
+    else if (repo) {
+      onIssueThreads.push({ project: p, id })
+      writes.push({ at: i.declared_at, kind: 'impacts', write: () => declareOnIssueThread(team, p, repo, rows) })
+    } else countedNotKeptForHavingNoThreadHere.push(`${i.ticket}(${rows.length})`)
   }
-  return { writes, skipped: countedNotKeptForHavingNoThreadHere }
+  return { writes, onIssueThreads, skipped: countedNotKeptForHavingNoThreadHere }
 }
 
 async function inTheOrderMadeSoEachRoundIsWhenItLands(writes: OkrWrite[], n: NewAndAlreadyThere) {
@@ -252,11 +255,11 @@ export async function importOld(argv: string[], team: Team, dir: string): Promis
     const { values, positionals } = parseArgs({
       args: argv,
       allowPositionals: true,
-      options: { from: { type: 'string' }, project: { type: 'string', multiple: true }, repos: { type: 'string' } },
+      options: { from: { type: 'string' }, project: { type: 'string', multiple: true }, repos: { type: 'string' }, 'okr-only': { type: 'boolean' } },
     })
-    const { from, project: projects = [], repos = join(homedir(), '.claude', 'repos.md') } = values
+    const { from, project: projects = [], repos = join(homedir(), '.claude', 'repos.md'), 'okr-only': okrOnly } = values
     if (!from || !projects.length || positionals.length) throw new Refused(usage, 2)
-    const old = readOldReadOnly(from, projects)
+    const old = readOldReadOnly(from, okrOnly ? [] : projects)
     const ids = new Map(old.tasks.map((t) => [t.id, '']))
     refuseBlockersOutsideTheImport(old, ids)
 
@@ -278,13 +281,18 @@ export async function importOld(argv: string[], team: Team, dir: string): Promis
       await holdForAPersonNeedsNoClaim(team, old, t, id, n)
     }
 
-    const declarations = declarationsOnImportedTasks(team, old, ids, projectOfRepoFolder)
+    const githubRepos = new Map<string, Promise<string | null>>()
+    const githubRepoOf: GithubRepoOf = (p, checkout) => {
+      if (!githubRepos.has(p)) githubRepos.set(p, githubRepoOfChannel(dir, p, checkout))
+      return githubRepos.get(p)!
+    }
+    const declarations = await declarationsOnImportedTasksAndIssues(team, old, ids, projectOfRepoFolder, githubRepoOf)
     await inTheOrderMadeSoEachRoundIsWhenItLands(
       [...readingsThroughOkrsOwnKeepingSoTheNextOkrFindsThem(team, old, projectOfRepoFolder), ...acceptsUnderTheirOwnIds(team, old, projectOfRepoFolder), ...declarations.writes],
       n,
     )
 
-    const checked = await compareOldWithBoard(team, projects, old, ids, projectOfRepoFolder)
+    const checked = await compareOldWithBoard(team, projects, old, ids, projectOfRepoFolder, declarations.onIssueThreads)
     const out = [
       `imported ${projects.join(', ')} from ${from}`,
       ...Object.entries(n).map(([what, [made, had]]) => `  ${what.padEnd(9)} new ${made}, already there ${had}`),
@@ -313,7 +321,7 @@ async function okrBlocksOnBoard(team: Team, p: string) {
     for (const t of page.threads) {
       const { message, replies } = await team.thread(t.message.id)
       for (const m of [message, ...replies]) {
-        readings += m.blocks.filter((b) => b.schema === 'nawaban-kr-reading').length
+        readings += m.blocks.filter((b) => b.schema === 'nawaban-kr-reading' || b.schema === 'nawaban-kr-failure').length
         accepts += m.blocks.filter((b) => b.schema === 'nawaban-okr-accept').length
       }
     }
@@ -322,7 +330,7 @@ async function okrBlocksOnBoard(team: Team, p: string) {
   return { readings, accepts }
 }
 
-async function compareOldWithBoard(team: Team, projects: string[], old: Old, ids: Map<string, string>, projectOf: ProjectOfRepo) {
+async function compareOldWithBoard(team: Team, projects: string[], old: Old, ids: Map<string, string>, projectOf: ProjectOfRepo, onIssueThreads: { project: string; id: string }[]) {
   const now = new Map<string, MessageView>()
   const thread = new Map<string, MessageView[]>()
   for (const [key, id] of ids) {
@@ -358,15 +366,19 @@ async function compareOldWithBoard(team: Team, projects: string[], old: Old, ids
     for (const t of holding) heldLandsUnclaimedListedWithItsState.push(`${t.id} ${now.get(t.id)?.task?.state}`)
     const { readings, accepts } = await okrBlocksOnBoard(team, p)
     let impacts = 0
-    for (const t of mine) {
-      for (const r of thread.get(t.id) ?? []) {
-        for (const b of r.blocks) if (b.schema === 'nawaban-impact') impacts += oldRowsOfOneDeclarationEachKrOrOneForNone((b.data as { krs: unknown[] }).krs)
-      }
+    const countImpactsIn = (r: MessageView) => {
+      for (const b of r.blocks) if (b.schema === 'nawaban-impact') impacts += oldRowsOfOneDeclarationEachKrOrOneForNone((b.data as { krs: unknown[] }).krs)
+    }
+    for (const t of mine) for (const r of thread.get(t.id) ?? []) countImpactsIn(r)
+    for (const { id } of onIssueThreads.filter((d) => d.project === p)) {
+      const m = await team.posted(id).catch(() => null)
+      if (m) countImpactsIn(m)
     }
     const of = (table: { repo: string }[]) => table.filter((r) => projectOf(r.repo) === p).length
     check(p, 'kr_readings', of(old.readings), readings)
     check(p, 'okr_accepts', of(old.accepts), accepts)
-    const declarationsOfImportedTasks = old.impacts.filter((i) => ids.has(i.ticket))
+    const onAnIssueThread = new Set(onIssueThreads.map((d) => d.id))
+    const declarationsOfImportedTasks = old.impacts.filter((i) => ids.has(i.ticket) || onAnIssueThread.has(declarationId(i)))
     check(p, 'kr_impacts', of(declarationsOfImportedTasks), impacts)
   }
   const text = [

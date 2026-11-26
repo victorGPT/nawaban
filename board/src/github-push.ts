@@ -269,7 +269,7 @@ export async function pushAccountOf(dir: string, channel: string) {
   return { checkout, account: await githubAccountOf(checkout) }
 }
 
-async function saidAsAHook(write: () => Promise<string>): Promise<number> {
+export async function saidAsAHook(write: () => Promise<string>): Promise<number> {
   try {
     process.stdout.write(`✓ ${await write()}\n`)
     return 0

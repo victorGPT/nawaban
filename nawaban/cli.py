@@ -504,6 +504,10 @@ def impact(con, a, gh_root: Path | None = None) -> str:
     now = _sortable_timestamp(_dt.datetime.now())
     with con:
         con.executemany("INSERT INTO kr_impacts VALUES (?,?,?,?,?,?,?,?,?)", [(repo, a.id, *r, now) for r in rows])
+        if gh_root is not None and _repo_the_board_syncs(gh_root):
+            _write_on_the_board_first(["github-impact"], json.dumps(
+                [dict(zip(("objective", "kr", "dir", "before", "after", "basis"), r), repo=repo, ticket=a.id, declared_at=now) for r in rows],
+                ensure_ascii=False))
         _announce_before_commit_so_a_failed_post_rolls_back(con, a, who, text, gh_root)
     return f"✓ event {a.id} · impact"
 
@@ -1389,6 +1393,14 @@ def gh_post(root: Path, number: str, kind: str, body: str, kr: str | None = None
         _write_on_the_board_first(["github-reply", pushed_by_the_board, number], text)
     else:
         _gh(root, "issue", "comment", number, "--body", text)
+
+
+def _repo_the_board_syncs(root: Path) -> str | None:
+    try:
+        config = json.loads((_board_dir() / "github-sync.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return next((repo for repo, channel in (config.get("repos") or {}).items() if channel == root.name), None)
 
 
 def _repo_the_board_pushes(root: Path) -> str | None:

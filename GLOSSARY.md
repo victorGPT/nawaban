@@ -245,6 +245,12 @@ _Current identifiers_: line prefix `已决：`.
 
 ### Board and data
 
+**Synced repository**(同步仓库)
+A GitHub-tracked repository that this machine's `~/.nawaban/board/github-sync.json` lists under `repos`: `nawaban serve` polls its issues into the board as tasks keyed `<PROJECT>-<N>`, and every hook, the Herdr panel and `okr` read it from the board, while its writes still go through the old CLI as `'#N'` and reach GitHub. A KR impact declared on its issue is kept on that issue's board thread too, so the board's merge gate (which also takes `Closes #N`) and OKR read it; an issue the poll has not brought in yet gets a placeholder thread, attached to the issue, which the poll later fills in instead of making a second one. A repository on GitHub that this machine does not sync stays on the old CLI.
+同步仓库是在 GitHub 记账、本机 `~/.nawaban/board/github-sync.json` 的 `repos` 里列了的仓库：`nawaban serve` 把它的 issue 轮询进看板，成为票号 `<项目>-<N>` 的票；钩子、Herdr 面板和 `okr` 都从看板读它，写仍经旧 CLI 用 `'#N'` 写到 GitHub。在它的 issue 上声明的 KR 影响也记在该 issue 的看板线程上，所以看板的合并锁（也认 `Closes #N`）和 OKR 都读得到；轮询还没拉到的 issue 先建一条挂在该 issue 上的占位线程，之后轮询往里补，不另建。本机不同步的 GitHub 仓库照旧走旧 CLI。
+_Avoid_: 分流, mirrored repository, GitHub mode.
+_Current identifiers_: `github-sync.json` `repos`; `hooks/route.mjs`; `nawaban hook github-impact`; `nawaban import --okr-only`; label `title-awaits-github`.
+
 **Board**(看板)
 The one SQLite file that holds every task and event.
 看板是存放全部票和事件的那一个 SQLite 文件。

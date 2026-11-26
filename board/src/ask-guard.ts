@@ -3,7 +3,8 @@ import { text } from 'node:stream/consumers'
 import { block, type board } from '@vercel/board'
 import { checkValue, findBlocks, type FoundBlock } from '@vercel/board/schemas'
 import { askOn } from './events.ts'
-import type { OldCli } from './github.ts'
+import { ISSUE_KEY, type OldCli } from './github.ts'
+import { githubIssueOfTask } from './github-tasks.ts'
 import { gapsOfADecisionCard, SCHEMAS } from './schemas.ts'
 import { live, profilesTheHookSessionMayHold, resolve, sessionProfile } from './tasks.ts'
 import { Refused } from './said.ts'
@@ -62,6 +63,8 @@ async function onTheBoard(request: Request, session: string | undefined): Promis
     if (error instanceof Refused) return { kind: 'missing', ticket: request.ticket, why: error.message }
     throw error
   }
+  const issue = githubIssueOfTask(task)
+  if (issue !== null) return { kind: 'old', request: { ...request, ticket: `#${issue}` } }
   if (HOLDS_ALREADY_WAITING_ON_A_PERSON.has(task.task?.blocked?.kind ?? '')) return { kind: 'held', ticket: request.ticket }
   return { kind: 'open', id: task.id, as: profileAsking(task, session), request }
 }
@@ -74,7 +77,7 @@ async function readingOf(found: FoundBlock, stop: Stop, onOldCli: boolean): Prom
   const request = found.data as Request
   const gaps = gapsOfADecisionCard(request)
   if (gaps.length) return { kind: 'unready', gaps }
-  return onOldCli ? { kind: 'old', request } : onTheBoard(request, stop.session_id)
+  return onOldCli || ISSUE_KEY.test(request.ticket) ? { kind: 'old', request } : onTheBoard(request, stop.session_id)
 }
 
 async function saidOnStderrWithStdoutMuted(work: () => Promise<number>) {

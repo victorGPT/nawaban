@@ -1,9 +1,10 @@
 import type { board, MessageView } from '@vercel/board'
 
 type Person = ReturnType<typeof board>
-export type KnownIssue = { number: number; state_reason?: string | null; reopens?: number }
+export type KnownIssue = { number: number; title?: string; state_reason?: string | null; reopens?: number }
 
 export const HELD_FOR_A_GITHUB_ASK = 'GitHub 待决：'
+export const TITLE_AWAITS_GITHUB = 'title-awaits-github'
 const CLOSE_LEASE_S = 60
 const HOLD_REASON_MAX = 200
 const FINISHED = new Set(['completed', 'canceled'])
@@ -13,8 +14,18 @@ const TRAILING_NAWABAN_MARKER = /\n*<!-- nawaban (\{[^\n]*\}) -->\s*$/
 
 export const keyOf = (channel: string, issue: number) => `${channel.toUpperCase()}-${issue}`
 const issueNumberOf = (root: MessageView) => Number(root.labels.issue!.slice(root.labels.issue!.lastIndexOf('#') + 1))
+export const githubIssueOfTask = (task: MessageView) =>
+  task.labels.issue ? issueNumberOf(task) : task.labels['issue-root'] && task.labels.key ? Number(task.labels.key.slice(task.labels.key.lastIndexOf('-') + 1)) : null
 const stateOf = (m: MessageView) => m.task?.state ?? 'none'
 const firstLine = (text: string) => text.split('\n')[0]!
+
+async function titledFromGithub(person: Person, root: MessageView, title: string) {
+  const text = [`Issue #${issueNumberOf(root)}: ${title}`, ...root.text.split('\n').slice(1)].join('\n')
+  await person.edit(root.id, text)
+  await person.label(root.id, { unset: [TITLE_AWAITS_GITHUB] })
+  const { [TITLE_AWAITS_GITHUB]: _, ...labels } = root.labels
+  return { ...root, text, labels }
+}
 
 async function nativeRoot(person: Person, channel: string, issue: string) {
   const { threads } = await person.threads({ channel, label: { issue }, limit: 1 })
@@ -127,6 +138,7 @@ async function theOneTaskHoldingTheKey(person: Person, root: MessageView, key: s
 }
 
 async function settleRoot(person: Person, root: MessageView, issue: KnownIssue) {
+  if (root.labels[TITLE_AWAITS_GITHUB] && issue.title !== undefined) root = await titledFromGithub(person, root, issue.title)
   const key = keyOf(root.channel, issueNumberOf(root))
   const closedAs = issue.state_reason ?? undefined
   if (closedAs && root.labels['closed-as'] !== closedAs) await person.label(root.id, { set: { 'closed-as': closedAs } })

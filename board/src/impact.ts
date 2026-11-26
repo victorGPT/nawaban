@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 import type { board, Middleware, MessageView } from '@vercel/board'
 import { findBlocks } from '@vercel/board/schemas'
 import { parse } from 'smol-toml'
+import { githubIssueOfTask } from './github-tasks.ts'
 
 type Team = ReturnType<typeof board>
 type Impact = { objective: string; krs: { name: string; dir?: string; before?: string; after?: string }[] }
@@ -100,8 +101,8 @@ export function impactNames(dir: string): Middleware {
 export const howToDeclare = (ref: string) =>
   `  nawaban event ${ref} impact --o "<O 名>" --kr "${IMPACT_FORMAT}" [--change measure|gold](--kr 可重复;纯基础设施写 --o 无;认领时就登记:nawaban claim ${ref} --o … --kr …)`
 
-async function hasImpactReply(team: Team, id: string) {
-  const { replies } = await team.thread(id)
+async function hasImpactReply(team: Team, task: MessageView) {
+  const { replies } = await team.thread(task.labels['issue-root'] ?? task.id)
   return replies.some((r) => r.blocks.some((b) => b.schema === 'nawaban-impact'))
 }
 
@@ -175,11 +176,12 @@ async function whyThisMergeMustWait(team: Team, project: string, pr: PullRequest
   const text = ticketsThePullRequestIsFor(pr)
   const named = (await tasksADeclarationCanStillBeOn(team, project)).filter((t) => {
     const key = t.labels.key
-    return key && namesKeyAsWholeWord(text, key)
+    const issue = githubIssueOfTask(t)
+    return (key && namesKeyAsWholeWord(text, key)) || (issue !== null && namesKeyAsWholeWord(text, `#${issue}`))
   })
   if (!named.length) return `PR #${pr.number} 没写到项目 ${project} 的任何一张票(标题、分支名里写票号，或正文写 Closes/Refs <票号>),核不了 KR 影响声明`
   const missed = []
-  for (const t of named) if (!(await hasImpactReply(team, t.id))) missed.push(t.labels.key!)
+  for (const t of named) if (!(await hasImpactReply(team, t))) missed.push(t.labels.key!)
   if (missed.length) return `PR #${pr.number} 的关联票没有 KR 影响声明(${missed.join('、')}),先补再合并:\n${missed.map(howToDeclare).join('\n')}`
   return null
 }

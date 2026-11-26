@@ -48,17 +48,16 @@ function syncedFromGithubOnThisMachine(project) {
   }
 }
 
-function trackerOf(dir, gitCommonDir, reads) {
+function trackerOf(dir, gitCommonDir) {
   const project = repoName(gitCommonDir);
   if (process.env.NAWABAN_CLI) return process.env.NAWABAN_CLI;
-  if (reads && syncedFromGithubOnThisMachine(project)) return "board";
+  if (syncedFromGithubOnThisMachine(project)) return "board";
   if (cliFor(project) === "board") return "board";
   const repoRoot = dirname(gitCommonDir);
   return tracksOnGithub(repoRoot) || oldCliFindsABoard(dir, repoRoot) ? OLD_CLI : "board";
 }
 
-const reads = process.argv.includes("--reads");
-const dir = process.argv.slice(2).find((a) => a !== "--reads") || ".";
+const dir = process.argv[2] || ".";
 const gitCommonDir = gitCommonDirAt(dir);
 const project = gitCommonDir && repoName(gitCommonDir);
-console.log(project && trackerOf(dir, gitCommonDir, reads) === "board" ? `board ${project}` : OLD_CLI);
+console.log(project && trackerOf(dir, gitCommonDir) === "board" ? `board ${project}` : OLD_CLI);
