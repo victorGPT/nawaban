@@ -4,7 +4,7 @@ import { text as wholeOf } from 'node:stream/consumers'
 import { promisify } from 'node:util'
 import { block, BoardError, type board } from '@vercel/board'
 import { issueRoot, saidAsAHook } from './github-push.ts'
-import { githubSyncConfig } from './github-sync-status.ts'
+import { githubSyncConfigToPoll } from './github-sync-status.ts'
 import { keyOf, TITLE_AWAITS_GITHUB } from './github-tasks.ts'
 import { projectOf } from './impact.ts'
 import { Refused } from './said.ts'
@@ -28,7 +28,7 @@ export const oldRowsAsDeclaration = (rows: OldImpactRow[]) =>
   })
 
 export async function githubRepoOfChannel(dir: string, channel: string, checkout?: string) {
-  const configured = Object.entries((await githubSyncConfig(dir))?.repos ?? {}).find(([, c]) => c === channel)?.[0]
+  const configured = Object.entries((await githubSyncConfigToPoll(dir))?.repos ?? {}).find(([, c]) => c === channel)?.[0]
   if (configured || !checkout) return configured ?? null
   const remote = await run('git', ['-C', checkout, 'remote', 'get-url', 'origin']).then((r) => r.stdout, () => '')
   return GITHUB_REPO_IN_REMOTE.exec(remote)?.[1] ?? null

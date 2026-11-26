@@ -7,6 +7,7 @@ import { local } from '@vercel/board/backend-local'
 import { deliverAsSignedWebhook, githubSyncConfig, githubSyncConfigToPoll, importOnlySync, pollRepo, recordRound, refusingGithubWrites, switchOnceEveryOpenIssueHasATask, syncStalledNote, unswitchUntilThisServeChecksAgain, type Reader } from '../src/github-sync.ts'
 import { openIssuesWithoutAnOpenTask, settleIssueTasks } from '../src/github-tasks.ts'
 import { recordSwitch } from '../src/github-sync-status.ts'
+import { githubRepoOfChannel } from '../src/github-impact.ts'
 import { githubRepos } from '../src/github.ts'
 import { boardData } from '../src/views.ts'
 import { verifier } from '../src/server.ts'
@@ -226,6 +227,7 @@ describe('全量入站核对完才切到板上', () => {
     const openWithoutATask = (issues: number[]) => openIssuesWithoutAnOpenTask(team, 'roubao', issues)
     expect(Object.keys((await githubSyncConfigToPoll(dir))!.repos)).toEqual([REPO])
     expect(await switched()).toEqual({})
+    expect(await githubRepoOfChannel(dir, 'roubao')).toBe(REPO)
     expect(await switchOnceEveryOpenIssueHasATask(dir, REPO, openWithoutATask)).toContain('首轮全量还没完成')
 
     const world = { issues: [issue(1, 'open', '2026-11-24T10:00:00Z'), issue(2, 'open', '2026-11-24T10:01:00Z'), issue(3, 'closed', '2026-11-24T10:02:00Z')], comments: [] }

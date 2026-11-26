@@ -1400,7 +1400,7 @@ def _repo_the_board_syncs(root: Path) -> str | None:
         config = json.loads((_board_dir() / "github-sync.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return next((repo for repo, channel in (config.get("repos") or {}).items() if channel == root.name and _switched_to_the_board(repo)), None)
+    return next((repo for repo, channel in (config.get("repos") or {}).items() if channel == root.name), None)
 
 
 def _repo_the_board_pushes(root: Path) -> str | None:

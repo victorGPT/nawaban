@@ -36,7 +36,7 @@ roubao 和岳不同共用，票记在 GitHub issue 上。决策者这边每次�
 - `reader`：轮询用哪个 gh 账号的 token 读，只读。
 - webhook secret 由 serve 首次启动时生成，存在 `~/.nawaban/board/github-webhook-secret`（同 `token` 文件的做法）。
 - 推送身份：不建 GitHub App，也不开专用账号（决策者 11-25 问「能不能两个都不建」，临时板实测可以，见第 4 节「推送身份」）。每个仓库用自己的 GitHub 账号推，账号不写在这份配置里，也不写死在代码里：按仓库读该仓库 `docs/agents/issue-tracker.md` 里的 `github-account`（NAWABAN-GH-ACCOUNT 出的函数），token 用 `gh auth token --user <账号>` 从本机取。roubao 声明的是 `wuxianzhong-gpt`，就是 agent 现在写 GitHub 用的账号。
-- **全量入站核对完才切**（NAWABAN-ROUBAO-ENABLE 11-26 实跑补）：`repos` 里的仓库，serve 一起来就轮询，但读写先照旧走 GitHub。轮询成功一轮后，serve 核对游标里每个 open issue 在板上都有一张没完成的票（`ROUBAO-N`），全有才写 `github-sync/<owner%2Frepo>.switched.json`（记游标时间和 open issue 数），日志打一行「全量入站完成」；缺票就打出缺哪几个，下一轮再核。路由（`hooks/route.mjs`）、旧 CLI 的写入（`gh_post`、claim、close、impact）、面板和网页的读、`share` 都只认有这个文件的仓库。serve 每次启动先删掉它，重新核对。这一条之前，roubao 首轮全量串行送 68 个 open issue 和全部评论，5 分钟没送完，issue 变票要等整轮之后，路由却在写进 `repos` 那一刻就切了，worker 的合并和 event 撞上空板被拦。
+- **全量入站核对完才切**（NAWABAN-ROUBAO-ENABLE 11-26 实跑补）：`repos` 里的仓库，serve 一起来就轮询，但读写先照旧走 GitHub。轮询成功一轮后，serve 核对游标里每个 open issue 在板上都有一张没完成的票（`ROUBAO-N`），全有才写 `github-sync/<owner%2Frepo>.switched.json`（记游标时间和 open issue 数），日志打一行「全量入站完成」；缺票就打出缺哪几个，下一轮再核。路由（`hooks/route.mjs`）、旧 CLI 的写入（`gh_post`、claim、close）、面板和网页的读、`share` 都只认有这个文件的仓库；影响声明是数据不是路由，`repos` 里有就照旧镜像到板上，首轮期间和 serve 重启后记的声明切换后合并锁照样认。serve 每次启动先删掉它，重新核对。这一条之前，roubao 首轮全量串行送 68 个 open issue 和全部评论，5 分钟没送完，issue 变票要等整轮之后，路由却在写进 `repos` 那一刻就切了，worker 的合并和 event 撞上空板被拦。
 - **只推公司仓库**：只有和同事共用、记账在 GitHub 上的仓库（现在只有 roubao）才写进 `github-sync.json`，也只有它们推送。个人仓库（nawaban、bzkanbanv2 等只有决策者的）记账本来就在板上，不进 `github-sync.json`，什么都不推。
 
 ## 2. 入站：本机轮询器
