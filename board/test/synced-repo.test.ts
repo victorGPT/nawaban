@@ -258,7 +258,7 @@ describe('roubao 的 OKR 搬上板', () => {
     expect(roots).toHaveLength(1)
     expect(roots[0]!.labels).toMatchObject({ key: 'ROUBAO-1740' })
     expect(roots[0]!.labels['title-awaits-github']).toBeUndefined()
-    expect(roots[0]!.text.split('\n')[0]).toBe('Issue #1740: issue 1740')
+    expect(roots[0]!.text.split('\n')[0]).toBe('issue 1740')
     expect(roots[0]!.task?.state).toBe('ready')
     const { replies } = await team.thread(roots[0]!.id)
     expect(replies.flatMap((r) => r.blocks).filter((b) => b.schema === 'nawaban-impact').map((b) => b.data)).toEqual([
@@ -282,7 +282,7 @@ describe('roubao 的 OKR 搬上板', () => {
     const roots = (await team.channel('roubao').messages()).messages.filter((m) => m.labels.issue === `${REPO}#1750`)
     expect(roots).toHaveLength(1)
     expect(roots[0]!.by.principal).toBe('local:user:victor')
-    expect(roots[0]!.text.split('\n')[0]).toBe('Issue #1750: issue 1750')
+    expect(roots[0]!.text.split('\n')[0]).toBe('issue 1750')
     expect(roots[0]!.labels['title-awaits-github']).toBeUndefined()
     expect(roots[0]!.task?.state).toBe('ready')
   })
@@ -317,23 +317,90 @@ describe('同步仓库的合并锁、旧 CLI 的声明、待决', () => {
     expect(githubWrites).toEqual([])
   })
 
-  it('同步仓库的待决请求按 #N 交给旧 CLI，在该票所在的仓库里写到 GitHub，不记在板上', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  it('切过去以后同步仓库的待决记在板上的票上，不再经旧 CLI 写 GitHub', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
     const card = {
       ticket: 'ROUBAO-1730', decision: '先合 A 还是先合 B', kr: '听得懂需求 / 意图准确率', context: 'A 改了接口',
       options: [{ choice: 'A', tradeoff: '快', door: 'two-way' }, { choice: 'B', tradeoff: '稳', door: 'one-way' }], recommendation: 'A',
     }
     const id = (await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1730' } })).tasks[0]!.message.id
-    const before = (await team.thread(id)).replies.length
     await writeFile(join(tmp, 'gh.log'), '')
-    for (const session of [checkouts.roubao!, checkouts.nawaban!]) {
-      await writeFile(join(tmp, 'gh.log'), '')
-      const r = await hook('ask-guard.sh', session, { stop_hook_active: false, last_assistant_message: `你定。\n\n${block('nawaban-ask-request@1', card)}\n` })
-      expect(r.code, r.err).toBe(0)
-      const calls = (await readFile(join(tmp, 'gh.log'), 'utf8')).trim().split('\n')
-      expect(calls.length).toBeGreaterThan(0)
-      for (const call of calls) expect(call.startsWith(`${await realpath(checkouts.roubao!)} `) || call.startsWith(`${checkouts.roubao!} `), call).toBe(true)
-      expect(calls.some((call) => /\b1730\b/.test(call))).toBe(true)
+    const r = await hook('ask-guard.sh', checkouts.roubao!, { stop_hook_active: false, last_assistant_message: `你定。\n\n${block('nawaban-ask-request@1', card)}\n` })
+    expect([r.code, r.out, r.err]).toEqual([0, '', ''])
+    expect(await readFile(join(tmp, 'gh.log'), 'utf8')).toBe('')
+    const { ticket, ...asked } = card
+    expect((await team.thread(id)).replies.flatMap((m) => m.blocks).filter((b) => b.schema === 'nawaban-ask').map((b) => b.data)).toEqual([asked])
+  })
+})
+
+const impactSaidOnGithub = (body: string) => `影响：${body}\n\n<!-- nawaban ${JSON.stringify({ v: 1, uid: `u-${world.comments.length}`, kind: 'impact', author: 'cc-x', terminal: null, at: 1, body }).replace(/-/g, '\\u002d')} -->`
+
+describe('切到板上后 roubao worker 照旧的写法', () => {
+  it('切过去后用板上票号 ROUBAO-N：show、event、claim 都通，标题就是 issue 原标题，旧写法 #N 板不认', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    world.issues.push(issue(1770))
+    await poll()
+    const roubao = checkouts.roubao!
+    expect(await nawaban(roubao, 'show', 'ROUBAO-1770')).toMatch(/^ROUBAO-1770 +ready +issue 1770\n/)
+    await nawaban(roubao, 'event', 'ROUBAO-1770', 'note', '用板上票号')
+    await nawaban(roubao, 'claim', 'ROUBAO-1770', '--o', '无')
+    const shown = await nawaban(roubao, 'show', 'ROUBAO-1770', '--all')
+    expect(shown).toContain('用板上票号')
+    expect(shown).toMatch(/holder\s+cc-aaaa1111/)
+    const old = await run(['node', CLI, 'show', '#1770'], roubao)
+    expect([old.code, old.err.split('\n')[0]]).toEqual([1, '✗ 没有票 #1770'])
+  })
+
+  it('GitHub 上改了标题，板上的票跟着换成新标题，不带 Issue #N 前缀', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    const renamed = world.issues.find((i) => i.number === 1770)!
+    Object.assign(renamed, { title: '换了名字', updated_at: tick() })
+    await poll()
+    expect(await nawaban(checkouts.roubao!, 'show', 'ROUBAO-1770')).toMatch(/^ROUBAO-1770 +\S+ +换了名字\n/)
+  })
+
+  it('带 Issue #N 前缀入站过的同步状态，下一轮给每个 open issue 补一次改标题，之后不再补', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    const path = join(dir, 'github-sync', `${encodeURIComponent(REPO)}.json`)
+    const { titledAsOnGithub, ...before } = JSON.parse(await readFile(path, 'utf8'))
+    expect(titledAsOnGithub).toBe(true)
+    await writeFile(path, JSON.stringify(before))
+    const delivered: string[] = []
+    const deliver = deliverAsSignedWebhook((request) => team.fetch(request), url, WEBHOOK)
+    const counting: typeof deliver = async (event, payload) => {
+      if (payload.action === 'edited' && event === 'issues') delivered.push(String((payload.issue as Issue).number))
+      return deliver(event, payload)
     }
-    expect((await team.thread(id)).replies).toHaveLength(before)
+    await pollRepo(REPO, dir, reader, counting, clock)
+    const open = Object.entries(before.issues as Record<string, { state: string }>).filter(([, s]) => s.state === 'open').map(([n]) => n)
+    expect(delivered.sort()).toEqual(open.sort())
+    delivered.length = 0
+    await pollRepo(REPO, dir, reader, counting, clock)
+    expect(delivered).toEqual([])
+  })
+
+  it('GitHub 上已记的影响入站成板上的声明，merge.sh 的影响闸放行，重跑不多一条', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    world.issues.push(issue(1780), issue(1781))
+    commentOn(1780, impactSaidOnGithub('O 听得懂需求 · 意图准确率=↑ 91→93 实测'))
+    commentOn(1780, impactSaidOnGithub('O 无'))
+    await poll()
+    await poll()
+    const id = (await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1780' } })).tasks[0]!.message.id
+    const declared = (await team.thread(id)).replies.flatMap((r) => r.blocks).filter((b) => b.schema === 'nawaban-impact').map((b) => b.data)
+    expect(declared).toEqual([
+      { objective: '听得懂需求', krs: [{ name: '意图准确率', dir: '↑', before: '91', after: '93', basis: '实测' }] },
+      { objective: '无', krs: [] },
+    ])
+    await writeFile(join(tmp, 'pr.json'), JSON.stringify({ number: 8, title: 'fix: y', body: 'Closes #1780', headRefName: 'fix-y' }))
+    const passed = await hook('board-impact-guard.sh', checkouts.roubao!, { tool_name: 'Bash', tool_input: { command: 'scripts/merge.sh 8' } })
+    expect([passed.code, passed.out, passed.err]).toEqual([0, '', ''])
+    await writeFile(join(tmp, 'pr.json'), JSON.stringify({ number: 9, title: 'fix: z', body: 'Closes #1781', headRefName: 'fix-z' }))
+    const stopped = await hook('board-impact-guard.sh', checkouts.roubao!, { tool_name: 'Bash', tool_input: { command: 'scripts/merge.sh 9' } })
+    expect(stopped.out + stopped.err).toContain('ROUBAO-1781')
+    expect(githubWrites).toEqual([])
+  })
+
+  it('读不懂的影响评论让这一轮结算失败：没核对完就不切换', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    world.issues.push(issue(1790))
+    commentOn(1790, impactSaidOnGithub('O 听得懂需求 · 乱写'))
+    const deliver = deliverAsSignedWebhook((request) => team.fetch(request), url, WEBHOOK)
+    const settle = (known: Parameters<typeof settleIssueTasks>[3]) => settleIssueTasks(team, 'roubao', REPO, known)
+    await expect(pollRepo(REPO, dir, reader, deliver, clock, settle).then(() => pollRepo(REPO, dir, reader, deliver, clock, settle))).rejects.toThrow('#1790：GitHub 上的影响评论读不懂：O 听得懂需求 · 乱写')
   })
 })

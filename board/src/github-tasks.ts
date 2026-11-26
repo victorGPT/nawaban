@@ -1,4 +1,5 @@
-import type { board, MessageView } from '@vercel/board'
+import { createHash } from 'node:crypto'
+import { block, type board, type MessageView } from '@vercel/board'
 
 type Person = ReturnType<typeof board>
 export type KnownIssue = { number: number; title?: string; state_reason?: string | null; reopens?: number }
@@ -11,6 +12,8 @@ const HOLD_REASON_MAX = 200
 const FINISHED = new Set(['completed', 'canceled'])
 const ASK = /^\s*(?:#{1,6}\s*)?\**(?:待决|需要你定)\**\s*(?:[（(][^）)\n]*[）)])?\**\s*[：:]\**\s*/
 const RULING = /^\s*(?:#{1,6}\s*)?\**已决\**\s*(?:[（(][^）)\n]*[）)])?\**\s*[：:]/
+const KR_SAID_ON_GITHUB = /^(.+)=([↑↓=])(?:\s+(-?\d+(?:\.\d+)?%?)\s*→\s*(-?\d+(?:\.\d+)?%?)\s+(实测|预计))?$/
+const OBJECTIVE_SAID_ON_GITHUB = /^O (.+)$/
 const TRAILING_NAWABAN_MARKER = /\n*<!-- nawaban (\{[^\n]*\}) -->\s*$/
 
 export const keyOf = (channel: string, issue: number) => `${channel.toUpperCase()}-${issue}`
@@ -21,7 +24,7 @@ const stateOf = (m: MessageView) => m.task?.state ?? 'none'
 const firstLine = (text: string) => text.split('\n')[0]!
 
 async function titledFromGithub(person: Person, root: MessageView, title: string, editRoot: EditRoot) {
-  const text = [`Issue #${issueNumberOf(root)}: ${title}`, ...root.text.split('\n').slice(1)].join('\n')
+  const text = [title, ...root.text.split('\n').slice(1)].join('\n')
   await editRoot(root, text)
   await person.label(root.id, { unset: [TITLE_AWAITS_GITHUB] })
   const { [TITLE_AWAITS_GITHUB]: _, ...labels } = root.labels
@@ -138,12 +141,36 @@ async function theOneTaskHoldingTheKey(person: Person, root: MessageView, key: s
   return current ?? (await taskOfRoot(person, root, key))
 }
 
+function declarationSaidOnGithub(said: string) {
+  const [head, ...krs] = said.trim().split(' · ')
+  const objective = OBJECTIVE_SAID_ON_GITHUB.exec(head!)?.[1]
+  const parsed = krs.map((kr) => KR_SAID_ON_GITHUB.exec(kr))
+  if (!objective || parsed.some((kr) => !kr)) throw new Error(`GitHub 上的影响评论读不懂：${said}`)
+  return block('nawaban-impact@1', {
+    objective,
+    krs: parsed.map((kr) => Object.fromEntries(Object.entries({ name: kr![1], dir: kr![2], before: kr![3], after: kr![4], basis: kr![5] }).filter(([, v]) => v !== undefined))),
+  })
+}
+
+const declarationIdOf = (githubReply: MessageView) => 'github-impact-' + createHash('sha256').update(githubReply.id).digest('hex').slice(0, 32)
+
+async function declareWhatGithubDeclared(person: Person, root: MessageView, replies: MessageView[]) {
+  const declared = new Set(replies.map((r) => r.id))
+  for (const r of replies.filter((m) => m.from === 'github' && !m.deleted).sort(inGithubOrder)) {
+    const marker = markerOf(r.text)
+    if (marker?.kind !== 'impact' || typeof marker.body !== 'string' || declared.has(declarationIdOf(r))) continue
+    await person.reply(root.id, { id: declarationIdOf(r), text: declarationSaidOnGithub(marker.body) })
+  }
+}
+
 async function settleRoot(person: Person, root: MessageView, issue: KnownIssue, editRoot: EditRoot) {
   if (root.labels[TITLE_AWAITS_GITHUB] && issue.title !== undefined) root = await titledFromGithub(person, root, issue.title, editRoot)
   const key = keyOf(root.channel, issueNumberOf(root))
   const closedAs = issue.state_reason ?? undefined
   if (closedAs && root.labels['closed-as'] !== closedAs) await person.label(root.id, { set: { 'closed-as': closedAs } })
   let task = await theOneTaskHoldingTheKey(person, root, key)
+  const { replies } = await person.thread(root.id)
+  await declareWhatGithubDeclared(person, root, replies)
   const issueOpen = root.labels.state !== 'closed'
   const reopensSeen = String(issue.reopens ?? 0)
   const reopenedOnGithubSinceTheTaskFinished = issueOpen && FINISHED.has(stateOf(task)) && (root.labels['reopens-settled'] ?? '0') !== reopensSeen
@@ -151,7 +178,7 @@ async function settleRoot(person: Person, root: MessageView, issue: KnownIssue, 
   if (issueOpen && (root.labels['reopens-settled'] ?? '0') !== reopensSeen) await person.label(root.id, { set: { 'reopens-settled': reopensSeen } })
   const whyClosed = closedAs ?? root.labels['closed-as']
   if (!issueOpen) return issue.state_reason === undefined && whyClosed === undefined ? undefined : finishAsClosed(person, task, whyClosed)
-  await holdWhileGithubAsks(person, task, pendingGithubAsk((await person.thread(root.id)).replies))
+  await holdWhileGithubAsks(person, task, pendingGithubAsk(replies))
 }
 
 export async function openIssuesWithoutAnOpenTask(person: Person, channel: string, issues: number[]) {
