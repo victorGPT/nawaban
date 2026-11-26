@@ -35,7 +35,7 @@ def roubao(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("NAWABAN_BOARD_DIR", str(tmp_path / "board"))
     monkeypatch.setenv("HC_TERMINAL_ID", "t1")
     s = type("S", (), {})()
-    s.repo, s.terminals, s.issues, s.roles, s.killed, s.searched = repo, [], [], {"t1": "orchestrator"}, [], []
+    s.repo, s.terminals, s.issues, s.roles, s.killed, s.searched, s.unreachable = repo, [], [], {"t1": "orchestrator"}, [], [], set()
     real_run = subprocess.run
 
     def run(args, **kw):
@@ -43,7 +43,9 @@ def roubao(tmp_path, monkeypatch, capsys):
             if args[1] == "kill":
                 s.killed.append(args[2])
                 return subprocess.CompletedProcess(args, 0, "", "")
-            out = {"terminals": s.terminals} if args[1] == "ls" else {"labels": {"role": s.roles.get(args[2])} if s.roles.get(args[2]) else {}}
+            if args[1] == "get" and args[2] in s.unreachable:
+                return subprocess.CompletedProcess(args, 1, "", "timeout")
+            out = {"terminals": s.terminals} if args[1] == "ls" else {"address": args[2], "labels": {"role": s.roles.get(args[2])} if s.roles.get(args[2]) else {}}
             return subprocess.CompletedProcess(args, 0, json.dumps(out), "")
         if args[0] != "gh":
             return real_run(args, **kw)
@@ -111,6 +113,30 @@ def test_the_orchestrator_and_the_main_checkout_are_never_retired(roubao):
     roubao.issues.append(_issue(950, [_dispatched("t4"), _dispatched("t1")]))
     roubao.nawaban("close", "#950", "--done")
     assert roubao.killed == [] and "t1" not in roubao.searched
+
+
+def test_a_terminal_in_a_subdirectory_of_the_main_checkout_is_never_retired(roubao):
+    sub = roubao.repo / "docs"
+    roubao.terminals.append({"address": "t6", "cwd": str(sub), "state": "live", "status": "done"})
+    roubao.issues.append(_issue(950, [_dispatched("t6")]))
+    roubao.nawaban("close", "#950", "--done")
+    assert roubao.killed == [] and sub.exists()
+
+
+def test_a_worker_started_in_a_subdirectory_of_its_worktree_has_the_whole_worktree_removed(roubao):
+    wt = roubao.worker("t9")
+    roubao.terminals[-1]["cwd"] = str(wt / "docs")
+    roubao.issues.append(_issue(950, [_dispatched("t9")]))
+    roubao.nawaban("close", "#950", "--done")
+    assert roubao.killed == ["t9"] and not wt.exists()
+
+
+def test_a_terminal_whose_role_cannot_be_read_is_left_alone(roubao):
+    wt = roubao.worker("t9")
+    roubao.unreachable.add("t9")
+    roubao.issues.append(_issue(950, [_dispatched("t9")]))
+    roubao.nawaban("close", "#950", "--done")
+    assert roubao.killed == [] and wt.exists()
 
 
 def test_uncommitted_changes_keep_the_worktree_but_the_terminal_goes(roubao):

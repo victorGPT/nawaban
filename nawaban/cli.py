@@ -1688,15 +1688,27 @@ def _terminals_in_worktrees_of(root: Path) -> list[dict]:
     if r.returncode != 0:
         raise Refused(f"hc ls 失败:{r.stderr.strip()}")
     main = root.resolve()
-    return [t for t in json.loads(r.stdout).get("terminals") or []
-            if t.get("state") == "live" and t.get("cwd") and Path(t["cwd"]).resolve() != main
-            and Path(t["cwd"]).is_dir() and _repo_root(Path(t["cwd"]).resolve()) == main]
+    live = [t for t in json.loads(r.stdout).get("terminals") or [] if t.get("state") == "live" and t.get("cwd")]
+    return [{**t, "worktree": top} for t in live
+            if (top := _checkout_top(Path(t["cwd"]))) and top != main and _repo_root(top) == main]
+
+
+def _checkout_top(cwd: Path) -> Path | None:
+    try:
+        r = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
+                           capture_output=True, text=True, timeout=GIT_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return Path(r.stdout.strip()).resolve() if r.returncode == 0 and r.stdout.strip() else None
 
 
 def _retire_once_its_issues_close(root: Path, t: dict, just_closed: str | None, itself: bool) -> list[tuple[bool, str]]:
     addr = t["address"]
     issues = _issues_naming(root, addr)
-    if not any(_last_dispatched_to(i["comments"]) == addr for i in issues) or _role(addr) == "orchestrator":
+    if not any(_last_dispatched_to(i["comments"]) == addr for i in issues):
+        return []
+    term = _terminal_or_none(addr)
+    if term is None or (term.get("labels") or {}).get("role") == "orchestrator":
         return []
     held = [i for i in issues if i["state"] == "OPEN" and str(i["number"]) != just_closed
             and _last_terminal_named_on(i["comments"]) == addr]
@@ -1704,7 +1716,7 @@ def _retire_once_its_issues_close(root: Path, t: dict, just_closed: str | None, 
         return [(True, f"{addr} 还有 #{held[0]['number']}，留着")]
     if not itself and t.get("status") != _IDLE_AGENT:
         return [(True, f"{addr} 还在跑，留着")]
-    return [(False, _retire(root, addr, Path(t["cwd"])))]
+    return [(False, _retire(root, addr, t["worktree"]))]
 
 
 def _issues_naming(root: Path, addr: str) -> list[dict]:
