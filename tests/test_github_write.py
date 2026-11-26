@@ -274,6 +274,18 @@ def test_dispatch_hands_the_ticket_to_the_running_worker_the_board_routes_it_to(
     assert not (gh.repo.parent / "roubao-w-950").exists()
 
 
+def test_dispatch_to_a_running_worker_whose_worktree_is_gone_cuts_it_a_new_one(gh):
+    _with_origin(gh.repo)
+    gone = gh.repo.parent / "roubao-w-1957"
+    gh.routed.update(terminal="t1pp", cwd=str(gone), by="改动文件重叠")
+    code, out = gh.nawaban("dispatch", "#950", "--brief", "改 scripts/gen-diagram.ts", "--accept", "a")
+    wt = gh.repo.parent / "roubao-w-950"
+    assert code == 0 and f"在跑的 hc t1pp（改动文件重叠）· {wt}" in out, out
+    assert (wt / ".git").exists() and not gone.exists()
+    send = next(c for c in gh if c[:3] == ["hc", "send", "t1pp"])
+    assert f"先 cd {wt}" in send[3] and "接着用" not in send[3]
+
+
 def test_dispatch_to_a_named_running_worker_skips_routing(gh):
     _with_origin(gh.repo)
     _running_worker(gh, "t31")

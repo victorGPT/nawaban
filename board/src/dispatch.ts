@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { readFile, realpath } from 'node:fs/promises'
 import { basename, dirname, join, resolve as absolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -58,7 +59,7 @@ const USAGE_NEXT = 'nawaban dispatch --help 看每个参数'
 type Args = { ref: string | undefined; name: string | undefined; brief: string; accept: string; checks: string[]; agent: Agent; model: string | undefined; to: string | undefined; fresh: boolean }
 type Checked = { as: string; task: MessageView | null; root: string; orch: string; name: string; who: string; lane: string | null }
 type Worktree = { path: string; branch: string }
-type Terminal = { address: string; name?: string; state?: string; status?: { state?: string }; cwd?: string; argv?: string[]; labels?: Record<string, string> }
+type Terminal = { address: string; name?: string; state?: string; status?: { state?: string }; status_ms?: number; cwd?: string; argv?: string[]; labels?: Record<string, string> }
 type Seat = { reuse: Terminal; task: MessageView; by: string | null } | { reuse: null; passedOver: string[] }
 
 export async function stdoutOrNullOnFailure(cmd: string, args: string[]): Promise<string | null> {
@@ -222,11 +223,14 @@ async function laneWorkersInRepository(root: string, lane: string): Promise<Term
   return workers
 }
 
-const PATH_IN_BRIEF = /[\w.@-]+(?:\/[\w.@-]+)+\/?|[\w.@-]+\/(?![\w.@-])|[\w-]+\.[A-Za-z][\w]{0,5}\b/g
+const PATH_IN_BRIEF = /[\w.@-]+(?:\/[\w.@-]+)+\*?\/?|[\w.@-]+\/(?![\w.@-])|[\w-]+\.[A-Za-z][\w]{0,5}\b/g
 
 export const pathsIn = (brief: string) => [...new Set(brief.match(PATH_IN_BRIEF) ?? [])].map((p) => p.replace(/\/$/, ''))
 
-const touches = (changed: string, path: string) => changed === path || changed.startsWith(`${path}/`) || changed.endsWith(`/${path}`)
+const touches = (changed: string, path: string) =>
+  path.endsWith('*')
+    ? changed.startsWith(path.slice(0, -1)) || changed.includes(`/${path.slice(0, -1)}`)
+    : changed === path || changed.startsWith(`${path}/`) || changed.endsWith(`/${path}`)
 
 async function filesChangedIn(worktree: string): Promise<string[]> {
   const committed = (await stdoutOrNullOnFailure('git', ['-C', worktree, 'diff', '--name-only', 'origin/main...HEAD'])) ?? ''
@@ -234,15 +238,52 @@ async function filesChangedIn(worktree: string): Promise<string[]> {
   return [...committed.split('\n'), ...uncommitted.split('\n').map((l) => l.slice(3).split(' -> ').at(-1)!)].filter(Boolean)
 }
 
-async function workersTouching(root: string, paths: string[]): Promise<Terminal[]> {
-  if (!paths.length) return []
+const linesOf = (out: string | null | undefined) => (out ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
+
+const filesOfTheMergedPullRequestFrom = async (branch: string) =>
+  linesOf(await stdoutOrNullOnFailure('gh', ['pr', 'list', '--head', branch, '--state', 'merged', '--limit', '1', '--json', 'files', '--jq', '.[0].files[]?.path']))
+
+const worktreeNameOf = (root: string, cwd: string) => basename(cwd).slice(basename(root).length + 1)
+
+const removedWorktreeOf = (root: string, cwd: string) => !existsSync(cwd) && dirname(cwd) === dirname(root) && basename(cwd).startsWith(`${basename(root)}-`)
+
+async function filesOnTheWorkersMind(root: string, cwd: string): Promise<string[]> {
+  if (!existsSync(cwd)) return filesOfTheMergedPullRequestFrom(`wt/${worktreeNameOf(root, cwd)}`)
+  const changed = await filesChangedIn(cwd)
+  if (changed.length) return changed
+  for (const ref of ['HEAD', '@{-1}']) {
+    const branch = (await stdoutOrNullOnFailure('git', ['-C', cwd, 'rev-parse', '--abbrev-ref', ref]))?.trim()
+    const merged = branch && branch !== 'HEAD' ? await filesOfTheMergedPullRequestFrom(branch) : []
+    if (merged.length) return merged
+  }
+  return []
+}
+
+async function workersOfRepository(root: string): Promise<Terminal[]> {
+  let terminals: Terminal[]
+  try {
+    terminals = JSON.parse((await stdoutOrNullOnFailure('hc', ['ls', '--json'])) ?? '').terminals ?? []
+  } catch {
+    return []
+  }
   const found: Terminal[] = []
-  for (const t of await terminalsThatMayBeWorkers(root)) {
-    if (!t.inAWorktree) continue
-    const changed = await filesChangedIn(t.cwd!)
-    if (changed.some((f) => paths.some((p) => touches(f, p)))) found.push(t)
+  for (const t of terminals) {
+    if (t.state !== 'live' || !t.cwd) continue
+    const inAWorktree = removedWorktreeOf(root, t.cwd) || (existsSync(t.cwd) && (await mainCheckoutRealPathOf(t.cwd)) === root && (await realpath(t.cwd)) !== root)
+    const full = inAWorktree ? await terminalOf(t.address) : null
+    if (full && full.labels?.role !== 'orchestrator') found.push({ ...t, ...full })
   }
   return found
+}
+
+async function workersTouching(root: string, paths: string[]): Promise<Terminal[]> {
+  if (!paths.length) return []
+  const scored: { t: Terminal; overlap: number }[] = []
+  for (const t of await workersOfRepository(root)) {
+    const overlap = (await filesOnTheWorkersMind(root, t.cwd!)).filter((f) => paths.some((p) => touches(f, p))).length
+    if (overlap) scored.push({ t, overlap })
+  }
+  return scored.sort((a, b) => b.overlap - a.overlap || (b.t.status_ms ?? 0) - (a.t.status_ms ?? 0)).map((s) => s.t)
 }
 
 type Route = { reuse: Terminal | null; passedOver: string[]; by: string | null }
