@@ -1657,6 +1657,113 @@ def _board_tasks_held_from(addr: str) -> list[str]:
             and _dt.datetime.fromisoformat(t["task"]["claim"]["until"].replace("Z", "+00:00")) > now]
 
 
+RETIRE_SWEEP_EVERY_SECONDS = 60
+_IDLE_AGENT = "done"
+
+
+def retire_sweep_message(root: Path) -> str | None:
+    stamp = _board_dir() / "retire-sweep" / root.name
+    if stamp.exists() and time.time() - stamp.stat().st_mtime < RETIRE_SWEEP_EVERY_SECONDS:
+        return None
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.touch()
+    try:
+        retired = [line for kept, line in retire_finished_workers(root) if not kept]
+    except (Refused, OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
+        return None
+    return "；".join(retired) or None
+
+
+def retire_finished_workers(root: Path, just_closed: str | None = None) -> list[tuple[bool, str]]:
+    if _repo_the_board_pushes(root):
+        return [(True, "派发记录在板上、不推 GitHub，按 GitHub 评论认不出 worker，没收：worker 要手动收")]
+    me = os.environ.get("HC_TERMINAL_ID")
+    said = []
+    terminals = _terminals_in_worktrees_of(root)
+    for t in sorted(terminals, key=lambda t: t["address"] == me):
+        shared = any(o["address"] != t["address"] and o["worktree"] == t["worktree"] for o in terminals)
+        said += _retire_once_its_issues_close(root, t, just_closed, t["address"] == me, shared)
+    return said
+
+
+def _terminals_in_worktrees_of(root: Path) -> list[dict]:
+    import json
+    r = subprocess.run(["hc", "ls", "--json"], capture_output=True, text=True, timeout=HC_TIMEOUT_SECONDS)
+    if r.returncode != 0:
+        raise Refused(f"hc ls 失败:{r.stderr.strip()}")
+    main = root.resolve()
+    live = [t for t in json.loads(r.stdout).get("terminals") or [] if t.get("state") == "live" and t.get("cwd")]
+    return [{**t, "worktree": top} for t in live
+            if (top := _checkout_top(Path(t["cwd"]))) and top != main and _repo_root(top) == main]
+
+
+def _checkout_top(cwd: Path) -> Path | None:
+    try:
+        r = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
+                           capture_output=True, text=True, timeout=GIT_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return Path(r.stdout.strip()).resolve() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def _retire_once_its_issues_close(root: Path, t: dict, just_closed: str | None, itself: bool,
+                                  shared: bool) -> list[tuple[bool, str]]:
+    addr = t["address"]
+    issues = _issues_naming(root, addr)
+    if not any(_last_dispatched_to(i["comments"]) == addr for i in issues):
+        return []
+    term = _terminal_or_none(addr)
+    if term is None or (term.get("labels") or {}).get("role") == "orchestrator":
+        return []
+    held = [i for i in issues if i["state"] == "OPEN" and str(i["number"]) != just_closed
+            and _last_terminal_named_on(i["comments"]) == addr]
+    if held:
+        return [(True, f"{addr} 还有 #{held[0]['number']}，留着")]
+    if not itself and t.get("status") != _IDLE_AGENT:
+        return [(True, f"{addr} 还在跑，留着")]
+    return [(False, _retire(root, addr, t["worktree"], shared))]
+
+
+def _issues_naming(root: Path, addr: str) -> list[dict]:
+    import json
+    args = ("issue", "list", "--state", "all", "--search", f"{addr} in:comments", "--limit", GH_ISSUE_LIST_LIMIT,
+            "--json", "number,state,comments")
+    account = github_account(root)
+    r = _run_gh(root, *args, env=_env_writing_as(root, account) if account else None, timeout=RETIRE_GH_TIMEOUT_SECONDS)
+    if r.returncode != 0 and not account and "Could not resolve to a Repository" in r.stderr:
+        r = _retry_as_an_inactive_login(root, args) or r
+    if r.returncode != 0:
+        raise Refused(f"gh 失败:{r.stderr.strip()}")
+    issues = json.loads(r.stdout)
+    if len(issues) >= int(GH_ISSUE_LIST_LIMIT):
+        raise Refused(f"提到 {addr} 的 issue 超过 {GH_ISSUE_LIST_LIMIT} 张，读不全")
+    return issues
+
+
+def _last_dispatched_to(comments: list[dict]) -> str | None:
+    named = None
+    for c in comments:
+        ev = read_marker(c["body"]) or {}
+        if ev.get("kind") == "note" and (m := _DISPATCHED_TO.match(str(ev.get("body", "")))):
+            named = m.group(1)
+    return named
+
+
+def _retire(root: Path, addr: str, worktree: Path, shared: bool) -> str:
+    status = subprocess.run(["git", "-C", str(worktree), "status", "--porcelain"], capture_output=True, text=True)
+    if shared:
+        left = f"{worktree} 还有别的终端在用，worktree 留着"
+    elif status.returncode != 0 or status.stdout.strip():
+        left = f"{worktree} 有没提交的改动，worktree 留着"
+    else:
+        r = subprocess.run(["git", "-C", str(root), "worktree", "remove", str(worktree)], capture_output=True, text=True)
+        left = f"git worktree remove 失败，{worktree} 留着:{r.stderr.strip()}" if r.returncode != 0 else "worktree 已删"
+    k = subprocess.run(["hc", "kill", addr], capture_output=True, text=True, timeout=HC_TIMEOUT_SECONDS)
+    if k.returncode != 0:
+        return f"hc kill {addr} 失败:{(k.stderr or k.stdout).strip()}；{left}"
+    return f"收 worker {addr}，{left}"
+
+
 def _retire_refusal_text(held: list[tuple[str, str]]) -> str:
     lines = [f"终端 {addr} 还拿着 {key}(开着、在它名下)" for addr, key in held]
     return "\n".join(lines + [
@@ -1706,7 +1813,15 @@ def _gh_close(root: Path, a, n: str) -> str:
     else:
         _gh(root, "issue", "close", n, "--reason", "completed" if a.done else "not planned")
         _forget_the_claim_here(root, n)
-    return f"✓ close {a.id} → {'open' if a.reopen else 'done' if a.done else 'cancelled'}"
+    closed = f"✓ close {a.id} → {'open' if a.reopen else 'done' if a.done else 'cancelled'}"
+    return closed if a.reopen else "\n".join([closed, *_retired_after_closing(root, n)])
+
+
+def _retired_after_closing(root: Path, n: str) -> list[str]:
+    try:
+        return [line for _, line in retire_finished_workers(root, just_closed=n)]
+    except (Refused, OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as e:
+        return [f"没查清 worker 该不该收，都留着:{e}"]
 
 
 MILESTONES = ("started", "edited", "committed", "pr", "review", "reported")

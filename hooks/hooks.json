@@ -135,6 +135,16 @@
             "onFailure": "continue"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/retire-sweep.sh\"",
+            "timeout": 60,
+            "onFailure": "continue"
+          }
+        ]
       }
     ]
   }
