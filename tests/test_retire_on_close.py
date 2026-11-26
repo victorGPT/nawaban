@@ -52,6 +52,7 @@ def roubao(tmp_path, monkeypatch, capsys):
         if args[1:3] == ["issue", "list"]:
             addr = args[args.index("--search") + 1].split()[0]
             s.searched.append(addr)
+            s.search_env = kw.get("env")
             hits = [i for i in s.issues if any(addr in c["body"] for c in i["comments"])]
             return subprocess.CompletedProcess(args, 0, json.dumps(hits), "")
         return subprocess.CompletedProcess(args, 0, "tok" if args[1:3] == ["auth", "token"] else "", "")
@@ -173,6 +174,15 @@ def test_a_repo_the_board_pushes_retires_nobody_and_says_why(roubao, tmp_path):
     assert cli.retire_finished_workers(roubao.repo) == [(True, "派发记录在板上、不推 GitHub，按 GitHub 评论认不出 worker，没收：worker 要手动收")]
     assert cli.retire_sweep_message(roubao.repo) is None
     assert roubao.killed == [] and roubao.searched == []
+
+
+def test_the_search_runs_as_the_repository_account(roubao, monkeypatch):
+    roubao.worker("t9")
+    roubao.issues.append(_issue(950, [_dispatched("t9")]))
+    monkeypatch.setattr(cli, "github_account", lambda root: "victorGPT")
+    monkeypatch.setattr(cli, "_env_writing_as", lambda root, account: {**os.environ, "GH_TOKEN": f"token-of-{account}"})
+    roubao.nawaban("close", "#950", "--done")
+    assert roubao.search_env["GH_TOKEN"] == "token-of-victorGPT" and roubao.killed == ["t9"]
 
 
 def test_github_down_retires_nobody(roubao, monkeypatch):

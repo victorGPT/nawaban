@@ -1723,8 +1723,12 @@ def _retire_once_its_issues_close(root: Path, t: dict, just_closed: str | None, 
 
 def _issues_naming(root: Path, addr: str) -> list[dict]:
     import json
-    r = _run_gh(root, "issue", "list", "--state", "all", "--search", f"{addr} in:comments", "--limit", GH_ISSUE_LIST_LIMIT,
-                "--json", "number,state,comments", timeout=RETIRE_GH_TIMEOUT_SECONDS)
+    args = ("issue", "list", "--state", "all", "--search", f"{addr} in:comments", "--limit", GH_ISSUE_LIST_LIMIT,
+            "--json", "number,state,comments")
+    account = github_account(root)
+    r = _run_gh(root, *args, env=_env_writing_as(root, account) if account else None, timeout=RETIRE_GH_TIMEOUT_SECONDS)
+    if r.returncode != 0 and not account and "Could not resolve to a Repository" in r.stderr:
+        r = _retry_as_an_inactive_login(root, args) or r
     if r.returncode != 0:
         raise Refused(f"gh 失败:{r.stderr.strip()}")
     issues = json.loads(r.stdout)
