@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { board, type MessageView } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { deliverAsSignedWebhook, importOnlySync, pollRepo, recordRound, syncStalledNote, type Reader } from '../src/github-sync.ts'
-import { recordPush } from '../src/github-sync-status.ts'
+import { recordPush, recordSwitch } from '../src/github-sync-status.ts'
 import { pushRepo, share, wantState, writeForGithub, type GithubComment, type Poster } from '../src/github-push.ts'
 import { HELD_FOR_A_GITHUB_ASK, settleIssueTasks } from '../src/github-tasks.ts'
 import { webAnswerText } from '../src/page.ts'
@@ -111,6 +111,10 @@ const posterOf = (w: World): Poster => ({
 })
 
 let team: ReturnType<typeof board>
+const pushesRoubaoSwitchedToTheBoard = async () => {
+  await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+  await recordSwitch(dir, REPO, { at: '2026-11-24T00:00:00Z', openIssues: 1 })
+}
 let dir: string
 let world: World
 
@@ -210,7 +214,7 @@ describe('GitHub 上重开过的 issue', () => {
 
 describe('推不出去要看得见', () => {
   it('待决提示行和面板写明还有几条没推、为什么', async () => {
-    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    await pushesRoubaoSwitchedToTheBoard()
     await recordRound(dir, REPO)
     await recordPush(dir, REPO, { unpushed: 2, error: '#1730：getaddrinfo ENOTFOUND api.github.com' })
     expect(await syncStalledNote(dir, 'roubao')).toBe('有 2 条还没推到 GitHub（#1730：getaddrinfo ENOTFOUND api.github.com）')
@@ -360,7 +364,7 @@ describe('本地关票、认领、分享推到 GitHub', () => {
   })
 
   it('本地建的票分享：只开一个 issue，线程挂上去，GitHub 上的评论落在这条线程，票号变成 ROUBAO-N', async () => {
-    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    await pushesRoubaoSwitchedToTheBoard()
     const { task } = await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-1', text: '本地新票\n\n要同事看的正文', labels: { key: 'ROUBAO-LOCAL-1' } })
     expect(await share(['ROUBAO-LOCAL-1'], team, dir)).toBe(0)
     expect(await share(['ROUBAO-LOCAL-1'], team, dir)).toBe(0)
@@ -380,7 +384,7 @@ describe('本地关票、认领、分享推到 GitHub', () => {
   })
 
   it('分享时 GitHub 开了 issue 但响应丢了：两分钟内不重开，之后按标记找回同一个，不开第二个', async () => {
-    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    await pushesRoubaoSwitchedToTheBoard()
     const { task } = await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-2', text: '另一张', labels: { key: 'ROUBAO-LOCAL-2' } })
     await share(['ROUBAO-LOCAL-2'], team, dir)
     world.openedButNoAnswer = true
@@ -403,7 +407,7 @@ describe('本地关票、认领、分享推到 GitHub', () => {
   })
 
   it('分享的响应丢了，重试前轮询先拉到了这个 issue：仍只有原来那条线程和那张票，重试找回同一个 issue', async () => {
-    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    await pushesRoubaoSwitchedToTheBoard()
     const { task } = await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-4', text: '响应丢了的分享', labels: { key: 'ROUBAO-LOCAL-4' } })
     await share(['ROUBAO-LOCAL-4'], team, dir)
     world.openedButNoAnswer = true
@@ -422,7 +426,7 @@ describe('本地关票、认领、分享推到 GitHub', () => {
   })
 
   it('别人在 GitHub 上开的 issue 抄了分享标记，挂不走待分享的线程', async () => {
-    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    await pushesRoubaoSwitchedToTheBoard()
     const { task } = await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-7', text: '待分享', labels: { key: 'ROUBAO-LOCAL-7' } })
     await share(['ROUBAO-LOCAL-7'], team, dir)
     world.openedButNoAnswer = true
@@ -439,7 +443,7 @@ describe('本地关票、认领、分享推到 GitHub', () => {
   })
 
   it('推送账号在分享途中改了名，按用户 ID 仍认得是自己开的', async () => {
-    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    await pushesRoubaoSwitchedToTheBoard()
     const { task } = await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-8', text: '改名', labels: { key: 'ROUBAO-LOCAL-8' } })
     await share(['ROUBAO-LOCAL-8'], team, dir)
     world.openedButNoAnswer = true
@@ -458,7 +462,7 @@ describe('本地关票、认领、分享推到 GitHub', () => {
   })
 
   it('分享改了票号，子票的 parent 跟着改', async () => {
-    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    await pushesRoubaoSwitchedToTheBoard()
     await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-5', text: '父票', labels: { key: 'ROUBAO-LOCAL-5' } })
     const { task: child } = await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-6', text: '子票', labels: { key: 'ROUBAO-LOCAL-6', parent: 'ROUBAO-LOCAL-5' } })
     await share(['ROUBAO-LOCAL-5'], team, dir)
@@ -466,6 +470,12 @@ describe('本地关票、认领、分享推到 GitHub', () => {
     await poll()
     await poll()
     expect((await team.thread(child.id, { limit: 1 })).message.labels.parent).toBe('ROUBAO-1800')
+  })
+
+  it('在 push 里但首轮全量还没核对完的项目，票分享不了', async () => {
+    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    await team.tasks.create('roubao', { id: 'ROUBAO-LOCAL-5', text: 'x', labels: { key: 'ROUBAO-LOCAL-5' } })
+    expect(await share(['ROUBAO-LOCAL-5'], team, dir)).toBe(1)
   })
 
   it('不在 push 里的项目的票分享不了', async () => {

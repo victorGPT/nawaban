@@ -4,7 +4,10 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
-import { deliverAsSignedWebhook, githubSyncConfig, importOnlySync, pollRepo, recordRound, refusingGithubWrites, syncStalledNote, type Reader } from '../src/github-sync.ts'
+import { deliverAsSignedWebhook, githubSyncConfig, githubSyncConfigToPoll, importOnlySync, pollRepo, recordRound, refusingGithubWrites, switchOnceEveryOpenIssueHasATask, syncStalledNote, type Reader } from '../src/github-sync.ts'
+import { openIssuesWithoutAnOpenTask, settleIssueTasks } from '../src/github-tasks.ts'
+import { recordSwitch } from '../src/github-sync-status.ts'
+import { githubRepoOfChannel } from '../src/github-impact.ts'
 import { githubRepos } from '../src/github.ts'
 import { boardData } from '../src/views.ts'
 import { verifier } from '../src/server.ts'
@@ -217,6 +220,32 @@ describe('配置', () => {
   })
 })
 
+describe('全量入站核对完才切到板上', () => {
+  it('首轮没跑完、有 open issue 还没变成票，都不切；全都有票才切，切了就留着，从 repos 删掉才回到 GitHub', async () => {
+    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: { [REPO]: 'roubao' }, reader: owner.login, push: [REPO] }))
+    const switched = async () => (await githubSyncConfig(dir))!.repos
+    const openWithoutATask = (issues: number[]) => openIssuesWithoutAnOpenTask(team, 'roubao', issues)
+    expect(Object.keys((await githubSyncConfigToPoll(dir))!.repos)).toEqual([REPO])
+    expect(await switched()).toEqual({})
+    expect(await githubRepoOfChannel(dir, 'roubao')).toBe(REPO)
+    expect(await switchOnceEveryOpenIssueHasATask(dir, REPO, openWithoutATask)).toContain('首轮全量还没完成')
+
+    const world = { issues: [issue(1, 'open', '2026-11-24T10:00:00Z'), issue(2, 'open', '2026-11-24T10:01:00Z'), issue(3, 'closed', '2026-11-24T10:02:00Z')], comments: [] }
+    await pollRepo(REPO, dir, readerOf(world), deliver(), Date.parse('2026-11-24T12:00:00Z'), async () => {})
+    await settled()
+    expect(await switchOnceEveryOpenIssueHasATask(dir, REPO, openWithoutATask)).toContain('2/2 个 open issue 板上还没有未完成的票（#1 #2）')
+    expect(await githubSyncConfig(dir)).toMatchObject({ repos: {}, push: [] })
+
+    await pollRepo(REPO, dir, readerOf(world), deliver(), Date.parse('2026-11-24T12:00:00Z'), (known) => settleIssueTasks(team, 'roubao', REPO, known))
+    expect(await switchOnceEveryOpenIssueHasATask(dir, REPO, openWithoutATask)).toContain('2 个 open issue 板上都有票')
+    expect(await githubSyncConfig(dir)).toMatchObject({ repos: { [REPO]: 'roubao' }, push: [REPO] })
+    expect(await switchOnceEveryOpenIssueHasATask(dir, REPO, openWithoutATask)).toBeNull()
+
+    await writeFile(join(dir, 'github-sync.json'), JSON.stringify({ repos: {}, reader: owner.login }))
+    expect(await switched()).toEqual({})
+  })
+})
+
 describe('同步停了要露出来', () => {
   const config = { repos: { [REPO]: 'roubao' }, reader: owner.login }
   const now = Date.parse('2026-11-24T12:00:00Z')
@@ -244,11 +273,13 @@ describe('同步停了要露出来', () => {
     expect((await boardData(team, 'nawaban', dir)).syncNote).toBeUndefined()
   })
 
-  it('同步到板上的仓库不再从 GitHub 读，没同步的照旧', async () => {
+  it('切到板上的仓库不再从 GitHub 读，没切的照旧', async () => {
     const repoDir = join(dir, 'roubao-checkout')
     await mkdir(join(repoDir, 'docs/agents'), { recursive: true })
     await writeFile(join(repoDir, 'docs/agents/issue-tracker.md'), '# Issue tracker: GitHub\n')
     await writeFile(join(dir, 'repos.json'), JSON.stringify({ roubao: repoDir, other: repoDir }))
+    expect(Object.keys(await githubRepos(dir))).toEqual(['roubao', 'other'])
+    await recordSwitch(dir, REPO, { at: '2026-11-24T12:00:00.000Z', openIssues: 0 })
     expect(Object.keys(await githubRepos(dir))).toEqual(['other'])
     expect(Object.keys(await githubRepos(dir, { evenWhenSyncedToTheBoard: true }))).toEqual(['roubao', 'other'])
   })

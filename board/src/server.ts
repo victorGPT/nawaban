@@ -13,8 +13,8 @@ import { inspector } from '@vercel/board/inspect'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type GithubBoard, type OldCli } from './github.ts'
-import { currentGithubAsk, githubRepliesOf, inGithubFormat, HELD_FOR_A_GITHUB_ASK, settleIssueTasks, type KnownIssue } from './github-tasks.ts'
-import { deliverAsSignedWebhook, ghReader, githubSyncConfig, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
+import { currentGithubAsk, githubRepliesOf, inGithubFormat, HELD_FOR_A_GITHUB_ASK, openIssuesWithoutAnOpenTask, settleIssueTasks, type KnownIssue } from './github-tasks.ts'
+import { deliverAsSignedWebhook, ghReader, githubSyncConfigToPoll, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
 import { ghPoster, pushAccountOf, pushForever } from './github-push.ts'
 import { githubTokenOf } from './github-account.ts'
 import { okrData } from './okr.ts'
@@ -494,7 +494,7 @@ export async function webOverTailnet(dir = DIR): Promise<number> {
 export async function serve(dir = DIR, port = PORT) {
   const url = urlFor(port)
   const tailnet = await tailnetHost(dir)
-  const syncConfig = await githubSyncConfig(dir)
+  const syncConfig = await githubSyncConfigToPoll(dir)
   const secret = syncConfig && (await webhookSecret(dir))
   if (syncConfig) globalThis.fetch = refusingGithubWrites(globalThis.fetch)
   const sync = syncConfig && secret ? { github: importOnlySync(syncConfig, await readerToken(syncConfig.reader), secret) } : undefined
@@ -503,7 +503,8 @@ export async function serve(dir = DIR, port = PORT) {
   if (syncConfig && secret) {
     const reader = async () => ghReader(await readerToken(syncConfig.reader))
     const settleFor = (repo: string, channel: string) => (known: KnownIssue[]) => settleIssueTasks(team, channel, repo, known)
-    pollForever(syncConfig, dir, reader, deliverAsSignedWebhook((request) => team.fetch(request), url, secret), settleFor, (line) => console.error(line))
+    const openWithoutATaskFor = (channel: string) => (issues: number[]) => openIssuesWithoutAnOpenTask(team, channel, issues)
+    pollForever(syncConfig, dir, reader, deliverAsSignedWebhook((request) => team.fetch(request), url, secret), settleFor, openWithoutATaskFor, (line) => console.error(line))
     const pushed = Object.fromEntries((syncConfig.push ?? []).map((repo) => [repo, syncConfig.repos[repo]!]))
     const posterFor = async (channel: string) => {
       const { checkout, account } = await pushAccountOf(dir, channel)

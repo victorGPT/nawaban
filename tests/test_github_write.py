@@ -494,6 +494,8 @@ def board_pushes(gh, monkeypatch, tmp_path):
     board_dir = tmp_path / "board"
     board_dir.mkdir()
     (board_dir / "github-sync.json").write_text(json.dumps({"repos": {"acme/roubao": "roubao"}, "reader": "x", "push": ["acme/roubao"]}))
+    (board_dir / "github-sync").mkdir()
+    (board_dir / "github-sync" / "acme%2Froubao.switched.json").write_text("{}")
     monkeypatch.setenv("NAWABAN_BOARD_DIR", str(board_dir))
     handed = type("Handed", (list,), {"refusal": ""})()
     faked = subprocess.run
@@ -523,6 +525,12 @@ def test_a_board_that_refuses_the_write_leaves_github_untouched_and_says_why(gh,
     code, out = gh.nawaban("event", "#950", "--kind", "note", "--body", "x")
     assert code != 0 and "板写不进" in out and "acme/roubao#950" in out
     assert posted(gh) == []
+
+
+def test_a_pushed_repo_the_board_has_not_switched_to_yet_still_posts_to_github(gh, board_pushes, tmp_path):
+    (tmp_path / "board" / "github-sync" / "acme%2Froubao.switched.json").unlink()
+    assert gh.nawaban("event", "#950", "--kind", "note", "--body", "x")[0] == 0
+    assert len(posted(gh)) == 1 and board_pushes == []
 
 
 def test_a_synced_repo_not_listed_under_push_still_posts_to_github(gh, monkeypatch, tmp_path):

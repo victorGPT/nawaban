@@ -1410,7 +1410,12 @@ def _repo_the_board_pushes(root: Path) -> str | None:
     except (OSError, ValueError):
         return None
     repos = config.get("repos") or {}
-    return next((repo for repo in config.get("push") or [] if repos.get(repo) == root.name), None)
+    return next((repo for repo in config.get("push") or [] if repos.get(repo) == root.name and _switched_to_the_board(repo)), None)
+
+
+def _switched_to_the_board(repo: str) -> bool:
+    from urllib.parse import quote
+    return (_board_dir() / "github-sync" / f"{quote(repo, safe='')}.switched.json").exists()
 
 
 def _write_on_the_board_first(hook: list[str], text: str = "") -> None:

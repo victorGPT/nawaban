@@ -153,6 +153,15 @@ async function settleRoot(person: Person, root: MessageView, issue: KnownIssue) 
   await holdWhileGithubAsks(person, task, pendingGithubAsk((await person.thread(root.id)).replies))
 }
 
+export async function openIssuesWithoutAnOpenTask(person: Person, channel: string, issues: number[]) {
+  const missing: number[] = []
+  for (const issue of issues) {
+    const task = unfinishedElseLatest(await tasksKeyed(person, channel, keyOf(channel, issue)))
+    if (!task || FINISHED.has(stateOf(task))) missing.push(issue)
+  }
+  return missing
+}
+
 export async function settleIssueTasks(person: Person, channel: string, repo: string, known: KnownIssue[]) {
   const failed: string[] = []
   for (const issue of known) {

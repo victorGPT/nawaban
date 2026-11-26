@@ -6,9 +6,9 @@ import { createGitHubAdapter } from '@chat-adapter/github'
 import { into } from '@vercel/board/sync'
 import { github, repos } from '@vercel/board/sync-github'
 import type { KnownIssue } from './github-tasks.ts'
-import { POLL_EVERY_MS, recordRound, STATE_FOLDER, type SyncConfig } from './github-sync-status.ts'
+import { POLL_EVERY_MS, recordRound, recordSwitch, STATE_FOLDER, switchedToTheBoard, type SyncConfig } from './github-sync-status.ts'
 import { attachIfSharedFromHere, writtenHereFirst } from './github-push.ts'
-export { githubSyncConfig, recordRound, syncStalledNote } from './github-sync-status.ts'
+export { githubSyncConfig, githubSyncConfigToPoll, recordRound, switchedToTheBoard, syncStalledNote } from './github-sync-status.ts'
 
 const WEBHOOK_SECRET_FILE = 'github-webhook-secret'
 const SECRET_BYTES = 32
@@ -199,12 +199,27 @@ async function deleteWhatGithubNoLongerHas(repo: string, reader: Reader, deliver
   }
 }
 
-export function pollForever(config: SyncConfig, dir: string, reader: () => Promise<Reader>, deliver: Deliver, settleFor: (repo: string, channel: string) => Settle, log: (line: string) => void) {
+export type OpenWithoutATask = (issues: number[]) => Promise<number[]>
+
+export async function switchOnceEveryOpenIssueHasATask(dir: string, repo: string, openWithoutATask: OpenWithoutATask): Promise<string | null> {
+  if (await switchedToTheBoard(dir, repo)) return null
+  const state = await loadState(stateFile(dir, repo))
+  if (state.since === undefined) return `${repo} 首轮全量还没完成，读写照旧走 GitHub`
+  const open = Object.entries(state.issues).filter(([, seen]) => seen.state === 'open').map(([number]) => Number(number))
+  const missing = await openWithoutATask(open)
+  if (missing.length) return `${repo} 有 ${missing.length}/${open.length} 个 open issue 板上还没有未完成的票（${missing.map((n) => `#${n}`).join(' ')}），读写照旧走 GitHub`
+  await recordSwitch(dir, repo, { at: state.since, openIssues: open.length })
+  return `${repo} 全量入站完成：${open.length} 个 open issue 板上都有票，读写切到板上`
+}
+
+export function pollForever(config: SyncConfig, dir: string, reader: () => Promise<Reader>, deliver: Deliver, settleFor: (repo: string, channel: string) => Settle, openWithoutATaskFor: (channel: string) => OpenWithoutATask, log: (line: string) => void) {
   const round = async () => {
     for (const [repo, channel] of Object.entries(config.repos)) {
       try {
         await pollRepo(repo, dir, await reader(), deliver, Date.now(), settleFor(repo, channel))
         await recordRound(dir, repo)
+        const switching = await switchOnceEveryOpenIssueHasATask(dir, repo, openWithoutATaskFor(channel))
+        if (switching) log(`${new Date().toISOString()} ${switching}`)
       } catch (error) {
         log(`${new Date().toISOString()} ${repo} 的 GitHub 同步这一轮没完成，下一轮重来：${(error as Error).message}`)
         await recordRound(dir, repo, error as Error).catch(() => {})
