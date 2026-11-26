@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { block, type board, type MessageView } from '@vercel/board'
+import { block, BoardError, type board, type MessageView } from '@vercel/board'
 
 type Person = ReturnType<typeof board>
 export type KnownIssue = { number: number; title?: string; state_reason?: string | null; reopens?: number }
@@ -154,12 +154,27 @@ function declarationSaidOnGithub(said: string) {
 
 const declarationIdOf = (githubReply: MessageView) => 'github-impact-' + createHash('sha256').update(githubReply.id).digest('hex').slice(0, 32)
 
+const impactSaidIn = (githubReply: MessageView) => {
+  const marker = githubReply.deleted ? null : markerOf(githubReply.text)
+  return marker?.kind === 'impact' && typeof marker.body === 'string' ? declarationSaidOnGithub(marker.body) : null
+}
+
+const liveDeclaration = (person: Person, id: string) =>
+  person.posted(id).then(
+    (m) => (m.deleted ? null : m),
+    (error) => {
+      if (error instanceof BoardError && error.code === 'post_not_found') return null
+      throw error
+    },
+  )
+
 async function declareWhatGithubDeclared(person: Person, root: MessageView, replies: MessageView[]) {
-  const declared = new Set(replies.map((r) => r.id))
-  for (const r of replies.filter((m) => m.from === 'github' && !m.deleted).sort(inGithubOrder)) {
-    const marker = markerOf(r.text)
-    if (marker?.kind !== 'impact' || typeof marker.body !== 'string' || declared.has(declarationIdOf(r))) continue
-    await person.reply(root.id, { id: declarationIdOf(r), text: declarationSaidOnGithub(marker.body) })
+  for (const r of replies.filter((m) => m.from === 'github').sort(inGithubOrder)) {
+    const said = impactSaidIn(r)
+    const kept = await liveDeclaration(person, declarationIdOf(r))
+    if (said === null && kept) await person.delete(kept.id)
+    else if (said !== null && !kept) await person.reply(root.id, { id: declarationIdOf(r), text: said })
+    else if (said !== null && kept && kept.text !== said) await person.edit(kept.id, said)
   }
 }
 

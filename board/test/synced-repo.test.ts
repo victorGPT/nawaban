@@ -37,9 +37,10 @@ const issue = (number: number): Issue => ({
   id: 5000 + number, number, title: `issue ${number}`, body: 'x', state: 'open', user: yue, labels: [], assignees: [],
   html_url: `https://github.com/${REPO}/issues/${number}`, created_at: '2026-11-24T00:00:00Z', updated_at: tick(),
 })
+let commentsEverMade = 0
 function commentOn(number: number, body: string) {
   const at = tick()
-  world.comments.push({ id: 9000 + world.comments.length, body, user: yue, created_at: at, updated_at: at,
+  world.comments.push({ id: 9000 + commentsEverMade++, body, user: yue, created_at: at, updated_at: at,
     html_url: `https://github.com/${REPO}/issues/${number}#c`, issue_url: `https://api.github.com/repos/${REPO}/issues/${number}` })
   world.issues.find((i) => i.number === number)!.updated_at = at
 }
@@ -394,6 +395,26 @@ describe('切到板上后 roubao worker 照旧的写法', () => {
     const stopped = await hook('board-impact-guard.sh', checkouts.roubao!, { tool_name: 'Bash', tool_input: { command: 'scripts/merge.sh 9' } })
     expect(stopped.out + stopped.err).toContain('ROUBAO-1781')
     expect(githubWrites).toEqual([])
+  })
+
+  it('GitHub 上改了或删了影响评论，板上的声明跟着改、跟着撤，合并锁随之拦', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    world.issues.push(issue(1782))
+    commentOn(1782, impactSaidOnGithub('O 无'))
+    await poll()
+    const id = (await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1782' } })).tasks[0]!.message.id
+    const declared = async () => (await team.thread(id)).replies.filter((r) => !r.deleted).flatMap((r) => r.blocks).filter((b) => b.schema === 'nawaban-impact').map((b) => b.data)
+    expect(await declared()).toEqual([{ objective: '无', krs: [] }])
+    const said = world.comments.at(-1)!
+    Object.assign(said, { body: impactSaidOnGithub('O 听得懂需求 · 意图准确率==') , updated_at: tick() })
+    world.issues.find((i) => i.number === 1782)!.updated_at = said.updated_at as string
+    await poll()
+    expect(await declared()).toEqual([{ objective: '听得懂需求', krs: [{ name: '意图准确率', dir: '=' }] }])
+    world.comments.splice(world.comments.indexOf(said), 1)
+    const deliver = deliverAsSignedWebhook((request) => team.fetch(request), url, WEBHOOK)
+    await deliver('issue_comment', { action: 'deleted', issue: world.issues.find((i) => i.number === 1782), comment: { ...said, body: '' }, repository: await reader.one(`repos/${REPO}`), sender: yue })
+    await poll()
+    expect(await declared()).toEqual([])
+    expect(await mergeGateFor('Closes #1782')).toContain('ROUBAO-1782')
   })
 
   it('读不懂的影响评论让这一轮结算失败：没核对完就不切换', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
