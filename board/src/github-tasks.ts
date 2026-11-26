@@ -13,6 +13,7 @@ const FINISHED = new Set(['completed', 'canceled'])
 const ASK = /^\s*(?:#{1,6}\s*)?\**(?:待决|需要你定)\**\s*(?:[（(][^）)\n]*[）)])?\**\s*[：:]\**\s*/
 const RULING = /^\s*(?:#{1,6}\s*)?\**已决\**\s*(?:[（(][^）)\n]*[）)])?\**\s*[：:]/
 const KR_SAID_ON_GITHUB = /^(.+)=([↑↓=])(?:\s+(-?\d+(?:\.\d+)?%?)\s*→\s*(-?\d+(?:\.\d+)?%?)\s+(实测|预计))?$/
+const KR_HEADING_SAID_ON_GITHUB = /^(.+)=(toward|away|hold)$/
 const OBJECTIVE_SAID_ON_GITHUB = /^O (.+)$/
 const TRAILING_NAWABAN_MARKER = /\n*<!-- nawaban (\{[^\n]*\}) -->\s*$/
 
@@ -68,7 +69,7 @@ export const inGithubOrder = (a: MessageView, b: MessageView) => {
   return x !== y ? (x < y ? -1 : 1) : a.createdAt < b.createdAt ? -1 : 1
 }
 
-export function markerOf(text: string): { kind?: unknown; body?: unknown; uid?: unknown } | null {
+export function markerOf(text: string): { kind?: unknown; body?: unknown; uid?: unknown; change?: unknown } | null {
   const found = TRAILING_NAWABAN_MARKER.exec(text)
   try {
     return found ? JSON.parse(found[1]!) : null
@@ -96,10 +97,13 @@ export async function githubRepliesOf(person: Person, task: MessageView, own: Me
   return root ? (await person.thread(root)).replies : own
 }
 
+const askOrRulingOnTheBoard = (m: MessageView): { ask: string } | 'ruling' | null =>
+  m.blocks.some((b) => b.schema === 'nawaban-resolve') ? 'ruling' : m.blocks.some((b) => b.schema === 'nawaban-ask') ? { ask: '' } : null
+
 export function currentGithubAsk(replies: MessageView[]): MessageView | null {
   let pending: MessageView | null = null
-  for (const r of replies.filter((m) => inGithubFormat(m) && !m.deleted).sort(inGithubOrder)) {
-    const said = askOrRulingIn(r.text)
+  for (const r of replies.filter((m) => !m.deleted).sort(inGithubOrder)) {
+    const said = inGithubFormat(r) ? askOrRulingIn(r.text) : r.from === null ? askOrRulingOnTheBoard(r) : null
     if (said === 'ruling') pending = null
     else if (said) pending = r
   }
@@ -141,9 +145,13 @@ async function theOneTaskHoldingTheKey(person: Person, root: MessageView, key: s
   return current ?? (await taskOfRoot(person, root, key))
 }
 
-function declarationSaidOnGithub(said: string) {
+function declarationSaidOnGithub(said: string, change: unknown) {
   const [head, ...krs] = said.trim().split(' · ')
   const objective = OBJECTIVE_SAID_ON_GITHUB.exec(head!)?.[1]
+  const headings = krs.map((kr) => KR_HEADING_SAID_ON_GITHUB.exec(kr))
+  if (objective && krs.length && headings.every(Boolean)) {
+    return block('nawaban-impact@2', { objective, change: typeof change === 'string' ? change : 'product', krs: headings.map((kr) => ({ name: kr![1], heading: kr![2] })) })
+  }
   const parsed = krs.map((kr) => KR_SAID_ON_GITHUB.exec(kr))
   if (!objective || parsed.some((kr) => !kr)) throw new Error(`GitHub 上的影响评论读不懂：${said}`)
   return block('nawaban-impact@1', {
@@ -156,7 +164,7 @@ const declarationIdOf = (githubReply: MessageView) => 'github-impact-' + createH
 
 const impactSaidIn = (githubReply: MessageView) => {
   const marker = githubReply.deleted ? null : markerOf(githubReply.text)
-  return marker?.kind === 'impact' && typeof marker.body === 'string' ? declarationSaidOnGithub(marker.body) : null
+  return marker?.kind === 'impact' && typeof marker.body === 'string' ? declarationSaidOnGithub(marker.body, marker.change) : null
 }
 
 const liveDeclaration = (person: Person, id: string) =>

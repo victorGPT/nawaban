@@ -67,7 +67,7 @@ function inGithubWords(m: MessageView) {
   const kind = m.labels[PUSH_AS_KIND]!
   const data = (m.blocks[0]?.data ?? {}) as Data
   const body = BODY_OF_KIND[kind]!(m, data)
-  const said = { v: 1, uid: m.id, kind, author: m.author?.handle ?? '', at: Math.floor(Date.parse(m.createdAt) / 1000), body, ...(data.kr ? { kr: data.kr } : {}), ...(data.by === 'user' ? { by: 'user' } : {}) }
+  const said = { v: 1, uid: m.id, kind, author: m.author?.handle ?? '', at: Math.floor(Date.parse(m.createdAt) / 1000), body, ...(data.kr ? { kr: data.kr } : {}), ...(data.by === 'user' ? { by: 'user' } : {}), ...(kind === 'impact' && data.change ? { change: data.change } : {}) }
   return `${PREFIX_OF_KIND[kind]}：${body}\n\n<!-- nawaban ${JSON.stringify(said).replaceAll('-', '\\u002d')} -->`
 }
 
@@ -105,12 +105,17 @@ export async function issueRoot(person: Pick<Person, 'threads'>, channel: string
   return threads[0]?.message ?? null
 }
 
-export async function writtenHereFirst(person: Pick<Person, 'threads' | 'thread'>, channel: string, repo: string, issue: number, text: string) {
+async function repliesOnTheIssue(person: Pick<Person, 'tasks' | 'thread'>, channel: string, root: MessageView, issue: number) {
+  const reopened = (await person.tasks.list({ channel, state: 'all', label: { key: keyOf(channel, issue) } })).tasks.map((t) => t.message).filter((t) => t.id !== root.id)
+  return (await Promise.all([root, ...reopened].map((m) => person.thread(m.id)))).flatMap((t) => t.replies)
+}
+
+export async function writtenHereFirst(person: Pick<Person, 'threads' | 'thread' | 'tasks'>, channel: string, repo: string, issue: number, text: string) {
   const uid = uidOf(text)
   if (uid === null) return false
   const root = await issueRoot(person, channel, repo, issue)
   if (!root) return false
-  return (await person.thread(root.id)).replies.some((r) => r.from === null && (uidOf(r.text) === uid || r.id === uid))
+  return (await repliesOnTheIssue(person, channel, root, issue)).some((r) => r.from === null && (uidOf(r.text) === uid || r.id === uid))
 }
 
 async function rootOrRefusal(person: Pick<Person, 'threads'>, channel: string, repo: string, issue: number) {
@@ -247,9 +252,7 @@ export async function pushRepo(person: Person, channel: string, repo: string, po
   let unpushed = 0
   const failures: string[] = []
   for (const { root, issue } of await issueRoots(person, channel, repo)) {
-    const reopened = (await person.tasks.list({ channel, state: 'all', label: { key: keyOf(channel, issue) } })).tasks.map((t) => t.message).filter((t) => t.id !== root.id)
-    const threads = await Promise.all([root, ...reopened].map((m) => person.thread(m.id)))
-    const waiting = threads.flatMap((t) => t.replies).filter(goesToGithub).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+    const waiting = (await repliesOnTheIssue(person, channel, root, issue)).filter(goesToGithub).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
     const pushed = { count: 0 }
     let stateLeft = root.labels[WANTED_STATE] ? 1 : 0
     try {

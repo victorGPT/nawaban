@@ -10,7 +10,7 @@ import { block, board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { deliverAsSignedWebhook, importOnlySync, pollRepo, recordRound, refusingGithubWrites, switchOnceEveryOpenIssueHasATask, type Reader } from '../src/github-sync.ts'
 import { markerOf, openIssuesWithoutAnOpenTask, settleIssueTasks } from '../src/github-tasks.ts'
-import { pushRepo, type Poster } from '../src/github-push.ts'
+import { pushRepo, writtenHereFirst, type Poster } from '../src/github-push.ts'
 import { mergeGate } from '../src/impact.ts'
 import { importOld } from '../src/import.ts'
 import { oldRowsAsDeclaration } from '../src/github-impact.ts'
@@ -334,7 +334,7 @@ describe('同步仓库的合并锁、旧 CLI 的声明、待决', () => {
   })
 })
 
-const impactSaidOnGithub = (body: string) => `影响：${body}\n\n<!-- nawaban ${JSON.stringify({ v: 1, uid: `u-${world.comments.length}`, kind: 'impact', author: 'cc-x', terminal: null, at: 1, body }).replace(/-/g, '\\u002d')} -->`
+const impactSaidOnGithub = (body: string, more: Record<string, string> = {}) => `影响：${body}\n\n<!-- nawaban ${JSON.stringify({ v: 1, uid: `u-${world.comments.length}`, kind: 'impact', author: 'cc-x', terminal: null, at: 1, body, ...more }).replace(/-/g, '\\u002d')} -->`
 
 describe('切过去以后板 CLI 是唯一写路径：每种写入经发件箱推到 GitHub 恰好一条', () => {
   it('ask、resolve、claim（带影响）、note、decision、link、release、close 各推一条，再推一轮不重发', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
@@ -475,6 +475,38 @@ describe('切到板上后 roubao worker 照旧的写法', () => {
     await poll()
     expect(await declared()).toEqual([])
     expect(await mergeGateFor('Closes #1782')).toContain('ROUBAO-1782')
+  })
+
+
+  it('板上推出去的 toward|away|hold 影响，换一块板读回来是 v2 声明，带着 change', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    world.issues.push(issue(1797))
+    commentOn(1797, impactSaidOnGithub('O 听得懂需求 · 意图准确率=toward', { change: 'measure' }))
+    await poll()
+    const id = (await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1797' } })).tasks[0]!.message.id
+    const declared = (await team.thread(id)).replies.flatMap((r) => r.blocks).filter((b) => b.schema === 'nawaban-impact')
+    expect(declared.map((b) => [b.version, b.data])).toEqual([[2, { objective: '听得懂需求', change: 'measure', krs: [{ name: '意图准确率', heading: 'toward' }] }]])
+  })
+
+  it('GitHub 上的待决被板上的 resolve 答了，下一轮结算不再挂起这张票', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    world.issues.push(issue(1798))
+    await poll()
+    commentOn(1798, '待决：走 A 还是 B？')
+    await poll()
+    const held = async () => (await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1798' } })).tasks[0]!.message.task?.blocked ?? null
+    expect((await held())?.reason).toContain('GitHub 待决')
+    await nawaban(checkouts.roubao!, 'event', 'ROUBAO-1798', 'resolve', '走 A')
+    expect(await held()).toBeNull()
+    await poll()
+    expect(await held()).toBeNull()
+  })
+
+  it('重开过的票上记的回复，推出去以后读回来认得是回声', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    const { task } = await team.tasks.create('roubao', { text: '重开的票', labels: { key: 'ROUBAO-1799' } })
+    const { task: root } = await team.tasks.create('roubao', { text: '原 issue', labels: { issue: `${REPO}#1799` } })
+    await team.label(task.id, { set: { 'issue-root': root.id } })
+    const said = await team.reply(task.id, { text: '进展一句', labels: { 'github-push': 'note' } })
+    const echo = `进展：进展一句\n\n<!-- nawaban ${JSON.stringify({ v: 1, uid: said.id, kind: 'note', body: '进展一句' })} -->`
+    expect(await writtenHereFirst(team, 'roubao', REPO, 1799, echo)).toBe(true)
   })
 
   it('读不懂的影响评论让这一轮结算失败：没核对完就不切换', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
