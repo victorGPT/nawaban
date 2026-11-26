@@ -5,6 +5,7 @@ export type KnownIssue = { number: number; title?: string; state_reason?: string
 
 export const HELD_FOR_A_GITHUB_ASK = 'GitHub 待决：'
 export const TITLE_AWAITS_GITHUB = 'title-awaits-github'
+export type EditRoot = (root: MessageView, text: string) => Promise<unknown>
 const CLOSE_LEASE_S = 60
 const HOLD_REASON_MAX = 200
 const FINISHED = new Set(['completed', 'canceled'])
@@ -19,9 +20,9 @@ export const githubIssueOfTask = (task: MessageView) =>
 const stateOf = (m: MessageView) => m.task?.state ?? 'none'
 const firstLine = (text: string) => text.split('\n')[0]!
 
-async function titledFromGithub(person: Person, root: MessageView, title: string) {
+async function titledFromGithub(person: Person, root: MessageView, title: string, editRoot: EditRoot) {
   const text = [`Issue #${issueNumberOf(root)}: ${title}`, ...root.text.split('\n').slice(1)].join('\n')
-  await person.edit(root.id, text)
+  await editRoot(root, text)
   await person.label(root.id, { unset: [TITLE_AWAITS_GITHUB] })
   const { [TITLE_AWAITS_GITHUB]: _, ...labels } = root.labels
   return { ...root, text, labels }
@@ -137,8 +138,8 @@ async function theOneTaskHoldingTheKey(person: Person, root: MessageView, key: s
   return current ?? (await taskOfRoot(person, root, key))
 }
 
-async function settleRoot(person: Person, root: MessageView, issue: KnownIssue) {
-  if (root.labels[TITLE_AWAITS_GITHUB] && issue.title !== undefined) root = await titledFromGithub(person, root, issue.title)
+async function settleRoot(person: Person, root: MessageView, issue: KnownIssue, editRoot: EditRoot) {
+  if (root.labels[TITLE_AWAITS_GITHUB] && issue.title !== undefined) root = await titledFromGithub(person, root, issue.title, editRoot)
   const key = keyOf(root.channel, issueNumberOf(root))
   const closedAs = issue.state_reason ?? undefined
   if (closedAs && root.labels['closed-as'] !== closedAs) await person.label(root.id, { set: { 'closed-as': closedAs } })
@@ -162,12 +163,12 @@ export async function openIssuesWithoutAnOpenTask(person: Person, channel: strin
   return missing
 }
 
-export async function settleIssueTasks(person: Person, channel: string, repo: string, known: KnownIssue[]) {
+export async function settleIssueTasks(person: Person, channel: string, repo: string, known: KnownIssue[], editRoot: EditRoot = (root, text) => person.edit(root.id, text)) {
   const failed: string[] = []
   for (const issue of known) {
     try {
       const root = await nativeRoot(person, channel, `${repo}#${issue.number}`)
-      if (root) await settleRoot(person, root, issue)
+      if (root) await settleRoot(person, root, issue, editRoot)
     } catch (error) {
       failed.push(`#${issue.number}：${(error as Error).message}`)
     }

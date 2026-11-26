@@ -14,7 +14,7 @@ import { mergeGate } from '../src/impact.ts'
 import { importOld } from '../src/import.ts'
 import { oldRowsAsDeclaration } from '../src/github-impact.ts'
 import { load } from '../src/okr.ts'
-import { listen, verifier } from '../src/server.ts'
+import { editingAsTheRootsAuthor, listen, verifier } from '../src/server.ts'
 import { registerSchemas } from '../src/schemas.ts'
 
 const ROOT = new URL('../..', import.meta.url).pathname
@@ -112,7 +112,7 @@ afterAll(() => server.close())
 async function poll() {
   const deliver = deliverAsSignedWebhook((request) => team.fetch(request), url, WEBHOOK)
   for (let round = 0; round < 2; round++) {
-    await pollRepo(REPO, dir, reader, deliver, clock, (known) => settleIssueTasks(team, 'roubao', REPO, known))
+    await pollRepo(REPO, dir, reader, deliver, clock, (known) => settleIssueTasks(team, 'roubao', REPO, known, editingAsTheRootsAuthor(team, url, SECRET, 'victor')))
     await recordRound(dir, REPO)
     await switchOnceEveryOpenIssueHasATask(dir, REPO, (issues) => openIssuesWithoutAnOpenTask(team, 'roubao', issues))
     await new Promise((done) => setTimeout(done, 300))
@@ -271,6 +271,20 @@ describe('roubao 的 OKR 搬上板', () => {
     const { declared } = await load(team, 'roubao')
     expect([...declared.values()].flat().map((d) => d.ticket).sort()).toEqual(['ROUBAO-1740', 'ROUBAO-5'])
     expect(githubWrites).toEqual([])
+  })
+
+  it('旧 CLI 以本机用户的身份挂的占位线程，轮询拉到后照样换上标题，这一轮结算成', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    const rows = [{ repo: checkouts.roubao!, ticket: '#1750', objective: '听得懂需求', kr: '意图准确率', dir: '=', before: null, after: null, basis: null, declared_at: '2026-11-24T11:30:00' }]
+    const hooked = await run(['node', CLI, 'hook', 'github-impact'], checkouts.roubao!, JSON.stringify(rows))
+    expect([hooked.code, hooked.err]).toEqual([0, ''])
+    world.issues.push(issue(1750))
+    await poll()
+    const roots = (await team.channel('roubao').messages()).messages.filter((m) => m.labels.issue === `${REPO}#1750`)
+    expect(roots).toHaveLength(1)
+    expect(roots[0]!.by.principal).toBe('local:user:victor')
+    expect(roots[0]!.text.split('\n')[0]).toBe('Issue #1750: issue 1750')
+    expect(roots[0]!.labels['title-awaits-github']).toBeUndefined()
+    expect(roots[0]!.task?.state).toBe('ready')
   })
 })
 

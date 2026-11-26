@@ -13,7 +13,7 @@ import { inspector } from '@vercel/board/inspect'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type GithubBoard, type OldCli } from './github.ts'
-import { currentGithubAsk, githubRepliesOf, inGithubFormat, HELD_FOR_A_GITHUB_ASK, openIssuesWithoutAnOpenTask, settleIssueTasks, type KnownIssue } from './github-tasks.ts'
+import { currentGithubAsk, githubRepliesOf, inGithubFormat, HELD_FOR_A_GITHUB_ASK, openIssuesWithoutAnOpenTask, settleIssueTasks, type EditRoot, type KnownIssue } from './github-tasks.ts'
 import { deliverAsSignedWebhook, ghReader, githubSyncConfigToPoll, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
 import { ghPoster, pushAccountOf, pushForever } from './github-push.ts'
 import { githubTokenOf } from './github-account.ts'
@@ -90,6 +90,8 @@ export async function token(dir: string, name = 'token'): Promise<string> {
   return secret
 }
 
+const tokenHolderOf = (user: string) => `local:user:${user}`
+
 export function verifier(secret: string, user = userInfo().username) {
   const want = Buffer.from(secret)
   return (request: CallerRequest) => {
@@ -98,9 +100,16 @@ export function verifier(secret: string, user = userInfo().username) {
     if (got.length !== want.length || !timingSafeEqual(got, want)) {
       return Response.json({ error: { code: 'unauthorized', message: 'bad token' } }, { status: 401 })
     }
-    const tokenHolderIsThisOsUserAsAPerson = { id: `local:user:${user}`, kind: 'person', handle: user } as const
+    const tokenHolderIsThisOsUserAsAPerson = { id: tokenHolderOf(user), kind: 'person', handle: user } as const
     return tokenHolderIsThisOsUserAsAPerson
   }
+}
+
+export const editingAsTheRootsAuthor = (team: Team, url: string, boardToken: string, user = userInfo().username): EditRoot => async (root, text) => {
+  if (root.by.principal !== tokenHolderOf(user)) return team.edit(root.id, text)
+  const headers = { authorization: `Bearer ${boardToken}`, 'content-type': 'application/json' }
+  const edited = await team.fetch(new Request(`${url}/messages/${encodeURIComponent(root.id)}/edit`, { method: 'POST', headers, body: JSON.stringify({ text }) }))
+  if (!edited.ok) throw new Error(`以本机用户的身份改 #${root.id} 没成：${edited.status} ${await edited.text()}`)
 }
 
 export function listen(fetch: (request: Request) => Promise<Response>, port: number): Promise<Server> {
@@ -502,7 +511,8 @@ export async function serve(dir = DIR, port = PORT) {
   await registerSchemas(team)
   if (syncConfig && secret) {
     const reader = async () => ghReader(await readerToken(syncConfig.reader))
-    const settleFor = (repo: string, channel: string) => (known: KnownIssue[]) => settleIssueTasks(team, channel, repo, known)
+    const editRoot = editingAsTheRootsAuthor(team, url, await token(dir))
+    const settleFor = (repo: string, channel: string) => (known: KnownIssue[]) => settleIssueTasks(team, channel, repo, known, editRoot)
     const openWithoutATaskFor = (channel: string) => (issues: number[]) => openIssuesWithoutAnOpenTask(team, channel, issues)
     pollForever(syncConfig, dir, reader, deliverAsSignedWebhook((request) => team.fetch(request), url, secret), settleFor, openWithoutATaskFor, (line) => console.error(line))
     const pushed = Object.fromEntries((syncConfig.push ?? []).map((repo) => [repo, syncConfig.repos[repo]!]))
