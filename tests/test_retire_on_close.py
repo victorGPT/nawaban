@@ -140,6 +140,15 @@ def test_a_terminal_whose_role_cannot_be_read_is_left_alone(roubao):
     assert roubao.killed == [] and wt.exists()
 
 
+def test_a_worktree_another_live_terminal_uses_stays(roubao):
+    wt = roubao.worker("t9")
+    roubao.terminals.append({"address": "t3", "cwd": str(wt), "state": "live", "status": "working"})
+    roubao.issues.append(_issue(950, [_dispatched("t9")]))
+    code, out = roubao.nawaban("close", "#950", "--done")
+    assert roubao.killed == ["t9"] and wt.exists()
+    assert "还有别的终端在用，worktree 留着" in out
+
+
 def test_uncommitted_changes_keep_the_worktree_but_the_terminal_goes(roubao):
     wt = roubao.worker("t9")
     (wt / "half.txt").write_text("wip")

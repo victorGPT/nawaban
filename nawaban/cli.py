@@ -1679,8 +1679,10 @@ def retire_finished_workers(root: Path, just_closed: str | None = None) -> list[
         return [(True, "派发记录在板上、不推 GitHub，按 GitHub 评论认不出 worker，没收：worker 要手动收")]
     me = os.environ.get("HC_TERMINAL_ID")
     said = []
-    for t in sorted(_terminals_in_worktrees_of(root), key=lambda t: t["address"] == me):
-        said += _retire_once_its_issues_close(root, t, just_closed, t["address"] == me)
+    terminals = _terminals_in_worktrees_of(root)
+    for t in sorted(terminals, key=lambda t: t["address"] == me):
+        shared = any(o["address"] != t["address"] and o["worktree"] == t["worktree"] for o in terminals)
+        said += _retire_once_its_issues_close(root, t, just_closed, t["address"] == me, shared)
     return said
 
 
@@ -1704,7 +1706,8 @@ def _checkout_top(cwd: Path) -> Path | None:
     return Path(r.stdout.strip()).resolve() if r.returncode == 0 and r.stdout.strip() else None
 
 
-def _retire_once_its_issues_close(root: Path, t: dict, just_closed: str | None, itself: bool) -> list[tuple[bool, str]]:
+def _retire_once_its_issues_close(root: Path, t: dict, just_closed: str | None, itself: bool,
+                                  shared: bool) -> list[tuple[bool, str]]:
     addr = t["address"]
     issues = _issues_naming(root, addr)
     if not any(_last_dispatched_to(i["comments"]) == addr for i in issues):
@@ -1718,7 +1721,7 @@ def _retire_once_its_issues_close(root: Path, t: dict, just_closed: str | None, 
         return [(True, f"{addr} 还有 #{held[0]['number']}，留着")]
     if not itself and t.get("status") != _IDLE_AGENT:
         return [(True, f"{addr} 还在跑，留着")]
-    return [(False, _retire(root, addr, t["worktree"]))]
+    return [(False, _retire(root, addr, t["worktree"], shared))]
 
 
 def _issues_naming(root: Path, addr: str) -> list[dict]:
@@ -1746,9 +1749,11 @@ def _last_dispatched_to(comments: list[dict]) -> str | None:
     return named
 
 
-def _retire(root: Path, addr: str, worktree: Path) -> str:
+def _retire(root: Path, addr: str, worktree: Path, shared: bool) -> str:
     status = subprocess.run(["git", "-C", str(worktree), "status", "--porcelain"], capture_output=True, text=True)
-    if status.returncode != 0 or status.stdout.strip():
+    if shared:
+        left = f"{worktree} 还有别的终端在用，worktree 留着"
+    elif status.returncode != 0 or status.stdout.strip():
         left = f"{worktree} 有没提交的改动，worktree 留着"
     else:
         r = subprocess.run(["git", "-C", str(root), "worktree", "remove", str(worktree)], capture_output=True, text=True)
