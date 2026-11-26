@@ -235,7 +235,7 @@ const touches = (changed: string, path: string) =>
 async function filesChangedIn(worktree: string): Promise<string[]> {
   const committed = (await stdoutOrNullOnFailure('git', ['-C', worktree, 'diff', '--name-only', 'origin/main...HEAD'])) ?? ''
   const uncommitted = (await stdoutOrNullOnFailure('git', ['-C', worktree, 'status', '--porcelain', '-uall'])) ?? ''
-  return [...committed.split('\n'), ...uncommitted.split('\n').map((l) => l.slice(3).split(' -> ').at(-1)!)].filter(Boolean)
+  return [...new Set([...committed.split('\n'), ...uncommitted.split('\n').map((l) => l.slice(3).split(' -> ').at(-1)!)].filter(Boolean))]
 }
 
 const linesOf = (out: string | null | undefined) => (out ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
@@ -316,6 +316,7 @@ async function seatFor(c: Checked, a: Args): Promise<Seat> {
   }
   if (a.fresh || !c.task) return { reuse: null, passedOver: [] }
   const route = await routeByAffinity(c.root, c.lane, a.brief, a)
+  if (route.reuse && !existsSync(route.reuse.cwd!)) return { reuse: null, passedOver: [...route.passedOver, `${route.reuse.address} 的 worktree 已删`] }
   return route.reuse ? { reuse: route.reuse, task: c.task, by: route.by } : { reuse: null, passedOver: route.passedOver }
 }
 

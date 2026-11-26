@@ -647,3 +647,33 @@ it('picks the worker touching the most named files, and the latest active one on
   const tie = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 hooks/inbox.sh', '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: (await fileWorker('t1r1', one, 9_000)) + (await fileWorker('t1r2', two, 1_000)) })
   expect(JSON.parse(tie.stdout).terminal).toBe('t1r1')
 })
+
+
+it('opens a new worker on the board when the routed worker\'s worktree is gone, and says so', async () => {
+  const gone = join(tmp, 'repo-w-gone')
+  await mergedPullRequestFrom('wt/w-gone', ['scripts/gen-gone.ts'])
+  const ls = await fileWorker('t1gn', gone, 1_000)
+  await newTask('RA-GONE')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['RA-GONE', '--brief', '改 scripts/gen-gone.ts', '--accept', 'a'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
+  expect(r.stderr).toBe('')
+  expect(r.stdout).toContain('跳过了 t1gn 的 worktree 已删')
+  expect(r.hc).toMatch(/^run --bg/m)
+})
+
+it('counts a file changed both in a commit and in the working tree once', async () => {
+  const once = join(tmp, 'held-ra-once')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'held/ra-once', once, 'origin/main')
+  await mkdir(join(once, 'lib'), { recursive: true })
+  await writeFile(join(once, 'lib/a.ts'), 'x')
+  await git(once, 'add', '.')
+  await git(once, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'a')
+  await writeFile(join(once, 'lib/a.ts'), 'y')
+  const both = join(tmp, 'held-ra-both')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'held/ra-both', both, 'origin/main')
+  await mkdir(join(both, 'lib'), { recursive: true })
+  for (const f of ['lib/a.ts', 'lib/b.ts']) await writeFile(join(both, f), 'x')
+  const ls = (await fileWorker('t1on', once, 9_000)) + (await fileWorker('t1bo', both, 1_000))
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 lib/a.ts 和 lib/b.ts', '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
+  expect(JSON.parse(r.stdout).terminal).toBe('t1bo')
+})
+
