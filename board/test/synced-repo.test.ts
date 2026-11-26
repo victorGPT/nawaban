@@ -9,7 +9,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { block, board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { deliverAsSignedWebhook, importOnlySync, pollRepo, recordRound, refusingGithubWrites, switchOnceEveryOpenIssueHasATask, type Reader } from '../src/github-sync.ts'
-import { openIssuesWithoutAnOpenTask, settleIssueTasks } from '../src/github-tasks.ts'
+import { markerOf, openIssuesWithoutAnOpenTask, settleIssueTasks } from '../src/github-tasks.ts'
+import { pushRepo, type Poster } from '../src/github-push.ts'
 import { mergeGate } from '../src/impact.ts'
 import { importOld } from '../src/import.ts'
 import { oldRowsAsDeclaration } from '../src/github-impact.ts'
@@ -334,6 +335,65 @@ describe('同步仓库的合并锁、旧 CLI 的声明、待决', () => {
 })
 
 const impactSaidOnGithub = (body: string) => `影响：${body}\n\n<!-- nawaban ${JSON.stringify({ v: 1, uid: `u-${world.comments.length}`, kind: 'impact', author: 'cc-x', terminal: null, at: 1, body }).replace(/-/g, '\\u002d')} -->`
+
+describe('切过去以后板 CLI 是唯一写路径：每种写入经发件箱推到 GitHub 恰好一条', () => {
+  it('ask、resolve、claim（带影响）、note、decision、link、release、close 各推一条，再推一轮不重发', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    const config = join(dir, 'github-sync.json')
+    const without = await readFile(config, 'utf8')
+    await writeFile(config, JSON.stringify({ ...JSON.parse(without), push: [REPO] }))
+    try {
+      world.issues.push(issue(1795))
+      await poll()
+      const roubao = checkouts.roubao!
+      const say = (...argv: string[]) => nawaban(roubao, ...argv)
+      await say('event', 'ROUBAO-1795', 'ask', '先合哪个', '--kr', '听得懂需求 / 意图准确率', '--context', 'A 改了接口', '--option', 'A｜快｜双向门', '--option', 'B｜稳｜单向门', '--rec', 'A')
+      await say('event', 'ROUBAO-1795', 'resolve', '选 A。吴献忠原话：「A」')
+      await say('claim', 'ROUBAO-1795', '--o', '无')
+      await say('event', 'ROUBAO-1795', 'note', '已完成：改完；下一步：开 PR')
+      await say('event', 'ROUBAO-1795', 'decision', '决定：先合 A\n背景：两个都能合\n否决方案：先合 B')
+      await say('event', 'ROUBAO-1795', 'link', `pr:https://github.com/${REPO}/pull/9`)
+      await say('claim', 'ROUBAO-1795', '--release')
+      await say('close', 'ROUBAO-1795', '--done')
+      const posted: { issue: number; body: string }[] = []
+      const states: string[] = []
+      const assigned: boolean[] = []
+      const poster: Poster = {
+        login: 'wuxianzhong-gpt',
+        userId: async () => 1,
+        commentsSince: async () => posted.map((p, i) => ({ id: i + 1, body: p.body })),
+        post: async (_repo, n, body) => (posted.push({ issue: n, body }), { id: posted.length, body }),
+        assign: async (_repo, _n, yes) => void assigned.push(yes),
+        setState: async (_repo, _n, wanted) => void states.push(wanted),
+        openedSince: async () => [],
+        open: async () => { throw new Error('不该开 issue') },
+      }
+      expect(await pushRepo(team, 'roubao', REPO, poster)).toEqual({ unpushed: 0 })
+      const kinds = posted.map((p) => [p.issue, p.body.split('：')[0], markerOf(p.body)?.kind])
+      expect(kinds).toEqual([
+        [1795, '待决', 'ask'],
+        [1795, '已决', 'resolve'],
+        [1795, '认领', 'claim'],
+        [1795, '影响', 'impact'],
+        [1795, '进展', 'note'],
+        [1795, '决定', 'decision'],
+        [1795, 'PR', 'link'],
+        [1795, '交还', 'release'],
+      ])
+      expect(posted[0]!.body).toContain('备选方案：\n- A｜快｜双向门\n- B｜稳｜单向门\n建议：A')
+      expect(markerOf(posted[3]!.body)?.body).toBe('O 无')
+      expect(posted[6]!.body.startsWith(`PR：https://github.com/${REPO}/pull/9\n`)).toBe(true)
+      expect([assigned, states]).toEqual([[true, false], ['completed']])
+      expect(await pushRepo(team, 'roubao', REPO, poster)).toEqual({ unpushed: 0 })
+      expect([posted.length, states.length]).toEqual([8, 1])
+      for (const p of posted) commentOn(1795, p.body)
+      await poll()
+      const thread = (await team.thread((await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1795' } })).tasks[0]!.message.id)).replies
+      expect(thread.filter((r) => r.from === 'github' && markerOf(r.text))).toEqual([])
+    } finally {
+      await writeFile(config, without)
+    }
+  })
+})
 
 describe('切到板上后 roubao worker 照旧的写法', () => {
   it('切过去后用板上票号 ROUBAO-N：show、event、claim 都通，标题就是 issue 原标题，旧写法 #N 板不认', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {

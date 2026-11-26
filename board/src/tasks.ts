@@ -10,6 +10,7 @@ import { labelsOfLive, LIVE_LABELS, liveOfLabels, type Held, type Live } from '.
 import { optionWordsBut, pointAt, withBody } from './hint.ts'
 import { markInboxItemTurnedInto, openInboxItem } from './page.ts'
 import { EVENTS_THAT_END_A_CLAIM } from './views.ts'
+import { refuseAClaimGithubAssignedToSomeoneElse, sayOnGithubToo, wantStateOnGithubToo } from './github-push.ts'
 
 const LEASE = '1h'
 const PAGE = 50
@@ -227,11 +228,14 @@ const claim: Verb = async (argv) => {
   if (values.release) {
     const { task: released } = (await upstreamAnswer(['tasks', 'release', task.id, '--as', as])) as { task: MessageView }
     await forgetTheClaimOf(task.id)
+    await sayOnGithubToo(personOwningEveryTaskTheirProfilesMade(), boardDirAsConfiguredWhenAsked(), task, 'release', as)
     return { done: `交还 ${key(task)}`, json: { task: released } }
   }
-  refuseHeldByAnother(task, as, '等它交还，或让编排者改派')
+  const held = refuseHeldByAnother(task, as, '等它交还，或让编排者改派')
+  await refuseAClaimGithubAssignedToSomeoneElse(personOwningEveryTaskTheirProfilesMade(), boardDirAsConfiguredWhenAsked(), task)
   const { task: claimed } = (await upstreamAnswer(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE])) as { task: MessageView }
   await labelTerminalThePanelReadsWhileClaimed(task.id)
+  if (!held) await sayOnGithubToo(personOwningEveryTaskTheirProfilesMade(), boardDirAsConfiguredWhenAsked(), task, 'claim', as + (terminal() ? `（hc ${terminal()}）` : ''))
   const until = claimed.task?.claim?.until
   return { done: `认领 ${key(task)}${until ? `，租约到 ${clock(until)}` : ''}`, json: { task: claimed } }
 }
@@ -259,6 +263,7 @@ async function refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team: ReturnT
   if (!held) await upstreamAnswer(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE])
   const { task: completed } = (await upstreamAnswer(['tasks', 'complete', task.id, '--as', as])) as { task: MessageView }
   await forgetTheClaimOf(task.id)
+  await wantStateOnGithubToo(team, boardDirAsConfiguredWhenAsked(), task, 'completed')
   return { done: `关了 ${key(task)}（做完）`, json: { task: completed } }
 }
 
@@ -274,6 +279,7 @@ async function needsWithoutAnyCanceledSinceBoardTakesNone(team: ReturnType<typeo
 async function cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView): Promise<Said> {
   if (task.task?.state !== 'canceled') await team.tasks.cancel(task.id, 'cancelled')
   await forgetTheClaimOf(task.id)
+  await wantStateOnGithubToo(team, boardDirAsConfiguredWhenAsked(), task, 'not_planned')
   const stillWaitingRerunFinishesThem: string[] = []
   for (const down of await all({ state: 'open', needs: task.id })) {
     try {
