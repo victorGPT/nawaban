@@ -126,7 +126,7 @@ function actionsBringingTheBoardTo(issue: Issue, seen: Seen | undefined): { acti
 
 export type Settle = (known: KnownIssue[]) => Promise<void>
 
-const knownIn = (state: RepoState): KnownIssue[] => Object.entries(state.issues).map(([number, seen]) => ({ number: Number(number), state_reason: seen.state_reason, reopens: seen.reopens ?? 0 }))
+const knownIn = (state: RepoState): KnownIssue[] => Object.entries(state.issues).map(([number, seen]) => ({ number: Number(number), title: seen.title, state_reason: seen.state_reason, reopens: seen.reopens ?? 0 }))
 
 export async function pollRepo(repo: string, dir: string, reader: Reader, deliver: Deliver, now = Date.now(), settle: Settle = async () => {}) {
   const failed = await bringTheBoardUpToGithub(repo, dir, reader, deliver, now).then(() => null, (error: unknown) => error)

@@ -15,6 +15,7 @@ import { status } from './orchestrator.ts'
 import { boardDirAsConfiguredWhenAsked, DIR, PORT, serve, urlFor, web, webOverTailnet } from './server.ts'
 import { oldCli } from './github.ts'
 import { githubReplyHook, githubStateHook, share } from './github-push.ts'
+import { githubImpactHook } from './github-impact.ts'
 import { githubIssuesHeldBy, progress } from './progress.ts'
 import { heldBy, run } from './tasks.ts'
 import { json } from './views.ts'
@@ -77,9 +78,10 @@ const HOOKS: Record<string, Run> = {
   progress: () => progress(async (session) => [...(await heldBy(session)), ...githubIssuesHeldBy(DIR, session)], DIR),
   guard: () => guard(board(), DIR),
   'gh-account': () => ghAccountGuard(DIR),
-  'ask-guard': (rest) => askGuard(rest, { run: upstreamQuietly, team: board(), oldCli }),
+  'ask-guard': (rest) => askGuard(rest, { run: upstreamQuietly, team: board(), oldCli, dir: DIR }),
   'github-reply': (rest) => githubReplyHook(rest, board(), DIR),
   'github-state': (rest) => githubStateHook(rest, board(), DIR),
+  'github-impact': (rest) => githubImpactHook(rest, board(), DIR),
 }
 
 const COMMANDS: Record<string, Command> = {
@@ -250,7 +252,7 @@ const COMMANDS: Record<string, Command> = {
       ['gh-account', '从标准输入读 PreToolUse 输入，gh 写操作的 token 不是仓库声明的账号时拦下，退出 2'],
       ['ask-guard [--tracker old]', '从标准输入读 Stop 输入，按回复里的 ask 块记待决或打回'],
     ],
-    run: ([name, ...rest]) => (name !== undefined && Object.hasOwn(HOOKS, name) ? HOOKS[name]!(rest) : Promise.resolve(misused('hook renew|progress|guard|gh-account|ask-guard|github-reply|github-state'))),
+    run: ([name, ...rest]) => (name !== undefined && Object.hasOwn(HOOKS, name) ? HOOKS[name]!(rest) : Promise.resolve(misused('hook renew|progress|guard|gh-account|ask-guard|github-reply|github-state|github-impact'))),
   },
   json: {
     group: '本机服务',

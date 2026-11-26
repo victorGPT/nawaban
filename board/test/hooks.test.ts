@@ -117,7 +117,7 @@ it('routes a repository to the board unless the old CLI already tracks it', EVER
   expect(await route(tmp)).toBe('old\n')
 })
 
-it('routes the reads of a GitHub repository synced to the board on this machine to the board, and leaves its writes on GitHub', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+it('routes a GitHub repository to the board once this machine syncs it there, and leaves it on the old CLI elsewhere', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   const route = async (...args: string[]) => (await runWithTheHooksEnvironment(['node', join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, 'route.mjs'), ...args], '', { NAWABAN_CLI: '', NAWABAN_BOARD_DIR: syncDir })).out
   const roubao = join(tmp, 'synced', 'roubao')
   await mkdir(join(roubao, 'docs/agents'), { recursive: true })
@@ -125,10 +125,9 @@ it('routes the reads of a GitHub repository synced to the board on this machine 
   await writeFile(join(roubao, 'docs/agents/issue-tracker.md'), '# Issue tracker: GitHub\n')
   const syncDir = join(tmp, 'synced', 'board')
   await mkdir(syncDir, { recursive: true })
-  expect(await route(roubao, '--reads')).toBe('old\n')
-  await writeFile(join(syncDir, 'github-sync.json'), JSON.stringify({ repos: { 'acme/roubao': 'roubao' }, reader: 'someone' }))
-  expect(await route(roubao, '--reads')).toBe('board roubao\n')
   expect(await route(roubao)).toBe('old\n')
+  await writeFile(join(syncDir, 'github-sync.json'), JSON.stringify({ repos: { 'acme/roubao': 'roubao' }, reader: 'someone' }))
+  expect(await route(roubao)).toBe('board roubao\n')
 })
 
 it('prints the index off the board when an orchestrator window starts, and nothing in any other window', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
