@@ -114,8 +114,8 @@ _Avoid_: deleted, abandoned.
 _Current identifiers_: `tasks.status` = `cancelled`; CLI `close --cancelled`.
 
 **Session**(窗口)
-The Claude Code, Codex or Antigravity session working on a task, identified from `CODEX_THREAD_ID` (as `cx-<first 8>`), then `ANTIGRAVITY_CONVERSATION_ID` (as `agy-<first 8>`), then `CLAUDE_CODE_SESSION_ID` (as `cc-<first 8>`), then `NAWABAN_OWNER`. Codex and Antigravity come first because a session started from Claude Code inherits its `CLAUDE_CODE_SESSION_ID`.
-窗口是正在做这张票的 Claude Code、Codex 或 Antigravity 会话，身份依次取 `CODEX_THREAD_ID`（记作 `cx-<前 8 位>`）、`ANTIGRAVITY_CONVERSATION_ID`（记作 `agy-<前 8 位>`）、`CLAUDE_CODE_SESSION_ID`（记作 `cc-<前 8 位>`）、`NAWABAN_OWNER`。Codex 和 Antigravity 排在前面，因为从 Claude Code 里启动的会话会继承它的 `CLAUDE_CODE_SESSION_ID`。
+The Claude Code, Codex or Antigravity session working on a task, identified from `CODEX_THREAD_ID` (as `cx-<first 8>`), then `ANTIGRAVITY_CONVERSATION_ID` (as `agy-<first 8>`), then `CLAUDE_CODE_SESSION_ID` (as `cc-<first 8>`), then `NAWABAN_OWNER`, then the OS user name. Codex and Antigravity come first because a session started from Claude Code inherits its `CLAUDE_CODE_SESSION_ID`.
+窗口是正在做这张票的 Claude Code、Codex 或 Antigravity 会话，身份依次取 `CODEX_THREAD_ID`（记作 `cx-<前 8 位>`）、`ANTIGRAVITY_CONVERSATION_ID`（记作 `agy-<前 8 位>`）、`CLAUDE_CODE_SESSION_ID`（记作 `cc-<前 8 位>`）、`NAWABAN_OWNER`、本机用户名。Codex 和 Antigravity 排在前面，因为从 Claude Code 里启动的会话会继承它的 `CLAUDE_CODE_SESSION_ID`。
 _Avoid_: owner, worker, agent as the holder field.
 _Current identifiers_: `tasks.session`; `CODEX_THREAD_ID`; `ANTIGRAVITY_CONVERSATION_ID`; `CLAUDE_CODE_SESSION_ID`; `NAWABAN_OWNER`; `profile()` in `board/src/tasks.ts`.
 

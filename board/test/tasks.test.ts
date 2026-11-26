@@ -1,5 +1,5 @@
 import { mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest'
@@ -174,6 +174,15 @@ it('takes the Codex thread, then the Antigravity conversation, before the Claude
   expect(await holder({ ANTIGRAVITY_CONVERSATION_ID: antigravityConversation, NAWABAN_OWNER: 'agent-a' })).toBe('agy-eeee5555')
   expect(await holder({ NAWABAN_OWNER: 'agent-a' })).toBe('cc-aaaa1111')
   expect(await holder({ NAWABAN_OWNER: 'agent-a' }, '')).toBe('agent-a')
+})
+
+it('writes as the OS user from a launchd job with no session and no NAWABAN_OWNER', async () => {
+  const noSession = { CODEX_THREAD_ID: '', ANTIGRAVITY_CONVERSATION_ID: '', NAWABAN_OWNER: '' }
+  await nawabanAsTheWindowOfSession(['create', 'NIGHTLY-1', '--title', 'nightly', '--project', 'nawaban'])
+  const c = await nawabanAsTheWindowOfSession(['claim', 'NIGHTLY-1'], '', noSession)
+  expect(c.code).toBe(0)
+  const actor: string = (await nawabanAsTheWindowOfSession(['show', 'NIGHTLY-1'])).json.task.task.claim.actor
+  expect(actor.slice(actor.indexOf('+') + 1)).toBe(userInfo().username.toLowerCase())
 })
 
 it('refuses a NAWABAN_OWNER that is no profile name', async () => {
