@@ -182,10 +182,11 @@ const COMMANDS: Record<string, Command> = {
   close: {
     group: '写',
     usage: 'close <票>',
-    about: '关票：--done 或 --cancelled',
+    about: '关票：--done、--cancelled 或 --reopen',
     flags: [
       ['--done', '做完了'],
       ['--cancelled', '作废，等它的票不再等'],
+      ['--reopen', '在 GitHub 上重开这个 issue（只对推到 GitHub 的 issue 票），拉回来后开一张新票'],
       ['--kr "<KR>=<后值> 实测|预计"', '--done 时补登记过的 KR 的结果，可重复'],
       ['--json', '输出 JSON'],
     ],

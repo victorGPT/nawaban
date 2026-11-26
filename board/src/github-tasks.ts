@@ -205,7 +205,8 @@ async function declareWhatGithubDeclared(person: Person, root: MessageView, repl
     const live = replies.filter((m) => !m.deleted && m.labels[DECLARES_WHAT_GITHUB_SAID_IN] === r.id)
     const kept = said === null ? undefined : live.find((m) => m.text === said)
     for (const stale of live.filter((m) => m !== kept)) await person.delete(stale.id)
-    if (said !== null && !kept) await person.reply(root.id, { id: await unusedDeclarationIdOf(person, r), text: said, labels: { [DECLARES_WHAT_GITHUB_SAID_IN]: r.id } })
+    const declaredHereBeforeTheSyncReadIt = said !== null && !live.length && replies.some((m) => m.from === null && !m.deleted && !m.labels[DECLARES_WHAT_GITHUB_SAID_IN] && m.text === said)
+    if (said !== null && !kept && !declaredHereBeforeTheSyncReadIt) await person.reply(root.id, { id: await unusedDeclarationIdOf(person, r), text: said, labels: { [DECLARES_WHAT_GITHUB_SAID_IN]: r.id } })
   }
 }
 

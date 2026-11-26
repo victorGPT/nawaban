@@ -294,17 +294,24 @@ async function cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team: Retur
   return { done: `作废 ${key(task)}，等它的票不再等`, json: { canceled: task.id } }
 }
 
+async function reopenOnGithub(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView): Promise<Said> {
+  if (!(await wantStateOnGithubToo(team, boardDirAsConfiguredWhenAsked(), task, 'open'))) throw new Refused(`${key(task)} 不是推到 GitHub 的 issue 票：板上的票关了不重开，要接着做就新开一张`)
+  return { done: `记下：联网时在 GitHub 上重开 ${key(task)}，轮询拉回来后开一张新票接过票号`, json: { reopen: task.id } }
+}
+
 const close: Verb = async (argv) => {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { done: { type: 'boolean' }, cancelled: { type: 'boolean' }, kr: { type: 'string', multiple: true }, json: { type: 'boolean' } },
+    options: { done: { type: 'boolean' }, cancelled: { type: 'boolean' }, reopen: { type: 'boolean' }, kr: { type: 'string', multiple: true }, json: { type: 'boolean' } },
   })
   const [ref] = positionals
-  if (!ref || positionals.length !== 1 || !!values.done === !!values.cancelled) throw new Refused('用法：nawaban close <票> (--done | --cancelled)', 2)
+  const ways = [values.done, values.cancelled, values.reopen].filter(Boolean).length
+  if (!ref || positionals.length !== 1 || ways !== 1) throw new Refused('用法：nawaban close <票> (--done | --cancelled | --reopen)', 2)
   if (values.kr && !values.done) throw new Refused('--kr 报结果，只跟 --done 一起用', 2)
   const task = await resolve(ref)
   const team = personOwningEveryTaskTheirProfilesMade()
+  if (values.reopen) return reopenOnGithub(team, task)
   if (values.done) return refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team, task, values.kr ? resultsOf(values.kr) : null)
   return cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team, task)
 }

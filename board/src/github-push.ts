@@ -156,6 +156,7 @@ export async function sayOnGithubToo(person: Person, dir: string, task: MessageV
 export async function wantStateOnGithubToo(person: Person, dir: string, task: MessageView, wanted: WantedState) {
   const pushed = await githubIssuePushedFrom(dir, task)
   if (pushed) await wantState(person, task.channel, pushed.repo, pushed.issue, wanted)
+  return pushed !== null
 }
 
 export const pushLabelArgs = async (dir: string, task: MessageView, kind: string) => ((await githubIssuePushedFrom(dir, task)) ? ['--label', `${PUSH_AS_KIND}=${kind}`] : [])

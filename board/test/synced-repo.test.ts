@@ -389,9 +389,14 @@ describe('切过去以后板 CLI 是唯一写路径：每种写入经发件箱�
       await poll()
       const thread = (await team.thread((await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1795' } })).tasks[0]!.message.id)).replies
       expect(thread.filter((r) => r.from === 'github' && markerOf(r.text))).toEqual([])
+      await say('close', 'ROUBAO-1795', '--reopen')
+      await pushRepo(team, 'roubao', REPO, poster)
+      expect([posted.length, states]).toEqual([8, ['completed', 'open']])
     } finally {
       await writeFile(config, without)
     }
+    const notPushed = await run(['node', CLI, 'close', 'ROUBAO-1795', '--reopen'], checkouts.roubao!)
+    expect([notPushed.code, notPushed.err.split('\n')[0]]).toEqual([1, '✗ ROUBAO-1795 不是推到 GitHub 的 issue 票：板上的票关了不重开，要接着做就新开一张'])
   })
 })
 
@@ -557,6 +562,17 @@ describe('切到板上后 roubao worker 照旧的写法', () => {
     await nawaban(checkouts.roubao!, 'event', 'ROUBAO-1801', 'resolve', '走 A')
     await poll()
     expect((await current()).task?.blocked ?? null).toBeNull()
+  })
+
+  it('升级前 hook 已经记过的影响，GitHub 上同一条评论入站时不再另记一份', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+    world.issues.push(issue(1805))
+    await poll()
+    const rows = [{ repo: checkouts.roubao!, ticket: '#1805', objective: '无', kr: '', dir: '=', before: null, after: null, basis: null, declared_at: '2026-11-24T12:00:00' }]
+    expect((await run(['node', CLI, 'hook', 'github-impact'], checkouts.roubao!, JSON.stringify(rows))).code).toBe(0)
+    commentOn(1805, impactSaidOnGithub('O 无'))
+    await poll()
+    const id = (await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1805' } })).tasks[0]!.message.id
+    expect((await team.thread(id)).replies.filter((r) => !r.deleted).flatMap((r) => r.blocks).filter((b) => b.schema === 'nawaban-impact')).toHaveLength(1)
   })
 
   it('读不懂的影响评论让这一轮结算失败：没核对完就不切换', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
