@@ -1518,7 +1518,8 @@ def _running_worker_for(root: Path, a) -> dict | None:
 
 def _hand_to_running_worker(root: Path, a, con, n: str | None, name: str, orch: str, routed: dict) -> str:
     addr, wt = routed["terminal"], Path(routed["cwd"])
-    line = f"worktree：接着用 {wt}，先 git fetch origin main && git switch -c wt/{name} origin/main，只在这个分支上改，PR 合并或作废后不用删 worktree"
+    line = (f"worktree：接着用 {wt}。先做完手上那张(PR 合并或交还,git status 干净),再 git fetch origin main && "
+            f"git switch -c wt/{name} origin/main,只在这个分支上改")
     brief = _worker_brief(a, n, name, wt, f"wt/{name}", orch, a.id, worktree_line=line)
     r = subprocess.run(["hc", "send", addr, brief], capture_output=True, text=True, timeout=HC_TIMEOUT_SECONDS)
     if r.returncode != 0:

@@ -268,6 +268,7 @@ def test_dispatch_hands_the_ticket_to_the_running_worker_the_board_routes_it_to(
     assert not any(c[:2] == ["hc", "run"] for c in gh)
     send = next(c for c in gh if c[:3] == ["hc", "send", "t30"])
     assert f"接着用 {wt}" in send[3] and "git switch -c wt/w-950 origin/main" in send[3] and "验收：pytest 绿" in send[3]
+    assert send[3].index("先做完手上那张") < send[3].index("git switch")
     note = cli.read_marker(posted(gh)[0])
     assert note["body"].startswith(f"派给 hc t30（worktree {wt}")
     assert not (gh.repo.parent / "roubao-w-950").exists()

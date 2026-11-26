@@ -519,6 +519,7 @@ async function worktreeChanging(name: string, file: string, committed = true) {
 it.each([
   { brief: '改 board/src/dispatch.ts 和 nawaban/cli.py 的路由', paths: ['board/src/dispatch.ts', 'nawaban/cli.py'] },
   { brief: '只动 skills/land/ 下的文档，顺带 GLOSSARY.md', paths: ['skills/land', 'GLOSSARY.md'] },
+  { brief: '只改 board/ 下的 CLI，别碰 hooks/', paths: ['board', 'hooks'] },
   { brief: '小票：查一下为什么慢', paths: [] },
 ])('reads the paths a brief names: $paths', ({ brief, paths }) => {
   expect(pathsIn(brief)).toEqual(paths)

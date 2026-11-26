@@ -222,7 +222,7 @@ async function laneWorkersInRepository(root: string, lane: string): Promise<Term
   return workers
 }
 
-const PATH_IN_BRIEF = /[\w.@-]+(?:\/[\w.@-]+)+\/?|[\w-]+\.[A-Za-z][\w]{0,5}\b/g
+const PATH_IN_BRIEF = /[\w.@-]+(?:\/[\w.@-]+)+\/?|[\w.@-]+\/(?![\w.@-])|[\w-]+\.[A-Za-z][\w]{0,5}\b/g
 
 export const pathsIn = (brief: string) => [...new Set(brief.match(PATH_IN_BRIEF) ?? [])].map((p) => p.replace(/\/$/, ''))
 
