@@ -59,7 +59,7 @@ type Args = { ref: string | undefined; name: string | undefined; brief: string; 
 type Checked = { as: string; task: MessageView | null; root: string; orch: string; name: string; who: string; lane: string | null }
 type Worktree = { path: string; branch: string }
 type Terminal = { address: string; name?: string; state?: string; status?: { state?: string }; cwd?: string; argv?: string[]; labels?: Record<string, string> }
-type Seat = { reuse: Terminal; task: MessageView } | { reuse: null; passedOver: string[] }
+type Seat = { reuse: Terminal; task: MessageView; by: string | null } | { reuse: null; passedOver: string[] }
 
 export async function stdoutOrNullOnFailure(cmd: string, args: string[]): Promise<string | null> {
   try {
@@ -190,7 +190,7 @@ async function laneOf(task: MessageView): Promise<string | null> {
   return replies.map((r) => r.text.match(LANE_NOTE)?.[1]).findLast((lane) => lane !== undefined) ?? null
 }
 
-const startsTheWayThisDispatchWould = (t: Terminal, a: Args) => {
+const startsTheWayThisDispatchWould = (t: Terminal, a: Pick<Args, 'agent' | 'model'>) => {
   const want = WORKER_ARGV[a.agent](a.model, '').slice(0, -1)
   const startedWith = withoutSessionName(t.argv ?? []).slice(-want.length - 1, -1)
   return startedWith.length === want.length && want.every((w, i) => startedWith[i] === w)
@@ -222,22 +222,78 @@ async function laneWorkersInRepository(root: string, lane: string): Promise<Term
   return workers
 }
 
+const PATH_IN_BRIEF = /[\w.@-]+(?:\/[\w.@-]+)+\/?|[\w.@-]+\/(?![\w.@-])|[\w-]+\.[A-Za-z][\w]{0,5}\b/g
+
+export const pathsIn = (brief: string) => [...new Set(brief.match(PATH_IN_BRIEF) ?? [])].map((p) => p.replace(/\/$/, ''))
+
+const touches = (changed: string, path: string) => changed === path || changed.startsWith(`${path}/`) || changed.endsWith(`/${path}`)
+
+async function filesChangedIn(worktree: string): Promise<string[]> {
+  const committed = (await stdoutOrNullOnFailure('git', ['-C', worktree, 'diff', '--name-only', 'origin/main...HEAD'])) ?? ''
+  const uncommitted = (await stdoutOrNullOnFailure('git', ['-C', worktree, 'status', '--porcelain', '-uall'])) ?? ''
+  return [...committed.split('\n'), ...uncommitted.split('\n').map((l) => l.slice(3).split(' -> ').at(-1)!)].filter(Boolean)
+}
+
+async function workersTouching(root: string, paths: string[]): Promise<Terminal[]> {
+  if (!paths.length) return []
+  const found: Terminal[] = []
+  for (const t of await terminalsThatMayBeWorkers(root)) {
+    if (!t.inAWorktree) continue
+    const changed = await filesChangedIn(t.cwd!)
+    if (changed.some((f) => paths.some((p) => touches(f, p)))) found.push(t)
+  }
+  return found
+}
+
+type Route = { reuse: Terminal | null; passedOver: string[]; by: string | null }
+
+async function routeByAffinity(root: string, lane: string | null, brief: string, a: Pick<Args, 'agent' | 'model'>): Promise<Route> {
+  const [candidates, by] = lane ? [await laneWorkersInRepository(root, lane), `泳道 ${lane}`] : [await workersTouching(root, pathsIn(brief)), '改动文件重叠']
+  const passedOver: string[] = []
+  for (const t of candidates) {
+    const share = await contextShareOf(t)
+    if (!startsTheWayThisDispatchWould(t, a)) passedOver.push(`${t.address} 跑的是别的 agent 或模型`)
+    else if (share !== null && share >= REUSE_WHILE_CONTEXT_SHARE_BELOW) passedOver.push(`${t.address} 上下文已用 ${Math.round(share * 100)}%`)
+    else return { reuse: t, passedOver, by }
+  }
+  return { reuse: null, passedOver, by: null }
+}
+
+const WORKERS_PER_REPOSITORY_BEFORE_A_WARNING = 8
+
+async function crowdedWarning(root: string): Promise<string | null> {
+  const workers = (await terminalsThatMayBeWorkers(root)).filter((t) => t.inAWorktree).length
+  return workers > WORKERS_PER_REPOSITORY_BEFORE_A_WARNING ? `本仓库已有 ${workers} 个活着的 worker，超过 ${WORKERS_PER_REPOSITORY_BEFORE_A_WARNING} 个：小票交给同线 worker，做完的收掉` : null
+}
+
 async function seatFor(c: Checked, a: Args): Promise<Seat> {
   if (a.to) {
     if (!c.task) throw new Refused('--to 把票指派给 worker 去领：不带票时去掉 --to，新开 worker', 2)
     const t = await terminalOf(a.to)
     if (t?.state !== 'live' || !t.cwd || (await mainCheckoutRealPathOf(t.cwd)) !== c.root) throw new Refused(`--to ${a.to} 不是本仓库里活着的终端`)
-    return { reuse: t, task: c.task }
+    return { reuse: t, task: c.task, by: null }
   }
-  if (a.fresh || !c.lane || !c.task) return { reuse: null, passedOver: [] }
-  const passedOver: string[] = []
-  for (const t of await laneWorkersInRepository(c.root, c.lane)) {
-    const share = await contextShareOf(t)
-    if (!startsTheWayThisDispatchWould(t, a)) passedOver.push(`${t.address} 跑的是别的 agent 或模型`)
-    else if (share !== null && share >= REUSE_WHILE_CONTEXT_SHARE_BELOW) passedOver.push(`${t.address} 上下文已用 ${Math.round(share * 100)}%`)
-    else return { reuse: t, task: c.task }
-  }
-  return { reuse: null, passedOver }
+  if (a.fresh || !c.task) return { reuse: null, passedOver: [] }
+  const route = await routeByAffinity(c.root, c.lane, a.brief, a)
+  return route.reuse ? { reuse: route.reuse, task: c.task, by: route.by } : { reuse: null, passedOver: route.passedOver }
+}
+
+const ROUTE_USAGE = '用法：nawaban route --brief "<目标、范围>" [--agent claude|codex|agy] [--model <m>] [--json]'
+
+export function route(argv: string[]): Promise<number> {
+  return answer(argv, async () => {
+    const { values: a } = parseArgs({ args: argv, options: { brief: { type: 'string' }, agent: { type: 'string', default: 'claude' }, model: { type: 'string' }, json: { type: 'boolean' } } })
+    if (!a.brief || !isAgent(a.agent!)) throw new Refused(ROUTE_USAGE, 2)
+    const root = await mainCheckoutRealPathOf(process.cwd())
+    if (!root) throw new Refused('route 要在 worker 改的那个 git 仓库里跑')
+    const r = await routeByAffinity(root, null, a.brief, { agent: a.agent, model: a.model })
+    const warning = await crowdedWarning(root)
+    return {
+      done: r.reuse ? `交给 hc ${r.reuse.address}（${r.by}）` : '新开',
+      ...(warning ? { more: warning } : {}),
+      json: { terminal: r.reuse?.address ?? null, cwd: r.reuse?.cwd ?? null, by: r.by, passedOver: r.passedOver, warning },
+    }
+  })
 }
 
 async function worktreeOffOriginMain(root: string, name: string): Promise<Worktree> {
@@ -448,6 +504,8 @@ export function dispatch(argv: string[]): Promise<number> {
     const checked = await refuseBeforeAnythingStarts(a)
     const seat = await seatFor(checked, a)
     const lane = checked.lane ? `（泳道 ${checked.lane}）` : ''
+    const warning = await crowdedWarning(checked.root)
+    const warned = warning ? { more: warning } : {}
     if (seat.reuse) {
       const worker = seat.reuse
       const as = await assignToRunningWorker(seat.task, worker)
@@ -456,8 +514,10 @@ export function dispatch(argv: string[]): Promise<number> {
       await recordBriefThePickupReads(checked, a, seat.task, worker.address)
       const woken = (await claimableNowByAnIdleWorkerHoldingNothing(seat.task, worker, as)) && (await wakeToClaim(worker, checked.who))
       const when = woken ? '它空着，已叫它现在领' : '它做完手上那张自己领'
+      const why = seat.by && !checked.lane ? `（${seat.by}）` : lane
       return {
-        done: `${checked.who} 指派给在跑的 hc ${worker.address}${lane}，${when} · 回报给 ${checked.orch}`,
+        ...warned,
+        done: `${checked.who} 指派给在跑的 hc ${worker.address}${why}，${when} · 回报给 ${checked.orch}`,
         json: { ticket: checked.who, terminal: worker.address, profile: as, lane: checked.lane, orchestrator: checked.orch, assigned: true, woken },
       }
     }
@@ -469,6 +529,7 @@ export function dispatch(argv: string[]): Promise<number> {
     if (checked.lane) await stdoutOrNullOnFailure('hc', ['label', address, `lane=${checked.lane}`])
     const passedOver = seat.passedOver.length ? `，跳过了 ${seat.passedOver.join('；')}` : ''
     return {
+      ...warned,
       done: `派出 ${checked.who} → hc ${address}${lane}${passedOver} · ${wt.path} · 回报给 ${checked.orch}`,
       json: { ticket: checked.who, terminal: address, worktree: wt.path, branch: wt.branch, lane: checked.lane, passedOver: seat.passedOver, orchestrator: checked.orch, assigned: false },
     }

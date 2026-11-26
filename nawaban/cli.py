@@ -1476,6 +1476,11 @@ def dispatch(root: Path, a, con: sqlite3.Connection | None = None) -> str:
     name = a.name or (f"w-{n}" if n else a.id.lower())
     if not WORKER_NAME.fullmatch(name):
         raise Refused(f"--name 只能 1-32 个 a-z 0-9 - _:{name}")
+    if a.to and not a.id:
+        raise Refused("--to 把票交给在跑的 worker:不带票时去掉 --to")
+    routed = _running_worker_for(root, a) if a.id and not a.new else {}
+    if routed.get("terminal"):
+        return _hand_to_running_worker(root, a, con, n, name, orch, routed)
     wt, branch = root.parent / f"{root.name}-{name}", f"wt/{name}"
     _add_worktree_off_origin_main(root, wt, branch)
     who = a.id or name
@@ -1483,7 +1488,44 @@ def dispatch(root: Path, a, con: sqlite3.Connection | None = None) -> str:
                                                 _worker_brief(a, n, name, wt, branch, orch, who))
     if a.id:
         _record_dispatch_on_the_ticket(root, a, con, n, name, addr, wt, orch)
-    return f"✓ dispatch {who} → hc {addr} · {wt}"
+    return f"✓ dispatch {who} → hc {addr} · {wt}" + _warning_line(routed)
+
+
+def _warning_line(routed: dict) -> str:
+    return f"\n{routed['warning']}" if routed.get("warning") else ""
+
+
+ROUTE_TIMEOUT_SECONDS = 60
+
+
+def _running_worker_for(root: Path, a) -> dict | None:
+    import json
+    if a.to:
+        term = _terminal_or_none(a.to)
+        if not term or term.get("state") != "live" or not term.get("cwd") or _repo_root(Path(term["cwd"]).resolve()) != root.resolve():
+            raise Refused(f"--to {a.to} 不是本仓库里活着的终端")
+        return {"terminal": term["address"], "cwd": term["cwd"], "by": f"--to {a.to}", "warning": None}
+    try:
+        r = subprocess.run(["node", str(_PLUGIN / "board" / "src" / "cli.ts"), "route", "--brief", a.brief, "--model", a.model, "--json"],
+                           cwd=root, capture_output=True, text=True, timeout=ROUTE_TIMEOUT_SECONDS)
+        routed = json.loads(r.stdout) if r.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        raise Refused(f"自动路由没跑成:{e}；要直接新开加 --new")
+    if routed is None:
+        raise Refused(f"自动路由没跑成:{(r.stderr or r.stdout).strip()}；要直接新开加 --new")
+    return routed
+
+
+def _hand_to_running_worker(root: Path, a, con, n: str | None, name: str, orch: str, routed: dict) -> str:
+    addr, wt = routed["terminal"], Path(routed["cwd"])
+    line = (f"worktree：接着用 {wt}。先做完手上那张(PR 合并或交还,git status 干净),再 git fetch origin main && "
+            f"git switch -c wt/{name} origin/main,只在这个分支上改")
+    brief = _worker_brief(a, n, name, wt, f"wt/{name}", orch, a.id, worktree_line=line)
+    r = subprocess.run(["hc", "send", addr, brief], capture_output=True, text=True, timeout=HC_TIMEOUT_SECONDS)
+    if r.returncode != 0:
+        raise Refused(f"hc send {addr} 失败,什么都没记:{(r.stderr or r.stdout).strip()}")
+    _record_dispatch_on_the_ticket(root, a, con, n, name, addr, wt, orch)
+    return f"✓ dispatch {a.id} → 在跑的 hc {addr}（{routed['by']}）· {wt}" + _warning_line(routed)
 
 
 def _refuse_unless_ticket_open(root: Path, a, con: sqlite3.Connection | None) -> tuple[str | None, str]:
@@ -1509,12 +1551,13 @@ def _add_worktree_off_origin_main(root: Path, wt: Path, branch: str) -> None:
             raise Refused(f"git {cmd[0]} 失败:{r.stderr.strip()}")
 
 
-def _worker_brief(a, n: str | None, name: str, wt: Path, branch: str, orch: str, who: str) -> str:
+def _worker_brief(a, n: str | None, name: str, wt: Path, branch: str, orch: str, who: str,
+                  worktree_line: str | None = None) -> str:
     ticket = (f"Issue：{a.id}（认领、进展用 nawaban 命令记，见 docs/agents/issue-tracker.md）" if n else
               f"任务：{a.id}（nawaban show {a.id} 看全文；认领、进展、关闭用 nawaban 命令记）" if a.id else f"任务：{name}")
     return "\n".join([
         f"/pstack:poteto-mode {ticket}",
-        f"worktree：{wt}（分支 {branch}，已从 origin/main 拉好；只在这里改，PR 合并或作废后 git worktree remove）",
+        worktree_line or f"worktree：{wt}（分支 {branch}，已从 origin/main 拉好；只在这里改，PR 合并或作废后 git worktree remove）",
         a.brief,
         f"验收：{a.accept}",
         "完成或受阻：只发一行，照抄其一，PR 号填上；结论、实测输出、卡在哪、要谁做什么都写在票上：",
@@ -2569,6 +2612,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--brief", required=True, help="目标、范围等派活说明正文")
     p.add_argument("--accept", required=True, help="验收:可检查的完成标准")
     p.add_argument("--model", default="opus")
+    p.add_argument("--to", help="交给这个终端里在跑的 worker(hc send brief),不新开")
+    p.add_argument("--new", action="store_true", help="新开 worker,不自动路由")
     sub.add_parser("backup", help="备份到 <看板目录>/backups/ · 保留 14 天")
     p = sub.add_parser("json", help="看板的 JSON(projects、board、task;db:看板文件的真实路径)")
     p.add_argument("what", choices=("projects", "board", "task", "db", "okr"))

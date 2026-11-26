@@ -26,10 +26,17 @@ def gh(tmp_path, monkeypatch, capsys):
     terminals = []  # what `hc ls` lists
     real_run = subprocess.run
 
+    routed = {"terminal": None, "cwd": None, "by": None, "passedOver": [], "warning": None}
+    got = {}
+
     def run(args, **kw):
+        if args[0] == "node" and args[2:3] == ["route"]:
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, json.dumps(routed), "")
         if args[0] == "hc":
             calls.append(args)
-            out = {"run": {"address": "t77"}, "ls": {"terminals": terminals}}.get(args[1], {"labels": labels})
+            out = got.get(args[2]) if args[1] == "get" and len(args) > 2 and args[2] in got else \
+                {"run": {"address": "t77"}, "ls": {"terminals": terminals}}.get(args[1], {"labels": labels})
             return subprocess.CompletedProcess(args, 0, json.dumps(out), "")
         if args[0] != "gh":
             return real_run(args, **kw)
@@ -47,6 +54,7 @@ def gh(tmp_path, monkeypatch, capsys):
         out = capsys.readouterr()
         return code, out.out + out.err
     calls.issue, calls.nawaban, calls.labels, calls.repo, calls.terminals = issue, nawaban, labels, repo, terminals
+    calls.routed, calls.got = routed, got
     return calls
 
 
@@ -240,6 +248,58 @@ def test_dispatch_starts_a_worker_in_a_fresh_worktree_and_records_it_on_the_tick
 ])
 def test_a_worker_is_named_module_task_and_ticket(title, tag, named):
     assert cli.worker_title(title, tag) == named
+
+
+def _running_worker(gh, address="t30"):
+    wt = gh.repo.parent / "roubao-w-900"
+    subprocess.run(["git", "-C", str(gh.repo), "worktree", "add", "-q", "-b", "wt/w-900", str(wt)], check=True)
+    gh.got[address] = {"address": address, "state": "live", "cwd": str(wt)}
+    return wt
+
+
+def test_dispatch_hands_the_ticket_to_the_running_worker_the_board_routes_it_to(gh):
+    _with_origin(gh.repo)
+    wt = _running_worker(gh)
+    gh.routed.update(terminal="t30", cwd=str(wt), by="改动文件重叠")
+    code, out = gh.nawaban("dispatch", "#950", "--brief", "改 src/api/window.py", "--accept", "pytest 绿")
+    assert code == 0 and "在跑的 hc t30（改动文件重叠）" in out, out
+    route = next(c for c in gh if c[0] == "node")
+    assert route[route.index("--brief") + 1] == "改 src/api/window.py"
+    assert not any(c[:2] == ["hc", "run"] for c in gh)
+    send = next(c for c in gh if c[:3] == ["hc", "send", "t30"])
+    assert f"接着用 {wt}" in send[3] and "git switch -c wt/w-950 origin/main" in send[3] and "验收：pytest 绿" in send[3]
+    assert send[3].index("先做完手上那张") < send[3].index("git switch")
+    note = cli.read_marker(posted(gh)[0])
+    assert note["body"].startswith(f"派给 hc t30（worktree {wt}")
+    assert not (gh.repo.parent / "roubao-w-950").exists()
+
+
+def test_dispatch_to_a_named_running_worker_skips_routing(gh):
+    _with_origin(gh.repo)
+    _running_worker(gh, "t31")
+    code, out = gh.nawaban("dispatch", "#950", "--to", "t31", "--brief", "b", "--accept", "a")
+    assert code == 0 and "在跑的 hc t31（--to t31）" in out
+    assert not any(c[0] == "node" for c in gh) and any(c[:3] == ["hc", "send", "t31"] for c in gh)
+
+
+def test_dispatch_to_a_terminal_outside_this_repository_is_refused(gh, tmp_path):
+    gh.got["t32"] = {"address": "t32", "state": "live", "cwd": str(tmp_path)}
+    code, out = gh.nawaban("dispatch", "#950", "--to", "t32", "--brief", "b", "--accept", "a")
+    assert code == 1 and "不是本仓库里活着的终端" in out and not any(c[1] in ("run", "send") for c in gh if c[0] == "hc")
+
+
+def test_dispatch_new_opens_a_worker_without_asking_the_router(gh):
+    _with_origin(gh.repo)
+    gh.routed.update(terminal="t30", cwd="/x", by="改动文件重叠")
+    code, out = gh.nawaban("dispatch", "#950", "--new", "--brief", "b", "--accept", "a")
+    assert code == 0 and "hc t77" in out and not any(c[0] == "node" for c in gh)
+
+
+def test_dispatch_passes_on_the_crowd_warning_when_it_opens_a_worker(gh):
+    _with_origin(gh.repo)
+    gh.routed.update(warning="本仓库已有 9 个活着的 worker，超过 8 个：小票交给同线 worker，做完的收掉")
+    code, out = gh.nawaban("dispatch", "#950", "--brief", "b", "--accept", "a")
+    assert code == 0 and "hc t77" in out and "本仓库已有 9 个活着的 worker" in out
 
 
 def test_dispatch_without_a_live_orchestrator_starts_nothing(gh):
