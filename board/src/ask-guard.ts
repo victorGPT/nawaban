@@ -5,6 +5,7 @@ import { checkValue, findBlocks, type FoundBlock } from '@vercel/board/schemas'
 import { askOn } from './events.ts'
 import { ISSUE_KEY, type OldCli } from './github.ts'
 import { githubIssueOfTask } from './github-tasks.ts'
+import { reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { gapsOfADecisionCard, SCHEMAS } from './schemas.ts'
 import { live, profilesTheHookSessionMayHold, resolve, sessionProfile } from './tasks.ts'
 import { Refused } from './said.ts'
@@ -14,7 +15,7 @@ type Run = (argv: string[]) => Promise<number>
 type Door = 'one-way' | 'two-way'
 type Request = { ticket: string; decision: string; kr: string; context: string; options: { choice: string; tradeoff: string; door: Door }[]; recommendation: string }
 export type Stop = { last_assistant_message?: string; session_id?: string; stop_hook_active?: boolean; cwd?: string }
-export type Trackers = { run: Run; team: Team; oldCli: OldCli; onOldCli: boolean }
+export type Trackers = { run: Run; team: Team; oldCli: OldCli; onOldCli: boolean; dir: string }
 
 type Reading =
   | { kind: 'broken'; why: string }
@@ -22,7 +23,7 @@ type Reading =
   | { kind: 'missing'; ticket: string; why: string }
   | { kind: 'held'; ticket: string }
   | { kind: 'open'; id: string; as: string | undefined; request: Request }
-  | { kind: 'old'; request: Request }
+  | { kind: 'old'; request: Request; checkout?: string }
 
 const REQUEST = 'nawaban-ask-request@1'
 const REQUEST_NAME = 'nawaban-ask-request'
@@ -55,7 +56,7 @@ function profileAsking(task: Awaited<ReturnType<typeof resolve>>, session: strin
   return holding || sessionProfile(agentOfTheSession(), session)
 }
 
-async function onTheBoard(request: Request, session: string | undefined): Promise<Reading> {
+async function onTheBoard(request: Request, session: string | undefined, dir: string): Promise<Reading> {
   let task
   try {
     task = await resolve(request.ticket)
@@ -64,12 +65,16 @@ async function onTheBoard(request: Request, session: string | undefined): Promis
     throw error
   }
   const issue = githubIssueOfTask(task)
-  if (issue !== null) return { kind: 'old', request: { ...request, ticket: `#${issue}` } }
+  if (issue !== null) {
+    const checkout = (await reposReadOnEveryUseSoEditsNeedNoRestart(dir))[task.channel]
+    if (!checkout) return { kind: 'missing', ticket: request.ticket, why: `板的 repos.json 里没有 ${task.channel} 的本地路径，不知道在哪个仓库把它记到 GitHub` }
+    return { kind: 'old', request: { ...request, ticket: `#${issue}` }, checkout }
+  }
   if (HOLDS_ALREADY_WAITING_ON_A_PERSON.has(task.task?.blocked?.kind ?? '')) return { kind: 'held', ticket: request.ticket }
   return { kind: 'open', id: task.id, as: profileAsking(task, session), request }
 }
 
-async function readingOf(found: FoundBlock, stop: Stop, onOldCli: boolean): Promise<Reading> {
+async function readingOf(found: FoundBlock, stop: Stop, onOldCli: boolean, dir: string): Promise<Reading> {
   if (found.id !== REQUEST) return { kind: 'broken', why: found.problem ?? `${found.id} 不是 ${REQUEST}` }
   if (!found.data) return { kind: 'broken', why: found.problem ?? '块里不是 JSON 对象' }
   const why = checkValue(SCHEMAS[REQUEST].schema, found.data)
@@ -77,7 +82,7 @@ async function readingOf(found: FoundBlock, stop: Stop, onOldCli: boolean): Prom
   const request = found.data as Request
   const gaps = gapsOfADecisionCard(request)
   if (gaps.length) return { kind: 'unready', gaps }
-  return onOldCli || ISSUE_KEY.test(request.ticket) ? { kind: 'old', request } : onTheBoard(request, stop.session_id)
+  return onOldCli || ISSUE_KEY.test(request.ticket) ? { kind: 'old', request } : onTheBoard(request, stop.session_id, dir)
 }
 
 async function saidOnStderrWithStdoutMuted(work: () => Promise<number>) {
@@ -106,9 +111,9 @@ const oldCliAsk = ({ ticket, decision, kr, context, options, recommendation }: R
   `--rec=${recommendation}`,
 ]
 
-async function recordedOnTheOldCli(request: Request, stop: Stop, trackers: Trackers): Promise<string | null> {
+async function recordedOnTheOldCli(request: Request, repo: string, trackers: Trackers): Promise<string | null> {
   try {
-    await trackers.oldCli(stop.cwd || process.cwd(), oldCliAsk(request))
+    await trackers.oldCli(repo, oldCliAsk(request))
     return null
   } catch (error) {
     const why = (error as Error).message
@@ -132,7 +137,7 @@ const SEND_BACK_OR_LET_THROUGH: Answer = {
       throw error
     }
   },
-  old: (r, stop, trackers) => recordedOnTheOldCli(r.request, stop, trackers),
+  old: (r, stop, trackers) => recordedOnTheOldCli(r.request, r.checkout ?? (stop.cwd || process.cwd()), trackers),
 }
 
 const answer = <K extends Reading['kind']>(r: Extract<Reading, { kind: K }>, stop: Stop, trackers: Trackers) =>
@@ -145,7 +150,7 @@ export async function whyToSendBack(stop: Stop, trackers: Trackers): Promise<str
   for (const found of requestsIn(stop.last_assistant_message ?? '')) {
     let why
     try {
-      why = await answer(await readingOf(found, stop, trackers.onOldCli), stop, trackers)
+      why = await answer(await readingOf(found, stop, trackers.onOldCli, trackers.dir), stop, trackers)
     } catch (error) {
       why = `${REQUEST} 块记不上，看板读不到：${(error as Error).message}`
     }

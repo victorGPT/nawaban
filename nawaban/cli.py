@@ -504,11 +504,11 @@ def impact(con, a, gh_root: Path | None = None) -> str:
     now = _sortable_timestamp(_dt.datetime.now())
     with con:
         con.executemany("INSERT INTO kr_impacts VALUES (?,?,?,?,?,?,?,?,?)", [(repo, a.id, *r, now) for r in rows])
+        _announce_before_commit_so_a_failed_post_rolls_back(con, a, who, text, gh_root)
         if gh_root is not None and _repo_the_board_syncs(gh_root):
             _write_on_the_board_first(["github-impact"], json.dumps(
                 [dict(zip(("objective", "kr", "dir", "before", "after", "basis"), r), repo=repo, ticket=a.id, declared_at=now) for r in rows],
                 ensure_ascii=False))
-        _announce_before_commit_so_a_failed_post_rolls_back(con, a, who, text, gh_root)
     return f"✓ event {a.id} · impact"
 
 

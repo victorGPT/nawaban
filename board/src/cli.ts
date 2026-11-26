@@ -78,7 +78,7 @@ const HOOKS: Record<string, Run> = {
   progress: () => progress(async (session) => [...(await heldBy(session)), ...githubIssuesHeldBy(DIR, session)], DIR),
   guard: () => guard(board(), DIR),
   'gh-account': () => ghAccountGuard(DIR),
-  'ask-guard': (rest) => askGuard(rest, { run: upstreamQuietly, team: board(), oldCli }),
+  'ask-guard': (rest) => askGuard(rest, { run: upstreamQuietly, team: board(), oldCli, dir: DIR }),
   'github-reply': (rest) => githubReplyHook(rest, board(), DIR),
   'github-state': (rest) => githubStateHook(rest, board(), DIR),
   'github-impact': (rest) => githubImpactHook(rest, board(), DIR),

@@ -152,7 +152,7 @@ def test_a_github_issue_declares_on_the_issue_and_the_local_board(tmp_path, boar
     assert ("issue", "close", "5", "--reason", "completed") in calls
 
 
-def test_a_synced_github_repo_hands_each_declaration_to_the_board_and_a_board_refusal_keeps_none(tmp_path, board, capsys, monkeypatch):
+def test_a_synced_github_repo_hands_the_board_only_a_declaration_github_took_and_a_board_refusal_keeps_none(tmp_path, board, capsys, monkeypatch):
     repo = _git_repo(tmp_path / "roubao", github=True)
     monkeypatch.chdir(repo)
     board_dir = tmp_path / "board-dir"
@@ -174,10 +174,14 @@ def test_a_synced_github_repo_hands_each_declaration_to_the_board_and_a_board_re
         (repo_key, declared_at), = con.execute("SELECT repo, declared_at FROM kr_impacts").fetchall()
     assert handed == [[{"repo": repo_key, "ticket": "#5", "objective": "听得懂需求", "kr": "意图准确率", "dir": "↓",
                         "before": "3", "after": "1", "basis": "实测", "declared_at": declared_at}]]
+    monkeypatch.setattr(cli, "_gh", lambda root, *a: (_ for _ in ()).throw(cli.Refused("HTTP 503")))
+    assert run(capsys, board, "event", "#6", "--kind", "impact", "--o", "无")[0] == 1
+    assert len(handed) == 1 and len(impacts(board)) == 1
+    monkeypatch.setattr(cli, "_gh", lambda root, *a: calls.append(a) or "")
     refusal.append("down")
-    code, out = run(capsys, board, "event", "#6", "--kind", "impact", "--o", "无")
+    code, out = run(capsys, board, "event", "#7", "--kind", "impact", "--o", "无")
     assert code == 1 and "板写不进" in out
-    assert len(impacts(board)) == 1 and len([a for a in calls if a[:2] == ("issue", "comment")]) == 1
+    assert len(impacts(board)) == 1
 
 
 def test_a_failed_github_post_keeps_no_declaration(tmp_path, board, capsys, monkeypatch):

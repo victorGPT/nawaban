@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -78,7 +78,7 @@ beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), 'nawaban-synced-'))
   await mkdir(join(tmp, 'bin'))
   await writeFile(join(tmp, 'bin/hc'), `#!/bin/sh\necho "{\\"labels\\":{\\"role\\":\\"orchestrator\\"},\\"pid\\":${process.pid}}"\n`)
-  await writeFile(join(tmp, 'bin/gh'), `#!/bin/sh\necho "$@" >> ${tmp}/gh.log\nif [ "$1 $2" = "pr view" ]; then cat ${tmp}/pr.json; exit 0; fi\necho gh down >&2\nexit 1\n`)
+  await writeFile(join(tmp, 'bin/gh'), `#!/bin/sh\necho "$(pwd) $@" >> ${tmp}/gh.log\nif [ "$1 $2" = "pr view" ]; then cat ${tmp}/pr.json; exit 0; fi\necho gh down >&2\nexit 1\n`)
   await Promise.all(['hc', 'gh'].map((b) => chmod(join(tmp, 'bin', b), 0o755)))
   for (const project of ['nawaban', 'roubao']) {
     const checkout = join(tmp, project)
@@ -291,7 +291,7 @@ describe('同步仓库的合并锁、旧 CLI 的声明、待决', () => {
     expect(githubWrites).toEqual([])
   })
 
-  it('同步仓库的待决请求按 #N 交给旧 CLI 写到 GitHub，不记在板上', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  it('同步仓库的待决请求按 #N 交给旧 CLI，在该票所在的仓库里写到 GitHub，不记在板上', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
     const card = {
       ticket: 'ROUBAO-1730', decision: '先合 A 还是先合 B', kr: '听得懂需求 / 意图准确率', context: 'A 改了接口',
       options: [{ choice: 'A', tradeoff: '快', door: 'two-way' }, { choice: 'B', tradeoff: '稳', door: 'one-way' }], recommendation: 'A',
@@ -299,9 +299,15 @@ describe('同步仓库的合并锁、旧 CLI 的声明、待决', () => {
     const id = (await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1730' } })).tasks[0]!.message.id
     const before = (await team.thread(id)).replies.length
     await writeFile(join(tmp, 'gh.log'), '')
-    const r = await hook('ask-guard.sh', checkouts.roubao!, { stop_hook_active: false, last_assistant_message: `你定。\n\n${block('nawaban-ask-request@1', card)}\n` })
-    expect(r.code, r.err).toBe(0)
-    expect(await readFile(join(tmp, 'gh.log'), 'utf8')).toMatch(/\b1730\b/)
+    for (const session of [checkouts.roubao!, checkouts.nawaban!]) {
+      await writeFile(join(tmp, 'gh.log'), '')
+      const r = await hook('ask-guard.sh', session, { stop_hook_active: false, last_assistant_message: `你定。\n\n${block('nawaban-ask-request@1', card)}\n` })
+      expect(r.code, r.err).toBe(0)
+      const calls = (await readFile(join(tmp, 'gh.log'), 'utf8')).trim().split('\n')
+      expect(calls.length).toBeGreaterThan(0)
+      for (const call of calls) expect(call.startsWith(`${await realpath(checkouts.roubao!)} `) || call.startsWith(`${checkouts.roubao!} `), call).toBe(true)
+      expect(calls.some((call) => /\b1730\b/.test(call))).toBe(true)
+    }
     expect((await team.thread(id)).replies).toHaveLength(before)
   })
 })

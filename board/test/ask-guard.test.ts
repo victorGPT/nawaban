@@ -212,6 +212,7 @@ describe('on a repository the old CLI tracks', () => {
     run: async () => 1,
     team,
     onOldCli: true,
+    dir: tmp,
     oldCli: async (_repo: string, args: string[]) => {
       asked.push(args)
       if (refusal) throw new Refused(refusal)
