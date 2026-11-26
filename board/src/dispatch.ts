@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
+import { accountElseNull } from './github-account.ts'
 import { projectOfThisRepository } from './impact.ts'
 import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
@@ -240,20 +241,33 @@ async function filesChangedIn(worktree: string): Promise<string[]> {
 
 const linesOf = (out: string | null | undefined) => (out ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
 
-const filesOfTheMergedPullRequestFrom = async (branch: string) =>
-  linesOf(await stdoutOrNullOnFailure('gh', ['pr', 'list', '--head', branch, '--state', 'merged', '--limit', '1', '--json', 'files', '--jq', '.[0].files[]?.path']))
+async function filesOfTheMergedPullRequestFrom(root: string, branch: string): Promise<string[]> {
+  const account = await accountElseNull(root)
+  const token = account && (await stdoutOrNullOnFailure('gh', ['auth', 'token', '--user', account]))?.trim()
+  if (account && !token) return []
+  try {
+    const { stdout } = await exec('gh', ['pr', 'list', '--head', branch, '--state', 'merged', '--limit', '1', '--json', 'files', '--jq', '.[0].files[]?.path'], {
+      cwd: root,
+      timeout: PROBE_TIMEOUT_MS,
+      env: token ? { ...process.env, GH_TOKEN: token } : process.env,
+    })
+    return linesOf(stdout)
+  } catch {
+    return []
+  }
+}
 
 const worktreeNameOf = (root: string, cwd: string) => basename(cwd).slice(basename(root).length + 1)
 
 const removedWorktreeOf = (root: string, cwd: string) => !existsSync(cwd) && dirname(cwd) === dirname(root) && basename(cwd).startsWith(`${basename(root)}-`)
 
 async function filesOnTheWorkersMind(root: string, cwd: string): Promise<string[]> {
-  if (!existsSync(cwd)) return filesOfTheMergedPullRequestFrom(`wt/${worktreeNameOf(root, cwd)}`)
+  if (!existsSync(cwd)) return filesOfTheMergedPullRequestFrom(root, `wt/${worktreeNameOf(root, cwd)}`)
   const changed = await filesChangedIn(cwd)
   if (changed.length) return changed
   for (const ref of ['HEAD', '@{-1}']) {
     const branch = (await stdoutOrNullOnFailure('git', ['-C', cwd, 'rev-parse', '--abbrev-ref', ref]))?.trim()
-    const merged = branch && branch !== 'HEAD' ? await filesOfTheMergedPullRequestFrom(branch) : []
+    const merged = branch && branch !== 'HEAD' ? await filesOfTheMergedPullRequestFrom(root, branch) : []
     if (merged.length) return merged
   }
   return []

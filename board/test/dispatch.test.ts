@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -33,7 +33,8 @@ esac
 `
 
 const GH_STAND_IN_ANSWERING_MERGED_PULL_REQUEST_FILES_FROM_GH_MERGED = `#!/bin/sh
-printf 'gh %s\\n' "$*" >> "$HC_LOG"
+printf 'gh %s token=%s\\n' "$*" "$GH_TOKEN" >> "$HC_LOG"
+[ "$1 $2" = 'auth token' ] && { echo "tok-$4"; exit 0; }
 branch=$(printf '%s' "$*" | sed -n 's/.*--head \\([^ ]*\\).*/\\1/p')
 files="$GH_MERGED/$(printf '%s' "$branch" | tr / _)"
 [ -n "$branch" ] && [ -f "$files" ] && cat "$files"
@@ -675,5 +676,21 @@ it('counts a file changed both in a commit and in the working tree once', async 
   const ls = (await fileWorker('t1on', once, 9_000)) + (await fileWorker('t1bo', both, 1_000))
   const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 lib/a.ts 和 lib/b.ts', '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
   expect(JSON.parse(r.stdout).terminal).toBe('t1bo')
+})
+
+
+
+it('looks up a merged pull request as the repository\'s GitHub account', async () => {
+  const gone = join(tmp, 'repo-w-acct')
+  await mergedPullRequestFrom('wt/w-acct', ['scripts/acct.ts'])
+  await mkdir(join(repo, 'docs', 'agents'), { recursive: true })
+  await writeFile(join(repo, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n\ngithub-account: owner-acct\n')
+  try {
+    const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 scripts/acct.ts', '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: await fileWorker('t1ac', gone, 1_000) })
+    expect(JSON.parse(r.stdout).terminal).toBe('t1ac')
+    expect(r.hc).toMatch(/^gh pr list --head wt\/w-acct .* token=tok-owner-acct$/m)
+  } finally {
+    await rm(join(repo, 'docs'), { recursive: true, force: true })
+  }
 })
 
