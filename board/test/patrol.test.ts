@@ -106,6 +106,30 @@ it('reports a live worker assigned a ticket it has not claimed for 10 minutes', 
   expect(await sent()).toEqual([`${ORCH} 巡检：t31 被指派 U-1 11 分钟没认领，最后一行：⏺ 已合 PR #5`])
 })
 
+it('leaves alone a ticket queued for a worker still busy holding another, as dispatch means it to', async () => {
+  await freshProject('p-queued')
+  await heldBy('p-queued', 'B-1', 't32')
+  const { task } = await team.as(null).tasks.create('p-queued', { id: 'B-2', text: 'B-2', labels: { key: 'B-2' } })
+  await team.reply(task.id, block('nawaban-dispatch@2', { worker: 'w', terminal: 't32', accept: 'a', orchestrator: ORCH }))
+  const now = Date.now()
+  await terminals({ t32: { status: { state: 'working' }, status_ms: now } })
+  await patrolOnce(team, boardDir, now + 30 * MINUTE)
+  expect(await sent()).toEqual([])
+})
+
+it('keeps what it already said when hc cannot read the terminal for a round, so the same problem is not said twice', async () => {
+  await freshProject('p-flaky')
+  await heldBy('p-flaky', 'K-1', 't91')
+  const now = Date.now()
+  await terminals({ t91: atThePrompt(now - 20 * MINUTE, 'idle') })
+  await patrolOnce(team, boardDir, now)
+  await writeFile(join(hcDir, 't91.json'), 'not json')
+  await patrolOnce(team, boardDir, now + 5 * MINUTE)
+  await terminals({ t91: atThePrompt(now - 20 * MINUTE, 'idle') })
+  await patrolOnce(team, boardDir, now + 10 * MINUTE)
+  expect(await sent()).toEqual([`${ORCH} 巡检：t91 卡住 20 分钟，持 K-1，最后一行：idle`])
+})
+
 it('reports a ticket still held by a terminal that is gone', async () => {
   await freshProject('p-gone')
   await heldBy('p-gone', 'G-1', 't41')

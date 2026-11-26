@@ -21,6 +21,8 @@ type Seen = { status?: { state?: string; msg?: string } | null; status_ms?: numb
 type Kind = '卡住' | '没领' | '掉线' | '额度用完'
 type Finding = { project: string; task: string; terminal: string; kind: Kind; minutes: number; last: string }
 type Reported = Record<string, Kind>
+type Unread = { unread: string }
+type Look = Finding | Unread | null
 
 const { heldTicketState } = (await import(new URL('../../herdr/mods/nawaban-board/logic.js', import.meta.url).href)) as {
   heldTicketState: (t: Row, window: { status: string } | null | undefined) => string
@@ -52,18 +54,18 @@ async function screenTail(terminal: string): Promise<string[]> {
   return (read?.text ?? '').split('\n').filter((l) => SAYS_SOMETHING.test(l)).slice(-SCREEN_LINES_READ_FOR_QUOTA)
 }
 
-async function findingOf(project: string, row: Row, live: Set<string>, now: number): Promise<Finding | null> {
+async function findingOf(project: string, row: Row, live: Set<string>, holding: Set<string>, now: number): Promise<Look> {
   const at = (terminal: string, kind: Kind, minutes: number, last = '') => ({ project, task: row.id, terminal, kind, minutes, last })
   const unclaimed = row.unclaimed_dispatch
   if (!row.session) {
-    if (!unclaimed || !live.has(unclaimed.terminal)) return null
+    if (!unclaimed || !live.has(unclaimed.terminal) || holding.has(unclaimed.terminal)) return null
     const minutes = Math.floor((now - unclaimed.at * 1000) / MINUTE_MS)
     return minutes >= UNCLAIMED_AFTER_MINUTES ? at(unclaimed.terminal, '没领', minutes, await lastLineOf(unclaimed.terminal)) : null
   }
   if (!row.terminal) return null
   if (!live.has(row.terminal)) return heldTicketState(row, null) === 'stopped' ? at(row.terminal, '掉线', 0) : null
   const seen = await hcJson<Seen>(['get', row.terminal, '--json'])
-  if (!seen) return null
+  if (!seen) return { unread: problemKey({ project, task: row.id, terminal: row.terminal }) }
   const word = seen.status?.state ?? ''
   const minutes = seen.status_ms ? Math.floor((now - seen.status_ms) / MINUTE_MS) : 0
   if (word === 'working') return null
@@ -120,7 +122,10 @@ export async function patrolOnce(team: Team, dir: string, now = Date.now(), log:
   for (const [project, checkout] of Object.entries(await reposReadOnEveryUseSoEditsNeedNoRestart(dir))) {
     try {
       const rows = ((await boardData(team, project)).columns as { key: string; tasks: Row[] }[]).filter((c) => c.key !== 'done').flatMap((c) => c.tasks)
-      const findings = (await Promise.all(rows.map((r) => findingOf(project, r, live, now)))).filter((f) => f !== null)
+      const holding = new Set(rows.filter((r) => r.session && r.terminal).map((r) => r.terminal!))
+      const looks = await Promise.all(rows.map((r) => findingOf(project, r, live, holding, now)))
+      for (const { unread } of looks.filter((l): l is Unread => l !== null && 'unread' in l)) if (before[unread]) after[unread] = before[unread]
+      const findings = looks.filter((l): l is Finding => l !== null && !('unread' in l))
       const fresh = findings.filter((f) => before[problemKey(f)] !== f.kind)
       const root = fresh.length ? await mainCheckoutRealPathOf(checkout) : null
       const orch = root ? await liveOrchestratorInRepository(root) : null
