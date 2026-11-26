@@ -1388,11 +1388,7 @@ def gh_post(root: Path, number: str, kind: str, body: str, kr: str | None = None
     if by:
         ev["by"] = by
     text = f"{GH_WORDS[kind]}：{body}\n\n{marker(ev)}"
-    pushed_by_the_board = _repo_the_board_pushes(root)
-    if pushed_by_the_board:
-        _write_on_the_board_first(["github-reply", pushed_by_the_board, number], text)
-    else:
-        _gh(root, "issue", "comment", number, "--body", text)
+    _gh(root, "issue", "comment", number, "--body", text)
 
 
 def _repo_the_board_syncs(root: Path) -> str | None:
@@ -1855,8 +1851,7 @@ def gh_write(root: Path, a) -> str:
 
 
 def _gh_claim(root: Path, a, n: str, who: str) -> str:
-    if not _repo_the_board_pushes(root):
-        _gh(root, "issue", "edit", n, "--remove-assignee" if a.release else "--add-assignee", "@me")
+    _gh(root, "issue", "edit", n, "--remove-assignee" if a.release else "--add-assignee", "@me")
     if a.release:
         gh_post(root, n, "release", who)
         _forget_the_claim_here(root, n)
@@ -1868,12 +1863,7 @@ def _gh_claim(root: Path, a, n: str, who: str) -> str:
 
 
 def _gh_close(root: Path, a, n: str) -> str:
-    pushed_by_the_board = _repo_the_board_pushes(root)
-    if pushed_by_the_board:
-        _write_on_the_board_first(["github-state", pushed_by_the_board, n, "open" if a.reopen else "completed" if a.done else "not_planned"])
-        if not a.reopen:
-            _forget_the_claim_here(root, n)
-    elif a.reopen:
+    if a.reopen:
         _gh(root, "issue", "reopen", n)
     else:
         _gh(root, "issue", "close", n, "--reason", "completed" if a.done else "not planned")
@@ -2571,6 +2561,16 @@ def board_words(argv: list[str]) -> list[str]:
     return [*head, *rest, "--", body] if body.startswith("-") else [*head, body, *rest]
 
 
+def refuse_switched_to_the_board(argv: list[str]) -> None:
+    root = github_root()
+    repo = root and _repo_the_board_syncs(root)
+    if not (repo and _switched_to_the_board(repo)):
+        return
+    board_argv = [f"{root.name.upper()}-{w[1:]}" if _GH_ISSUE.fullmatch(w) else w for w in board_words(argv)]
+    raise Refused(f"{repo} 已切到板上，旧 CLI 不再读写它:nawaban {shlex.join(board_argv)}"
+                  f"(nawaban 即 node {_PLUGIN / 'board' / 'src' / 'cli.ts'};GitHub issue #N 在板上是 {root.name.upper()}-N)")
+
+
 def refuse_moved(project: str | None, argv: list[str]) -> None:
     if project and project in moved_projects():
         raise Refused(f"项目 {project} 已迁到 Board:nawaban {shlex.join(board_words(argv))}"
@@ -2663,6 +2663,8 @@ def main(argv: list[str] | None = None) -> int:
     path = resolve_db(a.db)
     words = _words_to_rerun_on_the_board(argv)
     try:
+        if a.verb not in _VERBS_WITHOUT_A_REPOSITORY:
+            refuse_switched_to_the_board(words)
         if a.verb in _STANDALONE_VERBS:
             return _STANDALONE_VERBS[a.verb](path, a, words)
         if a.verb in WRITE_VERBS and not _github_issue_write(a):
@@ -2680,6 +2682,9 @@ def main(argv: list[str] | None = None) -> int:
     if out:
         print(out)
     return 0
+
+
+_VERBS_WITHOUT_A_REPOSITORY = {"init", "backup"}
 
 
 def _github_issue_write(a) -> bool:

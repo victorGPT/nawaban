@@ -19,13 +19,14 @@ const RECENTLY_CLOSED_MS = 2 * 24 * 60 * 60_000
 export const NO_GITHUB_USER_HAS_THIS_ID = Number.MAX_SAFE_INTEGER
 const GITHUB_API_HOST = 'api.github.com'
 const READ_METHODS = new Set(['GET', 'HEAD'])
+const ISSUE_NUMBER_BEFORE_THE_TITLE = /^Issue #\d+: /
 const GITHUB_DATE_HEADER = /^date:\s*(.+?)\r?$/im
 
 type User = { id: number; login: string }
 type Issue = { number: number; title: string; state: 'open' | 'closed'; state_reason?: string | null; updated_at: string; user: User; closed_by?: User | null; pull_request?: unknown }
 type Comment = { id: number; issue_url: string; created_at: string; updated_at: string; user: User }
 type Seen = { state: Issue['state']; title: string; state_reason?: string | null; reopens?: number }
-type RepoState = { since?: string; reconciledAt?: string; issues: Record<string, Seen>; comments?: Record<string, number[]> }
+type RepoState = { since?: string; reconciledAt?: string; titledAsOnGithub?: true; issues: Record<string, Seen>; comments?: Record<string, number[]> }
 export type Reader = { list: (path: string) => Promise<unknown[]>; one: (path: string) => Promise<unknown>; now: () => Promise<string> }
 export type Deliver = (event: 'issues' | 'issue_comment', payload: Record<string, unknown>) => Promise<void>
 
@@ -60,7 +61,7 @@ const intoExceptWhatWasWrittenHereFirst = (repo: string, channel: string) => asy
   const { subject, text, raw } = sync.event as Subject
   await attachIfSharedFromHere(sync.board, repo, raw?.issue)
   const echo = subject?.repo && subject.number && text ? await writtenHereFirst(sync.board, channel, subject.repo, subject.number, text) : false
-  if (!echo) await sync.import(channel)
+  if (!echo) await sync.import(channel, { root: (draft) => ({ text: draft.text.replace(ISSUE_NUMBER_BEFORE_THE_TITLE, '') }) })
 }
 
 export function importOnlySync(config: SyncConfig, token: string, secret: string) {
@@ -179,9 +180,19 @@ async function bringTheBoardUpToGithub(repo: string, dir: string, reader: Reader
       await deleteWhatGithubNoLongerHas(repo, reader, deliver, state, repository)
       state.reconciledAt = roundStartedOnGithubClock
     }
+    if (!state.titledAsOnGithub && state.since !== undefined) await retitleRootsImportedWithTheIssueNumber(repo, reader, deliver, state, repository)
+    state.titledAsOnGithub = true
     state.since = roundStartedOnGithubClock
   } finally {
     await saveState(path, state)
+  }
+}
+
+async function retitleRootsImportedWithTheIssueNumber(repo: string, reader: Reader, deliver: Deliver, state: RepoState, repository: unknown) {
+  for (const [number, seen] of Object.entries(state.issues)) {
+    if (seen.state !== 'open') continue
+    const issue = (await reader.one(`repos/${repo}/issues/${number}`)) as Issue
+    await deliver('issues', { action: 'edited', issue, repository, sender: issue.user, changes: { title: { from: `Issue #${number}: ${issue.title}` } } })
   }
 }
 

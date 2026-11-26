@@ -10,6 +10,7 @@ import { labelsOfLive, LIVE_LABELS, liveOfLabels, type Held, type Live } from '.
 import { optionWordsBut, pointAt, withBody } from './hint.ts'
 import { markInboxItemTurnedInto, openInboxItem } from './page.ts'
 import { EVENTS_THAT_END_A_CLAIM } from './views.ts'
+import { refuseAClaimGithubAssignedToSomeoneElse, sayOnGithubToo, wantStateOnGithubToo } from './github-push.ts'
 
 const LEASE = '1h'
 const PAGE = 50
@@ -227,11 +228,14 @@ const claim: Verb = async (argv) => {
   if (values.release) {
     const { task: released } = (await upstreamAnswer(['tasks', 'release', task.id, '--as', as])) as { task: MessageView }
     await forgetTheClaimOf(task.id)
+    await sayOnGithubToo(personOwningEveryTaskTheirProfilesMade(), boardDirAsConfiguredWhenAsked(), task, 'release', as)
     return { done: `交还 ${key(task)}`, json: { task: released } }
   }
-  refuseHeldByAnother(task, as, '等它交还，或让编排者改派')
+  const held = refuseHeldByAnother(task, as, '等它交还，或让编排者改派')
+  await refuseAClaimGithubAssignedToSomeoneElse(personOwningEveryTaskTheirProfilesMade(), boardDirAsConfiguredWhenAsked(), task)
   const { task: claimed } = (await upstreamAnswer(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE])) as { task: MessageView }
   await labelTerminalThePanelReadsWhileClaimed(task.id)
+  if (!held) await sayOnGithubToo(personOwningEveryTaskTheirProfilesMade(), boardDirAsConfiguredWhenAsked(), task, 'claim', as + (terminal() ? `（hc ${terminal()}）` : ''))
   const until = claimed.task?.claim?.until
   return { done: `认领 ${key(task)}${until ? `，租约到 ${clock(until)}` : ''}`, json: { task: claimed } }
 }
@@ -259,6 +263,7 @@ async function refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team: ReturnT
   if (!held) await upstreamAnswer(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE])
   const { task: completed } = (await upstreamAnswer(['tasks', 'complete', task.id, '--as', as])) as { task: MessageView }
   await forgetTheClaimOf(task.id)
+  await wantStateOnGithubToo(team, boardDirAsConfiguredWhenAsked(), task, 'completed')
   return { done: `关了 ${key(task)}（做完）`, json: { task: completed } }
 }
 
@@ -274,6 +279,7 @@ async function needsWithoutAnyCanceledSinceBoardTakesNone(team: ReturnType<typeo
 async function cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView): Promise<Said> {
   if (task.task?.state !== 'canceled') await team.tasks.cancel(task.id, 'cancelled')
   await forgetTheClaimOf(task.id)
+  await wantStateOnGithubToo(team, boardDirAsConfiguredWhenAsked(), task, 'not_planned')
   const stillWaitingRerunFinishesThem: string[] = []
   for (const down of await all({ state: 'open', needs: task.id })) {
     try {
@@ -288,17 +294,24 @@ async function cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team: Retur
   return { done: `作废 ${key(task)}，等它的票不再等`, json: { canceled: task.id } }
 }
 
+async function reopenOnGithub(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView): Promise<Said> {
+  if (!(await wantStateOnGithubToo(team, boardDirAsConfiguredWhenAsked(), task, 'open'))) throw new Refused(`${key(task)} 不是推到 GitHub 的 issue 票：板上的票关了不重开，要接着做就新开一张`)
+  return { done: `记下：联网时在 GitHub 上重开 ${key(task)}，轮询拉回来后开一张新票接过票号`, json: { reopen: task.id } }
+}
+
 const close: Verb = async (argv) => {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { done: { type: 'boolean' }, cancelled: { type: 'boolean' }, kr: { type: 'string', multiple: true }, json: { type: 'boolean' } },
+    options: { done: { type: 'boolean' }, cancelled: { type: 'boolean' }, reopen: { type: 'boolean' }, kr: { type: 'string', multiple: true }, json: { type: 'boolean' } },
   })
   const [ref] = positionals
-  if (!ref || positionals.length !== 1 || !!values.done === !!values.cancelled) throw new Refused('用法：nawaban close <票> (--done | --cancelled)', 2)
+  const ways = [values.done, values.cancelled, values.reopen].filter(Boolean).length
+  if (!ref || positionals.length !== 1 || ways !== 1) throw new Refused('用法：nawaban close <票> (--done | --cancelled | --reopen)', 2)
   if (values.kr && !values.done) throw new Refused('--kr 报结果，只跟 --done 一起用', 2)
   const task = await resolve(ref)
   const team = personOwningEveryTaskTheirProfilesMade()
+  if (values.reopen) return reopenOnGithub(team, task)
   if (values.done) return refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team, task, values.kr ? resultsOf(values.kr) : null)
   return cancelThenUnblockDownstreamSoACutRunNeverReadiesEarly(team, task)
 }

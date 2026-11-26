@@ -281,7 +281,6 @@ describe('同步停了要露出来', () => {
     expect(Object.keys(await githubRepos(dir))).toEqual(['roubao', 'other'])
     await recordSwitch(dir, REPO, { at: '2026-11-24T12:00:00.000Z', openIssues: 0 })
     expect(Object.keys(await githubRepos(dir))).toEqual(['other'])
-    expect(Object.keys(await githubRepos(dir, { evenWhenSyncedToTheBoard: true }))).toEqual(['roubao', 'other'])
   })
 })
 

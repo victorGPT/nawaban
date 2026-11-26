@@ -218,8 +218,8 @@ function changes(signal: AbortSignal, viewsChanged: EventTarget) {
   )
 }
 
-async function githubRepoOf(dir: string, project: string | null, evenWhenSyncedToTheBoard = false) {
-  const repos = project ? await githubRepos(dir, { evenWhenSyncedToTheBoard }) : {}
+async function githubRepoOf(dir: string, project: string | null) {
+  const repos = project ? await githubRepos(dir) : {}
   return project && Object.hasOwn(repos, project) ? repos[project]! : null
 }
 
@@ -260,8 +260,7 @@ async function githubView(github: Github, repo: string, what: string | undefined
 
 async function view(team: Team, dir: string, pullStateOf: PullStateOf, github: Github, path: string, query: URLSearchParams) {
   const [what, ...rest] = path.split('/')
-  const okrStaysOnGithubUntilItsReadingsMove = what === 'okr'
-  const repo = await githubRepoOf(dir, query.get('project'), okrStaysOnGithubUntilItsReadingsMove)
+  const repo = await githubRepoOf(dir, query.get('project'))
   const onGithub = repo && (await githubView(github, repo, what, rest))
   if (onGithub) return onGithub
   if (what === 'board' && !rest.length) return Response.json(await boardData(team, query.get('project') || undefined, dir))

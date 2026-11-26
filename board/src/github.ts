@@ -46,8 +46,8 @@ async function tracksOnGithub(repo: string) {
   }
 }
 
-export async function githubRepos(dir: string, { evenWhenSyncedToTheBoard = false } = {}): Promise<Record<string, string>> {
-  const synced = evenWhenSyncedToTheBoard ? [] : Object.values((await githubSyncConfig(dir))?.repos ?? {})
+export async function githubRepos(dir: string): Promise<Record<string, string>> {
+  const synced = Object.values((await githubSyncConfig(dir))?.repos ?? {})
   const repos = Object.entries(await reposReadOnEveryUseSoEditsNeedNoRestart(dir)).filter(([name]) => !synced.includes(name))
   const onGithub = await Promise.all(repos.map(([, repo]) => tracksOnGithub(repo)))
   return Object.fromEntries(repos.filter((_, i) => onGithub[i]))

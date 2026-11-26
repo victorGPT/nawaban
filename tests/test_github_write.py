@@ -509,24 +509,6 @@ def board_pushes(gh, monkeypatch, tmp_path):
     return handed
 
 
-def test_a_repo_the_board_pushes_gets_its_comment_on_the_board_first_word_for_word(gh, board_pushes):
-    code, out = gh.nawaban("event", "#950", "--kind", "note", "--body", "多行\n第二行")
-    assert code == 0, out
-    assert posted(gh) == []
-    [(where, text)] = board_pushes
-    assert where == ["acme/roubao", "950"]
-    assert text.startswith("进展：多行\n第二行\n\n<!-- nawaban ")
-    ev = cli.read_marker(text)
-    assert ev["kind"] == "note" and ev["body"] == "多行\n第二行" and ev["uid"]
-
-
-def test_a_board_that_refuses_the_write_leaves_github_untouched_and_says_why(gh, board_pushes):
-    board_pushes.refusal = "✗ 板上还没有 acme/roubao#950"
-    code, out = gh.nawaban("event", "#950", "--kind", "note", "--body", "x")
-    assert code != 0 and "板写不进" in out and "acme/roubao#950" in out
-    assert posted(gh) == []
-
-
 def test_a_pushed_repo_the_board_has_not_switched_to_yet_still_posts_to_github(gh, board_pushes, tmp_path):
     (tmp_path / "board" / "github-sync" / "acme%2Froubao.switched.json").unlink()
     assert gh.nawaban("event", "#950", "--kind", "note", "--body", "x")[0] == 0
@@ -540,26 +522,3 @@ def test_a_synced_repo_not_listed_under_push_still_posts_to_github(gh, monkeypat
     monkeypatch.setenv("NAWABAN_BOARD_DIR", str(board_dir))
     assert gh.nawaban("event", "#950", "--kind", "note", "--body", "x")[0] == 0
     assert len(posted(gh)) == 1
-
-
-def test_a_repo_the_board_pushes_claims_on_the_board_and_leaves_the_assignee_to_the_push(gh, board_pushes):
-    assert gh.nawaban("claim", "#950")[0] == 0
-    assert gh.nawaban("claim", "#950", "--release")[0] == 0
-    assert not any(c[:2] == ["issue", "edit"] for c in gh)
-    assert [where for where, _ in board_pushes] == [["acme/roubao", "950"], ["acme/roubao", "950"]]
-    assert [cli.read_marker(text)["kind"] for _, text in board_pushes] == ["claim", "release"]
-
-
-def test_a_claim_the_board_refuses_because_someone_else_is_assigned_fails_and_leaves_github_untouched(gh, board_pushes):
-    board_pushes.refusal = "✗ acme/roubao#950 在 GitHub 上已指派给 yuebutong"
-    code, out = gh.nawaban("claim", "#950")
-    assert code != 0 and "yuebutong" in out
-    assert not any(c[:2] == ["issue", "edit"] for c in gh) and posted(gh) == []
-
-
-@pytest.mark.parametrize("flags, wanted", [(["--done"], "completed"), (["--cancelled"], "not_planned"), (["--reopen"], "open")])
-def test_a_repo_the_board_pushes_closes_and_reopens_on_the_board_first(gh, board_pushes, flags, wanted):
-    code, out = gh.nawaban("close", "#950", *flags)
-    assert code == 0, out
-    assert not any(c[:2] in (["issue", "close"], ["issue", "reopen"]) for c in gh)
-    assert board_pushes == [(["github-state", "acme/roubao", "950", wanted], "")]

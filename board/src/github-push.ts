@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { text as wholeOf } from 'node:stream/consumers'
 import type { board, MessageView } from '@vercel/board'
-import { closeTaskOfRootHere, keyOf, markerOf, PUSHED_AS } from './github-tasks.ts'
+import { closeTaskOfRootHere, githubIssueOfTask, keyOf, markerOf, PUSHED_AS, repliesOnTheIssue } from './github-tasks.ts'
 import { githubSyncConfig, recordPush } from './github-sync-status.ts'
 import { githubAccountOf } from './github-account.ts'
 import { reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
@@ -28,6 +28,9 @@ export const PUSHED_KINDS = new Set(['claim', 'release', 'note', 'decision', 'li
 const BOOKKEEPING_NOTE = /^\s*(?:triage:|wayfinder:|lane:|dispatch:|派给 hc |巡检：)/
 const TRIED_AT = 'github-push-tried-at'
 export const WANTED_STATE = 'github-state-wanted'
+export const PUSH_AS_KIND = 'github-push'
+const PREFIX_OF_KIND: Record<string, string> = { claim: '认领', release: '交还', note: '进展', decision: '决定', link: 'PR', ask: '待决', resolve: '已决', impact: '影响' }
+const DOOR_IN_WORDS: Record<string, string> = { 'one-way': '单向门', 'two-way': '双向门' }
 export const SHARE_TO = 'github-share'
 const SHARE_TRIED_AT = 'github-share-tried-at'
 const STATE_SENT = 'github-state-sent'
@@ -46,10 +49,42 @@ const uidOf = (text: string) => {
   return typeof uid === 'string' ? uid : null
 }
 
+type Data = Record<string, any>
+
+const BODY_OF_KIND: Record<string, (m: MessageView, d: Data) => string> = {
+  claim: (m) => m.text,
+  release: (m) => m.text,
+  note: (m) => m.text,
+  decision: (_, d) => [d.question && `背景：${d.question}`, `决定：${d.verdict}`, d.rejected?.length && `否决方案：${d.rejected.join('；')}`].filter(Boolean).join('\n'),
+  link: (_, d) => (d.kind === 'pr' ? d.ref : `${d.kind}:${d.ref}`),
+  ask: (_, d) =>
+    [`决策事项：${d.decision}`, `关联 KR：${d.kr ?? ''}`, `背景：${d.context ?? ''}`, '备选方案：', ...d.options.map((o: Data) => `- ${o.choice}｜${o.tradeoff}｜${DOOR_IN_WORDS[o.door]}`), `建议：${d.recommendation}`].join('\n'),
+  resolve: (_, d) => d.words,
+  impact: (_, d) => `O ${d.objective}${d.krs.map((k: Data) => ` · ${k.name}=${k.heading ?? k.dir}`).join('')}`,
+}
+
+function inGithubWords(m: MessageView) {
+  const kind = m.labels[PUSH_AS_KIND]!
+  const data = (m.blocks[0]?.data ?? {}) as Data
+  const body = BODY_OF_KIND[kind]!(m, data)
+  const said = { v: 1, uid: m.id, kind, author: m.author?.handle ?? '', at: Math.floor(Date.parse(m.createdAt) / 1000), body, ...(data.kr ? { kr: data.kr } : {}), ...(data.by === 'user' ? { by: 'user' } : {}), ...(kind === 'impact' && data.change ? { change: data.change } : {}) }
+  return `${PREFIX_OF_KIND[kind]}：${body}\n\n<!-- nawaban ${JSON.stringify(said).replaceAll('-', '\\u002d')} -->`
+}
+
+const textForGithub = (m: MessageView) => (m.labels[PUSH_AS_KIND] ? inGithubWords(m) : m.text)
+
 function goesToGithub(m: MessageView) {
-  if (m.from !== null || m.deleted || m.labels[PUSHED_AS] || uidOf(m.text) === null) return false
-  const marker = markerOf(m.text)!
-  return PUSHED_KINDS.has(String(marker.kind)) && !(marker.kind === 'note' && BOOKKEEPING_NOTE.test(String(marker.body ?? '')))
+  if (m.from !== null || m.deleted || m.labels[PUSHED_AS]) return false
+  const kind = m.labels[PUSH_AS_KIND] ?? (uidOf(m.text) === null ? null : String(markerOf(m.text)!.kind))
+  const body = m.labels[PUSH_AS_KIND] ? m.text : String(markerOf(m.text)?.body ?? '')
+  return kind !== null && PUSHED_KINDS.has(kind) && !(kind === 'note' && BOOKKEEPING_NOTE.test(body))
+}
+
+export async function githubIssuePushedFrom(dir: string, task: MessageView) {
+  const issue = githubIssueOfTask(task)
+  const config = issue === null ? null : await githubSyncConfig(dir)
+  const repo = config?.push?.find((r) => config.repos[r] === task.channel)
+  return repo ? { repo, issue: issue! } : null
 }
 
 const issueOf = (root: MessageView, repo: string) => (root.labels.issue?.startsWith(`${repo}#`) ? Number(root.labels.issue.slice(repo.length + 1)) : null)
@@ -70,12 +105,12 @@ export async function issueRoot(person: Pick<Person, 'threads'>, channel: string
   return threads[0]?.message ?? null
 }
 
-export async function writtenHereFirst(person: Pick<Person, 'threads' | 'thread'>, channel: string, repo: string, issue: number, text: string) {
+export async function writtenHereFirst(person: Pick<Person, 'threads' | 'thread' | 'tasks'>, channel: string, repo: string, issue: number, text: string) {
   const uid = uidOf(text)
   if (uid === null) return false
   const root = await issueRoot(person, channel, repo, issue)
   if (!root) return false
-  return (await person.thread(root.id)).replies.some((r) => r.from === null && uidOf(r.text) === uid)
+  return (await repliesOnTheIssue(person, channel, root)).some((r) => r.from === null && (uidOf(r.text) === uid || r.id === uid))
 }
 
 async function rootOrRefusal(person: Pick<Person, 'threads'>, channel: string, repo: string, issue: number) {
@@ -107,6 +142,25 @@ export async function wantState(person: Person, channel: string, repo: string, i
   if (wanted !== 'open') await closeTaskOfRootHere(person, root, wanted)
 }
 
+export async function refuseAClaimGithubAssignedToSomeoneElse(person: Person, dir: string, task: MessageView) {
+  const pushed = await githubIssuePushedFrom(dir, task)
+  if (!pushed) return
+  const root = await rootOrRefusal(person, task.channel, pushed.repo, pushed.issue)
+  await refuseAClaimOnAnIssueAssignedToSomeoneElse(root, pushed.repo, pushed.issue, async () => (await pushAccountOf(dir, task.channel)).account)
+}
+
+export async function sayOnGithubToo(person: Person, dir: string, task: MessageView, kind: 'claim' | 'release', text: string) {
+  if (await githubIssuePushedFrom(dir, task)) await person.reply(task.id, { text, labels: { [PUSH_AS_KIND]: kind } })
+}
+
+export async function wantStateOnGithubToo(person: Person, dir: string, task: MessageView, wanted: WantedState) {
+  const pushed = await githubIssuePushedFrom(dir, task)
+  if (pushed) await wantState(person, task.channel, pushed.repo, pushed.issue, wanted)
+  return pushed !== null
+}
+
+export const pushLabelArgs = async (dir: string, task: MessageView, kind: string) => ((await githubIssuePushedFrom(dir, task)) ? ['--label', `${PUSH_AS_KIND}=${kind}`] : [])
+
 const unsetUnlessChangedSinceRead = (person: Person, id: string, names: string[], read: Record<string, string>) =>
   person.label(id, { unset: names, if: read }).catch((error: { code?: string }) => {
     if (error.code !== STALE_LABEL_READ) throw error
@@ -116,14 +170,15 @@ async function pushInOrderStoppingAtTheFirstThatCannotGo(person: Person, repo: s
   for (const m of waiting) {
     const triedAt = m.labels[TRIED_AT]
     if (triedAt && now - Date.parse(triedAt) < GITHUB_LISTS_A_NEW_COMMENT_WITHIN_MS) return
-    const uid = uidOf(m.text)!
+    const text = textForGithub(m)
+    const uid = uidOf(text)!
     const since = new Date(Date.parse(m.createdAt) - LOOK_BACK_BEFORE_WRITTEN_MS).toISOString()
     let copy = triedAt ? (await poster.commentsSince(repo, issue, since)).find((c) => uidOf(c.body) === uid) : undefined
     if (!copy) {
       await person.label(m.id, { set: { [TRIED_AT]: new Date(now).toISOString() } })
-      copy = await poster.post(repo, issue, m.text)
+      copy = await poster.post(repo, issue, text)
     }
-    const assigned = ASSIGNS[String(markerOf(m.text)!.kind)]
+    const assigned = ASSIGNS[String(markerOf(text)!.kind)]
     if (assigned !== undefined) await poster.assign(repo, issue, assigned)
     await person.label(m.id, { set: { [PUSHED_AS]: String(copy.id) } })
     pushed.count++
@@ -193,7 +248,7 @@ export async function pushRepo(person: Person, channel: string, repo: string, po
   let unpushed = 0
   const failures: string[] = []
   for (const { root, issue } of await issueRoots(person, channel, repo)) {
-    const waiting = (await person.thread(root.id)).replies.filter(goesToGithub).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+    const waiting = (await repliesOnTheIssue(person, channel, root)).filter(goesToGithub).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
     const pushed = { count: 0 }
     let stateLeft = root.labels[WANTED_STATE] ? 1 : 0
     try {

@@ -8,6 +8,7 @@ import { claimReady } from './dispatch.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { BODY_FROM_STDIN, bodyFrom, key, live, profile, resolve } from './tasks.ts'
 import { answer, orRefusal, Refused } from './said.ts'
+import { pushLabelArgs } from './github-push.ts'
 import { commandLine, optionWordsBut, pointAt, shellWord, withBody } from './hint.ts'
 
 type Run = (argv: string[]) => Promise<number>
@@ -90,9 +91,9 @@ function misuse(kind: Kind, a: Args): string | null {
   return null
 }
 
-function eventOn(id: string, key: string, a: Args, run: Run, team: Team): Event {
+function eventOn(id: string, key: string, a: Args, run: Run, team: Team, pushLabel: string[] = []): Event {
   const as = a.as ? ['--as', a.as] : []
-  const reply = (text: string) => run(['reply', id, ...as, '--', text])
+  const reply = (text: string) => run(['reply', id, ...as, ...pushLabel, '--', text])
   const hold = (reason: string, kind: string) => run(['tasks', 'block', id, '--kind', kind, ...as, '--', reason])
   const holdAndNewest = () => holdAndNewestReply(team, id, key)
 
@@ -109,7 +110,7 @@ function eventOn(id: string, key: string, a: Args, run: Run, team: Team): Event 
   const answerThenLiftIfStillOurs = async (kind: string, text: string, ours: (newest: Newest) => boolean, beforeLift = async () => undefined as unknown) => {
     const before = await holdAndNewest()
     if (before.hold?.kind !== kind) return null
-    const posted = await run(['reply', id, '--after', before.newest.id, ...as, '--', text])
+    const posted = await run(['reply', id, '--after', before.newest.id, ...as, ...pushLabel, '--', text])
     if (posted) return posted
     const after = await holdAndNewest()
     const holdRaisedMeanwhile = after.hold?.kind !== kind || !ours(after.newest)
@@ -185,7 +186,8 @@ async function ask(e: Event): Promise<number> {
   return holdForDecision(e, { decision: a.body, kr: e.kr, context: a.context, options: (a.option ?? []).map(cardOption), recommendation: a.rec })
 }
 
-export const askOn = (id: string, card: DecisionCard, as: string | undefined, run: Run, team: Team) => holdForDecision(eventOn(id, id, { as }, run, team), card)
+export const askOn = async (id: string, card: DecisionCard, as: string | undefined, run: Run, team: Team) =>
+  holdForDecision(eventOn(id, id, { as }, run, team, await pushLabelArgs(boardDirAsConfiguredWhenAsked(), (await team.thread(id, { limit: 1 })).message, 'ask')), card)
 
 export async function registration(team: Team, id: string, o: string | undefined, specs: string[], change = 'product'): Promise<string> {
   const headings = []
@@ -278,7 +280,8 @@ export function event(argv: string[], run: Run, team: Team): Promise<number> {
     const a: Args = { ...values, kind, body, ...(holderWaitsWithItsClaimSinceOnlyTheClaimMayHoldAClaimedTask ? { as: profile() } : {}) }
     const why = misuse(kind, a)
     if (why) refuse(why, 2)
-    const got = await BY_KIND[kind](eventOn(task.id, key(task), a, run, team))
+    const pushLabel = kind === 'wait' ? [] : await pushLabelArgs(boardDirAsConfiguredWhenAsked(), task, kind)
+    const got = await BY_KIND[kind](eventOn(task.id, key(task), a, run, team, pushLabel))
     if (typeof got === 'number' && got) refuse(`看板没记下 ${key(task)} 的 ${kind}`, got)
     return { done: `${key(task)} ${DONE_LINE[kind]}${typeof got === 'string' ? got : ''}`, json: { key: key(task), id: task.id, kind } }
   })
@@ -302,6 +305,6 @@ export function claimRegistering(argv: string[], claim: Run, run: Run, team: Tea
     if (release) refuse('--o 在认领时登记 KR 影响，不跟 --release 一起用', 2)
     const task = await resolve(parsed.positionals[0] ?? '')
     const registered = await registration(team, task.id, o, kr ?? [], change)
-    return (await claim(plain)) || run(['reply', task.id, registered])
+    return (await claim(plain)) || run(['reply', task.id, ...(await pushLabelArgs(boardDirAsConfiguredWhenAsked(), task, 'impact')), '--', registered])
   })
 }
