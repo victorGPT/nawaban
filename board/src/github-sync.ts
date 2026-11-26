@@ -8,7 +8,7 @@ import { github, repos } from '@vercel/board/sync-github'
 import type { KnownIssue } from './github-tasks.ts'
 import { POLL_EVERY_MS, recordRound, recordSwitch, STATE_FOLDER, switchedToTheBoard, type SyncConfig } from './github-sync-status.ts'
 import { attachIfSharedFromHere, writtenHereFirst } from './github-push.ts'
-export { githubSyncConfig, githubSyncConfigToPoll, recordRound, switchedToTheBoard, syncStalledNote, unswitchUntilThisServeChecksAgain } from './github-sync-status.ts'
+export { githubSyncConfig, githubSyncConfigToPoll, recordRound, switchedToTheBoard, syncStalledNote } from './github-sync-status.ts'
 
 const WEBHOOK_SECRET_FILE = 'github-webhook-secret'
 const SECRET_BYTES = 32

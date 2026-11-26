@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const CONFIG_FILE = 'github-sync.json'
@@ -42,8 +42,6 @@ export async function recordSwitch(dir: string, repo: string, checked: { at: str
   await writeFile(tmp, JSON.stringify(checked))
   await rename(tmp, switchedFile(dir, repo))
 }
-
-export const unswitchUntilThisServeChecksAgain = (dir: string, repos: string[]) => Promise.all(repos.map((repo) => rm(switchedFile(dir, repo), { force: true })))
 
 export async function githubSyncConfig(dir: string): Promise<SyncConfig | null> {
   const config = await githubSyncConfigToPoll(dir)

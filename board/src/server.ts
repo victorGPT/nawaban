@@ -14,7 +14,7 @@ import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type GithubBoard, type OldCli } from './github.ts'
 import { currentGithubAsk, githubRepliesOf, inGithubFormat, HELD_FOR_A_GITHUB_ASK, openIssuesWithoutAnOpenTask, settleIssueTasks, type KnownIssue } from './github-tasks.ts'
-import { deliverAsSignedWebhook, ghReader, githubSyncConfigToPoll, importOnlySync, pollForever, readerToken, refusingGithubWrites, unswitchUntilThisServeChecksAgain, webhookSecret } from './github-sync.ts'
+import { deliverAsSignedWebhook, ghReader, githubSyncConfigToPoll, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
 import { ghPoster, pushAccountOf, pushForever } from './github-push.ts'
 import { githubTokenOf } from './github-account.ts'
 import { okrData } from './okr.ts'
@@ -494,7 +494,6 @@ export async function serve(dir = DIR, port = PORT) {
   const url = urlFor(port)
   const tailnet = await tailnetHost(dir)
   const syncConfig = await githubSyncConfigToPoll(dir)
-  if (syncConfig) await unswitchUntilThisServeChecksAgain(dir, Object.keys(syncConfig.repos))
   const secret = syncConfig && (await webhookSecret(dir))
   if (syncConfig) globalThis.fetch = refusingGithubWrites(globalThis.fetch)
   const sync = syncConfig && secret ? { github: importOnlySync(syncConfig, await readerToken(syncConfig.reader), secret) } : undefined
