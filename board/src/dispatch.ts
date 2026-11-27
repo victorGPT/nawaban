@@ -60,7 +60,7 @@ const USAGE_NEXT = 'nawaban dispatch --help 看每个参数'
 type Args = { ref: string | undefined; name: string | undefined; brief: string; accept: string; checks: string[]; agent: Agent; model: string | undefined; to: string | undefined; fresh: boolean }
 type Checked = { as: string; task: MessageView | null; root: string; orch: string; name: string; who: string; lane: string | null }
 type Worktree = { path: string; branch: string }
-type Terminal = { address: string; name?: string; state?: string; status?: { state?: string }; status_ms?: number; cwd?: string; argv?: string[]; labels?: Record<string, string> }
+type Terminal = { address: string; name?: string; state?: string; status?: { state?: string }; status_ms?: number; cwd?: string; foreground?: { cwd?: string }; argv?: string[]; labels?: Record<string, string> }
 type Seat = { reuse: Terminal; task: MessageView; by: string | null } | { reuse: null; passedOver: string[] }
 
 export async function stdoutOrNullOnFailure(cmd: string, args: string[]): Promise<string | null> {
@@ -92,23 +92,28 @@ async function thisTerminalIfOrchestrator(): Promise<string | null> {
   return me && (await roleLabelOf(me)) === 'orchestrator' ? me : null
 }
 
-export async function liveTerminalsInRepository(root: string): Promise<Terminal[]> {
-  let terminals: Terminal[]
+async function liveTerminals(): Promise<Terminal[]> {
   try {
-    terminals = JSON.parse((await stdoutOrNullOnFailure('hc', ['ls', '--json'])) ?? '').terminals ?? []
+    const listed: Terminal[] = JSON.parse((await stdoutOrNullOnFailure('hc', ['ls', '--json'])) ?? '').terminals ?? []
+    return listed.filter((t) => t.state === 'live')
   } catch {
     return []
   }
+}
+
+export async function liveTerminalsInRepository(root: string): Promise<Terminal[]> {
   const inRepository: Terminal[] = []
-  for (const t of terminals) {
-    if (t.state === 'live' && t.cwd && (await mainCheckoutRealPathOf(t.cwd)) === root) inRepository.push(t)
+  for (const t of await liveTerminals()) {
+    if (t.cwd && (await mainCheckoutRealPathOf(t.cwd)) === root) inRepository.push(t)
   }
   return inRepository
 }
 
 export async function liveOrchestratorInRepository(root: string): Promise<string | null> {
-  for (const t of await liveTerminalsInRepository(root)) {
-    if ((await roleLabelOf(t.address)) === 'orchestrator') return t.address
+  for (const t of await liveTerminals()) {
+    const full = await terminalOf(t.address)
+    const whereTheAgentRunsNotWhereTheShellStarted = full?.foreground?.cwd ?? t.cwd
+    if (full?.labels?.role === 'orchestrator' && whereTheAgentRunsNotWhereTheShellStarted && (await mainCheckoutRealPathOf(whereTheAgentRunsNotWhereTheShellStarted)) === root) return t.address
   }
   return null
 }
@@ -132,10 +137,10 @@ async function stillLiveOrchestrator(address: string): Promise<boolean> {
   return t?.state === 'live' && t.labels?.role === 'orchestrator'
 }
 
-export async function orchestratorToReportTo(root: string | null, task: MessageView | null): Promise<string | null> {
+export async function orchestratorToReportTo(root: string | null, task: MessageView | null, threadOf = (id: string) => board().thread(id)): Promise<string | null> {
   const inRepository = root ? await liveOrchestratorInRepository(root) : null
   if (inRepository || !task) return inRepository
-  const recorded = lastDispatchOf((await board().thread(task.id)).replies)?.orchestrator
+  const recorded = lastDispatchOf((await threadOf(task.id)).replies)?.orchestrator
   return recorded && (await stillLiveOrchestrator(recorded)) ? recorded : null
 }
 

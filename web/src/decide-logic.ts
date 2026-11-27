@@ -1,7 +1,7 @@
 export type Option = { key: string; text: string; note: string }
 export type Card = { decision: string; kr: string; context: string; options: Option[]; rec: string }
 export type Pending = { at: number; card: Card | null; ask: string | null; brief?: string }
-export type WebAnswer = { task: string; option: string | null; words: string; at: string }
+export type WebAnswer = { task: string; option: string | null; words: string; at: string; heard: boolean }
 export type Reply = { option?: string; words: string }
 
 export const REPLIES = {

@@ -27,8 +27,9 @@ export function NotesPage(props: { project: string; projects: string[]; onPick: 
     ({ p }) => void load(p),
   )
   const shown = () => (notes()?.of === props.project ? notes()!.items : null)
+  const [unheard, setUnheard] = createSignal(false)
   const keep = async (words: string) => {
-    await write('inbox' + inProject(props.project), { words })
+    setUnheard(!(await write<{ heard: boolean }>('inbox' + inProject(props.project), { words })).heard)
     await load(props.project)
   }
   return (
@@ -37,6 +38,9 @@ export function NotesPage(props: { project: string; projects: string[]; onPick: 
         <ProjectPicker value={props.project} choices={props.projects} onPick={props.onPick} />
       </PageHead>
       <NoteComposer onKeep={keep} />
+      <Show when={unheard()}>
+        <EmptyLine>记下了，编排者不在线，等它下次看</EmptyLine>
+      </Show>
       <Show when={shown()} fallback={<EmptyLine error={!!failure()}>{failure() || WINDOW_WORDS.zh.loading}</EmptyLine>}>
         <Show when={shown()!.length} fallback={<EmptyLine>还没有记下的想法</EmptyLine>}>
           <NoteList>

@@ -6,7 +6,7 @@ import { link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 import { extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { board } from '@vercel/board'
+import { board, type MessageView } from '@vercel/board'
 import type { CallerRequest } from '@vercel/board/access'
 import { local } from '@vercel/board/backend-local'
 import { inspector } from '@vercel/board/inspect'
@@ -22,7 +22,8 @@ import { keptReads, StillReading } from './kept.ts'
 import { noPullStates, pullStateFromGitHub, type PullStateOf } from './pulls.ts'
 import { Refused } from './said.ts'
 import { boardData, projectsData, taskDetail } from './views.ts'
-import { ANSWERS_LABEL, answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, webAnswers, webAnswerText } from './page.ts'
+import { mainCheckoutRealPathOf, orchestratorToReportTo, stdoutOrNullOnFailure } from './dispatch.ts'
+import { ANSWER_UNHEARD, ANSWERS_LABEL, answerToTheCurrentHold, dropInboxItem, inboxEntries, keepInboxItem, webAnswers, webAnswerText } from './page.ts'
 
 const DEFAULT_PORT = 4100
 const TOKEN_BYTES = 32
@@ -274,9 +275,21 @@ function answerSent(body: unknown) {
   return { ask: ask as string, answer: { words: words as string, ...(option !== undefined && { option: option as string }) } }
 }
 
+const LONGEST_WAKE_LINE = 60
+const oneShortLine = (words: string) => {
+  const flat = words.replace(/\s+/g, ' ').trim()
+  return flat.length > LONGEST_WAKE_LINE ? flat.slice(0, LONGEST_WAKE_LINE) + '…' : flat
+}
+
+async function wokenOrchestrator(team: Team, dir: string, project: string, task: MessageView | null, line: string): Promise<string | null> {
+  const repo = (await reposReadOnEveryUseSoEditsNeedNoRestart(dir))[project]
+  const orch = await orchestratorToReportTo(repo ? await mainCheckoutRealPathOf(repo) : null, task, (id) => team.thread(id))
+  return orch && (await stdoutOrNullOnFailure('hc', ['send', orch, line])) !== null ? orch : null
+}
+
 const theCardChanged = (ref: string) => refuse(409, `${ref} 的待决卡已经换了，刷新后再答`)
 
-async function answer(team: Team, asThisPerson: (body: unknown) => Promise<Response>, segment: string, request: Request) {
+async function answer(team: Team, dir: string, asThisPerson: (body: unknown) => Promise<Response>, segment: string, request: Request) {
   let ref
   try {
     ref = decodeURIComponent(segment)
@@ -297,15 +310,20 @@ async function answer(team: Team, asThisPerson: (body: unknown) => Promise<Respo
   const posted = await asThisPerson({ re: task.id, after: (replies.at(-1) ?? task).id, text: webAnswerText(said.answer), ...boundToTheGithubAskItAnswers })
   if (posted.status === 409) return theCardChanged(ref)
   if (!posted.ok) return refuse(502, `看板没收下答复：${posted.status}`)
+  const woke = await wokenOrchestrator(team, dir, task.channel, task, `网页已答 ${ref}：${oneShortLine(said.answer.option ?? said.answer.words)}`)
+  if (!woke) await asThisPerson({ re: task.id, text: `${ANSWER_UNHEARD}：项目 ${task.channel} 没找到活着的编排者终端，或 hc send 没送到；它下次收到提示词时会看到这条答复` })
   const written = await team.thread(task.id)
   return Response.json(answerToTheCurrentHold(written.message, written.replies, await githubRepliesOf(team, written.message, written.replies)), { status: 201 })
 }
 
-async function write(team: Team, asThisPerson: (body: unknown) => Promise<Response>, path: string, query: URLSearchParams, request: Request) {
+async function write(team: Team, dir: string, asThisPerson: (body: unknown) => Promise<Response>, path: string, query: URLSearchParams, request: Request) {
   const [what, ...rest] = path.split('/')
-  if (what === 'answer' && request.method === 'POST' && rest.length === 1 && rest[0]) return answer(team, asThisPerson, rest[0], request)
+  if (what === 'answer' && request.method === 'POST' && rest.length === 1 && rest[0]) return answer(team, dir, asThisPerson, rest[0], request)
   if (what === 'inbox' && request.method === 'POST' && !rest.length) {
-    return Response.json(await keepInboxItem(team, query.get('project') ?? '', await wordsSent(request)), { status: 201 })
+    const project = query.get('project') ?? ''
+    const kept = await keepInboxItem(team, project, await wordsSent(request))
+    const woke = await wokenOrchestrator(team, dir, project, null, `网页随手记：${oneShortLine(kept.words)}`)
+    return Response.json({ ...kept, heard: woke !== null }, { status: 201 })
   }
   if (what === 'inbox' && request.method === 'DELETE' && rest.length === 1 && rest[0]) {
     return (await dropInboxItem(team, rest[0])) ? new Response(null, { status: 204 }) : refuse(404, 'no such inbox item')
@@ -386,7 +404,7 @@ export function site(
     const path = pathname.slice(API.length)
     try {
       const answered = await (!READS.has(request.method)
-        ? write(team, asThisPerson, path, searchParams, request).finally(() => void movedThenTell(VIEWS))
+        ? write(team, dir, asThisPerson, path, searchParams, request).finally(() => void movedThenTell(VIEWS))
         : path === 'changes'
           ? changes(request.signal, viewsChanged)
           : keptView(path, searchParams))
