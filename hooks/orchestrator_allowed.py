@@ -56,6 +56,7 @@ def unquoted_heredoc_bodies(command):
 
 
 def substitutions(command):
+    command = command.replace("\\\n", "")
     yield from substitutions_in(without_heredoc_bodies(command), shell_quoting=True)
     for body in unquoted_heredoc_bodies(command):
         yield from substitutions_in(body, shell_quoting=False)
