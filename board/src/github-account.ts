@@ -24,7 +24,7 @@ const READ_ONLY_VERBS = new Set(['view', 'list', 'status', 'checks', 'diff', 'wa
 const CLONES_TO_THIS_MACHINE = new Set(['repo', 'gist'])
 const API_SENDS_A_BODY = /^(?:-f|-F|--field(?:=|$)|--raw-field(?:=|$)|--input(?:=|$))/
 const API_METHOD = /^(?:-X=?|--method(?:=|$))(.*)$/
-const REPO_FLAG = /^(?:-R|--repo)(?:=(.*))?$/
+const REPO_FLAG = /^(?:-R|--repo)(?:=(.*))?$|^-R(.+)$/
 const GITHUB_REPO_IN_REMOTE = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/
 const ISSUE_TEXT_FLAGS = new Set(['-t', '-b', '-F', '--title', '--body', '--body-file'])
 const ISSUE_EDIT_FLAGS_TAKING_A_VALUE = new Set([...ISSUE_TEXT_FLAGS, '-m', '--milestone', '--type', '--parent', ...['assignee', 'blocked-by', 'blocking', 'label', 'project', 'sub-issue'].flatMap((what) => [`--add-${what}`, `--remove-${what}`])])
@@ -89,7 +89,7 @@ function withoutRepoFlag(args: string[]): string[] {
   for (let i = 0; i < args.length; i++) {
     const m = REPO_FLAG.exec(args[i]!)
     if (!m) kept.push(args[i]!)
-    else if (m[1] === undefined) i++
+    else if ((m[1] ?? m[2]) === undefined) i++
   }
   return kept
 }
@@ -108,7 +108,7 @@ function writesToGithub(args: string[], segment: string): boolean {
 function repoFlagOf(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i++) {
     const m = REPO_FLAG.exec(args[i]!)
-    if (m) return m[1] ?? args[i + 1]
+    if (m) return m[1] ?? m[2] ?? args[i + 1]
   }
   return undefined
 }
