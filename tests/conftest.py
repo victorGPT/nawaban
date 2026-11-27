@@ -48,6 +48,14 @@ def outside_tmp():
     shutil.rmtree(d, ignore_errors=True)
 
 
+BOARD_DEPENDENCY_THE_HOOKS_LOAD = ROOT / "board" / "node_modules" / "@vercel" / "board"
+
+
+def pytest_sessionstart(session):
+    if not BOARD_DEPENDENCY_THE_HOOKS_LOAD.is_dir():
+        pytest.exit(f"钩子调的板 CLI 缺依赖，测试会静默变红：先跑 pnpm --dir {ROOT / 'board'} install --frozen-lockfile", returncode=2)
+
+
 def pytest_unconfigure(config):
     _bootstrap.undo()
     _home.cleanup()
