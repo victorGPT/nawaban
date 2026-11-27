@@ -184,9 +184,9 @@ async function gateBeforeTheIrreversibleMerge(pr: PullRequest, task: MessageView
   if (!onlyDocs(pr) && !reviewedAtHead(pr)) {
     return { kind: 'refused', why: `没有对 head ${pr.headRefOid.slice(0, 7)} 的 review 无挡结论：PR 评论里贴一条顶格「Codex review：无挡合并」并写上这个 sha` }
   }
+  if (kr.length) await board().as(profile()).reply(task.id, resultsOf(kr))
   const why = await mergeGate(`gh pr merge ${pr.number}`, process.cwd(), board(), DIR)
   if (why) return { kind: 'refused', why }
-  if (kr.length) await board().as(profile()).reply(task.id, resultsOf(kr))
   const unreported = await whyNotCloseable(task.id)
   return unreported ? { kind: 'refused', why: `${unreported.split('\n')[0]}：合并前就要报，nawaban merge ${pr.number} ${unreportedKrFlags(unreported)}` } : null
 }

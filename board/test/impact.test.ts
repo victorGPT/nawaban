@@ -208,6 +208,12 @@ it('refuses a merge whose task declares no impact, from a worktree of the reposi
   expect(refused.err).toMatch(/NAWABAN-T-01/)
 
   await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=hold')
+  for (const roubaoMergesWithItsOwnScript of ['scripts/merge.sh 7', 'gh pr merge 7 --squash']) {
+    const unreported = await preToolUseHookOnBashAsClaudeCodeRunsIt(roubaoMergesWithItsOwnScript, worktree, pr)
+    expect([unreported.code, unreported.err]).toEqual([2, expect.stringContaining('nawaban event NAWABAN-T-01 result --kr "KR1=<后值> 实测|预计"')])
+  }
+  await nawaban('event', id, 'result', '--kr', 'KR1=3 预计')
+  expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('scripts/merge.sh 7', worktree, pr)).code).toBe(0)
   expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 7 --squash', worktree, pr)).code).toBe(0)
   expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('gh pr merge 7', worktree, { ...pr, body: 'no key' })).code).toBe(2)
   expect((await preToolUseHookOnBashAsClaudeCodeRunsIt('echo "gh pr merge 7"', worktree, pr)).code).toBe(0)

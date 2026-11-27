@@ -2,11 +2,11 @@ import { parseArgs } from 'node:util'
 import { BoardError, block, type board } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
 import { type DecisionCard, gapsOfADecisionCard, SCHEMAS, type SchemaId } from './schemas.ts'
-import { IMPACT_FORMAT, whyNotDeclarable } from './impact.ts'
+import { IMPACT_FORMAT, RESULT_FORMAT, whyNotDeclarable } from './impact.ts'
 import { registeredReadings } from './okr.ts'
 import { claimReady } from './dispatch.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
-import { BODY_FROM_STDIN, bodyFrom, key, live, profile, resolve } from './tasks.ts'
+import { BODY_FROM_STDIN, bodyFrom, key, live, profile, resolve, resultsOf } from './tasks.ts'
 import { answer, orRefusal, Refused } from './said.ts'
 import { pushLabelArgs } from './github-push.ts'
 import { commandLine, optionWordsBut, pointAt, shellWord, withBody } from './hint.ts'
@@ -16,7 +16,7 @@ type Team = ReturnType<typeof board>
 type Thread = Awaited<ReturnType<Team['thread']>>
 type Newest = { blocks: { schema: string }[]; text: string }
 
-const KINDS = ['note', 'decision', 'link', 'ask', 'wait', 'resolve', 'impact'] as const
+const KINDS = ['note', 'decision', 'link', 'ask', 'wait', 'resolve', 'impact', 'result'] as const
 type Kind = (typeof KINDS)[number]
 const HOLD_FOR_PERSON = 'needs_input'
 const HOLD_FOR_DECISION = 'awaiting_approval'
@@ -25,7 +25,7 @@ const TRIAGE_LABEL = /^\s*triage:\s*([\w-]+)/
 const QUESTION_AFTER_DENGNI = /等你[：:]/
 const WAIT_NOTE = '等你：'
 const USAGE = `用法：nawaban event <票> <类> [正文]（类：${KINDS.join(' ')}）`
-const DONE_LINE: Record<Kind, string> = { note: '记下进展', decision: '记下决策', link: '记下链接', ask: '记下待决，票挂起等决策者', wait: '记下等你，票挂起等决策者答复', resolve: '记下已决，挂起已解除', impact: '记下 KR 影响声明' }
+const DONE_LINE: Record<Kind, string> = { note: '记下进展', decision: '记下决策', link: '记下链接', ask: '记下待决，票挂起等决策者', wait: '记下等你，票挂起等决策者答复', resolve: '记下已决，挂起已解除', impact: '记下 KR 影响声明', result: '记下 KR 结果' }
 const THE_OLD_FLAGS_A_POSITIONAL_REPLACES = ['kind', 'body']
 
 const OPTIONS = {
@@ -87,7 +87,7 @@ function misuse(kind: Kind, a: Args): string | null {
   if (a.by !== undefined && (kind !== 'decision' || a.by !== 'user')) return '--by user 只跟 decision 一起用'
   if ((a.o !== undefined) !== (kind === 'impact')) return 'impact 要 --o "<O 名>"（纯基础设施写 --o 无），也只有 impact 收 --o'
   if (a.change !== undefined && kind !== 'impact') return '--change 只跟 impact 一起用'
-  if (kind !== 'impact' && (a.kr?.length ?? 0) > 1) return '--kr 只给一次，impact 除外'
+  if (kind !== 'impact' && kind !== 'result' && (a.kr?.length ?? 0) > 1) return '--kr 只给一次，impact 和 result 除外'
   return null
 }
 
@@ -210,6 +210,12 @@ async function impactShapeHereNamesAtTheBoard(e: Event): Promise<number> {
   return e.reply(await registration(e.team, e.id, a.o, a.kr ?? [], a.change))
 }
 
+async function krResultsBeforeTheMerge(e: Event): Promise<number> {
+  const { a } = e
+  if (a.body || a.context || a.option || a.rec || !a.kr?.length) return refuse(`result 只收 --kr "${RESULT_FORMAT}"（可重复）`, 2)
+  return e.reply(resultsOf(a.kr))
+}
+
 async function wait(e: Event): Promise<number> {
   const question = e.a.body?.trim()
   if (!question) return refuse('wait 要有一行问题', 2)
@@ -253,6 +259,7 @@ const BY_KIND: Record<Kind, (e: Event) => Promise<number | string>> = {
   link,
   ask,
   impact: impactShapeHereNamesAtTheBoard,
+  result: krResultsBeforeTheMerge,
   wait,
   resolve: resolveHold,
 }
@@ -280,7 +287,7 @@ export function event(argv: string[], run: Run, team: Team): Promise<number> {
     const a: Args = { ...values, kind, body, ...(holderWaitsWithItsClaimSinceOnlyTheClaimMayHoldAClaimedTask ? { as: profile() } : {}) }
     const why = misuse(kind, a)
     if (why) refuse(why, 2)
-    const pushLabel = kind === 'wait' ? [] : await pushLabelArgs(boardDirAsConfiguredWhenAsked(), task, kind)
+    const pushLabel = kind === 'wait' || kind === 'result' ? [] : await pushLabelArgs(boardDirAsConfiguredWhenAsked(), task, kind)
     const got = await BY_KIND[kind](eventOn(task.id, key(task), a, run, team, pushLabel))
     if (typeof got === 'number' && got) refuse(`看板没记下 ${key(task)} 的 ${kind}`, got)
     return { done: `${key(task)} ${DONE_LINE[kind]}${typeof got === 'string' ? got : ''}`, json: { key: key(task), id: task.id, kind } }
