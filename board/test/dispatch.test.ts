@@ -132,6 +132,7 @@ it('starts the worker in its own worktree, briefed to report to the orchestrator
   expect(run).toContain(`nawaban tell D-GO "完成 PR #<号>"`)
   expect(run).toContain(`nawaban tell D-GO "受阻，详情在票上"`)
   expect(run).toContain('nawaban merge <PR 号>')
+  expect(run).toContain('只在 wt/d-go 上提交和开 PR，不另开分支')
   expect(run).not.toContain('cli.ts')
   expect(run).not.toContain('to1')
   expect((await git(join(tmp, 'repo-d-go'), 'branch', '--show-current')).stdout.trim()).toBe('wt/d-go')

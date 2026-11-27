@@ -591,8 +591,21 @@ it('picks up after a merged PR on a rerun without merging again', async () => {
   expect(await stateOf(id)).toBe('completed')
 })
 
-it('refuses a branch that names no ticket', async () => {
-  const { worktree } = await workerOnItsOwnTicket('M-LOST', 't80', { ...greenCodePr('M-LOST'), headRefName: 'feature/x' })
+it('merges a PR on its own branch by the one ticket of this project its body closes', async () => {
+  await newTask('M-ELSEWHERE', 'another-project')
+  const { id, worktree } = await workerOnItsOwnTicket('M-BODY', 't81', { ...greenCodePr('M-BODY'), title: 'fix merge', headRefName: 'feature/y', body: 'Closes M-BODY, M-ELSEWHERE' })
+  const dir = join(tmp, 'board-m-body')
+  await mkdir(dir)
+  await writeFile(join(dir, 'repos.json'), JSON.stringify({ 'm-body': repo }))
+  const r = await mergeAsTheWorker('M-BODY', 't81', worktree, { NAWABAN_BOARD_DIR: dir })
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.gh).toMatch(/^pr merge 5 --squash/m)
+  expect(await stateOf(id)).toBe('completed')
+})
+
+it('refuses a branch that names no ticket when the title and body name none either', async () => {
+  const { worktree } = await workerOnItsOwnTicket('M-LOST', 't80', { ...greenCodePr('M-LOST'), title: 'fix merge', headRefName: 'feature/x', body: 'no ticket here' })
   const r = await mergeAsTheWorker('M-LOST', 't80', worktree)
   expect(r.code).toBe(1)
   expect(r.gh).not.toMatch(/^pr merge/m)
