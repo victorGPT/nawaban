@@ -18,7 +18,11 @@ STDIN_FILTER_FLAGS_AND_VALUED_FLAGS = {
     "jq": ("rcejSsn", ""),
 }
 STDIN_FILTERS_WITH_AN_EXPRESSION = {"jq", "grep"}
-GH_READS = {("issue", "view"), ("issue", "list"), ("pr", "view"), ("pr", "list")}
+GH_ORCHESTRATION = {("issue", "view"), ("issue", "list"), ("pr", "view"), ("pr", "list"), ("pr", "checks"), ("pr", "merge"),
+                     ("issue", "comment"), ("auth", "token")}
+GIT_ORCHESTRATION = {("pull", "--ff-only"), ("worktree", "list"), ("worktree", "remove"), ("worktree", "prune"), ("fetch",)}
+ORCHESTRATION_SCRIPTS = {"node": "hooks/route.mjs", "python3": "nawaban/cli.py", "sh": "herdr/install-mod.sh"}
+MERGE_SCRIPT = "scripts/merge.sh"
 GIT_READS = {"log", "status"}
 GIT_LOG_METADATA_OPTIONS = re.compile(r"^(-\d+|-n|--oneline|--stat|--shortstat|--name-only|--name-status|--graph|--all|--no-merges|--merges|--first-parent|--reverse|--decorate(=.*)?|--no-decorate|--abbrev-commit|--no-color|--(format|pretty|max-count|since|until|after|before|author|committer|grep|date|branches|tags|remotes)=.*)$")
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
@@ -104,6 +108,8 @@ def reads_only_stdin(name, args):
 def git_reads_metadata(args):
     while args and args[0].startswith("-"):
         args = args[2:] if args[0] in GIT_OPTIONS_WITH_A_VALUE else args[1:]
+    if any(tuple(args[:len(rule)]) == rule for rule in GIT_ORCHESTRATION):
+        return True
     if not args or args[0] not in GIT_READS:
         return False
     if args[0] == "status":
@@ -125,7 +131,11 @@ def program_allowed(words):
     if name in ORCHESTRATION_PROGRAMS:
         return True
     if name == "gh":
-        return tuple(args[:2]) in GH_READS
+        return tuple(args[:2]) in GH_ORCHESTRATION
+    if name in ORCHESTRATION_SCRIPTS:
+        return bool(args) and args[0].endswith(ORCHESTRATION_SCRIPTS[name])
+    if words[0].endswith(MERGE_SCRIPT):
+        return True
     if name == "git":
         return git_reads_metadata(args)
     if name in STDIN_FILTER_FLAGS_AND_VALUED_FLAGS:
