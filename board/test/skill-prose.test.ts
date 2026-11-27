@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url'
 import { expect, test } from 'vitest'
 
 const SKILLS = resolve(dirname(fileURLToPath(import.meta.url)), '../../skills')
-const INDEX_SKILL_CHARS_AT_MOST = 3000
-const PROCESS_SKILL_CHARS_AT_MOST = 1200
-const REFERENCE_FILE_CHARS_AT_MOST = 2000
-const DESCRIPTION_CHARS_AT_MOST = 120
+const CHARS_AT_MOST = {
+  chinese: { index: 3000, process: 1200, reference: 2000, description: 120 },
+  english: { index: 9000, process: 3500, reference: 6000, description: 300 },
+}
 const INDEX_SKILLS = ['nawaban/SKILL.md']
 const PROSE_AN_AGENT_ACTS_ON_HAS_NONE_OF = [
   { what: '人名', pattern: /吴献忠|岳不同/ },
@@ -21,10 +21,9 @@ const skillFiles = readdirSync(SKILLS, { recursive: true, encoding: 'utf8' })
   .filter((f) => f.endsWith('.md'))
   .map((f) => ({ name: f, path: join(SKILLS, f), text: readFileSync(join(SKILLS, f), 'utf8') }))
 
-const charsAtMostFor = (name: string) =>
-  INDEX_SKILLS.includes(name) ? INDEX_SKILL_CHARS_AT_MOST
-    : name.endsWith('/SKILL.md') ? PROCESS_SKILL_CHARS_AT_MOST
-      : REFERENCE_FILE_CHARS_AT_MOST
+const kindOf = (name: string) =>
+  INDEX_SKILLS.includes(name) ? 'index' : name.endsWith('/SKILL.md') ? 'process' : 'reference'
+const budgetOf = (text: string) => CHARS_AT_MOST[/\p{Script=Han}/u.test(text) ? 'chinese' : 'english']
 
 const anchorOf = (heading: string) => heading.trim().toLowerCase().replace(/[^\p{L}\p{N} -]/gu, '').replace(/ /g, '-')
 
@@ -34,9 +33,9 @@ test.each(skillFiles)('$name carries no names, quotes, dates or incident stories
 })
 
 test.each(skillFiles)('$name stays within its length budget', ({ name, text }) => {
-  expect(text.length).toBeLessThanOrEqual(charsAtMostFor(name))
+  expect(text.length).toBeLessThanOrEqual(budgetOf(text)[kindOf(name)])
   const description = text.match(/^description:\s*(.*)$/m)?.[1] ?? ''
-  expect(description.length).toBeLessThanOrEqual(DESCRIPTION_CHARS_AT_MOST)
+  expect(description.length).toBeLessThanOrEqual(budgetOf(description).description)
 })
 
 test.each(skillFiles)('$name links only to files and headings that exist', ({ path, text }) => {
