@@ -96,8 +96,8 @@ _Avoid_: in_progress as a stored status, doing.
 _Current identifiers_: `in_progress` in `show`, `list` and board responses.
 
 **Waiting on you**(等你)
-An open task held for a person (`needs_input`), raised by `nawaban event <ticket> wait <question>`: the agent needs the user to answer or act. The hold is the board's own, its reason the question; a holder that waits hands its claim back. `nawaban event <ticket> resolve <words>` records the answer and lifts the hold, and the ticket goes back to the profile that raised it (assigned to it, so it alone claims it next); a wait raised by no profile leaves it in the pool. The old note `triage: needs-info — 等你：<question>` is still read as a wait, and is no longer written. The Herdr panel shows these first, as cards, each with its question. A window Herdr reports blocked (an agent waiting for a permission) is a waiting card too, with "在等你确认" for its question. Questions apply only when the board is the local nawaban board; when work is tracked on GitHub, a pending decision takes their place, while a blocked window still makes a card above the pending decisions: it is a window waiting on you, not a pending decision.
-等你是挂起等人（`needs_input`）的未关闭票，由 `nawaban event <票> wait <问题>` 挂起：agent 需要用户回答或动手。挂起是看板原生的，理由就是那句问题；持票人挂起会交出认领。`nawaban event <票> resolve <原话>` 记下答复、解除挂起，票回到挂起它的那个身份（指派给它，下次只有它能领）；不是哪个身份挂的就留在池里。旧备注 `triage: needs-info — 等你：<问题>` 照样读成等你，不再写。Herdr 面板把它们做成卡片放在最上面，并显示那句问题。Herdr 显示 blocked 的窗口（agent 在等权限确认）也出等你卡，问题写「在等你确认」。问题只用于 nawaban 本地看板模式，在 GitHub 上记账时改用待决；blocked 的窗口在 GitHub 上照样出卡，放在待决上方：它是「窗口在等你」，不是待决。
+An open task held for a person (`needs_input`), raised by `nawaban event <ticket> wait <question>`: the agent needs the user to answer or act. The hold is the board's own, its reason the question; a holder that waits hands its claim back. `nawaban event <ticket> resolve <conclusion>` records the distilled answer and lifts the hold, and the ticket goes back to the profile that raised it (assigned to it, so it alone claims it next); a wait raised by no profile leaves it in the pool. The old note `triage: needs-info — 等你：<question>` is still read as a wait, and is no longer written. The Herdr panel shows these first, as cards, each with its question. A window Herdr reports blocked (an agent waiting for a permission) is a waiting card too, with "在等你确认" for its question. Questions apply only when the board is the local nawaban board; when work is tracked on GitHub, a pending decision takes their place, while a blocked window still makes a card above the pending decisions: it is a window waiting on you, not a pending decision.
+等你是挂起等人（`needs_input`）的未关闭票，由 `nawaban event <票> wait <问题>` 挂起：agent 需要用户回答或动手。挂起是看板原生的，理由就是那句问题；持票人挂起会交出认领。`nawaban event <票> resolve <结论>` 记下提炼后的答复、解除挂起，票回到挂起它的那个身份（指派给它，下次只有它能领）；不是哪个身份挂的就留在池里。旧备注 `triage: needs-info — 等你：<问题>` 照样读成等你，不再写。Herdr 面板把它们做成卡片放在最上面，并显示那句问题。Herdr 显示 blocked 的窗口（agent 在等权限确认）也出等你卡，问题写「在等你确认」。问题只用于 nawaban 本地看板模式，在 GitHub 上记账时改用待决；blocked 的窗口在 GitHub 上照样出卡，放在待决上方：它是「窗口在等你」，不是待决。
 _Avoid_: needs-info as a status, a stored question.
 _Current identifiers_: `waiting` on open tasks in `json board` (the question, or null); panel window state `waiting`; `event <ticket> wait`; the board hold kind `needs_input`.
 
@@ -238,8 +238,8 @@ _Avoid_: waiting on you (local board only), needs-info, blocked, D1-style number
 _Current identifiers_: line prefixes `待决：`, `需要你定：`; `json board` task `pending` (`brief`, `at`, `progress`).
 
 **Resolution**(已决)
-The 决策记录 that ends a 待决策项 on GitHub: the line that ends a pending decision, recording the user's words or the outcome. Only a resolution ends one; a `决定：` line is still recorded but does not.
-已决是结掉待决的那一行，记下用户原话或结论。只有它能结案；`决定：` 照常记账，但不结案。
+The 决策记录 that ends a 待决策项 on GitHub: the line that ends a pending decision, recording the distilled rule or outcome, not the user's verbatim words. Only a resolution ends one; a `决定：` line is still recorded but does not.
+已决是结掉待决的那一行，记下提炼后的规则或结论，不留原话。只有它能结案；`决定：` 照常记账，但不结案。
 _Avoid_: decided, answered, removing a label.
 _Current identifiers_: line prefix `已决：`.
 
