@@ -216,6 +216,19 @@ function refuseHeldByAnother(task: MessageView, as: string, next: string) {
   return held
 }
 
+async function claimUpstream(task: MessageView, as: string): Promise<{ task: MessageView }> {
+  const owner = task.task?.owner
+  const keptForMe = task.task?.for === `${owner}+${as}`
+  const keptUnderAnotherPrincipalsNameNoClaimOfMineMatches = keptForMe && owner !== ((await upstreamAnswer(['whoami'])) as { principal: string }).principal
+  if (keptUnderAnotherPrincipalsNameNoClaimOfMineMatches) await upstreamAnswer(['tasks', 'assign', task.id, '--pool'])
+  try {
+    return (await upstreamAnswer(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE])) as { task: MessageView }
+  } catch (error) {
+    if (keptUnderAnotherPrincipalsNameNoClaimOfMineMatches) await upstreamAnswer(['tasks', 'assign', task.id, as]).catch(() => undefined)
+    throw error
+  }
+}
+
 const claim: Verb = async (argv) => {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -234,7 +247,7 @@ const claim: Verb = async (argv) => {
   }
   const held = refuseHeldByAnother(task, as, '等它交还，或让编排者改派')
   await refuseAClaimGithubAssignedToSomeoneElse(personOwningEveryTaskTheirProfilesMade(), boardDirAsConfiguredWhenAsked(), task)
-  const { task: claimed } = (await upstreamAnswer(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE])) as { task: MessageView }
+  const { task: claimed } = await claimUpstream(task, as)
   await labelTerminalThePanelReadsWhileClaimed(task.id)
   if (!held) await sayOnGithubToo(personOwningEveryTaskTheirProfilesMade(), boardDirAsConfiguredWhenAsked(), task, 'claim', as + (terminal() ? `（hc ${terminal()}）` : ''))
   const until = claimed.task?.claim?.until
@@ -261,7 +274,7 @@ async function refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team: ReturnT
     const [headline, ...next] = why.split('\n')
     throw new Refused(headline!, 1, next.join('\n').trim() || undefined)
   }
-  if (!held) await upstreamAnswer(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE])
+  if (!held) await claimUpstream(task, as)
   const { task: completed } = (await upstreamAnswer(['tasks', 'complete', task.id, '--as', as])) as { task: MessageView }
   await forgetTheClaimOf(task.id)
   await wantStateOnGithubToo(team, boardDirAsConfiguredWhenAsked(), task, 'completed')
@@ -362,7 +375,7 @@ export async function reclaimedIfItLapsedInMyHands(task: MessageView): Promise<M
   const lapsedUntaken = CLAIM_ENDED_BY_ITS_LEASE_OR_A_FAILED_CHECK_RUN.has(ended) && claimedBy(events.findLast((e) => e.type === 'task.claimed'), as)
   if (!lapsedUntaken) return task
   if (ended === 'task.failed') await personOwningEveryTaskTheirProfilesMade().tasks.reopen(task.id)
-  await upstreamAnswer(['tasks', 'claim', task.id, '--as', as, '--lease', LEASE])
+  await claimUpstream(task, as)
   await labelTerminalThePanelReadsWhileClaimed(task.id)
   return resolve(key(task))
 }

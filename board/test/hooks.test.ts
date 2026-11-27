@@ -176,6 +176,22 @@ it('puts a ticket its holder waits on into the pending line, and a resolve hands
   await nawaban('claim', 'W1', '--release')
 })
 
+it('lets the holder claim and close a synced ticket that a resolve handed back under its owner name', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const { task } = await team.tasks.create('proj', { text: '从 GitHub 同步来的票', labels: { key: 'W2' } })
+  expect(task.task!.owner).toBe('board:client')
+  await nawaban('claim', 'W2', '--o', '无')
+  await nawaban('event', 'W2', 'wait', '给密钥')
+  await nawaban('event', 'W2', 'resolve', '给了')
+  expect((await team.thread(task.id)).message.task!.for).toBe(`board:client+${AS}`)
+  const another = await runWithTheHooksEnvironment(['node', CLI, 'claim', 'W2'], '', { CLAUDE_CODE_SESSION_ID: 'bbbb2222-0000' })
+  expect(another.err).toContain('assigned to another profile')
+
+  await nawaban('claim', 'W2')
+  expect((await team.thread(task.id)).message.task!.claim!.actor).toBe(`local:user:victor+${AS}`)
+  await nawaban('close', 'W2', '--done')
+  expect((await team.thread(task.id)).message.task!.state).toBe('completed')
+})
+
 it('stays silent when the board is down', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   expect(await inbox('s1', { BOARD_URL: 'http://127.0.0.1:9/api/board' })).toBeNull()
 })
