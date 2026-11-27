@@ -175,7 +175,7 @@ function heldByThisSession(task: MessageView): string | null {
   return live && claim.actor.endsWith(`+${me}`) ? null : `${task.labels.key ?? task.id} 不在 ${me} 手里：持票的 worker 才能合并（先 claim）`
 }
 
-async function gateBeforeTheIrreversibleMerge(pr: PullRequest, task: MessageView): Promise<Outcome | null> {
+async function gateBeforeTheIrreversibleMerge(pr: PullRequest, task: MessageView, kr: string[]): Promise<Outcome | null> {
   const notMine = heldByThisSession(task)
   if (notMine) return { kind: 'refused', why: notMine }
   if (pr.state !== 'OPEN') return { kind: 'refused', why: `PR #${pr.number} 是 ${pr.state}，不是 OPEN` }
@@ -185,8 +185,13 @@ async function gateBeforeTheIrreversibleMerge(pr: PullRequest, task: MessageView
     return { kind: 'refused', why: `没有对 head ${pr.headRefOid.slice(0, 7)} 的 review 无挡结论：PR 评论里贴一条顶格「Codex review：无挡合并」并写上这个 sha` }
   }
   const why = await mergeGate(`gh pr merge ${pr.number}`, process.cwd(), board(), DIR)
-  return why ? { kind: 'refused', why } : null
+  if (why) return { kind: 'refused', why }
+  if (kr.length) await board().as(profile()).reply(task.id, resultsOf(kr))
+  const unreported = await whyNotCloseable(task.id)
+  return unreported ? { kind: 'refused', why: `${unreported.split('\n')[0]}：合并前就要报，nawaban merge ${pr.number} ${unreportedKrFlags(unreported)}` } : null
 }
+
+const unreportedKrFlags = (why: string) => why.split('\n').slice(1).join(' ').match(/--kr "[^"]*"/g)?.join(' ') ?? '--kr "<KR 名>=<后值> 实测|预计"'
 
 async function mergedAtHead(pr: PullRequest): Promise<boolean> {
   const again = await viewOf(String(pr.number)).catch(() => null)
@@ -244,12 +249,9 @@ function boardTasksRun(argv: string[], cwd: string): Promise<{ settled: { outcom
   })
 }
 
-async function checksThenMergeAsOneTasksRunElseWhyNot(pr: PullRequest, task: MessageView, checks: string[], kr: string[]): Promise<string | null> {
+async function checksThenMergeAsOneTasksRunElseWhyNot(pr: PullRequest, task: MessageView, checks: string[]): Promise<string | null> {
   const off = await headCheckedOutCleanElseWhyNot(pr)
   if (off) return off
-  if (kr.length) await board().as(profile()).reply(task.id, resultsOf(kr))
-  const unreported = await whyNotCloseable(task.id)
-  if (unreported) return `${unreported.split('\n')[0]}：验收检查通过就直接关票，KR 结果在 merge 时报：nawaban merge ${pr.number} --kr "<KR 名>=<后值> 实测|预计"`
   const top = (await stdoutOrNullOnFailure('git', ['rev-parse', '--show-toplevel']))?.trim()
   if (!top) return '读不到仓库根目录，验收检查要在那里跑'
   const as = profile()
@@ -400,10 +402,10 @@ async function outcomeOf(r: Run): Promise<Outcome> {
   const alreadyMerged = pr.state === 'MERGED' && !!pr.mergeCommit
   if (!alreadyMerged) {
     r.task = await reclaimedIfItLapsedInMyHands(r.task)
-    const gate = await gateBeforeTheIrreversibleMerge(pr, r.task)
+    const gate = await gateBeforeTheIrreversibleMerge(pr, r.task, r.kr)
     if (gate) return gate
     const checks = checksOf((await board().thread(r.task.id)).replies)
-    const failed = checks.length ? await checksThenMergeAsOneTasksRunElseWhyNot(pr, r.task, checks, r.kr) : await mergeElseWhyNot(pr)
+    const failed = checks.length ? await checksThenMergeAsOneTasksRunElseWhyNot(pr, r.task, checks) : await mergeElseWhyNot(pr)
     if (failed) return { kind: 'refused', why: failed }
   }
   const did = [`PR #${pr.number} 已合`]
