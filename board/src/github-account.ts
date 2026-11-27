@@ -26,7 +26,8 @@ const API_SENDS_A_BODY = /^(?:-f|-F|--field(?:=|$)|--raw-field(?:=|$)|--input(?:
 const API_METHOD = /^(?:-X=?|--method(?:=|$))(.*)$/
 const REPO_FLAG = /^(?:-R|--repo)(?:=(.*))?$/
 const GITHUB_REPO_IN_REMOTE = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/
-const REWRITES_THE_ISSUE_TEXT = /^(?:-[tbF]|--(?:title|body|body-file)(?:=|$))/
+const ISSUE_TEXT_FLAGS = new Set(['-t', '-b', '-F', '--title', '--body', '--body-file'])
+const ISSUE_EDIT_SWITCHES = new Set(['--remove-milestone', '--help', '-h'])
 const ISSUE_URL = /github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)/
 const run = promisify(execFile)
 
@@ -146,9 +147,28 @@ function directoryTheCommandIsInAt(cmd: string, blanked: string, at: number, cwd
   return resolve(cwd, target.replace(/^~(?=\/|$)/, homedir()))
 }
 
+function whatAnIssueEditChanges(args: string[]) {
+  const [group, verb, ...rest] = withoutRepoFlag(args)
+  const positionals: string[] = []
+  let rewritesText = false
+  for (let i = 0; group === 'issue' && verb === 'edit' && i < rest.length; i++) {
+    const arg = rest[i]!
+    if (!arg.startsWith('-')) {
+      positionals.push(arg)
+      continue
+    }
+    const long = arg.startsWith('--')
+    const flag = long ? arg.split('=')[0]! : arg.slice(0, 2)
+    if (ISSUE_TEXT_FLAGS.has(flag)) rewritesText = true
+    const valueAttached = long ? arg.includes('=') : arg.length > 2
+    if (!valueAttached && !ISSUE_EDIT_SWITCHES.has(flag)) i++
+  }
+  return { issue: positionals[0], rewritesText }
+}
+
 async function issueTextEditOnARepoSwitchedToTheBoard(args: string[], here: string | null, boardDir: string): Promise<string | null> {
-  const [group, verb, issue] = withoutRepoFlag(args).filter((a) => !a.startsWith('-'))
-  if (group !== 'issue' || verb !== 'edit' || !args.some((a) => REWRITES_THE_ISSUE_TEXT.test(a))) return null
+  const { issue, rewritesText } = whatAnIssueEditChanges(args)
+  if (!rewritesText) return null
   const [, repoOfTheUrl, numberInTheUrl] = ISSUE_URL.exec(issue ?? '') ?? []
   const number = numberInTheUrl ?? issue
   const target = repoOfTheUrl ?? repoFlagOf(args)
