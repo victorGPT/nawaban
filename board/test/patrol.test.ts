@@ -130,6 +130,23 @@ it('keeps what it already said when hc cannot read the terminal for a round, so 
   expect(await sent()).toEqual([`${ORCH} 巡检：t91 卡住 20 分钟，持 K-1，最后一行：idle`])
 })
 
+it('puts back in the pool a ticket kept for a worker whose terminal is gone, and keeps the one of a worker still running', async () => {
+  await freshProject('p-orphan')
+  const keptFor = async (key: string, terminal: string) => {
+    const { task } = await team.as(null).tasks.create('p-orphan', { id: key, text: key, labels: { key } })
+    await team.tasks.assign(task.id, `${task.task!.owner}+cc-${terminal}`)
+    await team.reply(task.id, block('nawaban-dispatch@2', { worker: 'w', terminal, accept: 'a', orchestrator: ORCH }))
+    return task.id
+  }
+  const orphan = await keptFor('O-1', 't42')
+  const queued = await keptFor('O-2', 't43')
+  await terminals({ t43: { status: { state: 'working' }, status_ms: Date.now() } })
+  await patrolOnce(team, boardDir, Date.now())
+  expect((await team.thread(orphan)).message.task?.for).toBeNull()
+  expect((await team.thread(orphan)).replies.at(-1)?.text).toMatch(/^巡检：排给 .*\+cc-t42 的 worker 已不在，O-1 放回公共池$/)
+  expect((await team.thread(queued)).message.task?.for).toMatch(/\+cc-t43$/)
+})
+
 it('reports a ticket still held by a terminal that is gone', async () => {
   await freshProject('p-gone')
   await heldBy('p-gone', 'G-1', 't41')

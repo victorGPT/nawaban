@@ -584,6 +584,7 @@ export function dispatch(argv: string[]): Promise<number> {
         json: { ticket: checked.who, terminal: worker.address, profile: as, lane: checked.lane, orchestrator: checked.orch, assigned: true, woken },
       }
     }
+    if (checked.task?.task?.for) await boardCliElseNothingToClaim(['tasks', 'assign', checked.task.id, '--pool', '--json'], `${checked.who} 还排给 ${checked.task.task.for}，放回公共池失败，没派`)
     const wt = await worktreeOffOriginMain(checked.root, checked.name)
     const brief = briefReportingTo(a.ref ? { ref: a.ref } : { name: checked.name, orch: checked.orch }, a.brief, a.accept, freshWorktreeLine(wt, a.ref ? MERGE_LINE : MERGE_LINE_WITH_NO_TICKET_FOR_NAWABAN_MERGE_TO_FIND), [], a.checks)
     const address = await startWorkerElseRemoveWorktree(checked, a, wt, brief)

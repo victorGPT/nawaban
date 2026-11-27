@@ -113,6 +113,19 @@ async function delivered(team: Team, f: Finding, orch: string | null): Promise<b
   return true
 }
 
+async function assignmentsOfGoneWorkersBackToThePool(team: Team, project: string, rows: Row[], live: Set<string>, log: (line: string) => void) {
+  const leftBehind = new Set(rows.filter((r) => !r.session && r.unclaimed_dispatch && !live.has(r.unclaimed_dispatch.terminal)).map((r) => r.id))
+  if (!leftBehind.size) return
+  for (const task of await tasksOf(team, project)) {
+    const kept = task.task?.for
+    if (!kept || !leftBehind.has(task.labels.key ?? `#${task.id}`)) continue
+    await team.tasks.assign(task.id, null)
+    const line = `巡检：排给 ${kept} 的 worker 已不在，${task.labels.key ?? `#${task.id}`} 放回公共池`
+    await team.reply(task.id, line)
+    log(line)
+  }
+}
+
 export async function patrolOnce(team: Team, dir: string, now = Date.now(), log: (line: string) => void = () => {}) {
   const listed = await hcJson<{ terminals?: Listed[] }>(['ls', '--json'])
   if (!listed?.terminals) return log('巡检：hc ls 读不到，这一轮跳过')
@@ -123,6 +136,7 @@ export async function patrolOnce(team: Team, dir: string, now = Date.now(), log:
     try {
       const rows = ((await boardData(team, project)).columns as { key: string; tasks: Row[] }[]).filter((c) => c.key !== 'done').flatMap((c) => c.tasks)
       const holding = new Set(rows.filter((r) => r.session && r.terminal).map((r) => r.terminal!))
+      await assignmentsOfGoneWorkersBackToThePool(team, project, rows, live, log)
       const looks = await Promise.all(rows.map((r) => findingOf(project, r, live, holding, now)))
       for (const { unread } of looks.filter((l): l is Unread => l !== null && 'unread' in l)) if (before[unread]) after[unread] = before[unread]
       const findings = looks.filter((l): l is Finding => l !== null && !('unread' in l))
