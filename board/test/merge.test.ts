@@ -215,10 +215,19 @@ it('merges with no checks when the head runs CI only on pushes to release or on 
   expect(await stateOf(id)).toBe('completed')
 })
 
+it('waits for a run already started on the head even when no push or PR open fires the workflow', async () => {
+  const { worktree } = await noChecksAtAHeadWithWorkflow('M-READY', 't74', 'on:\n  pull_request:\n    types: [ready_for_review]\n')
+  const r = await mergeAsTheWorker('M-READY', 't74', worktree, { GH_RUNS: JSON.stringify([{ name: 'ci', status: 'queued', conclusion: '' }]) })
+  expect(r.code).toBe(3)
+  expect(r.stderr).toContain('CI 还在跑：ci')
+  expect(r.gh).not.toMatch(/^pr merge/m)
+})
+
 it.each([
   ['M-EMPTY', 't70', 'on: pull_request\n'],
   ['M-PUSHALL', 't71', 'on: [push]\n'],
   ['M-PUSHWT', 't72', 'on:\n  push:\n    branches: ["wt/**", "!wt/other"]\n'],
+  ['M-GLOB', 't73', 'on:\n  push:\n    branches: ["release", "wt/m-gl+o?b", "wt/[a-z]-x"]\n'],
 ])('waits with no checks while a workflow of the head runs on its branch: %s', async (key, terminal, workflow) => {
   const { worktree } = await noChecksAtAHeadWithWorkflow(key, terminal, workflow)
   const r = await mergeAsTheWorker(key, terminal, worktree)
