@@ -20,7 +20,7 @@ STDIN_FILTER_FLAGS_AND_VALUED_FLAGS = {
 STDIN_FILTERS_WITH_AN_EXPRESSION = {"jq", "grep"}
 GH_READS = {("issue", "view"), ("issue", "list"), ("pr", "view"), ("pr", "list")}
 GIT_READS = {"log", "status"}
-GIT_LOG_CONTENT_OPTIONS = re.compile(r"^(-p|-u|-U\d*|-L.*|-S.*|-G.*|--patch.*|--unified.*|--word-diff.*|--color-words.*|--cc|--raw|--ext-diff|--textconv|--find-object.*)$")
+GIT_LOG_METADATA_OPTIONS = re.compile(r"^(-\d+|-n|--oneline|--stat|--shortstat|--name-only|--name-status|--graph|--all|--no-merges|--merges|--first-parent|--reverse|--decorate(=.*)?|--no-decorate|--abbrev-commit|--no-color|--(format|pretty|max-count|since|until|after|before|author|committer|grep|date|branches|tags|remotes)=.*)$")
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 INSTRUCTION_FILES = {"AGENTS.md", "CLAUDE.md"}
 INSTRUCTION_DIR = os.sep + os.path.join("docs", "agents") + os.sep
@@ -106,7 +106,15 @@ def git_reads_metadata(args):
         args = args[2:] if args[0] in GIT_OPTIONS_WITH_A_VALUE else args[1:]
     if not args or args[0] not in GIT_READS:
         return False
-    return args[0] != "log" or not any(GIT_LOG_CONTENT_OPTIONS.match(a) for a in args[1:])
+    if args[0] == "status":
+        return True
+    log_args = args[1:]
+    for k, a in enumerate(log_args):
+        if a == "--":
+            return True
+        if a.startswith("-") and not GIT_LOG_METADATA_OPTIONS.match(a) and not (k and log_args[k - 1] == "-n"):
+            return False
+    return True
 
 
 def program_allowed(words):
@@ -125,15 +133,15 @@ def program_allowed(words):
     return False
 
 
-def shell_refusal(command, cwd):
+def shell_refusal(command):
     for inner in substitutions(command):
-        refused = shell_refusal(inner, cwd)
+        refused = shell_refusal(inner)
         if refused:
             return refused
     words, redirect = [], None
     for is_operator, token in list(shell_tokens(command)) + [(True, ";")]:
         if not is_operator:
-            if redirect == "<" and not readable(token, cwd):
+            if redirect == "<" and token != "/dev/null":
                 return f"< {token}"
             if redirect is None:
                 words.append(token)
@@ -158,7 +166,7 @@ def refusal(d):
     tool, tool_input = d.get("tool_name", ""), d.get("tool_input") or {}
     cwd = d.get("cwd") or os.getcwd()
     if tool == "Bash":
-        return shell_refusal(tool_input.get("command", ""), cwd)
+        return shell_refusal(tool_input.get("command", ""))
     if tool == "Read":
         path = tool_input.get("file_path") or ""
         return None if readable(path, cwd) else f"Read {path}"

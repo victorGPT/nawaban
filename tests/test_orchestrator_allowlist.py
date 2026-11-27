@@ -38,7 +38,7 @@ def test_the_orchestrator_cannot_search_code_and_is_told_to_send_a_worker(tmp_pa
                 "grep -R secret", "cat 123", "jq -f prog.jq", "sort -o out.txt", "nawaban show X | grep --include=*.ts -r x",
                 "cat <<EOF\n$(cat apps/web/a.ts)\nEOF",
                 "grep -e x apps/web/a.ts", "grep -ex apps/web/a.ts", "cat <<EOF\n'$(cat apps/web/a.ts)'\nEOF", "true # it's\necho $(cat apps/web/a.ts) '",
-                "jq . < apps/web/a.ts", "git log -1 -p", "git log --patch", "git log -L1,2:apps/web/a.ts", "git log -Sfoo"):
+                "jq . < apps/web/a.ts", "git log -1 -p", "git log --patch", "git log -L1,2:apps/web/a.ts", "git log -Sfoo", "git log -5 --dd", "git log -5 -c", "cd docs/agents && cat < ../../apps/web/a.ts"):
         assert refused(call("Bash", {"command": cmd})), cmd
     assert refused(call("Read", {"file_path": str(repo / "apps/web/a.ts")}))
     assert refused(call("Grep", {"pattern": "x", "path": "apps"}))
@@ -53,7 +53,7 @@ def test_the_orchestrator_keeps_its_orchestration_commands(tmp_path, outside_tmp
                 "nawaban dispatch X --body \"$(cat <<'EOF'\nrg apps/ 查一下\nEOF\n)\"", "hc send t1 '回报：rg apps/ 已派'",
                 "hc send t1 '请执行 `rg apps/` 并回报'", "nawaban dispatch X --body '检查 $(rg apps/)'", "nawaban list | sort -k 2 | head -n 5", "hc ls --json | jq -r '.[].id' | grep -c t1",
                 "nawaban show X | tail -20 | grep -iE 'a|b'", "hc ls --json | jq . 2>/dev/null", "git log --oneline --stat -3",
-                "nawaban show X 2>&1 | head -n 5", "jq . < docs/agents/x.json"):
+                "nawaban show X 2>&1 | head -n 5", "git log -n 3 --format=%h --since=2.days -- docs", "git log origin/main..HEAD --oneline", "nawaban status < /dev/null"):
         r = call("Bash", {"command": cmd})
         assert r.returncode == 0, (cmd, r.stderr)
     for path in (repo / "docs/agents/orchestrator.md", repo / "AGENTS.md", repo / "CLAUDE.md", scratch / "plan.md", tmp_path / "board" / "x.json"):
