@@ -5,7 +5,16 @@ import sys
 from repo_write import SEPARATORS, closing_paren, free_dirs, shell_tokens, without_heredoc_bodies, without_prefixes
 
 ORCHESTRATION_PROGRAMS = {"nawaban", "hc", "cd", "echo", "printf", "true", "sleep"}
-STDIN_FILTERS = {"cat", "head", "tail", "wc", "sort", "uniq"}
+STDIN_FILTER_FLAGS_AND_VALUED_FLAGS = {
+    "cat": ("", ""),
+    "head": ("0123456789", "nc"),
+    "tail": ("0123456789", "nc"),
+    "wc": ("lcwm", ""),
+    "sort": ("nru", "kt"),
+    "uniq": ("cdu", ""),
+    "grep": ("ivEFcnowxqh", "eABCm"),
+    "jq": ("rcejSsn", ""),
+}
 STDIN_FILTERS_WITH_AN_EXPRESSION = {"jq", "grep"}
 GH_READS = {("issue", "view"), ("issue", "list"), ("pr", "view"), ("pr", "list")}
 GIT_READS = {"log", "status"}
@@ -27,7 +36,7 @@ def readable(path, cwd):
 
 
 def substitutions(command):
-    s, i, in_double = without_heredoc_bodies(command), 0, False
+    s, i, in_double = without_heredoc_bodies(command, quoted_only=True), 0, False
     while i < len(s):
         if s[i] == "'" and not in_double:
             j = s.find("'", i + 1)
@@ -49,6 +58,26 @@ def substitutions(command):
             i += 1
 
 
+def reads_only_stdin(name, args):
+    flags, valued = STDIN_FILTER_FLAGS_AND_VALUED_FLAGS[name]
+    operands, value_next = [], False
+    for a in args:
+        if value_next:
+            value_next = False
+        elif a.startswith("--"):
+            return False
+        elif a.startswith("-") and len(a) > 1:
+            for k, ch in enumerate(a[1:]):
+                if ch in valued:
+                    value_next = k == len(a) - 2
+                    break
+                if ch not in flags:
+                    return False
+        else:
+            operands.append(a)
+    return len(operands) <= (name in STDIN_FILTERS_WITH_AN_EXPRESSION)
+
+
 def git_subcommand(args):
     while args and args[0].startswith("-"):
         args = args[2:] if args[0] in GIT_OPTIONS_WITH_A_VALUE else args[1:]
@@ -66,9 +95,8 @@ def program_allowed(words):
         return tuple(args[:2]) in GH_READS
     if name == "git":
         return git_subcommand(args) in GIT_READS
-    if name in STDIN_FILTERS | STDIN_FILTERS_WITH_AN_EXPRESSION:
-        operands = [a for a in args if not a.startswith("-")][name in STDIN_FILTERS_WITH_AN_EXPRESSION:]
-        return all(a.isdigit() for a in operands)
+    if name in STDIN_FILTER_FLAGS_AND_VALUED_FLAGS:
+        return reads_only_stdin(name, args)
     return False
 
 

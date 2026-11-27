@@ -74,11 +74,13 @@ def closing_paren(s, j):
     return len(s)
 
 
-def without_heredoc_bodies(command):
+def without_heredoc_bodies(command, quoted_only=False):
     lines, kept, i = command.split("\n"), [], 0
     while i < len(lines):
         kept.append(lines[i])
         for m in HEREDOC_START.finditer(lines[i]):
+            if quoted_only and not m.group(1):
+                continue
             end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(2)), None)
             if end is not None:
                 i = end

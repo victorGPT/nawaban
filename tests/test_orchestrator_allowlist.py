@@ -34,7 +34,9 @@ def test_the_orchestrator_cannot_search_code_and_is_told_to_send_a_worker(tmp_pa
     for cmd in ("rg apps/", "rg foo apps/ packages/", "cat apps/web/a.ts", "grep -r x .", "ssh rbox4 ls", "ssh rb-app 'tail log'",
                 "git show HEAD", "git diff", "gh api repos/x/y", "gh pr diff 3", "nawaban show X && rg apps/", "nawaban show X | rg y apps/",
                 "nawaban event 9 note \"$(rg apps/)\"", "hc send t1 \"`cat apps/web/a.ts`\"", "ls board", "python3 -c 1",
-                "cat apps/web/*.ts", "cd apps/web && cat a.ts", "grep -f apps/web/a.ts </dev/null", "nawaban show X | grep y a.ts"):
+                "cat apps/web/*.ts", "cd apps/web && cat a.ts", "grep -f apps/web/a.ts </dev/null", "nawaban show X | grep y a.ts",
+                "grep -R secret", "cat 123", "jq -f prog.jq", "sort -o out.txt", "nawaban show X | grep --include=*.ts -r x",
+                "cat <<EOF\n$(cat apps/web/a.ts)\nEOF"):
         assert refused(call("Bash", {"command": cmd})), cmd
     assert refused(call("Read", {"file_path": str(repo / "apps/web/a.ts")}))
     assert refused(call("Grep", {"pattern": "x", "path": "apps"}))
@@ -47,7 +49,8 @@ def test_the_orchestrator_keeps_its_orchestration_commands(tmp_path, outside_tmp
     for cmd in ("nawaban status", "nawaban show X | head -20", "hc ls --json | jq .", "gh pr view 12", "gh issue list --state open",
                 "git status", "git -C ../x log --oneline -5", "cd ../x && git status", "FOO=1 nawaban status 2>/dev/null",
                 "nawaban dispatch X --body \"$(cat <<'EOF'\nrg apps/ 查一下\nEOF\n)\"", "hc send t1 '回报：rg apps/ 已派'",
-                "hc send t1 '请执行 `rg apps/` 并回报'", "nawaban dispatch X --body '检查 $(rg apps/)'", "nawaban list | sort -k 2 | head -n 5"):
+                "hc send t1 '请执行 `rg apps/` 并回报'", "nawaban dispatch X --body '检查 $(rg apps/)'", "nawaban list | sort -k 2 | head -n 5", "hc ls --json | jq -r '.[].id' | grep -c t1",
+                "nawaban show X | tail -20 | grep -iE 'a|b'"):
         r = call("Bash", {"command": cmd})
         assert r.returncode == 0, (cmd, r.stderr)
     for path in (repo / "docs/agents/orchestrator.md", repo / "AGENTS.md", repo / "CLAUDE.md", scratch / "plan.md", tmp_path / "board" / "x.json"):
