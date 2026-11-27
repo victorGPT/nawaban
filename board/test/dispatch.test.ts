@@ -8,7 +8,7 @@ import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import { block, board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
-import { pathsIn, workerTitle } from '../src/dispatch.ts'
+import { dutyOfTheTitleItStartedWith, pathsIn, workerTitle } from '../src/dispatch.ts'
 import { registerSchemas } from '../src/schemas.ts'
 import { listen, verifier } from '../src/server.ts'
 import { stable } from './stable.ts'
@@ -161,19 +161,41 @@ it('keeps a ticket kept for another profile when the fresh worker fails to start
 })
 
 it.each([
-  { title: 'perf(api): 主模型窗口按实测调大', tag: '#1700', named: '【api】主模型窗口按实测调大 #1700' },
+  { title: 'perf(api): 主模型窗口按实测调大', tag: '#1700', named: 'api | 主模型窗口按实测调大 #1700' },
   { title: '每晚复盘 2026-11-23', tag: '#1657', named: '每晚复盘 2026-11-23 #1657' },
   { title: 'fix: 无 scope 的前缀只去掉', tag: 'P-01', named: '无 scope 的前缀只去掉 P-01' },
-  { title: 'feat(web): 一二三四五六七八九十一二三四五六七八九十一二三四五六', tag: 'NAWABAN-X', named: '【web】一二三四五六七八九十一二三四五六七八九十一二三四… NAWABAN-X' },
-])('names the worker $named', ({ title, tag, named }) => {
-  expect(workerTitle(title, tag)).toBe(named)
+  { title: 'feat(web): 一二三四五六七八九十一二三四五六七八九十一二三四五六', tag: 'NAWABAN-X', named: 'web | 一二三四五六七八九十一二三四五六七八九十一二三四… NAWABAN-X' },
+  { title: 'perf(api): 主模型窗口按实测调大', tag: '#1700', duty: '检索', named: '检索 | 主模型窗口按实测调大 #1700' },
+])('names the worker $named', ({ title, tag, duty, named }) => {
+  expect(workerTitle(title, tag, duty)).toBe(named)
+})
+
+it.each([
+  { started: 'api | 主模型窗口按实测调大 #1700', duty: 'api' },
+  { started: '【profile】偏好强度无上限累积 ROUBAO-PREF', duty: '【profile】偏好强度无上限累积' },
+  { started: 'd-go', duty: 'd-go' },
+])('reads what a worker started for from its title $started', ({ started, duty }) => {
+  expect(dutyOfTheTitleItStartedWith(started)).toBe(duty)
+})
+
+it('retitles its terminal on claim --ready with what it started for and the ticket it took now', async () => {
+  expect((await nawabanInTheRepositoryAsWindowAaaa1111('create', ['RT-NEXT', '--title', 'fix(web): 换个按钮', '--project', 'retitle'], {})).code).toBe(0)
+  const tty = join(tmp, 'tty-rt')
+  await writeFile(tty, '')
+  await writeFile(join(tmp, 'ps'), '#!/bin/sh\nprintf "%s\\n" "$PS_TTY"\n')
+  await chmod(join(tmp, 'ps'), 0o755)
+  await mkdir(join(tmp, 'workers'), { recursive: true })
+  await writeFile(join(tmp, 'workers', 'trt.json'), JSON.stringify({ state: 'live', argv: ['env', 'A=b', 'claude', '-n', 'api | 主模型窗口按实测调大 D-OLD', '--model', 'opus', 'brief'], foreground: { pid: 1 }, labels: {} }))
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('claim', ['--ready', '--project', 'retitle'], { HC_TERMINAL_ID: 'trt', PS_TTY: `..${tty}` })
+  expect([r.code, r.stderr]).toEqual([0, ''])
+  expect(await readFile(tty, 'utf8')).toBe('\x1b]0;api | 换个按钮 RT-NEXT\x07')
 })
 
 it('names a board-tracked worker by its title and task id from the start', async () => {
   await team.as(null).tasks.create('nawaban', { id: 'D-NAMED', text: 'perf(api): 主模型窗口按实测调大\n\nbody', labels: { key: 'D-NAMED' } })
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-NAMED', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
   expect(r.code).toBe(0)
-  expect(r.hc).toContain('claude -n 【api】主模型窗口按实测调大 D-NAMED --model opus /pstack:poteto-mode')
+  expect(r.hc).toContain('claude -n api | 主模型窗口按实测调大 D-NAMED --model opus /pstack:poteto-mode')
 })
 
 it('removes the worktree and records nothing when hc run fails', async () => {
@@ -509,10 +531,11 @@ it('lists the live workers of this repository with the tickets they hold in stat
   }
   const id = await newTask('T-HELD')
   await note(id, block('nawaban-dispatch@2', { worker: 'w-status', terminal: 't97', accept: 'a', orchestrator: 'to1', agent: 'claude', model: 'opus' }))
+  await note(id, '单测过了，等 CI')
   const ls = `,{"address":"t97","state":"live","cwd":"${worktree}"},{"address":"t96","state":"live","cwd":"${worktree}"}`
   const r = await nawabanInTheRepositoryAsWindowAaaa1111('status', ['--project', 'nawaban'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
   expect(r.code).toBe(0)
-  expect(r.stdout).toContain('## 活着的 worker 2\n- t97 w-status T-HELD\n- t96 w-idle\n')
+  expect(r.stdout).toContain('## 活着的 worker 2\n- t97 w-status T-HELD · 单测过了，等 CI\n- t96 w-idle\n')
   expect(r.stdout).not.toMatch(/^- to1/m)
 })
 
@@ -573,6 +596,17 @@ it('routes a ticket with no lane to the running worker whose changes the brief n
   const apart = await dispatchInTheRepositoryAsWindowAaaa1111(['OV-C', '--brief', '改 web/src/api.ts', '--accept', 'a'], hc)
   expect(apart.stdout).toMatch(/^✓ 派出 OV-C → hc t99 /)
   expect(apart.hc).toMatch(/^run --bg/m)
+})
+
+it('names in a new worker\'s brief the running workers whose changes overlap it, with the tickets they hold, and how to read them', async () => {
+  const worktree = await worktreeChanging('peer', 'board/src/peer.ts')
+  const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000)
+  const held = (await team.as(null).tasks.create('nawaban', { id: 'PEER-HELD', text: 'PEER-HELD', labels: { key: 'PEER-HELD', terminal: LANE_WORKER } })).task.id
+  await team.as('cc-bbbb2222').tasks.claim(held, { lease: 3600 })
+  await newTask('PEER-NEW')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['PEER-NEW', '--brief', '改 board/src/peer.ts', '--accept', 'a', '--new'], hc)
+  expect([r.code, r.stderr]).toEqual([0, ''])
+  expect(r.hc).toContain('先 nawaban show <它的票> 读对方票的最新进展；只读，不给对方发消息；要对方配合的写到对方票上，由编排者转）：\n  hc t99 PEER-HELD：board/src/peer.ts\n验收：a')
 })
 
 it('does not queue behind a worker on a directory-only brief, and says to name files', async () => {
