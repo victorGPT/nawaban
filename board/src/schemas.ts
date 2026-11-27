@@ -172,7 +172,7 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
   },
   'nawaban-web-answer@1': {
     description:
-      "The decision-maker's answer to a task's hold, written on the web page: the option they picked, if any, and their words. It lifts no hold; the orchestrator checks it and records the resolve.",
+      "The decision-maker's answer to a task's hold, written on the web page: the option they picked, if any, and their words. It lifts no hold; the orchestrator checks it and records the resolve. Words ending 重发待决 with no option send the card back: the next ask replaces it without a resolve.",
     schema: { type: 'object', required: ['words'], additionalProperties: false, properties: { option: text, words: text } },
   },
   'nawaban-inbox@1': {

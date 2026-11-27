@@ -312,6 +312,30 @@ it('writes an answer to a 待决 as the local person, keeps the hold, and reads 
   expect(JSON.parse((await send('/api/nawaban/answers?project=decide')).body).answers).toEqual([])
 })
 
+it('lets the next ask replace a card the page sent back, with no resolve in the record, but not a card the page ruled on', async () => {
+  await create('create', 'D3', '--title', '发不发', '--project', 'sentback')
+  const id = (await team.tasks.list({ state: 'all', label: { key: 'D3' } })).tasks[0]!.message.id
+  const askWith = (rec: string) => create('event', id, '--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', rec)
+  const asPage = (answer: unknown) =>
+    send('/api/nawaban/answer/D3', { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify(answer) })
+  const currentAsk = async () => (await team.thread(id)).replies.findLast((m) => m.blocks.some((b) => b.schema === 'nawaban-ask'))!.id
+  const schemas = async () => (await team.thread(id)).replies.flatMap((m) => m.blocks.map((b) => b.schema))
+
+  await askWith('发')
+  const first = await currentAsk()
+  expect((await asPage({ ask: first, option: '发', words: '就这么定' })).status).toBe(201)
+  await expect(askWith('不发')).rejects.toThrow()
+  expect(await currentAsk()).toBe(first)
+
+  expect((await asPage({ ask: first, words: '背景不够，请补写后重发待决' })).status).toBe(201)
+  await askWith('不发')
+  const thread = await team.thread(id)
+  expect(thread.message.task?.blocked).toMatchObject({ kind: 'awaiting_approval', reason: '发不发' })
+  expect(await currentAsk()).not.toBe(first)
+  expect(await schemas()).not.toContain('nawaban-resolve')
+  expect(JSON.parse((await send('/api/nawaban/answers?project=sentback')).body).answers).toEqual([])
+})
+
 it('serves the built page without a token, and nothing outside it', async () => {
   const page = await send('/', { headers: { authorization: '' } })
   expect(page).toMatchObject({ status: 200, body: '<div id="root"></div>' })
