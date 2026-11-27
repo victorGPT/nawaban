@@ -1,13 +1,12 @@
 ---
 name: report
-description: "For the orchestrator. Tell the owner where things stand, in four columns. Use when the owner asks for progress, OKR, 同步 or a status."
+description: 编排者用。分四栏告诉决策者现在到哪了。决策者要进展、OKR、同步或状态时用。
 ---
 
-**Show where things stand and ask nothing. A decision the owner must make goes in its own reply, through the ask skill.**
+决策者要进展、OKR 或状态时用。只摆事实，不提问；要决策者定的事另起一条回复走 **ask**。
 
-1. **When the owner says 同步, give each 待决 item one by one instead,** from `nawaban status --project <p>`.
-2. **Otherwise run `nawaban okr` and `nawaban status --project <p>`.** Report the numbers and lines they print, not your own.
-3. **Reply in this shape, one line per item, leaving out an empty column.** Give the ticket key and leave the detail on the ticket.
+- **决策者说「同步」** → 照 `nawaban status --project <p>` 把每条待决逐条给他。
+- **其余** → 跑 `nawaban okr` 和 `nawaban status --project <p>`，报它们打印的数和行，不报你自己估的。每项一行，给票的 KEY，细节留在票上，空栏不写：
 
 ```
 Progress：<nawaban okr 的每条 KR：现值 / 目标，没过线的在前；仓库没有 okr.toml 就写这一句>

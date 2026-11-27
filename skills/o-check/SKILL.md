@@ -1,25 +1,26 @@
 ---
 name: o-check
-description: "Check whether a proposed Objective (O) is one, name the gap, then ask for the missing fact, ask one question, or suggest a rewrite. Use when the decision-maker states or changes an O, or an agent drafts one."
+description: 体检一个提出的 O：是不是 O、差在哪，再补事实、反问一句或给改写。决策者提出或改 O、agent 起草 O 时用。
 ---
 
-**Check an Objective's wording before anyone drafts KRs for it.** Pass and miss examples for each criterion are in [examples.md](examples.md).
+决策者提出或改了 O、或你起草 O 时，在任何人起草 KR 之前用。每条判据的正反例见 [examples.md](examples.md)。
 
-1. **Judge the O against six criteria.** Read the Objectives in the repository's `docs/agents/okr.toml` for the fifth.
-   1. 定性、有方向: it says where to go. A number is a KR.
-   2. 不是任务或产出: it is nothing you ship or finish.
-   3. 重要、说得出为什么是现在: it serves the product's mission or its current focus. An internal O, one a product user never feels, passes.
-   4. 能被 KR 量: one or two result KRs come to mind.
-   5. 不重叠: no existing O covers it, with the evidence.
-   6. 一句话说清.
-2. **Grade it.** 是 O misses nothing. 差一点 misses one criterion that a fact or a rewrite fixes. 不是 O is a number, a task, or an O that already exists.
-3. **Pick one next step.** 请补充 asks for the missing fact, 反问 asks one question, 改写建议 gives one or two rewrites.
-4. **Write nothing into `okr.toml` until the decision-maker takes a version.**
+1. **对六条判据**（第 5 条先读仓库 `docs/agents/okr.toml` 里已有的 O）：
+   1. 定性、有方向：说往哪走。一个数是 KR。
+   2. 不是任务或产出：不是能上线或做完的东西。
+   3. 重要、说得出为什么是现在：服务产品使命或当前重点。产品用户感知不到的内部 O 也算过。
+   4. 能被 KR 量：想得出一两条结果 KR。
+   5. 不重叠：没有已有的 O 覆盖它，附证据。
+   6. 一句话说清。
+2. **定级** → 是 O：一条不差。差一点：差一条，补个事实或改写能修。不是 O：是个数、是任务，或已有这个 O。
+3. **挑一个下一步** → 请补充：要缺的事实。反问：问一句。改写建议：给一两个改写。
 
-**Reply:**
+决策者采纳某一版之前，`okr.toml` 一个字不写。
+
+回复：
 
 ```
 O 体检：<是 O | 差一点 | 不是 O>
-差在：<number and name of each missed criterion, or 无>
+差在：<每条没过的判据编号和名字，或 无>
 下一步：<请补充：… | 反问：… | 改写建议：①… ②…>
 ```
