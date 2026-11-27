@@ -20,7 +20,7 @@ const exec = promisify(execFile)
 const CLAIM_WAIT = '10m'
 const USAGE = `用法：nawaban merge <PR 号> [--wait <时长>，领下一张最多等多久，默认 ${CLAIM_WAIT}] [--kr "<KR 名>=<后值> 实测|预计"]...`
 const PR_FIELDS = 'number,state,url,title,body,headRefName,headRefOid,files,statusCheckRollup,comments,mergeCommit'
-const NO_BLOCKER_REVIEW_LINE = /review[:：]\s*无挡/i
+const NO_BLOCKER_REVIEW_LINE = /(?:review|评审结论)[:：]\s*无挡/i
 const SHA_PREFIX_A_REVIEW_NAMES = /\b[0-9a-f]{7,40}\b/gi
 const WORKTREE_BRANCH = /^wt\/(.+)$/
 const PULL_REQUEST_EVENTS = ['pull_request', 'pull_request_target']
@@ -182,7 +182,7 @@ async function gateBeforeTheIrreversibleMerge(pr: PullRequest, task: MessageView
   const ci = ciVerdict(pr.statusCheckRollup) ?? (await workflowsOfHeadElseNull(pr))
   if (ci) return ci
   if (!onlyDocs(pr) && !reviewedAtHead(pr)) {
-    return { kind: 'refused', why: `没有对 head ${pr.headRefOid.slice(0, 7)} 的 review 无挡结论：PR 评论里贴一条顶格「Codex review：无挡合并」并写上这个 sha` }
+    return { kind: 'refused', why: `没有对 head ${pr.headRefOid.slice(0, 7)} 的 review 无挡结论：PR 评论里贴一条「Codex review：无挡合并」或「<模型>（effort）评审结论：无挡合并问题」并写上这个 sha` }
   }
   if (kr.length) await board().as(profile()).reply(task.id, resultsOf(kr))
   const why = await mergeGate(`gh pr merge ${pr.number}`, process.cwd(), board(), DIR)

@@ -140,6 +140,19 @@ it('takes no old ↑↓= from nawaban event, and holds old blocks to numbers bef
   expect(await replies(id)).toBe(0)
 })
 
+it('registers an O or KR that a worktree of the repository adds before it merges, and still refuses one no checkout has', async () => {
+  const branch = join(repo, '..', 'wt-adds-o')
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'adds-o', branch], { stdio: 'ignore' })
+  await writeFile(join(branch, 'docs/agents/okr.toml'), OKR + '[[objective.kr]]\nname = "KR3"\n[[objective]]\nname = "O2"\n[[objective.kr]]\nname = "K2"\n')
+  const id = await newTask()
+  expect((await nawaban('event', id, 'impact', '--o', 'O2', '--kr', 'K2=toward')).code).toBe(0)
+  expect((await nawaban('event', id, 'impact', '--o', 'O1', '--kr', 'KR3=toward')).code).toBe(0)
+  expect((await nawaban('event', id, 'impact', '--o', 'O3')).err).toMatch(/没有这个 O:O3/)
+  expect(await replies(id)).toBe(2)
+  execFileSync('git', ['-C', repo, 'worktree', 'remove', '--force', branch], { stdio: 'ignore' })
+  expect((await nawaban('event', id, 'impact', '--o', 'O2', '--kr', 'K2=toward')).err).toMatch(/没有这个 O:O2/)
+})
+
 it('lets --o 无 through, with no KR, in any project', async () => {
   const id = await newTask()
   expect((await nawaban('event', id, '--kind', 'impact', '--o', '无')).code).toBe(0)
