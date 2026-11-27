@@ -528,9 +528,10 @@ export default class NawabanBoard extends View {
 
   cardRow(x, w) {
     const question = oneLine(x.question), who = x.doing || x.name;
-    return { key: x.key, meta: [who, x.duration].filter(Boolean).join(" · "), title: question || who, tag: w.waiting, tagColor: CHIP_COLOR.waiting,
+    const key = x.task && x.focus == null ? "wait:" + x.task : x.key;
+    return { key, meta: [who, x.duration].filter(Boolean).join(" · "), title: question || who, tag: w.waiting, tagColor: CHIP_COLOR.waiting,
       focus: x.focus, url: x.url, goLabel: x.focus != null ? w.go : w.issue,
-      ...(x.task && x.focus == null && { card: { kind: "wait", key: x.key, id: x.task, mark: x.task + "@" + x.question, question: x.question, focus: x.focus, url: x.url } }),
+      ...(x.task && x.focus == null && { card: { kind: "wait", key, id: x.task, mark: x.task + "@" + x.question, question: x.question, focus: x.focus, url: x.url } }),
       facts: [[w.facts.window, x.name], [w.facts.question, question], [w.facts.since, x.duration]] };
   }
 
