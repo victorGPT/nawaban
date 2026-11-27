@@ -587,6 +587,7 @@ export function dispatch(argv: string[]): Promise<number> {
     const wt = await worktreeOffOriginMain(checked.root, checked.name)
     const brief = briefReportingTo(a.ref ? { ref: a.ref } : { name: checked.name, orch: checked.orch }, a.brief, a.accept, freshWorktreeLine(wt, a.ref ? MERGE_LINE : MERGE_LINE_WITH_NO_TICKET_FOR_NAWABAN_MERGE_TO_FIND), [], a.checks)
     const address = await startWorkerElseRemoveWorktree(checked, a, wt, brief)
+    if (checked.task?.task?.for) await boardCliElseNothingToClaim(['tasks', 'assign', checked.task.id, '--pool', '--json'], `已派给 hc ${address}，但 ${checked.who} 还排给 ${checked.task.task.for}，放回公共池失败，它领不了`)
     await recordDispatchAsThisWindow(checked, a, address)
     await recordChecksMergeRuns(checked, a, address)
     if (checked.lane) await stdoutOrNullOnFailure('hc', ['label', address, `lane=${checked.lane}`])

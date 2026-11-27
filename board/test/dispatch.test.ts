@@ -141,6 +141,25 @@ it('starts the worker in its own worktree, briefed to report to the orchestrator
   expect(reply?.blocks).toMatchObject([{ schema: 'nawaban-dispatch', data: { worker: 'd-go', terminal: 't99', accept: 'it is done', orchestrator: 'to1', agent: 'claude', model: 'opus' } }])
 })
 
+it('puts back in the pool a ticket still kept for another profile before a fresh worker starts on it, so the fresh worker can claim it', async () => {
+  const id = await newTask('D-KEPT')
+  await team.tasks.assign(id, `${(await team.thread(id)).message.task!.owner}+cc-gone0000`)
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-KEPT', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect((await team.thread(id)).message.task?.for).toBeNull()
+  expect((await team.as('cc-fresh000').tasks.claim(id)).task.task?.claim?.actor).toMatch(/cc-fresh000$/)
+})
+
+it('keeps a ticket kept for another profile when the fresh worker fails to start', async () => {
+  const id = await newTask('D-KEPTFAIL')
+  const keptFor = `${(await team.thread(id)).message.task!.owner}+cc-gone0000`
+  await team.tasks.assign(id, keptFor)
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-KEPTFAIL', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1', HC_RUN_FAIL: '1' })
+  expect(r.code).toBe(1)
+  expect((await team.thread(id)).message.task?.for).toBe(keptFor)
+})
+
 it.each([
   { title: 'perf(api): 主模型窗口按实测调大', tag: '#1700', named: '【api】主模型窗口按实测调大 #1700' },
   { title: '每晚复盘 2026-11-23', tag: '#1657', named: '每晚复盘 2026-11-23 #1657' },
