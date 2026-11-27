@@ -27,7 +27,7 @@ const API_METHOD = /^(?:-X=?|--method(?:=|$))(.*)$/
 const REPO_FLAG = /^(?:-R|--repo)(?:=(.*))?$/
 const GITHUB_REPO_IN_REMOTE = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/
 const ISSUE_TEXT_FLAGS = new Set(['-t', '-b', '-F', '--title', '--body', '--body-file'])
-const ISSUE_EDIT_SWITCHES = new Set(['--remove-milestone', '--help', '-h'])
+const ISSUE_EDIT_FLAGS_TAKING_A_VALUE = new Set([...ISSUE_TEXT_FLAGS, '-m', '--milestone', '--type', '--parent', ...['assignee', 'blocked-by', 'blocking', 'label', 'project', 'sub-issue'].flatMap((what) => [`--add-${what}`, `--remove-${what}`])])
 const ISSUE_URL = /github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)/
 const run = promisify(execFile)
 
@@ -161,7 +161,7 @@ function whatAnIssueEditChanges(args: string[]) {
     const flag = long ? arg.split('=')[0]! : arg.slice(0, 2)
     if (ISSUE_TEXT_FLAGS.has(flag)) rewritesText = true
     const valueAttached = long ? arg.includes('=') : arg.length > 2
-    if (!valueAttached && !ISSUE_EDIT_SWITCHES.has(flag)) i++
+    if (!valueAttached && ISSUE_EDIT_FLAGS_TAKING_A_VALUE.has(flag)) i++
   }
   return { issue: positionals[0], rewritesText }
 }

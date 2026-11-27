@@ -165,7 +165,9 @@ test('a gh issue edit of the title or body in a repository switched to the board
   expect(await whyThisGhWriteMustNotRun('gh issue edit https://github.com/acme/other/issues/8 --title t', roubao, boardDir)).toBeNull()
   expect(await whyThisGhWriteMustNotRun('gh issue edit --title t https://github.com/acme/roubao/issues/9', here, boardDir)).toContain('ROUBAO-9')
   expect(await whyThisGhWriteMustNotRun('gh issue edit 8 -R acme/roubao --add-label "-bug"', here, boardDir)).toBeNull()
-  expect(await whyThisGhWriteMustNotRun('gh issue edit 8 --remove-milestone -t t', roubao, boardDir)).toContain('ROUBAO-8')
+  for (const cmd of ['gh issue edit 8 --remove-milestone -t t', 'gh issue edit 8 --remove-parent --title t', 'gh issue edit 8 --remove-type --body b', 'gh issue edit --add-blocked-by 3 8 -t t']) {
+    expect(await whyThisGhWriteMustNotRun(cmd, roubao, boardDir), cmd).toContain('ROUBAO-8')
+  }
   expect(await whyThisGhWriteMustNotRun('gh issue edit 2016 --add-label x', roubao, boardDir)).toBeNull()
   expect(await whyThisGhWriteMustNotRun('gh issue comment 2016 -b x', roubao, boardDir)).toBeNull()
 })
