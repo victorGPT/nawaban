@@ -367,8 +367,10 @@ async function worktreeOffOriginMain(root: string, name: string): Promise<Worktr
 
 const MERGE_LINE = `收尾：验收没说不合并时，PR 的 CI 绿、评论里贴了带 head sha 的「Codex review：无挡…」之后，跑 nawaban merge <PR 号>：它合并、关票，再最多等 10 分钟领指派给你的下一张（Claude Code 里用 Bash 的 run_in_background 放后台跑，别干等）。领到就照它打印的 brief 在这个 worktree 切新分支接着做；没领到它收掉 worktree 和终端`
 
-const freshWorktreeLine = (wt: Worktree) =>
-  `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改）。${MERGE_LINE}`
+const MERGE_LINE_WITH_NO_TICKET_FOR_NAWABAN_MERGE_TO_FIND = '收尾：验收没说不合并时，PR 的 CI 绿之后按仓库文档的合并方式合（例如 scripts/merge.sh）；这次没有票，别用 nawaban merge'
+
+const freshWorktreeLine = (wt: Worktree, merge: string) =>
+  `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改）。${merge}`
 
 const reusedWorktreeLine = (wt: Worktree) =>
   `worktree：接着用 ${wt.path}，先 git fetch origin main && git switch -c ${wt.branch} origin/main，只在这个分支上改。${MERGE_LINE}`
@@ -578,7 +580,7 @@ export function dispatch(argv: string[]): Promise<number> {
       }
     }
     const wt = await worktreeOffOriginMain(checked.root, checked.name)
-    const brief = briefReportingTo(a.ref ? { ref: a.ref } : { name: checked.name, orch: checked.orch }, a.brief, a.accept, freshWorktreeLine(wt), [], a.checks)
+    const brief = briefReportingTo(a.ref ? { ref: a.ref } : { name: checked.name, orch: checked.orch }, a.brief, a.accept, freshWorktreeLine(wt, a.ref ? MERGE_LINE : MERGE_LINE_WITH_NO_TICKET_FOR_NAWABAN_MERGE_TO_FIND), [], a.checks)
     const address = await startWorkerElseRemoveWorktree(checked, a, wt, brief)
     await recordDispatchAsThisWindow(checked, a, address)
     await recordChecksMergeRuns(checked, a, address)

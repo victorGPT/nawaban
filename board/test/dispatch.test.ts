@@ -172,6 +172,8 @@ it('dispatches with no task, under --name, and records nothing', async () => {
   expect(r.code).toBe(0)
   expect(r.hc).toContain('/pstack:poteto-mode 任务：retro\n')
   expect(r.hc).toContain('hc send to1 "回报：retro 完成')
+  expect(r.hc).not.toContain('跑 nawaban merge')
+  expect(r.hc).toContain('按仓库文档的合并方式合（例如 scripts/merge.sh）')
   expect(existsSync(join(tmp, 'repo-retro'))).toBe(true)
 })
 
