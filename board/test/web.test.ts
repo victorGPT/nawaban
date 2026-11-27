@@ -519,6 +519,10 @@ it('wakes the orchestrator for a note handed over on the page too, and says when
     const away = await withHc(null)
     expect(JSON.parse((await keep('再加个筛选')).body)).toMatchObject({ heard: false })
     expect(await away.sent()).toEqual([])
+    await writeFile(join(dir, 'repos.json'), '{')
+    const unreadable = await keep('repos.json 坏了也算记下')
+    expect(unreadable.status).toBe(201)
+    expect(JSON.parse(unreadable.body)).toMatchObject({ heard: false })
   } finally {
     vi.unstubAllEnvs()
   }
