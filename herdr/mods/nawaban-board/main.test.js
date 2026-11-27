@@ -793,3 +793,41 @@ test("a CLI that crashes shows its Error line, not node's closing version line",
     execImpl = async () => ({ code: 1 });
   }
 });
+
+test("a 等你 card whose window is gone opens in place to its whole question, and hands a reply or a send-back to this repo's orchestrator", async () => {
+  inChinese();
+  clicks.clear();
+  const sends = [], realTerminals = terminals;
+  terminals = [...terminals, orchestrator];
+  hcImpl = async (args) => { sends.push(args); return { code: 0, stdout: "", stderr: "" }; };
+  const asked = "要不要把 Office 名牌接上 nawaban 票号和进展？\n不急，可不做";
+  const waits = { columns: [{ key: "in_progress", tasks: [open("NAWABAN-OFFICE-LINK", { status: "in_progress", title: "Office 布局名牌显示 worker 在做的票",
+    session: "W", leader: "W", terminal: "closed", claimed_at: now - 4 * 86400, active_at: now - 3 * 86400, waiting: asked })] }] };
+  try {
+    const cx = runningSpawns;
+    const view = drawn({ board: waits, repo: "/r/roubao" }, cx);
+    const row = "nawaban-row-card:0";
+    assert.ok(clicks.has(row), "the card can be clicked");
+    clicks.get(row)({}, cx);
+    texts.length = 0;
+    view.render(cx);
+    for (const s of [asked, "答复", "不够，再说清楚"]) assert.ok(texts.includes(s), s);
+    captureInput.type("  接上，先只读  ");
+    clicks.get("nawaban-reply-card:0")({}, cx);
+    await settle();
+    assert.deepEqual(sends, [["send", "t0", "[决策者经面板] NAWABAN-OFFICE-LINK 答复：接上，先只读"]]);
+    texts.length = 0;
+    view.render(cx);
+    assert.ok(texts.includes(WINDOW_WORDS.zh.cards.replied("NAWABAN-OFFICE-LINK")));
+    const other = drawn({ board: waits, repo: "/r/roubao" }, cx);
+    clicks.get(row)({}, cx);
+    other.render(cx);
+    clicks.get("nawaban-unclear-card:0")({}, cx);
+    await settle();
+    assert.deepEqual(sends.at(-1), ["send", "t0", "[决策者经面板] NAWABAN-OFFICE-LINK 背景不够，请补写后重发待决"]);
+  } finally {
+    terminals = realTerminals;
+    hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
+    stored.clear();
+  }
+});

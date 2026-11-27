@@ -416,6 +416,14 @@ export default class NawabanBoard extends View {
 
   toggleCard(key) {
     this.openCard = this.openCard === key ? null : key;
+    this.replyInput = this.selectableByKey.get(this.openCard)?.card?.kind === "wait" ? this.newReplyInput() : null;
+  }
+
+  newReplyInput() {
+    const input = InputState.new({ placeholder: WINDOW_WORDS[this.lang].cards.replyHint });
+    input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
+    input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
+    return input;
   }
 
   rememberSelectable(tab, decisions, objectives, sections, tasks, captureKeys) {
@@ -522,6 +530,7 @@ export default class NawabanBoard extends View {
     const question = oneLine(x.question), who = x.doing || x.name;
     return { key: x.key, meta: [who, x.duration].filter(Boolean).join(" · "), title: question || who, tag: w.waiting, tagColor: CHIP_COLOR.waiting,
       focus: x.focus, url: x.url, goLabel: x.focus != null ? w.go : w.issue,
+      ...(x.task && x.focus == null && { card: { kind: "wait", key: x.key, id: x.task, mark: x.task + "@" + x.question, question: x.question, focus: x.focus, url: x.url } }),
       facts: [[w.facts.window, x.name], [w.facts.question, question], [w.facts.since, x.duration]] };
   }
 
@@ -660,6 +669,7 @@ export default class NawabanBoard extends View {
     const body = v_flex().id("nawaban-card-" + c.key).flex_none().px(CARD_PAD).pb(CARD_PAD).gap(SPACE.l)
       .text_size(TYPE.meta).line_height(CARD_LINE_H + "px").text_color(INK.muted);
     if (said?.final) return body.child(div().whitespace_normal().child(said.text));
+    if (c.kind === "wait") return this.waitDetail(body, c, orchestrator, said, cw);
     const needsOrchestrator = c.kind !== "talk";
     const part = (text, color) => div().text_size(TYPE.label).text_color(color).whitespace_normal().child(text);
     return body
@@ -675,6 +685,28 @@ export default class NawabanBoard extends View {
       .when(needsOrchestrator && !orchestrator, (el) => el.child(div().text_color(INK.amberText).child(cw.noOrchestrator)))
       .when(Boolean(said), (el) => el.child(div().text_color(INK.red).child(said.text)))
       .child(h_flex().gap(SPACE.m).items_center().flex_wrap().children(this.cardActions(c, orchestrator, cw))
+        .when(Boolean(c.url), (el) => el.child(div().id("nawaban-full-" + c.key).flex_1().min_w(0).text_color(INK.dim).cursor_pointer()
+          .hover((s) => s.text_color(INK.muted)).on_click(() => openInBrowser(c.url)).child(cw.fullText + " →"))));
+  }
+
+  waitDetail(body, c, orchestrator, said, cw) {
+    const id = (what) => "nawaban-" + what + "-" + c.key, off = !orchestrator;
+    const hand = (text, done) => (cx) => this.handToOrchestrator(c, orchestrator, text, done, cw, cx);
+    const reply = (cx) => {
+      const words = this.replyInput?.value().trim();
+      if (words) hand(TO_ORCHESTRATOR.reply(c.id, words), cw.replied(c.id))(cx);
+    };
+    return body
+      .child(div().h(1).bg(INK.cardEdge))
+      .child(this.labelled(cw.question, div().text_size(TYPE.label).text_color(INK.foreground).whitespace_normal().child(c.question)))
+      .when(off, (el) => el.child(div().text_color(INK.amberText).child(cw.noOrchestrator)))
+      .when(Boolean(said), (el) => el.child(div().text_color(INK.red).child(said.text)))
+      .when(Boolean(this.replyInput), (el) => el.child(Input.new(this.replyInput).flex_none().h(ROW_H).px(SPACE.m).rounded(RADIUS.control).border_1()
+        .border_color(INK.control).bg(INK.card).text_size(TYPE.body).text_color(INK.foreground)))
+      .child(h_flex().gap(SPACE.m).items_center().flex_wrap()
+        .child(this.button(id("reply"), cw.reply, true, off, reply))
+        .child(this.button(id("unclear"), cw.unclear, false, off, hand(TO_ORCHESTRATOR.unclear(c.id), cw.sentBack)))
+        .when(c.focus != null, (el) => el.child(this.button(id("go"), WINDOW_WORDS[this.lang].go, false, false, () => goTo(c.focus))))
         .when(Boolean(c.url), (el) => el.child(div().id("nawaban-full-" + c.key).flex_1().min_w(0).text_color(INK.dim).cursor_pointer()
           .hover((s) => s.text_color(INK.muted)).on_click(() => openInBrowser(c.url)).child(cw.fullText + " →"))));
   }

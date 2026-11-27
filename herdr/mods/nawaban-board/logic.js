@@ -252,7 +252,7 @@ export function panelView(args) {
   const flow = c.board && flowLine({ closed: closedToday(c.board, c.now),
     running: tasks.find((g) => g.group === "working")?.items.length ?? 0,
     waiting: cards.length + decisionCardsView(c.board).cards.length });
-  return { waiting: cards.map((card, i) => ({ key: "card:" + i, ...withoutTask(card) })), tasks,
+  return { waiting: cards.map((card, i) => ({ key: "card:" + i, ...card })), tasks,
     flow: flow || null, otherWaiting: waitingInOtherProjects(c.projects, c.project) };
 }
 
@@ -342,6 +342,7 @@ export function decisionCardsView(board, { terminals = [], repo = null, returned
 export const TO_ORCHESTRATOR = {
   pick: (id, option) => `[决策者经面板] ${id} 选 ${option}`,
   unclear: (id) => `[决策者经面板] ${id} 背景不够，请补写后重发待决`,
+  reply: (id, words) => `[决策者经面板] ${id} 答复：${words}`,
   decided: (id) => `[决策者经面板] ${id} 已定，请核实后记已决（决策记录）`,
   incomplete: (ids) => `[决策者经面板] 待决未就绪（不满足就绪标准），请按待决策项格式重写：${ids.join(" ")}`,
   capture: (text) => `[决策者经面板] 收件箱：${text}。请转成任务或命令，回我结果`,
@@ -401,7 +402,8 @@ export const WINDOW_WORDS = {
       settle: "就这么定", unclear: "不够，再说清楚", decided: "对，已经定了", notYet: "还没定", fullText: "GitHub 全文",
       goTalk: (name) => `去 ${name} 窗口`, noOrchestrator: "没有活着的编排者窗口，暂时交不出去", sending: "正在交给编排者…",
       failed: (e) => `没交到编排者：${e}`, picked: (id, option) => `已交给编排者：${id} 选 ${option}。它会在 issue 上记已决（决策记录）。`,
-      sentBack: "已退回编排者补写背景。", closing: (id) => `已请编排者在 ${id} 记已决（决策记录）并关掉这件待决。`,
+      sentBack: "已退回编排者补写背景。", question: "问题", reply: "答复", replyHint: "写一句答复",
+      replied: (id) => `已把答复交给编排者：${id}。`, closing: (id) => `已请编排者在 ${id} 记已决（决策记录）并关掉这件待决。`,
       incomplete: (ids, state) => `未就绪 ${ids.length} 件（${ids.join(" ")}），${{ returned: "已退回编排者重写", returning: "正在退回编排者", stuck: "没有编排者窗口，还没退回" }[state]}` } },
   en: { waiting: "Waiting", pushing: "WIP", stopped: "Stale", done: "Done", working: "Working", idle: "Idle", todo: "Backlog", yesterday: "yesterday", confirm: "Waiting for you to confirm",
     windows: (n) => `${n} window${n === 1 ? "" : "s"}`, elsewhere: (n) => (n ? `${n} waiting elsewhere` : "nothing waiting elsewhere"),
@@ -417,7 +419,8 @@ export const WINDOW_WORDS = {
       fullText: "Full text on GitHub", goTalk: (name) => `Go to ${name}`, noOrchestrator: "No live orchestrator window to hand this to",
       sending: "Handing to the orchestrator…", failed: (e) => `Not handed over: ${e}`,
       picked: (id, option) => `Handed to the orchestrator: ${id} picks ${option}. It records the Decision Record on the issue.`,
-      sentBack: "Sent back to the orchestrator to fill in the Context.", closing: (id) => `Asked the orchestrator to record ${id}'s Decision Record and close the DR.`,
+      sentBack: "Sent back to the orchestrator to fill in the Context.", question: "Question", reply: "Reply",
+      replyHint: "Type a reply", replied: (id) => `Reply on ${id} handed to the orchestrator.`, closing: (id) => `Asked the orchestrator to record ${id}'s Decision Record and close the DR.`,
       incomplete: (ids, state) => `${ids.length} DR${ids.length === 1 ? "" : "s"} not ready (${ids.join(" ")}), ${{ returned: "sent back to the orchestrator", returning: "sending back to the orchestrator", stuck: "no orchestrator window to send them back to" }[state]}` } },
 };
 
