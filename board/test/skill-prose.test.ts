@@ -2,10 +2,14 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from 'vitest'
+import { parse } from 'yaml'
 
 const SKILLS = resolve(dirname(fileURLToPath(import.meta.url)), '../../skills')
-const SKILL_FILE_CHARS_AT_MOST = 8000
-const DESCRIPTION_CHARS_AT_MOST = 320
+const CHARS_AT_MOST = {
+  chinese: { index: 3000, process: 1200, reference: 2000, description: 120 },
+  english: { index: 9000, process: 3500, reference: 6000, description: 300 },
+}
+const INDEX_SKILLS = ['nawaban/SKILL.md']
 const PROSE_AN_AGENT_ACTS_ON_HAS_NONE_OF = [
   { what: '人名', pattern: /吴献忠|岳不同/ },
   { what: '原话', pattern: /原话|their words|owner's words/ },
@@ -18,6 +22,10 @@ const skillFiles = readdirSync(SKILLS, { recursive: true, encoding: 'utf8' })
   .filter((f) => f.endsWith('.md'))
   .map((f) => ({ name: f, path: join(SKILLS, f), text: readFileSync(join(SKILLS, f), 'utf8') }))
 
+const kindOf = (name: string) =>
+  INDEX_SKILLS.includes(name) ? 'index' : name.endsWith('/SKILL.md') ? 'process' : 'reference'
+const budgetOf = (text: string) => CHARS_AT_MOST[/\p{Script=Han}/u.test(text) ? 'chinese' : 'english']
+
 const anchorOf = (heading: string) => heading.trim().toLowerCase().replace(/[^\p{L}\p{N} -]/gu, '').replace(/ /g, '-')
 
 test.each(skillFiles)('$name carries no names, quotes, dates or incident stories', ({ text }) => {
@@ -25,10 +33,11 @@ test.each(skillFiles)('$name carries no names, quotes, dates or incident stories
   expect(found).toEqual([])
 })
 
-test.each(skillFiles)('$name stays within its length budget', ({ text }) => {
-  expect(text.length).toBeLessThanOrEqual(SKILL_FILE_CHARS_AT_MOST)
-  const description = text.match(/^description:\s*(.*)$/m)?.[1] ?? ''
-  expect(description.length).toBeLessThanOrEqual(DESCRIPTION_CHARS_AT_MOST)
+test.each(skillFiles)('$name stays within its length budget', ({ name, text }) => {
+  expect(text.length).toBeLessThanOrEqual(budgetOf(text)[kindOf(name)])
+  const frontmatter = text.match(/^---\n([\s\S]*?)\n---\n/)?.[1]
+  const description: string = frontmatter ? parse(frontmatter).description : ''
+  expect(description.length).toBeLessThanOrEqual(budgetOf(description).description)
 })
 
 test.each(skillFiles)('$name links only to files and headings that exist', ({ path, text }) => {

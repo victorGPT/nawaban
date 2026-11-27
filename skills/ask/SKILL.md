@@ -1,21 +1,22 @@
 ---
 name: ask
-description: "For the orchestrator. Put a decision in front of the owner as a decision card. Use when only the owner can decide: how the product behaves, what is said outside, what goes to production, an Objective or a KR."
+description: "编排者用。把只有决策者能定的事做成决策卡：产品怎么表现、对外说什么、上不上生产、O 或 KR。"
 ---
 
-**Ask the owner with a decision card on the ticket. A question asked only in chat never reaches the pending line.**
+只有决策者能定时用：产品怎么表现、对外说什么、上不上生产、O 或 KR。KR 以下的自己定，记 `decision`，服务某条 KR 时加 `--kr "<O / KR>"`。只在聊天里问的问题进不了待决行。
 
-1. **Check that the decision is the owner's.** Decide anything below a KR yourself and record it as a `decision` event, with `--kr "<O / KR>"` when it serves one. The event format is in the [nawaban skill](../nawaban/SKILL.md#record-events).
-2. **Write the card.** It holds one decision, the KR it serves or 无, only the facts the decision turns on, two or more options each with its cost and its door, and your recommendation with its reason.
-3. **Put the card at the top level of your reply as one block, then end the reply.** The ask-guard Stop hook records it on the ticket as a 待决策项, and leaves a ticket already waiting on the owner as it is. It sends the reply back when a field is empty or a placeholder such as 无, -, or 待定. Only `kr` may be 无. To show the format without asking, wrap the block in a four-backtick fence.
+1. **写卡** → 只放一个决定、它服务的 KR 或 无、决定所依的事实、两个以上选项各带代价和门、你的推荐和理由。
+2. **卡作为一整块放在回复顶层，然后结束回复** → ask-guard 把它记成票上的待决策项。字段空着或写占位（无、-、待定）会被退回，只有 `kr` 可以写 无。只想展示格式时包在四个反引号里。
 
 ```json#nawaban-ask-request@1
-{ "ticket": "<KEY or #N>", "decision": "<the one decision>", "kr": "<O / KR, or 无>", "context": "<the facts>",
-  "options": [ { "choice": "<A>", "tradeoff": "<its cost>", "door": "two-way" },
-               { "choice": "<B>", "tradeoff": "<its cost>", "door": "one-way" } ],
-  "recommendation": "<which, and why>" }
+{ "ticket": "<KEY 或 #N>", "decision": "<一个决定>", "kr": "<O / KR，或 无>", "context": "<事实>",
+  "options": [ { "choice": "<A>", "tradeoff": "<代价>", "door": "two-way" },
+               { "choice": "<B>", "tradeoff": "<代价>", "door": "one-way" } ],
+  "recommendation": "<选哪个，为什么>" }
 ```
 
-4. **When the owner answers, record the conclusion in your own words.** Run `nawaban event <ID> resolve "<结论>"`.
+3. **决策者答了** → 用自己的话记结论：`nawaban event <ID> resolve "<结论>"`。
 
-Outside the orchestrator session the hook does not run. Record the card yourself with `nawaban event <ID> ask`, whose flags `nawaban event --help` lists. When you need a fact, not a decision, run `nawaban event <ID> wait "<question>"`.
+编排者会话以外钩子不跑，自己用 `nawaban event <ID> ask` 记卡。要的是事实不是决定，用 `nawaban event <ID> wait "<问题>"`。
+
+检验：`nawaban status` 的「等你」里有这张卡。

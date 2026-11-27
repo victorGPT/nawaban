@@ -1,13 +1,16 @@
 ---
 name: ticket
-description: "For the orchestrator. Open one ticket on the board, with or without an Objective. Use when the owner hands you a piece of work, an inbox note turns out to be work, or a red KR needs a ticket."
+description: "编排者用。在板上开一张票。决策者交来一件活、收件箱条目是活、或红 KR 要人干时用。"
 ---
 
-**Open a ticket whose title says what a person can see once it is done. A ticket holds no steps, no design, and nothing the worker should decide.**
+决策者交来一件活、收件箱条目是活、或红 KR 要人干时用。标题写做完后人能看到什么；票里不写步骤、设计和该 worker 定的事。
 
-1. **Size it.** Work that takes several pull requests, has an order between its parts, or is shared with a colleague is several tickets. Remind the owner to type `/grill-with-docs`, `/to-spec`, `/to-tickets`. Without their input, split it by hand with the rules in [collaboration](../collaboration/SKILL.md#拆任务规则) and show the split to the owner before any dispatch. Come back here for each ticket.
-2. **Decide whether it serves an Objective.** A one-off, a bug fix, or work on the process or the tools serves none. Work that moves a KR serves one: name the O and the KR in the body.
-3. **Write the body to a file with `## What to build` and `## Acceptance criteria`.** Each criterion is something a command or a screen can show. In a repository with `docs/agents/okr.toml`, one criterion is the worker's KR registration: `nawaban claim <KEY> --o "<O>" --kr "<KR>=toward"`, or `--o 无`.
-4. **Create it and leave it unclaimed.** Run `nawaban create <KEY> --project <p> --title "<title>" --body-file <file>`, with `--parent` and `--blocked-by` where they apply.
+1. **要几个 PR、各部分有先后、或要和同事分工** → 拆成多张。提醒决策者敲 `/grill-with-docs`、`/to-spec`、`/to-tickets`；他不在就自己拆，拆法给他看过再派：
+   - 垂直切片：每张打通一条窄而完整的路径，做完能单独验证，一个新会话做得完。
+   - 预重构单独成票放最前。宽重构先让新旧并存，按目录分批迁，最后删旧。
+   - 读同样文档、改同样目录的票带同一个 `--lane`，先后关系用 `--blocked-by`。
+2. **推动某条 KR** → 正文写 O 和 KR。一次性的活、修 bug、改流程和工具不挂 O。
+3. **正文写到文件** → 两节 `## What to build`、`## Acceptance criteria`，每条判据是命令或界面能显示的。仓库有 `docs/agents/okr.toml` 时，一条判据是 worker 的 KR 登记：`claim --o "<O>" --kr "<KR>=toward"` 或 `--o 无`。
+4. **建票，不认领** → `nawaban create <KEY> --project <p> --title "<标题>" --body-file <文件>`，按需带 `--parent`、`--blocked-by`。
 
-**Reply:** the ticket's row and one line, `O：<O / KR | 无，因为 …>`.
+回复：票的那一行，加一行 `O：<O / KR | 无，因为 …>`。

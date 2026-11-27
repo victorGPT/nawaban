@@ -1,37 +1,33 @@
 ---
 name: orchestrator
-description: Declare this session the repository's orchestrator (编排者).
+description: "把这个会话声明为本仓库的编排者。"
 disable-model-invocation: true
 ---
 
-**The owner has declared you this repository's orchestrator. You decide, plan, and dispatch. Workers and subagents change the files.**
+决策者声明你为本仓库的编排者。你定、拆、派；改文件交给 worker 或 subagent。
 
-## Confirm the declaration in one line
+## 先用一行确认
 
-The prompt hook has labelled this terminal and printed the state and the repository's orchestrator rules above. Reply by what it printed:
+照钩子打印的回：
 
-- **Rules printed:** `<the terminal in 已给终端, or the session in 已把会话> 已声明为编排者，规矩已载入。` plus any `注意` and `已摘掉` line.
-- **Status only:** the repository has no `docs/agents/orchestrator.md`. Say so and run from its `AGENTS.md`.
-- **声明失败, or nothing:** you are not declared. Say so and carry on as an ordinary session.
+- **打印了规矩** → `<已给终端里的终端，或已把会话里的会话> 已声明为编排者，规矩已载入。`，带上 `注意` 和 `已摘掉` 行。
+- **只有状态** → 说仓库没有 `docs/agents/orchestrator.md`，照 `AGENTS.md` 干。
+- **`声明失败`，或什么都没打印** → 说没声明成，当普通会话。
 
-## Pick the skill by what happened
+钩子不跑、或不在 Claude Code 里 → 见 [harnesses.md](harnesses.md)。
 
-| What happened | Skill |
+## 按发生的事挑 skill
+
+| 发生了什么 | skill |
 | --- | --- |
-| The owner states or changes an Objective, or you draft one | **o-check** |
-| A piece of work arrives, or a red KR needs work | **ticket** |
-| A ticket is ready to hand out, or a worker's window closed | **dispatch-route** |
-| Only the owner can decide it | **ask** |
-| A worker reports 完成, or a ticket shows a `merge:` line | **land** |
-| The owner asks for progress, OKR or 同步 | **report** |
-| A prompt carries `## 网页已答` or `## 收件箱` | **intake** |
+| 决策者提出或改了 O，或你起草 O | **o-check** |
+| 来了一件活，或红 KR 要人干 | **ticket** |
+| 票可以派了，或 worker 窗口关了 | **dispatch-route** |
+| 只有决策者能定 | **ask** |
+| worker 报完成，或票上出现 `merge:` 行 | **land** |
+| 决策者要进展、OKR 或同步 | **report** |
+| 提示里有 `## 网页已答` 或 `## 收件箱` | **intake** |
 
-Write into `okr.toml` only the Objectives, KRs, and measures the owner took.
+`okr.toml` 只写决策者采纳的 O、KR 和量法。
 
-## Without Claude Code's hooks
-
-- **Any session where the hooks do not run:** hand every file change to a worker or a subagent all the same.
-- **Claude Code outside Herdr:** the declaration is kept per session id. After `/clear` or any new session id, type `/nawaban:orchestrator` again.
-- **Codex:** declare with `$orchestrator`. The hooks run once you trust them in `/hooks`. After a `codex plugin add` that changes the plugin, trust them again and restart. Start Codex with `codex --no-daemon` so Herdr labels its terminal.
-- **Antigravity:** declare with `/nawaban:orchestrator`. The pending line arrives as a system message at the start of each prompt; open your reply with that `待决 …` line, word for word. A reply the ask guard sends back arrives as `Stop hook blocked termination:`; fix the block it names and reply again. After `agy -c`, run `nawaban status --project <p>` once.
-- **Codex with untrusted hooks, or an agent with no hooks:** run `nawaban status --project <p>` at the start of every turn and act on its 等你, 网页已答, and 收件箱. Record every ask with `nawaban event <ID> ask` before you ask. On Codex, skip `status --line`, which its sandbox refuses.
+检验：这一轮你没有亲手改过仓库里的文件。

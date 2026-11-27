@@ -1,86 +1,32 @@
 ---
 name: nawaban
-description: The nawaban board is the issue tracker. Use when a skill says to publish a spec, "publish the tickets" or "fetch the ticket", or to find the frontier; before working on a ticket; and when recording a note, a decision between options, or a link such as a pull request.
+description: "nawaban 看板就是 issue tracker。发 spec 和票、找可开工的票、做票之前、记进展决策链接、关票时用。"
 ---
 
-# nawaban issue tracker
+# nawaban
 
-The board holds 票 and an append-only event log per 票. The engineering skills decide what to do, and the board records what was decided and done. Nouns are the Chinese terms in `GLOSSARY.md`.
+做票之前、发 spec 或拆票、记进展决策和链接时用。票的状态只存在板上。名词以 `GLOSSARY.md` 为准，参数看 `nawaban <动词> --help`。
 
-Run `node <plugin root>/hooks/route.mjs` in the repository, with the plugin root two directories above this skill. It prints `board <project>`. A GitHub repository listed in `github-sync.json` works the same way: issue #N is the 票 `<PROJECT>-<N>`, and the board pushes its writes to GitHub. A session outside Codex, Antigravity, and Claude Code sets `NAWABAN_OWNER` to a stable name before it writes.
+## 规矩
 
-## Rules
+- 只拿三类问题问人：产品怎么表现、对外说什么、上不上生产。别的自己定。skill 明说交给人的步骤照旧交人。
+- 每次在选项间做选择都记一条 `decision`，人答的也记。
+- 先认领再干活，停手时关票或交还。
 
-- **Bring the user three kinds of question only:** how the product behaves, what is said to the outside, and whether something goes to production. Settle every other choice yourself. A step the running skill gives to the user, such as approving the split in `/to-tickets`, `grilling`, or a wayfinder HITL 票, still goes to the user.
-- **Record every choice between options as a `decision` event,** the user's answers included.
-- **Claim a 票 before you work on it.** Close or release it when you stop.
+## 情况 → 做什么
 
-## Commands
+- **不知道该干哪张** → `nawaban status` 看要管的，`nawaban list --frontier` 看可开工的。认领不查 frontier，你自己查。`nawaban show <票> --all` 看全部事件。
+- **发 spec 或拆票** → `nawaban create <KEY> --body-file <文件>`。spec 票的正文就是整份 spec，之后不改。子票带 `--parent`、`--blocked-by`、`--lane`，先建被依赖的票。正文怎么写见 [ticket](../ticket/SKILL.md)。
+- **开工** → `nawaban claim <票>`。仓库有 `docs/agents/okr.toml` 时同时登记 `--o "<O>" --kr "<KR>=toward"`，纯文档和纯基础设施写 `--o 无`。第一个 PR 链接之后才登记算事后，不判也不计。
+- **停手、做了选择、开了 PR** → 记 `note`、`decision`、`link` 事件，格式见 [events.md](events.md)。交还前先记 `note`。
+- **要人答或要人动手** → 只有决策者能定的走 [ask](../ask/SKILL.md)。要事实或要人做事，先在对话里问，再 `nawaban event <票> wait "<一句>"`；答了用自己的话 `resolve "<结论>"`。
+- **PR 开了** → 持票的 worker 在自己 worktree 跑 `nawaban merge <PR>`，Claude Code 里放后台。退出 3 是检查还在跑，过会儿重跑；拒合的理由记在票上，改完重跑。改了 `.md` 以外文件的 PR 要一条点名 head commit（≥7 位）的 `<reviewer> review：无挡…` 评论，之后再 push 要重审。
+- **没走 merge 的合并** → 记 `pr:` 链接后 `nawaban close <票> --done`，登记过 KR 的带 `--kr "<KR>=<后值> 实测|预计"`。板上误关的票重开不了，新建一张，在旧票记 `note "重开为 <新票>"`；同步到 GitHub 的仓库（`github-sync.json`）里 issue #N 就是票 `<PROJECT>-<N>`，误关可以 `close --reopen`。
+- **派活** → 编排者跑 `nawaban dispatch`，见 [dispatch-route](../dispatch-route/SKILL.md)。worker 用 `nawaban tell <票> "<一行>"` 回报，送不到就在票上记 `回报未送达：<那行>`。
+- **看 KR** → `nawaban okr`，它不跑 eval。
+- **GitHub 写操作** → `GH_TOKEN=$(gh auth token --user <账号>) gh …`，账号取 `docs/agents/issue-tracker.md` 的 `github-account:`，没有就取 `~/.nawaban/github-accounts.json` 里 origin 拥有者那条。
+- **wayfinder 地图** → 见 [wayfinder.md](wayfinder.md)。
 
-`nawaban --help` lists the verbs, and `nawaban <verb> --help` lists each verb's flags. `<票>` is the KEY or the board number, with no `#`. Exit 0 is success, 1 a refusal, 2 a usage error, and 3 still waiting. `nawaban board <native verb>` runs an `@vercel/board` verb, such as `board label` or `board tasks assign`.
+Codex、Antigravity、Claude Code 以外的会话，写之前把 `NAWABAN_OWNER` 设成固定的名字。
 
-- `nawaban status` lists what needs attention: 等你, 停滞, 进行中, 待办. `nawaban show <票> --all` prints one 票 with every event.
-- `nawaban list --frontier` lists every open 票 that no session holds and whose blockers are done or cancelled. A claim outside the frontier goes through, so check the frontier yourself.
-- `nawaban okr` prints each KR's reading against its target. A measure never runs an eval. The OKR 进度 entry in `GLOSSARY.md` gives the `okr.toml` format. `okr --json` lists under `attention` what the decision-maker must watch.
-
-## Create
-
-- A spec 票's body is the whole spec, and it stays unchanged: `nawaban create <SPEC-ID> --title "<title>" --body-file <spec.md>`.
-- A child 票 is `nawaban create <SPEC-ID>-<NN> --title "<title>" --parent <SPEC-ID> --body-file <ticket.md> --blocked-by <票> --lane <name>`. The [ticket skill](../ticket/SKILL.md) gives its body and title.
-- Create blockers first. `nawaban block <票> <blocker>` adds an edge later.
-- Give one lane to the 票 whose worker reads the same docs, changes the same directories, and uses the same tools. The 票 in a lane run one after another, in dependency order.
-
-## Claim, release, close
-
-- A 票 that another session holds refuses your claim until the release or the lease end. Have the orchestrator reassign it when you cannot wait.
-- Record a 进展同步 before `nawaban claim <票> --release`.
-- Run `nawaban close <票> --done` after the work merges and its `pr:` or `commit:` link is recorded. That merged link is the 完成标准.
-- A board 票 closed by mistake cannot be reopened. Create a new 票 and point the old one at it: `nawaban event <old> note "重开为 <new>"`. An issue 票 pushed to GitHub reopens with `close --reopen`.
-
-## Record events
-
-An event is `nawaban event <票> <kind> [body]`. A body of `-` reads stdin.
-
-```
-nawaban event <票> note "已完成：<what is done> / 下一步：<next step> / 卡点：<what stops it, or 无>"
-nawaban event <票> decision "决定：<what was chosen and why>
-背景：<the question and the facts it turned on>
-否决方案：<option>，<why not>
-影响：<what follows, optional>"
-nawaban event <票> link "pr:<url>"
-```
-
-- A note is the 进展同步. Record one at each stopping point.
-- A decision is a 决策记录. Add `--by user` when the user chose. Add `--kr "<O / KR>"` when you decide on the owner's behalf and the choice moves a KR.
-- Link prefixes are `pr:`, `commit:`, `artifact:`, and `adr:`. A triage label is a note `triage: <label>`.
-
-## KR impact declaration
-
-In a repository with `docs/agents/okr.toml`, declare the KR impact as you claim, before the 票's first PR link: `nawaban claim <票> --o "<O>" --kr "<KR>=toward"`. Docs-only and pure infrastructure work declare `--o 无`. A declaration after the first PR link counts as 事后, which is never judged or counted. `--change measure` or `--change gold` marks a change to the ruler, which is counted apart and not judged. Report each registered KR's value after with `--kr "<KR>=<after> 实测|预计"` on `close --done` or `merge`. The close lock and the merge hooks refuse a 票 without its declaration.
-
-A `gh` write runs under the repository's GitHub account: `GH_TOKEN=$(gh auth token --user <account>) gh …`. The account is the `github-account:` line in `docs/agents/issue-tracker.md`, else the origin owner's entry in `~/.nawaban/github-accounts.json`.
-
-## Ask and wait
-
-- **A decision only the owner can make:** follow the [ask skill](../ask/SKILL.md).
-- **An answer or an action you need from the user:** ask in the conversation, then run `nawaban event <票> wait "<one-line question or what the user must do>"`. The 票 is held as 等你, and your claim ends. When the user answers, record the conclusion with `nawaban event <票> resolve "<结论>"`. The 票 goes back to the profile that waited.
-
-## Dispatch and merge
-
-- The orchestrator runs `nawaban dispatch` as the [dispatch-route skill](../dispatch-route/SKILL.md) says. Reports go to the terminal labelled `role=orchestrator`.
-- A worker reports with `nawaban tell <票> "<one line>"`. With no orchestrator to reach, it notes `回报未送达：<line>` on the 票.
-- `nawaban claim --ready` takes the next 票 assigned to you, else the oldest one in the pool, and prints the brief. Cut `wt/<key>` off the latest `origin/main` in the same worktree.
-- The worker that holds the 票 runs `nawaban merge <PR>` from its worktree once the pull request is open.
-- A pull request that changes more than `.md` files needs a comment `<reviewer> review：无挡…` that names the head commit in 7 or more characters. A push after the review needs a new review.
-- When `merge` exits 3, a check still runs. Rerun it later.
-- When `merge` refuses, it notes why on the 票. Fix that and rerun.
-- In Claude Code, run `merge` in the background. It waits up to `--wait` (10m) for the next assigned 票.
-- To retire a worker without `merge`, wait until its 票 is closed and nothing is assigned to it, then run `hc kill <name>` and `git worktree remove <worktree>`. Resume a worker whose window died with `claude --resume <revive.session>` from its `cwd`, both read off `hc get <terminal> --json`.
-
-## Wayfinder maps
-
-A wayfinder map is a parent 票 with a note `wayfinder: map`. Its body stays as first written, and its events carry the changes.
-
-- A 票 on the map is `nawaban create <票> --parent <MAP>` plus a note `wayfinder: <type>`. Its frontier is `nawaban list --parent <MAP> --frontier`.
-- To resolve a 票, record its conclusion as a decision on it, add a map note `decided: <票> <title>: <one-line conclusion>`, and close it as done. A research 票 first gets a link `commit:<sha on the research branch>`. An out-of-scope 票 gets `close --cancelled` and a map note `out-of-scope: …`.
-- Fog that becomes a 票 gets a map note `graduated: <fog> → <票>`. To remove a 票, cancel it with a note that gives the reason.
+检验：你碰过的票，板上都看得到认领、进展、决策和已合并的 `pr:` 链接。

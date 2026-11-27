@@ -1,15 +1,15 @@
 ---
 name: dispatch-route
-description: "Decide who does a ticket: a running worker, the back of its queue, or a new one. Use before every dispatch, and when a worker's window has closed with a ticket still assigned to it."
+description: "定一张票给谁：正在跑的 worker、排在它后面，还是新开。每次派活前、worker 窗口关了而票还挂在它名下时用。"
 ---
 
-**Route a ticket by the rules first, then by the state of the agent the rules name. One worker too many or too few is cheap, so decide fast.**
+每次派活前用。先按规则定该谁做，再看那个 agent 的状态。多开少开一个都便宜，快定。
 
-1. **Start a new agent when the ticket checks someone else's work** (review, acceptance, an adversary, a second opinion), or needs another model, repository, or permission.
-2. **Otherwise find the agent the ticket belongs to.** Judge by the 改动范围 in the brief, else by the parent ticket or the ticket it came from. The ticket belongs to an agent when it reads the same docs and changes the same directories, follows that agent's own output (review fixes, the next ticket of its split, work its report proposed), or needs state that agent holds (a checkout, uncommitted changes, a running process). When two agents fit, pick the one with its hands on the files. With no such agent, start a new one.
-3. **Read that agent's state with `hc get <terminal>`.** Open and idle, or waiting on the owner: give it the ticket. Working: queue the ticket behind it, unless the ticket cannot wait and touches none of its files. Closed, or compacted and past about 40 turns: start a new agent with the ticket's 进展 and branch as the handoff.
-4. **Give a running agent the ticket by assignment, never by a message.** `nawaban dispatch <ticket> --to <terminal>` assigns it, and the agent claims it once its current ticket is done. Queueing behind a working agent is the same command.
-5. **Otherwise run `nawaban dispatch <ticket>`.** It routes by itself: to the lane's running worker, else to the worker whose changes touch a path the brief names, else to a new one. It passes over a worker on another agent or model, or past half its context. Write the 改动范围 as file paths so it can match them. Pass `--new` or `--to` only when the rules above disagree with it. Hold no 票 yourself while you dispatch.
-6. **When the assigned agent has closed its window, return the ticket to the pool first.** Run `nawaban board tasks assign <id> --pool` with the board number `nawaban show` prints, then dispatch with `--new`.
-7. **Write the acceptance as `--check '<command>'` wherever a command can prove it.** A `--check` holds only what CI cannot cover, such as an end-to-end probe or a read-only check against the real environment. A code ticket puts no vitest there.
-8. **Open the brief with the verdict, and note the same line on the ticket.** `派发判断：<规则命中什么>，<哪个 agent、什么状态> → <指派给它 | 排在它后面 | 新开>`. A ticket without that line was not routed.
+- **票是审别人的活**（评审、验收、对手、第二意见），或要别的模型、仓库、权限 → 新开。
+- **否则找该接这张票的 agent** → 读同样的文档、改同样的目录，接着它自己的产出（评审修复、拆分的下一张、它报告里提的活），或要它手上的状态（checkout、未提交的改动、在跑的进程）。两个都合适，选手已经在这些文件上的。没有就新开。
+- **`hc get <终端>` 看它的状态** → 空闲或在等决策者：指派给它。在干活：排在它后面；票等不了又不碰它的文件，才新开。窗口已关，或压缩过且超过约 40 轮：新开，用票的进展和分支交接。
+- **指派和排队** → 都用 `nawaban dispatch <票> --to <终端>`，不发消息。规则没指名时跑 `nawaban dispatch <票>` 让它自动路由，改动范围写成文件路径它才对得上。和规则冲突时才加 `--new` 或 `--to`。派活时自己不持票。
+- **接票的 agent 窗口已关、票还指派给它** → 先 `nawaban board tasks assign <编号> --pool` 退回池里，再 `--new`。
+- **命令能证明的验收** → 写成 `--check '<命令>'`，只放 CI 盖不到的，比如端到端探针、对真实环境的只读检查。代码票不放 vitest。
+
+检验：brief 开头和票上各有一行 `派发判断：<规则命中什么>，<哪个 agent、什么状态> → <指派给它 | 排在它后面 | 新开>`。没有这行就是没路由过。
