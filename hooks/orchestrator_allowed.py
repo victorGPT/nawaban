@@ -25,7 +25,8 @@ ORCHESTRATION_SCRIPTS = {"node": ("hooks/route.mjs", "board/src/cli.ts"), "pytho
 MERGE_SCRIPT = "scripts/merge.sh"
 GIT_READS = {"log", "status"}
 GIT_STATUS_OPTIONS = re.compile(r"^(-s|-b|-sb|-bs|--short|--branch|--porcelain(=v\d)?|--long|-u(no|normal|all)?|--untracked-files(=.*)?|--ahead-behind|--no-ahead-behind)$")
-GIT_LOG_METADATA_OPTIONS = re.compile(r"^(-\d+|-n|--oneline|--stat|--shortstat|--name-only|--name-status|--graph|--all|--no-merges|--merges|--first-parent|--reverse|--decorate(=.*)?|--no-decorate|--abbrev-commit|--no-color|--(format|pretty|max-count|since|until|after|before|author|committer|grep|date|branches|tags|remotes)=.*)$")
+GIT_LOG_OPTIONS_WITH_A_VALUE = {"-n", "--max-count", "--format", "--pretty", "--since", "--until", "--after", "--before", "--author", "--committer", "--grep", "--date"}
+GIT_LOG_METADATA_OPTIONS = re.compile(r"^(-\d+|-n\d+|--oneline|--stat|--shortstat|--name-only|--name-status|--graph|--all|--no-merges|--merges|--first-parent|--reverse|--decorate(=.*)?|--no-decorate|--abbrev-commit|--no-color|--(format|pretty|max-count|since|until|after|before|author|committer|grep|date|branches|tags|remotes)=.*)$")
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 INSTRUCTION_FILES = {"AGENTS.md", "CLAUDE.md"}
 INSTRUCTION_DIR = os.sep + os.path.join("docs", "agents") + os.sep
@@ -115,11 +116,15 @@ def git_reads_metadata(args):
         return False
     if args[0] == "status":
         return all(GIT_STATUS_OPTIONS.match(a) for a in args[1:] if a.startswith("-"))
-    log_args = args[1:]
-    for k, a in enumerate(log_args):
-        if a == "--":
+    value_next = False
+    for a in args[1:]:
+        if value_next:
+            value_next = False
+        elif a == "--":
             return True
-        if a.startswith("-") and not GIT_LOG_METADATA_OPTIONS.match(a) and not (k and log_args[k - 1] == "-n"):
+        elif a in GIT_LOG_OPTIONS_WITH_A_VALUE:
+            value_next = True
+        elif a.startswith("-") and not GIT_LOG_METADATA_OPTIONS.match(a):
             return False
     return True
 

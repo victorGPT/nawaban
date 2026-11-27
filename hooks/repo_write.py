@@ -57,14 +57,31 @@ def closing_quote(s, i):
     return min(j, len(s))
 
 
+def past_heredoc_bodies(s, line_start, newline):
+    j = newline
+    for _, delimiter in heredoc_openers(s[line_start:newline]):
+        while j < len(s):
+            end = s.find("\n", j + 1)
+            end = len(s) if end < 0 else end
+            line, j = s[j + 1:end], end
+            if line.strip() == delimiter:
+                break
+    return j
+
+
 def closing_paren(s, j):
-    depth = 1
+    depth, line_start = 1, j
     while j < len(s):
         if s[j] in QUOTES:
             j = closing_quote(s, j) + 1
             continue
         if s[j] == "\\":
             j += 2
+            continue
+        if s[j] == "\n":
+            j = past_heredoc_bodies(s, line_start, j)
+            line_start = j + 1
+            j += 1
             continue
         depth += {"(": 1, ")": -1}.get(s[j], 0)
         j += 1
