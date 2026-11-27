@@ -393,11 +393,12 @@ function verdictBetween(op: string, goal: ExactDecimalAsTheOldClisDecimal, unit:
 }
 
 function judgedOnce(op: string, goal: ExactDecimalAsTheOldClisDecimal, unit: string, readings: KeptReading[], i: Declared) {
-  if (!judgedAtAll(i) || i.heading === null || i.result_at === null || (i.def_hash !== null && i.def_hash !== readings[0]?.def_hash)) return null
+  const holdAsksNoResultSoItIsJudgedFromItsDeclaration = i.heading === 'hold'
+  if (!judgedAtAll(i) || i.heading === null || (i.result_at === null && !holdAsksNoResultSoItIsJudgedFromItsDeclaration) || (i.def_hash !== null && i.def_hash !== readings[0]?.def_hash)) return null
   const rounds = latestAsOfPerRound(readings)
   const times = [...rounds.keys()].sort()
   const registeredAgainst = times.findLast((t) => t <= i.declared_at)
-  const by = times.find((t) => t > i.result_at!)
+  const by = times.find((t) => t > resultOrDeclaredAt(i))
   if (registeredAgainst === undefined || by === undefined) return null
   return { by, heading: i.heading, verdict: verdictBetween(op, goal, unit, i.heading, rounds.get(registeredAgainst)!, rounds.get(by)!) }
 }
@@ -408,7 +409,7 @@ function declarationsSinceLastRoundAndTheirVerdicts(op: string, goal: ExactDecim
   const last = times.at(-1) ?? ''
   const headingOf = (i: Declared) => i.heading ?? headingOfAnOldDeclaration(op, goal, i)
   const pending = declared
-    .filter((i) => (i.heading !== null && i.result_at === null) || resultOrDeclaredAt(i) >= last)
+    .filter((i) => (i.heading !== null && i.heading !== 'hold' && i.result_at === null) || resultOrDeclaredAt(i) >= last)
     .map((i) => ({ ticket: i.ticket, declared: headingOf(i), change: i.change, late: i.late, before: i.before, after: i.after, basis: i.basis, at: withoutTieBreak(i.declared_at) }))
   const verdicts = new Map<string, { ticket: string; dir: string; declared: Heading; verdict: Verdict }>()
   for (const i of declared) {
@@ -644,11 +645,11 @@ function declaredOnOneTicket([root, ...replies]: MessageView[]): Map<string, Dec
     for (const d of [...blocksOf(m, 'nawaban-impact-result'), ...blocksOf(m, 'nawaban-impact-result', 2)])
       for (const r of d.krs as { name: string; after?: string; basis: string }[]) results.set(r.name, { ...r, at: onTheOneClock(m) })
   const out = new Map<string, Declared>()
-  for (const m of messages) {
+  const latest = messages.findLast((m) => blocksOf(m, 'nawaban-impact', 2).length) ?? messages.findLast((m) => blocksOf(m, 'nawaban-impact').length)
+  for (const m of latest ? [latest] : []) {
     const at = onTheOneClock(m)
     for (const d of blocksOf(m, 'nawaban-impact')) {
       for (const kr of d.krs as { name: string; dir: string; before?: string; after?: string; basis?: string }[]) {
-        if (out.has(`${d.objective}\0${kr.name}`)) continue
         const old = { dir: kr.dir, heading: null, change: 'product' as const, late: true, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, def_hash: null, result_at: null }
         out.set(`${d.objective}\0${kr.name}`, { ticket, ...old, declared_at: at })
       }
@@ -656,7 +657,6 @@ function declaredOnOneTicket([root, ...replies]: MessageView[]): Map<string, Dec
     for (const d of blocksOf(m, 'nawaban-impact', 2)) {
       for (const kr of d.krs as { name: string; heading: Heading; reading?: string; def_hash?: string }[]) {
         const k = `${d.objective}\0${kr.name}`
-        if (out.has(k) && !out.get(k)!.late) continue
         const result = results.get(kr.name)
         out.set(k, {
           ticket,

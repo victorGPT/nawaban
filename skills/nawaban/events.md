@@ -17,4 +17,4 @@ nawaban event <票> link "pr:<url>"
 
 ## KR 影响声明
 
-认领时登记，早于第一个 PR 链接：`nawaban claim <票> --o "<O>" --kr "<KR>=toward|away|hold"`。改的是量法或金标时加 `--change measure` 或 `--change gold`，单独计数、不判。关票或 merge 时带 `--kr "<KR>=<后值> 实测|预计"` 报后值，没读数写 `--kr "<KR>=未测"`。只以最近一次声明为准，重记就撤掉上次的 KR；登记成 hold 的不用报。没声明的票，关票锁和 merge 钩子都拒。
+认领时登记，早于第一个 PR 链接：`nawaban claim <票> --o "<O>" --kr "<KR>=toward|away|hold"`。改的是量法或金标时加 `--change measure` 或 `--change gold`，单独计数、不判。关票或 merge 时带 `--kr "<KR>=<后值> 实测|预计"` 报后值，没读数写 `--kr "<KR>=未测"`。只以最近一次声明为准，重记会撤销此前声明的 KR；登记成 hold 的不用报。没声明的票，关票锁和 merge 钩子都拒。

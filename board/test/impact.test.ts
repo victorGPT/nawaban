@@ -342,4 +342,13 @@ describe('end to end: registered as claimed, reported as closed, judged by json 
     await measure(90, 13)
     expect(await verdicts()).toEqual([])
   })
+
+  it('judges by the latest declaration alone, and a hold closed with no result from the round after it was declared', async () => {
+    const id = await newTask('e2e', 'E2E-03')
+    expect((await claimRegisteringAsTheCliDoes('E2E-03', '--o', 'O', '--kr', 'K=toward')).code).toBe(0)
+    expect((await nawaban('event', id, 'impact', '--o', 'O', '--kr', 'K=hold')).code).toBe(0)
+    expect((await close('E2E-03')).code).toBe(0)
+    await measure(70, 14)
+    expect(await verdicts()).toEqual([{ ticket: 'E2E-03', declared: 'hold', verdict: '不符' }])
+  })
 })
