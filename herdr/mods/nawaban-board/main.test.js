@@ -388,8 +388,8 @@ test("incomplete cards go back to the orchestrator from the board read, once per
   hcImpl = async (args) => { sends.push(args); return answer; };
   execImpl = async (cmd, args = []) => {
     if (cmd === "git") return { code: 0, stdout: "/r/roubao/.git\n" };
-    if (args[1] !== "json") return { code: 1, stdout: "" };
-    return { code: 0, stdout: JSON.stringify(args[2] === "board" ? cardsBoard : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
+    if (args[3] !== "json") return { code: 1, stdout: "" };
+    return { code: 0, stdout: JSON.stringify(args[4] === "board" ? cardsBoard : args[4] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
   };
   try {
     const cx = runningSpawns;
@@ -424,8 +424,8 @@ test("two panels reading at once return an incomplete card once; an answered car
   hcImpl = (args) => { sends.push(args); return new Promise((r) => { release = () => r({ code: 0, stdout: "", stderr: "" }); }); };
   execImpl = async (cmd, args = []) => {
     if (cmd === "git") return { code: 0, stdout: "/r/roubao/.git\n" };
-    if (args[1] !== "json") return { code: 1, stdout: "" };
-    return { code: 0, stdout: JSON.stringify(args[2] === "board" ? cardsBoard : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
+    if (args[3] !== "json") return { code: 1, stdout: "" };
+    return { code: 0, stdout: JSON.stringify(args[4] === "board" ? cardsBoard : args[4] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
   };
   try {
     const cx = runningSpawns;
@@ -470,7 +470,7 @@ test("a space on another machine is read there: the CLI under that machine's hom
     view.init({}, cx);
     await new Promise((r) => setImmediate(r));
     const cli = calls.filter((c) => c.args.includes("json"));
-    assert.ok(cli.length >= 2 && cli.every((c) => c.cmd === "sh" && c.args[1].includes('$HOME/nawaban/board/src/cli.ts')));
+    assert.ok(cli.length >= 2 && cli.every((c) => c.cmd === "sh" && c.args[1].includes('$HOME/.local/bin/nawaban')));
     assert.ok(calls.filter((c) => c.cmd !== "defaults" && !(c.cmd === "sh" && c.args[1].includes("LANG")))
       .every((c) => c.opts.on === "mbp" && c.opts.cwd === "/Users/v/roubao"));
     assert.ok(!cli.some((c) => c.args.includes("db")), "a remote board is polled, not watched");
@@ -485,8 +485,8 @@ test("the panel reads every json verb with the board CLI", async () => {
   const calls = [];
   execImpl = async (cmd, args = []) => {
     if (cmd === "git") return { code: 0, stdout: "/Users/v/x/.git\n" };
-    calls.push([cmd, args[0], args[2]]);
-    return { code: 0, stdout: JSON.stringify(args[2] === "board" ? board : args[2] === "db" ? { db: "/b/local.db" } : { projects: [{ name: "x" }] }) };
+    calls.push([cmd, args[3], args[4]]);
+    return { code: 0, stdout: JSON.stringify(args[4] === "board" ? board : args[4] === "db" ? { db: "/b/local.db" } : { projects: [{ name: "x" }] }) };
   };
   const quiet = { spawn() {}, notify() {} };
   const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
@@ -495,8 +495,8 @@ test("the panel reads every json verb with the board CLI", async () => {
     const view = new NawabanBoard();
     view.init({}, cx);
     for (let i = 0; i < 200 && calls.length < 4; i++) await new Promise((r) => setTimeout(r, 25));
-    assert.deepEqual(calls.filter(([c]) => c !== "defaults" && c !== "sh").sort(),
-      ["board", "db", "okr", "projects"].map((v) => ["node", "/h/nawaban/board/src/cli.ts", v]).sort());
+    assert.deepEqual(calls.filter(([c, json]) => c !== "defaults" && json === "json").sort(),
+      ["board", "db", "okr", "projects"].map((v) => ["sh", "json", v]).sort());
   } finally {
     where = here;
     execImpl = async () => ({ code: 1 });
@@ -533,9 +533,9 @@ test("the OKR tab opens with the tally, leads with the neediest Objective, lists
 
 test("json okr failing (no okr.toml, an older CLI) leaves the OKR section out and the board as it was", async () => {
   execImpl = async (_cmd, args = []) => {
-    if (args[1] !== "json") return { code: 1, stdout: "" };
-    if (args[2] === "okr") return { code: 2, stdout: "", stderr: "invalid choice: 'okr'" };
-    return { code: 0, stdout: JSON.stringify(args[2] === "board" ? board : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
+    if (args[3] !== "json") return { code: 1, stdout: "" };
+    if (args[4] === "okr") return { code: 2, stdout: "", stderr: "invalid choice: 'okr'" };
+    return { code: 0, stdout: JSON.stringify(args[4] === "board" ? board : args[4] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
   };
   try {
     const quiet = { spawn() {}, notify() {} };
@@ -555,10 +555,10 @@ test("json okr failing (no okr.toml, an older CLI) leaves the OKR section out an
 test("a json okr that hangs holds up neither the board nor the next refresh, and is not asked twice", async () => {
   const reads = [];
   execImpl = (_cmd, args = [], opts = {}) => {
-    if (args[1] !== "json") return Promise.resolve({ code: 1, stdout: "" });
-    reads.push([args[2], opts.timeout]);
-    if (args[2] === "okr") return new Promise(() => {});
-    return Promise.resolve({ code: 0, stdout: JSON.stringify(args[2] === "board" ? board : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) });
+    if (args[3] !== "json") return Promise.resolve({ code: 1, stdout: "" });
+    reads.push([args[4], opts.timeout]);
+    if (args[4] === "okr") return new Promise(() => {});
+    return Promise.resolve({ code: 0, stdout: JSON.stringify(args[4] === "board" ? board : args[4] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) });
   };
   try {
     const quiet = { spawn() {}, notify() {} };
@@ -581,9 +581,9 @@ test("a json okr that hangs holds up neither the board nor the next refresh, and
 test("A, then B, then back to A: a late answer never overwrites a newer one, nor another space's", async () => {
   const asked = [];
   execImpl = (_cmd, args = [], opts = {}) => {
-    if (args[1] !== "json") return Promise.resolve({ code: 1, stdout: "" });
-    if (args[2] === "okr") return new Promise((r) => asked.push([opts.cwd, (x) => r({ code: 0, stdout: JSON.stringify(x) })]));
-    return Promise.resolve({ code: 0, stdout: JSON.stringify(args[2] === "board" ? board : { projects: [] }) });
+    if (args[3] !== "json") return Promise.resolve({ code: 1, stdout: "" });
+    if (args[4] === "okr") return new Promise((r) => asked.push([opts.cwd, (x) => r({ code: 0, stdout: JSON.stringify(x) })]));
+    return Promise.resolve({ code: 0, stdout: JSON.stringify(args[4] === "board" ? board : { projects: [] }) });
   };
   const at = (id) => ({ spaces: () => [{ id, active: true, name: id, folder: `/${id}` }], focused: () => ({ space: id, cwd: `/${id}` }) });
   const okrOf = (repo, tag) => ({ ...okrFixture, repo, def_commit: tag });
@@ -636,9 +636,9 @@ test("a project without okr.toml says in the OKR tab it has no Objective yet; an
   try {
     for (const [why, answer] of Object.entries(answers)) {
       execImpl = async (_cmd, args = []) => {
-        if (args[1] !== "json") return { code: 1, stdout: "" };
-        if (args[2] === "okr") return answer;
-        return { code: 0, stdout: JSON.stringify(args[2] === "board" ? board : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
+        if (args[3] !== "json") return { code: 1, stdout: "" };
+        if (args[4] === "okr") return answer;
+        return { code: 0, stdout: JSON.stringify(args[4] === "board" ? board : args[4] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
       };
       for (const lang of ["zh", "en"]) {
         const view = new NawabanBoard();
@@ -776,5 +776,20 @@ test("收件箱 keeps what is typed on Enter per project, hands it to this repo'
     terminals = realTerminals;
     hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
     stored.clear();
+  }
+});
+
+test("a CLI that crashes shows its Error line, not node's closing version line", async () => {
+  const quiet = { spawn() {}, notify() {} };
+  const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+  const stderr = "node:internal/modules/package_json_reader:331\n  throw new ERR_MODULE_NOT_FOUND(...);\n\nError [ERR_MODULE_NOT_FOUND]: Cannot find package 'yaml'\n    at x\n\nNode.js v26.8.1\n";
+  execImpl = async (_cmd, args = []) => (args[3] === "json" ? { code: 1, stdout: "", stderr } : { code: 1, stdout: "" });
+  try {
+    const view = new NawabanBoard();
+    view.init({}, cx);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(view.error, "Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'yaml'");
+  } finally {
+    execImpl = async () => ({ code: 1 });
   }
 });
