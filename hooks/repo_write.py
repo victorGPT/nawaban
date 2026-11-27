@@ -6,9 +6,9 @@ import sys
 import tempfile
 
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n", ";;", "|&"}
-REDIRECTS = {">", ">>", ">|", "&>", "&>>", ">&"}
+REDIRECTS = {">", ">>", ">|", "&>", "&>>", ">&", "<>"}
 QUOTES = ("'", '"')
-OPERATORS = sorted({"<<<", "<<-", "&>>", ">>", "&>", ">&", ">|", "&&", "||", ";;", "|&", "<<", "<", ">", "&", "|", ";", "(", ")", "\n"}, key=len, reverse=True)
+OPERATORS = sorted({"<<<", "<<-", "<>", "&>>", ">>", "&>", ">&", ">|", "&&", "||", ";;", "|&", "<<", "<", ">", "&", "|", ";", "(", ")", "\n"}, key=len, reverse=True)
 GIT_WRITES = {"commit", "push", "apply", "am", "cherry-pick", "rebase", "revert"}
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 PATCHED_FILE = re.compile(r"^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$", re.M)

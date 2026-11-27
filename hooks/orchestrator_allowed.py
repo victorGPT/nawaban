@@ -25,8 +25,8 @@ ORCHESTRATION_SCRIPTS = {"node": ("hooks/route.mjs", "board/src/cli.ts"), "pytho
 MERGE_SCRIPT = "scripts/merge.sh"
 GIT_READS = {"log", "status"}
 GIT_STATUS_OPTIONS = re.compile(r"^(-s|-b|-sb|-bs|--short|--branch|--porcelain(=v\d)?|--long|-u(no|normal|all)?|--untracked-files(=.*)?|--ahead-behind|--no-ahead-behind)$")
-GIT_LOG_OPTIONS_WITH_A_VALUE = {"-n", "--max-count", "--format", "--pretty", "--since", "--until", "--after", "--before", "--author", "--committer", "--grep", "--date"}
-GIT_LOG_METADATA_OPTIONS = re.compile(r"^(-\d+|-n\d+|--oneline|--stat|--shortstat|--name-only|--name-status|--graph|--all|--no-merges|--merges|--first-parent|--reverse|--decorate(=.*)?|--no-decorate|--abbrev-commit|--no-color|--(format|pretty|max-count|since|until|after|before|author|committer|grep|date|branches|tags|remotes)=.*)$")
+GIT_LOG_OPTIONS_WITH_A_VALUE = {"-n", "--max-count", "--since", "--until", "--after", "--before", "--author", "--committer", "--grep", "--date"}
+GIT_LOG_METADATA_OPTIONS = re.compile(r"^(-\d+|-n\d+|--oneline|--pretty|--stat|--shortstat|--name-only|--name-status|--graph|--all|--no-merges|--merges|--first-parent|--reverse|--decorate(=.*)?|--no-decorate|--abbrev-commit|--no-color|--(format|pretty|max-count|since|until|after|before|author|committer|grep|date|branches|tags|remotes)=.*)$")
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 INSTRUCTION_FILES = {"AGENTS.md", "CLAUDE.md"}
 INSTRUCTION_DIR = os.sep + os.path.join("docs", "agents") + os.sep
@@ -161,7 +161,7 @@ def shell_refusal(command):
     words, redirect = [], None
     for is_operator, token in list(shell_tokens(command)) + [(True, ";")]:
         if not is_operator:
-            if redirect == "<" and token != "/dev/null":
+            if redirect in ("<", "<>") and token != "/dev/null":
                 return f"< {token}"
             if redirect is None:
                 words.append(token)
