@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { board } from '@vercel/board'
-import { liveOrchestratorInRepository, mainCheckoutRealPathOf, stdoutOrNullOnFailure } from './dispatch.ts'
+import { liveOrchestratorInRepository, mainCheckoutRealPathOf, stdoutOrNullOnFailure, workerProfileOf } from './dispatch.ts'
 import { reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { short } from './orchestrator.ts'
 import { boardData, tasksOf } from './views.ts'
@@ -116,9 +116,12 @@ async function delivered(team: Team, f: Finding, orch: string | null): Promise<b
 async function assignmentsOfGoneWorkersBackToThePool(team: Team, project: string, rows: Row[], live: Set<string>, log: (line: string) => void) {
   const leftBehind = new Set(rows.filter((r) => !r.session && r.unclaimed_dispatch && !live.has(r.unclaimed_dispatch.terminal)).map((r) => r.id))
   if (!leftBehind.size) return
+  const running = await Promise.all([...live].map((address) => hcJson<Parameters<typeof workerProfileOf>[0]>(['get', address, '--json'])))
+  if (running.includes(null)) return log(`巡检：${project} 有终端读不到，这一轮不把指派放回池子`)
+  const profilesStillRunning = new Set(running.map((t) => workerProfileOf(t!)))
   for (const task of await tasksOf(team, project)) {
     const kept = task.task?.for
-    if (!kept || !leftBehind.has(task.labels.key ?? `#${task.id}`)) continue
+    if (!kept || !leftBehind.has(task.labels.key ?? `#${task.id}`) || profilesStillRunning.has(kept.slice(kept.lastIndexOf('+') + 1))) continue
     await team.tasks.assign(task.id, null)
     const line = `巡检：排给 ${kept} 的 worker 已不在，${task.labels.key ?? `#${task.id}`} 放回公共池`
     await team.reply(task.id, line)
