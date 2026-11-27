@@ -151,6 +151,15 @@ it('puts back in the pool a ticket still kept for another profile before a fresh
   expect((await team.as('cc-fresh000').tasks.claim(id)).task.task?.claim?.actor).toMatch(/cc-fresh000$/)
 })
 
+it('keeps a ticket kept for another profile when the fresh worker fails to start', async () => {
+  const id = await newTask('D-KEPTFAIL')
+  const keptFor = `${(await team.thread(id)).message.task!.owner}+cc-gone0000`
+  await team.tasks.assign(id, keptFor)
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-KEPTFAIL', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1', HC_RUN_FAIL: '1' })
+  expect(r.code).toBe(1)
+  expect((await team.thread(id)).message.task?.for).toBe(keptFor)
+})
+
 it.each([
   { title: 'perf(api): 主模型窗口按实测调大', tag: '#1700', named: '【api】主模型窗口按实测调大 #1700' },
   { title: '每晚复盘 2026-11-23', tag: '#1657', named: '每晚复盘 2026-11-23 #1657' },
