@@ -18,7 +18,7 @@ const author = (m: MessageView) => m.author?.name || m.author?.handle || ''
 const firstBlock = (m: MessageView, schema: string) =>
   m.deleted ? undefined : (m.blocks.find((b) => b.schema === schema && b.version === 1 && b.data)?.data as Record<string, unknown> | undefined)
 
-export type WebAnswer = { task: string; title: string; hold: string; option: string | null; words: string; by: string; at: string; message: string }
+export type WebAnswer = { task: string; title: string; hold: string; option: string | null; words: string; by: string; at: string; message: string; heard: boolean }
 export type InboxItem = { id: string; words: string; by: string; at: string }
 export type InboxEntry = { id: string; words: string; at: string; done: boolean; task: string | null }
 
@@ -27,6 +27,7 @@ const INBOX_CHANNEL_PREFIX = inboxChannel('')
 
 export const ANSWERS_LABEL = 'answers'
 export const webAnswerText = (answer: { option?: string; words: string }) => block('nawaban-web-answer@1', answer)
+export const ANSWER_UNHEARD = '网页已答，没叫醒编排者'
 const FENCE_THAT_WOULD_SWALLOW_THE_BLOCK = /^[\s`~]+/
 const summaryLineThatOpensNoFence = (words: string) => words.split('\n')[0]!.replace(FENCE_THAT_WOULD_SWALLOW_THE_BLOCK, '').trim() || '…'
 export const inboxItemText = (words: string) => `${summaryLineThatOpensNoFence(words)}\n\n${block('nawaban-inbox@1', { words })}`
@@ -45,6 +46,7 @@ export function answerToTheCurrentHold(root: MessageView, replies: MessageView[]
     : replies.slice(asked + 1).findLast((m) => firstBlock(m, 'nawaban-web-answer'))
   if (!answer) return null
   const d = firstBlock(answer, 'nawaban-web-answer')!
+  const after = replies.slice(replies.indexOf(answer) + 1)
   return {
     task: key(root),
     title: root.text.split('\n')[0]!,
@@ -54,6 +56,7 @@ export function answerToTheCurrentHold(root: MessageView, replies: MessageView[]
     by: author(answer),
     at: answer.createdAt,
     message: answer.id,
+    heard: !after.some((m) => m.text.startsWith(ANSWER_UNHEARD)),
   }
 }
 

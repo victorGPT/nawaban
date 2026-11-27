@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { request as http } from 'node:http'
-import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AddressInfo } from 'node:net'
@@ -373,7 +373,8 @@ const inboxOf = async (project: string) => JSON.parse((await send(`/api/nawaban/
 it('keeps an idea as an open inbox item the orchestrator\'s hook reads, in the ADR\'s words', async () => {
   const kept = await pageWrite('/api/nawaban/inbox?project=keep', 'POST', { words: '  面板加夜间模式\n第二行  ' })
   expect(kept.status).toBe(201)
-  const item = JSON.parse(kept.body)
+  const { heard, ...item } = JSON.parse(kept.body)
+  expect(heard).toBe(false)
   expect(item).toMatchObject({ words: '面板加夜间模式\n第二行', done: false, task: null })
   const [open] = await openInboxItems(team, 'keep')
   expect(open).toMatchObject({ id: item.id, words: '面板加夜间模式\n第二行' })
@@ -441,3 +442,88 @@ it('refuses an inbox write it can\'t keep, and keeps nothing', async () => {
   expect(await inboxOf('bad')).toEqual([])
 })
 
+
+const HC_STAND_IN_WITH_ONE_ORCHESTRATOR_WHOSE_SHELL_STARTED_ELSEWHERE = `#!/bin/sh
+printf '%s\\n' "$*" >> "$HC_LOG"
+case "$1" in
+  ls) if [ -n "$HC_ORCH_CWD" ]; then echo '{"terminals":[{"address":"to1","state":"live","cwd":"/"}]}'; else echo '{"terminals":[]}'; fi ;;
+  get) echo "{\\"labels\\":{\\"role\\":\\"orchestrator\\"},\\"foreground\\":{\\"cwd\\":\\"$HC_ORCH_CWD\\"}}" ;;
+esac
+`
+
+async function withHc(orchestratorIn: string | null) {
+  const bin = await mkdtemp(join(tmpdir(), 'nawaban-web-hc-'))
+  await writeFile(join(bin, 'hc'), HC_STAND_IN_WITH_ONE_ORCHESTRATOR_WHOSE_SHELL_STARTED_ELSEWHERE, { mode: 0o755 })
+  const log = join(bin, 'hc.log')
+  await writeFile(log, '')
+  vi.stubEnv('PATH', `${bin}:${process.env.PATH}`)
+  vi.stubEnv('HC_LOG', log)
+  vi.stubEnv('HC_ORCH_CWD', orchestratorIn ?? '')
+  return { sent: async () => (await readFile(log, 'utf8')).split('\n').filter((l) => l.startsWith('send ')) }
+}
+
+async function aRepositoryFor(project: string) {
+  const repo = realpathSync(await mkdtemp(join(tmpdir(), 'nawaban-web-wake-')))
+  execFileSync('git', ['init', '-q'], { cwd: repo })
+  await writeFile(join(dir, 'repos.json'), JSON.stringify({ [project]: repo }))
+  return repo
+}
+
+const answerFromThePage = (key: string, answer: unknown) =>
+  send(`/api/nawaban/answer/${key}`, { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify(answer) })
+
+it('wakes the project\'s orchestrator with one line once a web answer is written, found where its agent runs', async () => {
+  const repo = await aRepositoryFor('wake')
+  await create('create', 'WAKE1', '--title', '问一句', '--project', 'wake')
+  const id = (await team.tasks.list({ state: 'all', label: { key: 'WAKE1' } })).tasks[0]!.message.id
+  await create('event', id, 'wait', '哪天上线')
+  const hc = await withHc(repo)
+  try {
+    const written = await answerFromThePage('WAKE1', { ask: '哪天上线', words: '周五\n下午' })
+    expect(written.status).toBe(201)
+    expect(JSON.parse(written.body)).toMatchObject({ task: 'WAKE1', words: '周五\n下午', heard: true })
+    expect(await hc.sent()).toEqual(['send to1 网页已答 WAKE1：周五 下午'])
+  } finally {
+    vi.unstubAllEnvs()
+  }
+  expect((await team.thread(id)).replies.map((m) => m.text).filter((t) => t.startsWith('网页已答'))).toEqual([])
+})
+
+it('records on the ticket and tells the page when no orchestrator heard the web answer', async () => {
+  await aRepositoryFor('nobody')
+  await create('create', 'WAKE2', '--title', '问一句', '--project', 'nobody')
+  const id = (await team.tasks.list({ state: 'all', label: { key: 'WAKE2' } })).tasks[0]!.message.id
+  await create('event', id, 'wait', '哪天上线')
+  const hc = await withHc(null)
+  try {
+    const written = await answerFromThePage('WAKE2', { ask: '哪天上线', words: '周五' })
+    expect(written.status).toBe(201)
+    expect(JSON.parse(written.body)).toMatchObject({ task: 'WAKE2', heard: false })
+    expect(await hc.sent()).toEqual([])
+  } finally {
+    vi.unstubAllEnvs()
+  }
+  expect((await team.thread(id)).replies.at(-1)?.text).toMatch(/^网页已答，没叫醒编排者：项目 nobody 没找到活着的编排者终端/)
+  expect(JSON.parse((await send('/api/nawaban/answers?project=nobody')).body).answers).toMatchObject([{ task: 'WAKE2', words: '周五', heard: false }])
+})
+
+it('wakes the orchestrator for a note handed over on the page too, and says when none is there', async () => {
+  const repo = await aRepositoryFor('notes')
+  const keep = (words: string) => send('/api/nawaban/inbox?project=notes', { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify({ words }) })
+  try {
+    const there = await withHc(repo)
+    const kept = await keep('首页加个搜索')
+    expect(kept.status).toBe(201)
+    expect(JSON.parse(kept.body)).toMatchObject({ words: '首页加个搜索', done: false, heard: true })
+    expect(await there.sent()).toEqual(['send to1 网页随手记：首页加个搜索'])
+    const away = await withHc(null)
+    expect(JSON.parse((await keep('再加个筛选')).body)).toMatchObject({ heard: false })
+    expect(await away.sent()).toEqual([])
+    await writeFile(join(dir, 'repos.json'), '{')
+    const unreadable = await keep('repos.json 坏了也算记下')
+    expect(unreadable.status).toBe(201)
+    expect(JSON.parse(unreadable.body)).toMatchObject({ heard: false })
+  } finally {
+    vi.unstubAllEnvs()
+  }
+})

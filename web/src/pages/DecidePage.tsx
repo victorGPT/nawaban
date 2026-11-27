@@ -169,7 +169,12 @@ function WaitingDetail(props: { item: Waiting; detail: Detail | null; answer: We
       <Question text={w().question} meta={meta()} />
       <Show
         when={!props.answer}
-        fallback={<StatusLine tone="done">已交编排者{props.answer!.option ? '：选「' + props.answer!.option + '」' : '：' + props.answer!.words}</StatusLine>}
+        fallback={
+          <StatusLine tone={props.answer!.heard ? 'done' : 'stopped'}>
+            {props.answer!.heard ? '已交编排者' : '已记在票上，编排者不在线'}
+            {props.answer!.option ? '：选「' + props.answer!.option + '」' : '：' + props.answer!.words}
+          </StatusLine>
+        }
       >
         <Show when={w().card}>
           {(card) => (
