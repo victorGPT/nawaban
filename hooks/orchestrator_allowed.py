@@ -4,7 +4,7 @@ import sys
 
 import re
 
-from repo_write import HEREDOC_START, REDIRECTS, SEPARATORS, closing_paren, free_dirs, shell_tokens, without_heredoc_bodies, without_prefixes
+from repo_write import REDIRECTS, SEPARATORS, closing_paren, free_dirs, heredoc_openers, shell_tokens, without_heredoc_bodies, without_prefixes
 
 ORCHESTRATION_PROGRAMS = {"nawaban", "hc", "cd", "echo", "printf", "true", "sleep"}
 STDIN_FILTER_FLAGS_AND_VALUED_FLAGS = {
@@ -46,7 +46,7 @@ def readable(path, cwd):
 def unquoted_heredoc_bodies(command):
     lines, i = command.split("\n"), 0
     while i < len(lines):
-        for m in HEREDOC_START.finditer(lines[i]):
+        for m in heredoc_openers(lines[i]):
             end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(2)), len(lines))
             if not m.group(1):
                 yield "\n".join(lines[i + 1:end])

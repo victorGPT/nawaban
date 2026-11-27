@@ -74,11 +74,21 @@ def closing_paren(s, j):
     return len(s)
 
 
+def heredoc_delimiters(line):
+    tokens = list(tokens_of(line))
+    return {word.lstrip("-") for (is_op, op), (word_is_op, word) in zip(tokens, tokens[1:]) if is_op and op == "<<" and not word_is_op}
+
+
+def heredoc_openers(line):
+    real = heredoc_delimiters(line) if "<<" in line else set()
+    return [m for m in HEREDOC_START.finditer(line) if m.group(2) in real]
+
+
 def without_heredoc_bodies(command):
     lines, kept, i = command.split("\n"), [], 0
     while i < len(lines):
         kept.append(lines[i])
-        for m in HEREDOC_START.finditer(lines[i]):
+        for m in heredoc_openers(lines[i]):
             end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(2)), None)
             if end is not None:
                 i = end
@@ -87,7 +97,11 @@ def without_heredoc_bodies(command):
 
 
 def shell_tokens(command):
-    s, i, word = without_heredoc_bodies(command).replace("\\\n", " "), 0, None
+    return tokens_of(without_heredoc_bodies(command))
+
+
+def tokens_of(text):
+    s, i, word = text.replace("\\\n", " "), 0, None
     while i < len(s):
         operator = next((op for op in OPERATORS if s.startswith(op, i)), None)
         if s[i] in QUOTES:
