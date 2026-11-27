@@ -19,6 +19,7 @@ Run `node <plugin root>/hooks/route.mjs` in the repository, with the plugin root
 
 `nawaban --help` lists the verbs, and `nawaban <verb> --help` lists each verb's flags. `<票>` is the KEY or the board number, with no `#`. Exit 0 is success, 1 a refusal, 2 a usage error, and 3 still waiting. `nawaban board <native verb>` runs an `@vercel/board` verb, such as `board label` or `board tasks assign`.
 
+- `nawaban status` lists what needs attention: 等你, 停滞, 进行中, 待办. `nawaban show <票> --all` prints one 票 with every event.
 - `nawaban list --frontier` lists every open 票 that no session holds and whose blockers are done or cancelled. A claim outside the frontier goes through, so check the frontier yourself.
 - `nawaban okr` prints each KR's reading against its target. A measure never runs an eval. The OKR 进度 entry in `GLOSSARY.md` gives the `okr.toml` format. `okr --json` lists under `attention` what the decision-maker must watch.
 
@@ -66,7 +67,7 @@ A `gh` write runs under the repository's GitHub account: `GH_TOKEN=$(gh auth tok
 
 ## Dispatch and merge
 
-- The orchestrator dispatches with the [dispatch-route skill](../dispatch-route/SKILL.md). Reports go to the terminal labelled `role=orchestrator`.
+- The orchestrator runs `nawaban dispatch` as the [dispatch-route skill](../dispatch-route/SKILL.md) says. Reports go to the terminal labelled `role=orchestrator`.
 - A worker reports with `nawaban tell <票> "<one line>"`. With no orchestrator to reach, it notes `回报未送达：<line>` on the 票.
 - `nawaban claim --ready` takes the next 票 assigned to you, else the oldest one in the pool, and prints the brief. Cut `wt/<key>` off the latest `origin/main` in the same worktree.
 - The worker that holds the 票 runs `nawaban merge <PR>` from its worktree once the pull request is open.
