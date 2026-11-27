@@ -22,4 +22,4 @@ No comments in code. Names and structure carry the intent: a constant named for 
 
 ## Updating the local plugin
 
-When a change has merged into `main`, run `git -C ~/.nawaban/plugin pull --ff-only && sh ~/.nawaban/plugin/herdr/install-mod.sh` yourself (the second step copies the Herdr panel into `~/.config/herdr-app/mods`). A change that touches the schema or migrates data gets the same, after `python3 ~/.nawaban/plugin/nawaban/cli.py backup` first (decision-maker 11-25: 「更新更新，不要怕」).
+When a change has merged into `main`, run `git -C ~/.nawaban/plugin pull --ff-only && pnpm --dir ~/.nawaban/plugin/board install --frozen-lockfile && sh ~/.nawaban/plugin/herdr/install-mod.sh` yourself (the second step installs a dependency the pull brought in, so the CLI keeps loading; the third copies the Herdr panel into `~/.config/herdr-app/mods`). A change that touches the schema or migrates data gets the same, after `python3 ~/.nawaban/plugin/nawaban/cli.py backup` first (decision-maker 11-25: 「更新更新，不要怕」).

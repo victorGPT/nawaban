@@ -42,6 +42,10 @@ case "$1 $2" in
 esac
 `
 
+const PNPM_STAND_IN_LOGGING_CALLS = `#!/bin/sh
+printf '%s\\n' "$*" >> "$PNPM_LOG"
+`
+
 const git = (cwd: string, ...args: string[]) => exec('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args])
 
 async function upstreamCommit(message: string, touching?: string) {
@@ -62,7 +66,7 @@ beforeAll(async () => {
   team = board({ backend: local({ memory: true }), authenticate: verifier(SECRET, 'victor'), url })
   await registerSchemas(team)
   tmp = await realpath(await mkdtemp(join(tmpdir(), 'nawaban-merge-')))
-  for (const [name, script] of [['hc', HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_AND_ANY_WORKER_FILED_IN_HC_WORKERS], ['gh', GH_STAND_IN_ANSWERING_PR_VIEW_FROM_GH_PR_AND_LOGGING_MERGES]] as const) {
+  for (const [name, script] of [['hc', HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_AND_ANY_WORKER_FILED_IN_HC_WORKERS], ['gh', GH_STAND_IN_ANSWERING_PR_VIEW_FROM_GH_PR_AND_LOGGING_MERGES], ['pnpm', PNPM_STAND_IN_LOGGING_CALLS]] as const) {
     await writeFile(join(tmp, name), script)
     await chmod(join(tmp, name), 0o755)
   }
@@ -216,8 +220,8 @@ it('merges with no checks when the head runs CI only on pushes to release or on 
 })
 
 it('waits when the runs of the head can not be listed, however its workflows are triggered', async () => {
-  const { worktree } = await noChecksAtAHeadWithWorkflow('M-NOLIST', 't76', 'on: workflow_dispatch\n')
-  const r = await mergeAsTheWorker('M-NOLIST', 't76', worktree, { GH_RUNS_FAIL: '1' })
+  const { worktree } = await noChecksAtAHeadWithWorkflow('M-NOLIST', 't83', 'on: workflow_dispatch\n')
+  const r = await mergeAsTheWorker('M-NOLIST', 't83', worktree, { GH_RUNS_FAIL: '1' })
   expect(r.code).toBe(3)
   expect(r.stderr).toContain('gh run list 失败')
   expect(r.gh).not.toMatch(/^pr merge/m)
@@ -594,14 +598,28 @@ it('holds a schema change when the main checkout is the plugin, never pulling it
   expect(r.stderr).toContain('插件要拉进来的改动里有 schema')
 })
 
-it('pulls the plugin when it tracks this repository and the PR touches no schema', async () => {
+it('pulls the plugin when it tracks this repository and the PR touches no schema, installing nothing while no lockfile changed', async () => {
   const plugin = join(tmp, 'plugin-ok')
   await exec('git', ['clone', '-q', join(tmp, 'origin.git'), plugin])
   const { worktree } = await workerOnItsOwnTicket('M-PLUG', 't79')
   await upstreamCommit('landed M-PLUG')
-  const r = await mergeAsTheWorker('M-PLUG', 't79', worktree, { NAWABAN_PLUGIN_DIR: plugin })
+  const pnpmLog = join(tmp, 'pnpm-M-PLUG.log')
+  const r = await mergeAsTheWorker('M-PLUG', 't79', worktree, { NAWABAN_PLUGIN_DIR: plugin, PNPM_LOG: pnpmLog })
   expect(r.code).toBe(0)
   expect((await git(plugin, 'log', '-1', '--format=%s')).stdout.trim()).toBe('landed M-PLUG')
+  expect(existsSync(pnpmLog)).toBe(false)
+})
+
+it('installs the dependencies of the plugin when the pull changes a lockfile, so the CLI keeps loading', async () => {
+  const plugin = join(tmp, 'plugin-deps')
+  await exec('git', ['clone', '-q', join(tmp, 'origin.git'), plugin])
+  const { worktree } = await workerOnItsOwnTicket('M-DEPS', 't82')
+  await upstreamCommit('landed M-DEPS', 'board/pnpm-lock.yaml')
+  const pnpmLog = join(tmp, 'pnpm-M-DEPS.log')
+  const r = await mergeAsTheWorker('M-DEPS', 't82', worktree, { NAWABAN_PLUGIN_DIR: plugin, PNPM_LOG: pnpmLog })
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(await readFile(pnpmLog, 'utf8')).toBe(`--dir ${join(plugin, 'board')} install --frozen-lockfile\n`)
 })
 
 it('copies the pulled Herdr panel over the installed one, keeping the files Herdr put there', async () => {

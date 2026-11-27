@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
@@ -26,6 +26,7 @@ const WORKTREE_BRANCH = /^wt\/(.+)$/
 const PULL_REQUEST_EVENTS = ['pull_request', 'pull_request_target']
 const PULL_REQUEST_TYPES_A_PUSH_FIRES = ['opened', 'synchronize', 'reopened']
 const SCHEMA_FILE = 'board/src/schemas.ts'
+const LOCKFILE = 'pnpm-lock.yaml'
 const EXIT_CODE = { waiting: EXIT.waiting, refused: EXIT.refused, mergedButUnfinished: EXIT.refused, done: EXIT.done } as const
 const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
 const CHECK_OUTPUT_TAIL_CHARS = 2000
@@ -290,6 +291,11 @@ async function pluginHoldElsePull(did: string[]): Promise<Outcome | null> {
   const failed = await failureElseNull('git', ['-C', plugin, 'merge', '-q', '--ff-only', 'origin/main'])
   if (failed) return { kind: 'mergedButUnfinished', left: `插件 pull 失败：${failed}` }
   did.push('插件已 pull')
+  for (const lockfile of incoming.split('\n').filter((path) => path === LOCKFILE || path.endsWith(`/${LOCKFILE}`))) {
+    const uninstalled = await failureElseNull('pnpm', ['--dir', join(plugin, dirname(lockfile)), 'install', '--frozen-lockfile'])
+    if (uninstalled) return { kind: 'mergedButUnfinished', left: `插件 ${lockfile} 变了，装依赖失败：${uninstalled}` }
+    did.push(`插件 ${dirname(lockfile)} 依赖已装`)
+  }
   const modInstaller = join(plugin, 'herdr', 'install-mod.sh')
   const unsynced = existsSync(modInstaller) ? await failureElseNull('sh', [modInstaller]) : null
   if (unsynced) return { kind: 'mergedButUnfinished', left: `Herdr mod 同步失败：${unsynced}` }
