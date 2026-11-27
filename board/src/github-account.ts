@@ -178,7 +178,7 @@ async function issueTextEditOnARepoSwitchedToTheBoard(args: string[], here: stri
   const [synced, channel] = Object.entries((await githubSyncConfigToPoll(boardDir))?.repos ?? {}).find(([r]) => r.toLowerCase() === repo.toLowerCase()) ?? []
   if (!synced || !channel || !(await switchedToTheBoard(boardDir, synced))) return null
   const key = number && /^\d+$/.test(number) ? keyOf(channel, Number(number)) : `${channel.toUpperCase()}-<N>`
-  return `${synced} 已切到板上：gh issue edit 改标题或正文，入站后板上的票会挂起「非主人改」、认领跟着丢。改动记在票上：nawaban event ${key} note '<改了什么>'`
+  return `${synced} 已切到板上：gh issue edit 改标题或正文，入站后板上的票会被挂起（kind edited，根不是建票的一方改的），认领跟着丢。改动记在票上：nawaban event ${key} note '<改了什么>'`
 }
 
 export async function whyThisGhWriteMustNotRun(typed: string, cwd: string, boardDir: string): Promise<string | null> {
