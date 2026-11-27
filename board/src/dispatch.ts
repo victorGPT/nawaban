@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { readFile, realpath } from 'node:fs/promises'
 import { basename, dirname, join, resolve as absolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -231,11 +231,27 @@ async function laneWorkersInRepository(root: string, lane: string): Promise<Term
 
 const PATH_IN_BRIEF = /[\w.@-]+(?:\/[\w.@-]+)+\*?\/?|[\w.@-]+\/(?![\w.@-])|[\w-]+\.[A-Za-z][\w]{0,5}\b/g
 
-export const pathsIn = (brief: string) => [...new Set(brief.match(PATH_IN_BRIEF) ?? [])].map((p) => p.replace(/\/$/, ''))
+const writtenPathsIn = (brief: string) => [...new Set(brief.match(PATH_IN_BRIEF) ?? [])]
 
-const namesAFile = (path: string) => /\.[A-Za-z]\w{0,5}$/.test(path) || (path.endsWith('*') && !path.endsWith('/*'))
+const withoutTrailingSlash = (path: string) => path.replace(/\/$/, '')
 
-export const splitByFileOrDirectory = (paths: string[]) => ({ files: paths.filter(namesAFile), directories: paths.filter((p) => !namesAFile(p)) })
+export const pathsIn = (brief: string) => [...new Set(writtenPathsIn(brief).map(withoutTrailingSlash))]
+
+const isDirectoryIn = (root: string, path: string) => {
+  try {
+    return statSync(join(root, path)).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+const writtenAsADirectory = (root: string, path: string) => path.endsWith('/') || path.endsWith('/*') || isDirectoryIn(root, path)
+
+export const splitByFileOrDirectory = (root: string, brief: string) => {
+  const written = writtenPathsIn(brief)
+  const directories = new Set(written.filter((p) => writtenAsADirectory(root, p)).map(withoutTrailingSlash))
+  return { files: pathsIn(brief).filter((p) => !directories.has(p)), directories: [...directories] }
+}
 
 const DIRECTORY_ONLY_HINT = '路径只写到目录，写到具体文件才能判重叠'
 
@@ -318,7 +334,7 @@ const overlapBy = (files: string[]) => `改动文件重叠：${files.join('、')
 type Route = { reuse: Terminal | null; passedOver: string[]; by: string | null; hint: string | null }
 
 async function routeByAffinity(root: string, lane: string | null, brief: string, a: Pick<Args, 'agent' | 'model'>): Promise<Route> {
-  const { files, directories } = splitByFileOrDirectory(pathsIn(brief))
+  const { files, directories } = splitByFileOrDirectory(root, brief)
   const hint = !lane && directories.length && !files.length ? DIRECTORY_ONLY_HINT : null
   const candidates: Overlap[] = lane ? (await laneWorkersInRepository(root, lane)).map((t) => ({ t, files: [] })) : await workersTouching(root, files)
   const passedOver: string[] = []

@@ -587,6 +587,17 @@ it('does not queue behind a worker on a directory-only brief, and says to name f
   expect(JSON.parse(routed.stdout)).toMatchObject({ terminal: null, by: null, hint: '路径只写到目录，写到具体文件才能判重叠' })
 })
 
+it('reads an extensionless file as a file and a dotted directory as a directory', async () => {
+  const worktree = await worktreeChanging('ov-kind', 'hooks/Dockerfile')
+  await mkdir(join(worktree, '.github', 'workflows'), { recursive: true })
+  await writeFile(join(worktree, '.github', 'workflows', 'check.yml'), 'x')
+  const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000)
+  const file = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 hooks/Dockerfile', '--json'], hc)
+  expect(JSON.parse(file.stdout)).toMatchObject({ terminal: 't99', by: '改动文件重叠：hooks/Dockerfile', hint: null })
+  const directory = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '整理 .github/ 下的配置', '--json'], hc)
+  expect(JSON.parse(directory.stdout)).toMatchObject({ terminal: null, hint: '路径只写到目录，写到具体文件才能判重叠' })
+})
+
 it('lists every file that overlaps when a brief names files', async () => {
   const worktree = await worktreeChanging('ov-files', 'scripts/a.ts')
   await writeFile(join(worktree, 'scripts', 'b.ts'), 'x')
