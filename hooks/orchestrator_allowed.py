@@ -2,7 +2,7 @@ import json
 import os
 import sys
 
-from repo_write import SEPARATORS, closing_paren, free_dirs, shell_tokens, without_prefixes
+from repo_write import SEPARATORS, closing_paren, free_dirs, shell_tokens, without_heredoc_bodies, without_prefixes
 
 ORCHESTRATION_PROGRAMS = {"nawaban", "hc", "cd", "echo", "printf", "true", "sleep"}
 STDIN_FILTERS = {"cat", "head", "tail", "wc", "sort", "uniq"}
@@ -26,14 +26,27 @@ def readable(path, cwd):
     return any(real == d or real.startswith(d + os.sep) for d in instruction_dirs())
 
 
-def substitutions(word):
-    i = word.find("$(")
-    while i >= 0:
-        end = closing_paren(word, i + 2)
-        yield word[i + 2:end - 1]
-        i = word.find("$(", end)
-    parts = word.split("`")
-    yield from parts[1:-1:2]
+def substitutions(command):
+    s, i, in_double = without_heredoc_bodies(command), 0, False
+    while i < len(s):
+        if s[i] == "'" and not in_double:
+            j = s.find("'", i + 1)
+            i = len(s) if j < 0 else j + 1
+        elif s[i] == "\\":
+            i += 2
+        elif s[i] == '"':
+            in_double, i = not in_double, i + 1
+        elif s.startswith("$(", i):
+            end = closing_paren(s, i + 2)
+            yield s[i + 2:end - 1]
+            i = end
+        elif s[i] == "`":
+            j = s.find("`", i + 1)
+            j = len(s) if j < 0 else j
+            yield s[i + 1:j]
+            i = j + 1
+        else:
+            i += 1
 
 
 def git_subcommand(args):
@@ -42,7 +55,7 @@ def git_subcommand(args):
     return args[0] if args else None
 
 
-def program_allowed(words, cwd):
+def program_allowed(words):
     words = without_prefixes(words)
     if not words:
         return True
@@ -55,23 +68,26 @@ def program_allowed(words, cwd):
         return git_subcommand(args) in GIT_READS
     if name in STDIN_FILTERS | STDIN_FILTERS_WITH_AN_EXPRESSION:
         operands = [a for a in args if not a.startswith("-")][name in STDIN_FILTERS_WITH_AN_EXPRESSION:]
-        return not any(os.path.exists(os.path.join(cwd, os.path.expanduser(a))) for a in operands)
+        return all(a.isdigit() for a in operands)
     return False
 
 
-def shell_refusal(command, cwd):
-    words = []
+def shell_refusal(command):
+    for inner in substitutions(command):
+        refused = shell_refusal(inner)
+        if refused:
+            return refused
+    words, heredoc_delimiter_next = [], False
     for is_operator, token in list(shell_tokens(command)) + [(True, ";")]:
         if not is_operator:
-            words.append(token)
-            for inner in substitutions(token):
-                refused = shell_refusal(inner, cwd)
-                if refused:
-                    return refused
+            if not heredoc_delimiter_next:
+                words.append(token)
+            heredoc_delimiter_next = False
             continue
+        heredoc_delimiter_next = token == "<<"
         if token not in SEPARATORS:
             continue
-        if not program_allowed(words, cwd):
+        if not program_allowed(words):
             return " ".join(words)
         words = []
     return None
@@ -83,7 +99,7 @@ def refusal(d):
     tool, tool_input = d.get("tool_name", ""), d.get("tool_input") or {}
     cwd = d.get("cwd") or os.getcwd()
     if tool == "Bash":
-        return shell_refusal(tool_input.get("command", ""), cwd)
+        return shell_refusal(tool_input.get("command", ""))
     if tool == "Read":
         path = tool_input.get("file_path") or ""
         return None if readable(path, cwd) else f"Read {path}"
