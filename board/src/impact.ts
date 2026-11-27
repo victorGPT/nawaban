@@ -115,9 +115,10 @@ const blocksOldestFirst = (replies: MessageView[]) =>
   replies.filter((r) => !r.deleted).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).flatMap((r) => r.blocks)
 
 function krsTheLatestImpactLeavesUnreported(blocks: Registered[]) {
-  const latest = blocks.findLast((b) => b.schema === 'nawaban-impact' && b.data && b.version === 2)
-  if (!latest) return []
-  const reported = new Set(krNamesIn(blocks.filter((b) => b.schema === 'nawaban-impact-result' && b.data)))
+  const at = blocks.findLastIndex((b) => b.schema === 'nawaban-impact' && b.data && b.version === 2)
+  if (at < 0) return []
+  const latest = blocks[at]!
+  const reported = new Set(krNamesIn(blocks.slice(at + 1).filter((b) => b.schema === 'nawaban-impact-result' && b.data)))
   return (latest.data as { krs: Heading[] }).krs.filter((kr) => kr.heading !== 'hold' && !reported.has(kr.name)).map((kr) => kr.name)
 }
 
