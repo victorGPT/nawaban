@@ -104,11 +104,11 @@ function stalledOrWaitingLines(k: '等你' | '停滞', t: Row, belongs: (t: Row)
   return [head + stalledFor + (k === '停滞' ? withProgress(t) : ''), nextStepLine(t)].filter((l): l is string => l !== null)
 }
 
-function movingLines(moving: Row[], belongs: (t: Row) => string): string[] {
+function movingLines(moving: Row[], belongs: (t: Row) => string, progressShown = true): string[] {
   return [...Map.groupBy(moving, doneSoFar)].flatMap(([progress, same]) =>
     progress && same.length >= SAME_PROGRESS_FOLDED_FROM
       ? [`- ${same.length} 张进展都是「${short(progress, PROGRESS_WIDTH)}」：${same.map((t) => bare(t.id)).join(' ')}`]
-      : same.map((t) => `- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}${belongs(t)}${withProgress(t)}`),
+      : same.map((t) => `- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}${progressShown ? belongs(t) + withProgress(t) : ''}`),
   )
 }
 
@@ -139,7 +139,7 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
   const movingAt: Record<Fold, (g: Row[]) => string[]> = {
     full: (g) => movingLines(g, belongs),
     idleCounted: (g) => movingLines(g, belongs),
-    titlesOnly: (g) => g.map((t) => `- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}`),
+    titlesOnly: (g) => movingLines(g, belongs, false),
     keysOnly: (g) => [`- ${g.map((t) => bare(t.id)).join(' ')}（标题跑 nawaban list）`],
   }
   const idleAt = (fold: Fold) =>
