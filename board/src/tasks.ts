@@ -7,6 +7,7 @@ import { createApp } from '@vercel/board/cli'
 import { answer, upstreamAnswer, orRefusal, Refused, type Said } from './said.ts'
 import { projectOfThisRepository, RESULT_FORMAT, undeclared } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
+import { UNMEASURED } from './schemas.ts'
 import { labelsOfLive, LIVE_LABELS, liveOfLabels, type Held, type Live } from './progress.ts'
 import { optionWordsBut, pointAt, withBody } from './hint.ts'
 import { markInboxItemTurnedInto, openInboxItem } from './page.ts'
@@ -254,15 +255,15 @@ const claim: Verb = async (argv) => {
   return { done: `认领 ${key(task)}${until ? `，租约到 ${clock(until)}` : ''}`, json: { task: claimed } }
 }
 
-const KR_RESULT = /^(.+)=(-?\d+(?:\.\d+)?%?)\s+(实测|预计)\s*$/
+const KR_RESULT = new RegExp(`^(.+)=(?:(-?\\d+(?:\\.\\d+)?%?)\\s+(实测|预计)|(${UNMEASURED}))\\s*$`)
 
 export function resultsOf(specs: string[]) {
   const krs = specs.map((spec) => {
-    const [, name, after, basis] = KR_RESULT.exec(spec) ?? []
+    const [, name, after, basis, unmeasured] = KR_RESULT.exec(spec) ?? []
     if (!name) throw new Refused(`--kr 写成 ${RESULT_FORMAT}：${spec}`, 2)
-    return { name: name.trim(), after: after!, basis: basis! }
+    return unmeasured ? { name: name.trim(), basis: unmeasured } : { name: name.trim(), after: after!, basis: basis! }
   })
-  return blockOf('nawaban-impact-result@1', { krs })
+  return blockOf('nawaban-impact-result@2', { krs })
 }
 
 async function refuseUndeclaredBeforeClaimingSoNothingIsLeftBehind(team: ReturnType<typeof personOwningEveryTaskTheirProfilesMade>, task: MessageView, results: string | null): Promise<Said> {

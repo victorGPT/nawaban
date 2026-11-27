@@ -399,6 +399,70 @@
       }
     }
   },
+  "nawaban-impact-result@2": {
+    "description": "What a task's registered KRs read when it closed as done: each KR's value after, measured or expected, or 未测 with no value when nothing reads it yet. Heading, reading and measure stay as registered.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "krs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "krs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "name",
+                  "after",
+                  "basis"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "after": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "basis": {
+                    "enum": [
+                      "实测",
+                      "预计"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "name",
+                  "basis"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "basis": {
+                    "enum": [
+                      "未测"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
   "nawaban-kr-reading@1": {
     "description": "One KR's reading as its measure printed it: the value verbatim, the as-of date and what it was read from, with the okr.toml commit it was measured under. The message's time is its round.",
     "schema": {

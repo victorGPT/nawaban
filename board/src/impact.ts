@@ -7,18 +7,21 @@ import type { board, Middleware, MessageView } from '@vercel/board'
 import { findBlocks } from '@vercel/board/schemas'
 import { parse } from 'smol-toml'
 import { githubIssueOfTask } from './github-tasks.ts'
+import { UNMEASURED } from './schemas.ts'
 
 type Team = ReturnType<typeof board>
 type Impact = { objective: string; krs: { name: string; dir?: string; before?: string; after?: string }[] }
 type Registered = { schema: string; version: number; data: unknown }
+type Heading = { name: string; heading: 'toward' | 'away' | 'hold' }
 type PullRequest = { number: number; title: string; body: string; headRefName: string }
 
 export const OKR_FILE = 'docs/agents/okr.toml'
 export const IMPACT_FORMAT = '<KR 名>=toward|away|hold'
-export const RESULT_FORMAT = '<KR 名>=<后值> 实测|预计'
+export const RESULT_FORMAT = `<KR 名>=<后值> 实测|预计，没有读数写 <KR 名>=${UNMEASURED}`
 const NUMBER = /^-?\d+(?:\.\d+)?%?$/
 const NO_OBJECTIVE_PURE_INFRASTRUCTURE = '无'
 const TASKS_PAGE = 50
+const BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT = 20
 const run = promisify(execFile)
 
 const MERGE_IN_COMMAND_POSITION =
@@ -102,16 +105,28 @@ export const howToDeclare = (ref: string) =>
   `  nawaban event ${ref} impact --o "<O 名>" --kr "${IMPACT_FORMAT}" [--change measure|gold](--kr 可重复;纯基础设施写 --o 无;认领时就登记:nawaban claim ${ref} --o … --kr …)`
 
 async function blocksOnTheTaskAndItsIssueRoot(team: Team, task: MessageView) {
-  const blocks: Registered[] = []
-  for (const id of [task.id, task.labels['issue-root']].filter((id) => id !== undefined)) blocks.push(...(await team.thread(id)).replies.filter((r) => !r.deleted).flatMap((r) => r.blocks))
-  return blocks
+  const replies: MessageView[] = []
+  for (const id of [task.id, task.labels['issue-root']].filter((id) => id !== undefined)) replies.push(...(await team.thread(id)).replies)
+  return blocksOldestFirst(replies)
 }
 
 const krNamesIn = (blocks: Registered[]) => blocks.flatMap((b) => (b.data as { krs: { name: string }[] }).krs.map((k) => k.name))
 
-function krsDeclaredButUnreported(blocks: Registered[]) {
-  const reported = new Set(krNamesIn(blocks.filter((b) => b.schema === 'nawaban-impact-result' && b.data)))
-  return [...new Set(krNamesIn(blocks.filter((b) => b.schema === 'nawaban-impact' && b.data && b.version === 2)))].filter((name) => !reported.has(name))
+export const onTheOneClock = (m: MessageView) => `${m.createdAt}~${m.id.padStart(BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT, '0')}`
+
+const blocksOldestFirst = (replies: MessageView[]) =>
+  replies
+    .filter((r) => !r.deleted)
+    .map((r) => [onTheOneClock(r), r] as const)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .flatMap(([, r]) => r.blocks)
+
+function krsTheLatestImpactLeavesUnreported(blocks: Registered[]) {
+  const at = blocks.findLastIndex((b) => b.schema === 'nawaban-impact' && b.data && b.version === 2)
+  if (at < 0) return []
+  const latest = blocks[at]!
+  const reported = new Set(krNamesIn(blocks.slice(at + 1).filter((b) => b.schema === 'nawaban-impact-result' && b.data)))
+  return (latest.data as { krs: Heading[] }).krs.filter((kr) => kr.heading !== 'hold' && !reported.has(kr.name)).map((kr) => kr.name)
 }
 
 const krResultFlags = (names: string[]) => names.map((n) => `--kr "${n}=<后值> 实测|预计"`).join(' ')
@@ -120,10 +135,10 @@ export async function undeclared(team: Team, id: string, dir: string): Promise<s
   const { message, replies } = await team.thread(id)
   if (!(await okrOf(dir, message.channel))) return null
   const ref = message.labels.key ?? id
-  const blocks = replies.filter((r) => !r.deleted).flatMap((r) => r.blocks)
+  const blocks = blocksOldestFirst(replies)
   const declared = blocks.filter((b) => b.schema === 'nawaban-impact' && b.data)
   if (!declared.length) return `${ref} 没有 KR 影响声明,不能 close --done。先补:\n${howToDeclare(ref)}`
-  const unreported = krsDeclaredButUnreported(blocks)
+  const unreported = krsTheLatestImpactLeavesUnreported(blocks)
   if (!unreported.length) return null
   return `${ref} 登记了 KR 却没补结果(${unreported.join('、')}),不能 close --done。关票时补:\n  nawaban close ${ref} --done ${krResultFlags(unreported)}`
 }
@@ -196,7 +211,7 @@ async function whyThisMergeMustWait(team: Team, project: string, pr: PullRequest
   for (const t of named) {
     const blocks = await blocksOnTheTaskAndItsIssueRoot(team, t)
     if (!blocks.some((b) => b.schema === 'nawaban-impact')) missed.push(t.labels.key!)
-    const names = krsDeclaredButUnreported(blocks)
+    const names = krsTheLatestImpactLeavesUnreported(blocks)
     if (names.length) unreported.push(`  nawaban event ${t.labels.key} result ${krResultFlags(names)}`)
   }
   if (missed.length) return `PR #${pr.number} 的关联票没有 KR 影响声明(${missed.join('、')}),先补再合并:\n${missed.map(howToDeclare).join('\n')}`

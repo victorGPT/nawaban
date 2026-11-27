@@ -6,7 +6,7 @@ import { extname, isAbsolute, join, sep } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
 import { block, BoardError, type board, type MessageView } from '@vercel/board'
 import { parse } from 'smol-toml'
-import { OKR_FILE, projectOf } from './impact.ts'
+import { OKR_FILE, onTheOneClock, projectOf } from './impact.ts'
 import { answer, Refused } from './said.ts'
 
 type Team = ReturnType<typeof board>
@@ -51,7 +51,6 @@ const SPRINT_ROUNDS_TO_STOP = 5
 export const HARD_STOP_EXIT = 3
 const THREADS_PAGE = 500
 const ID_HASH_LENGTH = 32
-const BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT = 20
 const NOT_COMMITTED = '未提交'
 export const FAILED = ''
 const DEF_HASH_LENGTH = 16
@@ -393,11 +392,12 @@ function verdictBetween(op: string, goal: ExactDecimalAsTheOldClisDecimal, unit:
 }
 
 function judgedOnce(op: string, goal: ExactDecimalAsTheOldClisDecimal, unit: string, readings: KeptReading[], i: Declared) {
-  if (!judgedAtAll(i) || i.heading === null || i.result_at === null || (i.def_hash !== null && i.def_hash !== readings[0]?.def_hash)) return null
+  const holdAsksNoResultSoItIsJudgedFromItsDeclaration = i.heading === 'hold'
+  if (!judgedAtAll(i) || i.heading === null || (i.result_at === null && !holdAsksNoResultSoItIsJudgedFromItsDeclaration) || (i.def_hash !== null && i.def_hash !== readings[0]?.def_hash)) return null
   const rounds = latestAsOfPerRound(readings)
   const times = [...rounds.keys()].sort()
   const registeredAgainst = times.findLast((t) => t <= i.declared_at)
-  const by = times.find((t) => t > i.result_at!)
+  const by = times.find((t) => t > resultOrDeclaredAt(i))
   if (registeredAgainst === undefined || by === undefined) return null
   return { by, heading: i.heading, verdict: verdictBetween(op, goal, unit, i.heading, rounds.get(registeredAgainst)!, rounds.get(by)!) }
 }
@@ -408,7 +408,7 @@ function declarationsSinceLastRoundAndTheirVerdicts(op: string, goal: ExactDecim
   const last = times.at(-1) ?? ''
   const headingOf = (i: Declared) => i.heading ?? headingOfAnOldDeclaration(op, goal, i)
   const pending = declared
-    .filter((i) => (i.heading !== null && i.result_at === null) || resultOrDeclaredAt(i) >= last)
+    .filter((i) => (i.heading !== null && i.heading !== 'hold' && i.result_at === null) || resultOrDeclaredAt(i) >= last)
     .map((i) => ({ ticket: i.ticket, declared: headingOf(i), change: i.change, late: i.late, before: i.before, after: i.after, basis: i.basis, at: withoutTieBreak(i.declared_at) }))
   const verdicts = new Map<string, { ticket: string; dir: string; declared: Heading; verdict: Verdict }>()
   for (const i of declared) {
@@ -584,7 +584,6 @@ const HEADING_WORDS: Record<Heading, string> = { toward: '向目标', away: '背
 
 export const okrChannel = (project: string) => `okr/${project}`
 
-const onTheOneClock = (m: MessageView): Round => `${m.createdAt}~${m.id.padStart(BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT, '0')}`
 export const key = (...parts: string[]) => 'okr-' + createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, ID_HASH_LENGTH)
 const blocksOf = (m: MessageView, schema: string, version = 1) =>
   m.deleted ? [] : m.blocks.filter((b) => b.schema === schema && b.version === version && b.data).map((b) => b.data as Record<string, unknown>)
@@ -639,38 +638,40 @@ function declaredOnOneTicket([root, ...replies]: MessageView[]): Map<string, Dec
   const messages = [root!, ...replies]
   const firstPullRequestAt = messages.find((m) => blocksOf(m, 'nawaban-link').some((d) => d.kind === 'pr'))
   const lateAfter = firstPullRequestAt ? onTheOneClock(firstPullRequestAt) : null
-  const results = new Map<string, { after: string; basis: string; at: Round }>()
-  for (const m of messages) for (const d of blocksOf(m, 'nawaban-impact-result')) for (const r of d.krs as { name: string; after: string; basis: string }[]) results.set(r.name, { ...r, at: onTheOneClock(m) })
+  const said = messages.flatMap((m) => (m.deleted ? [] : m.blocks.filter((b) => b.data).map((b) => ({ m, b, d: b.data as Record<string, unknown> }))))
+  const declaredAs = (version: number) => said.findLastIndex(({ b }) => b.schema === 'nawaban-impact' && b.version === version)
+  const latestAt = declaredAs(2) >= 0 ? declaredAs(2) : declaredAs(1)
+  const results = new Map<string, { after?: string; basis: string; at: Round }>()
+  for (const { m, b, d } of latestAt < 0 ? [] : said.slice(latestAt + 1))
+    if (b.schema === 'nawaban-impact-result' && (b.version === 1 || b.version === 2))
+      for (const r of d.krs as { name: string; after?: string; basis: string }[]) results.set(r.name, { ...r, at: onTheOneClock(m) })
   const out = new Map<string, Declared>()
-  for (const m of messages) {
-    const at = onTheOneClock(m)
-    for (const d of blocksOf(m, 'nawaban-impact')) {
-      for (const kr of d.krs as { name: string; dir: string; before?: string; after?: string; basis?: string }[]) {
-        if (out.has(`${d.objective}\0${kr.name}`)) continue
-        const old = { dir: kr.dir, heading: null, change: 'product' as const, late: true, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, def_hash: null, result_at: null }
-        out.set(`${d.objective}\0${kr.name}`, { ticket, ...old, declared_at: at })
-      }
+  const latest = said[latestAt]
+  if (!latest) return out
+  const at = onTheOneClock(latest.m)
+  const d = latest.d
+  if (latest.b.version === 1) {
+    for (const kr of d.krs as { name: string; dir: string; before?: string; after?: string; basis?: string }[]) {
+      const old = { dir: kr.dir, heading: null, change: 'product' as const, late: true, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, def_hash: null, result_at: null }
+      out.set(`${d.objective}\0${kr.name}`, { ticket, ...old, declared_at: at })
     }
-    for (const d of blocksOf(m, 'nawaban-impact', 2)) {
-      for (const kr of d.krs as { name: string; heading: Heading; reading?: string; def_hash?: string }[]) {
-        const k = `${d.objective}\0${kr.name}`
-        if (out.has(k) && !out.get(k)!.late) continue
-        const result = results.get(kr.name)
-        out.set(k, {
-          ticket,
-          dir: null,
-          heading: kr.heading,
-          change: d.change as Change,
-          late: lateAfter !== null && at > lateAfter,
-          before: kr.reading ?? null,
-          after: result?.after ?? null,
-          basis: result?.basis ?? null,
-          def_hash: kr.def_hash ?? null,
-          declared_at: at,
-          result_at: result?.at ?? null,
-        })
-      }
-    }
+    return out
+  }
+  for (const kr of d.krs as { name: string; heading: Heading; reading?: string; def_hash?: string }[]) {
+    const result = results.get(kr.name)
+    out.set(`${d.objective}\0${kr.name}`, {
+      ticket,
+      dir: null,
+      heading: kr.heading,
+      change: d.change as Change,
+      late: lateAfter !== null && at > lateAfter,
+      before: kr.reading ?? null,
+      after: result?.after ?? null,
+      basis: result?.basis ?? null,
+      def_hash: kr.def_hash ?? null,
+      declared_at: at,
+      result_at: result?.at ?? null,
+    })
   }
   return out
 }
