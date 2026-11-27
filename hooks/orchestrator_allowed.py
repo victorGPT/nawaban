@@ -161,8 +161,8 @@ def shell_refusal(command):
                 words.append(token)
             redirect = None
             continue
-        if token in REDIRECTS | {"<", "<<", "<<<"}:
-            if words and words[-1].isdigit():
+        if token in REDIRECTS | {"<", "<<", "<<-", "<<<"}:
+            if words and words[-1].isdigit() and words[-1].glued_to_an_operator:
                 words.pop()
             redirect = token
             continue

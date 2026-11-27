@@ -47,7 +47,7 @@ def test_the_orchestrator_cannot_write_the_repository_from_the_shell(tmp_path, o
                 "echo x > src/a.py", "echo x >> README.md", "cat > src/b.py <<'EOF'\nprint(1)\nEOF", "sed -i '' s/1/2/ src/a.py",
                 "sed -i.bak s/1/2/ src/a.py", "echo y | tee src/c.py", "apply_patch <<'EOF'\n*** Begin Patch\nEOF",
                 "FOO=1 git commit -m x", "cd src && echo x > ../README.md", "echo x >& README.md",
-                "(cd /tmp); echo x > README.md", "hc send t1 'example <<EOF'\ngit commit -m x", "cat <<< hi\ngit commit -m x", "true # <<x\ngit commit -m x\nx",
+                "(cd /tmp); echo x > README.md", "hc send t1 'example <<EOF'\ngit commit -m x", "cat <<< hi\ngit commit -m x", "true # <<x\ngit commit -m x\nx", "cat << '-x'\nm\n-x\ngit commit -m x\nx",
                 "apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: /tmp/plan.md\n*** Move to: README.md\n*** End Patch\nEOF"):
         assert refused(call("Bash", {"command": cmd})), cmd
 

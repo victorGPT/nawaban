@@ -8,7 +8,7 @@ import tempfile
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n", ";;", "|&"}
 REDIRECTS = {">", ">>", ">|", "&>", "&>>", ">&"}
 QUOTES = ("'", '"')
-OPERATORS = sorted({"<<<", "&>>", ">>", "&>", ">&", ">|", "&&", "||", ";;", "|&", "<<", "<", ">", "&", "|", ";", "(", ")", "\n"}, key=len, reverse=True)
+OPERATORS = sorted({"<<<", "<<-", "&>>", ">>", "&>", ">&", ">|", "&&", "||", ";;", "|&", "<<", "<", ">", "&", "|", ";", "(", ")", "\n"}, key=len, reverse=True)
 GIT_WRITES = {"commit", "push", "apply", "am", "cherry-pick", "rebase", "revert"}
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 PATCHED_FILE = re.compile(r"^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$", re.M)
@@ -75,12 +75,13 @@ def closing_paren(s, j):
 
 class Word(str):
     quoted = False
+    glued_to_an_operator = False
 
 
 def heredoc_openers(line):
     tokens = list(tokens_of(line)) if "<<" in line else []
-    return [(word.quoted, word.lstrip("-")) for (is_op, op), (word_is_op, word) in zip(tokens, tokens[1:])
-            if is_op and op == "<<" and not word_is_op]
+    return [(word.quoted, str(word)) for (is_op, op), (word_is_op, word) in zip(tokens, tokens[1:])
+            if is_op and op in ("<<", "<<-") and not word_is_op]
 
 
 def without_heredoc_bodies(command):
@@ -113,7 +114,7 @@ def tokens_of(text):
             i = len(s) if end < 0 else end
         elif s[i] in " \t\r" or operator:
             if word is not None:
-                yield False, quoted_word(word, quoted)
+                yield False, quoted_word(word, quoted, glued=bool(operator))
             word, quoted = None, False
             if operator:
                 yield True, operator
@@ -124,9 +125,9 @@ def tokens_of(text):
         yield False, quoted_word(word, quoted)
 
 
-def quoted_word(text, quoted):
+def quoted_word(text, quoted, glued=False):
     word = Word(text)
-    word.quoted = quoted
+    word.quoted, word.glued_to_an_operator = quoted, glued
     return word
 
 
