@@ -26,7 +26,8 @@ const API_SENDS_A_BODY = /^(?:-f|-F|--field(?:=|$)|--raw-field(?:=|$)|--input(?:
 const API_METHOD = /^(?:-X=?|--method(?:=|$))(.*)$/
 const REPO_FLAG = /^(?:-R|--repo)(?:=(.*))?$/
 const GITHUB_REPO_IN_REMOTE = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/
-const REWRITES_THE_ISSUE_TEXT = /^(?:-t|--title|-b|--body|-F|--body-file)(?:=|$)/
+const REWRITES_THE_ISSUE_TEXT = /^(?:-[tbF]|--(?:title|body|body-file)(?:=|$))/
+const ISSUE_URL = /github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)/
 const run = promisify(execFile)
 
 const provenPrefix = (account: string) => `GH_TOKEN=$(gh auth token --user ${account})`
@@ -146,9 +147,11 @@ function directoryTheCommandIsInAt(cmd: string, blanked: string, at: number, cwd
 }
 
 async function issueTextEditOnARepoSwitchedToTheBoard(args: string[], here: string | null, boardDir: string): Promise<string | null> {
-  const [group, verb, number] = withoutRepoFlag(args).filter((a) => !a.startsWith('-'))
+  const [group, verb, issue] = withoutRepoFlag(args).filter((a) => !a.startsWith('-'))
   if (group !== 'issue' || verb !== 'edit' || !args.some((a) => REWRITES_THE_ISSUE_TEXT.test(a))) return null
-  const target = repoFlagOf(args)
+  const [, repoOfTheUrl, numberInTheUrl] = ISSUE_URL.exec(issue ?? '') ?? []
+  const number = numberInTheUrl ?? issue
+  const target = repoOfTheUrl ?? repoFlagOf(args)
   const remote = !target && here ? await stdoutElseNull('git', ['-C', here, 'remote', 'get-url', 'origin']) : null
   const repo = target ? ownerSlashRepo(target) : remote && GITHUB_REPO_IN_REMOTE.exec(remote)?.[1]
   if (!repo) return null

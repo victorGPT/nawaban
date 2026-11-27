@@ -156,11 +156,13 @@ test('a gh issue edit of the title or body in a repository switched to the board
   expect(await whyThisGhWriteMustNotRun('gh issue edit 2016 --title t --body b', roubao, boardDir)).toBeNull()
   await mkdir(join(boardDir, 'github-sync'), { recursive: true })
   await writeFile(join(boardDir, 'github-sync', `${encodeURIComponent('Acme/roubao')}.switched.json`), '{}')
-  for (const cmd of ['gh issue edit 2016 --title t --body b', 'GH_TOKEN=$(gh auth token --user wuxianzhong-gpt) gh issue edit 2016 -b x', 'gh issue edit 2016 --body-file f.md']) {
+  for (const cmd of ['gh issue edit 2016 --title t --body b', 'GH_TOKEN=$(gh auth token --user wuxianzhong-gpt) gh issue edit 2016 -b x', 'gh issue edit 2016 --body-file f.md', 'gh issue edit 2016 -tt', 'gh issue edit 2016 -bx', 'gh issue edit 2016 -Fbody.md']) {
     expect(await whyThisGhWriteMustNotRun(cmd, roubao, boardDir), cmd).toContain("nawaban event ROUBAO-2016 note '<改了什么>'")
   }
   const here = await repoDeclaring('nawaban', null)
   expect(await whyThisGhWriteMustNotRun('gh issue edit 7 -R acme/roubao --title t', here, boardDir)).toContain('ROUBAO-7')
+  expect(await whyThisGhWriteMustNotRun('gh issue edit https://github.com/acme/roubao/issues/8 --title t', here, boardDir)).toContain('ROUBAO-8')
+  expect(await whyThisGhWriteMustNotRun('gh issue edit https://github.com/acme/other/issues/8 --title t', roubao, boardDir)).toBeNull()
   expect(await whyThisGhWriteMustNotRun('gh issue edit 2016 --add-label x', roubao, boardDir)).toBeNull()
   expect(await whyThisGhWriteMustNotRun('gh issue comment 2016 -b x', roubao, boardDir)).toBeNull()
 })
