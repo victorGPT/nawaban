@@ -61,7 +61,7 @@ type Args = { ref: string | undefined; name: string | undefined; brief: string; 
 type Checked = { as: string; task: MessageView | null; root: string; orch: string; name: string; who: string; lane: string | null }
 type Worktree = { path: string; branch: string }
 type Terminal = { address: string; name?: string; state?: string; status?: { state?: string }; status_ms?: number; cwd?: string; foreground?: { cwd?: string }; argv?: string[]; labels?: Record<string, string> }
-type Seat = { reuse: Terminal; task: MessageView; by: string | null } | { reuse: null; passedOver: string[] }
+type Seat = { reuse: Terminal; task: MessageView; by: string | null; hint: string | null } | { reuse: null; passedOver: string[]; hint: string | null }
 
 export async function stdoutOrNullOnFailure(cmd: string, args: string[]): Promise<string | null> {
   try {
@@ -233,6 +233,12 @@ const PATH_IN_BRIEF = /[\w.@-]+(?:\/[\w.@-]+)+\*?\/?|[\w.@-]+\/(?![\w.@-])|[\w-]
 
 export const pathsIn = (brief: string) => [...new Set(brief.match(PATH_IN_BRIEF) ?? [])].map((p) => p.replace(/\/$/, ''))
 
+const namesAFile = (path: string) => /\.[A-Za-z]\w{0,5}$/.test(path) || (path.endsWith('*') && !path.endsWith('/*'))
+
+export const splitByFileOrDirectory = (paths: string[]) => ({ files: paths.filter(namesAFile), directories: paths.filter((p) => !namesAFile(p)) })
+
+const DIRECTORY_ONLY_HINT = '路径只写到目录，写到具体文件才能判重叠'
+
 const touches = (changed: string, path: string) =>
   path.endsWith('*')
     ? changed.startsWith(path.slice(0, -1)) || changed.includes(`/${path.slice(0, -1)}`)
@@ -295,28 +301,34 @@ async function workersOfRepository(root: string): Promise<Terminal[]> {
   return found
 }
 
-async function workersTouching(root: string, paths: string[]): Promise<Terminal[]> {
+type Overlap = { t: Terminal; files: string[] }
+
+async function workersTouching(root: string, paths: string[]): Promise<Overlap[]> {
   if (!paths.length) return []
-  const scored: { t: Terminal; overlap: number }[] = []
+  const scored: Overlap[] = []
   for (const t of await workersOfRepository(root)) {
-    const overlap = (await filesOnTheWorkersMind(root, t.cwd!)).filter((f) => paths.some((p) => touches(f, p))).length
-    if (overlap) scored.push({ t, overlap })
+    const files = (await filesOnTheWorkersMind(root, t.cwd!)).filter((f) => paths.some((p) => touches(f, p)))
+    if (files.length) scored.push({ t, files })
   }
-  return scored.sort((a, b) => b.overlap - a.overlap || (b.t.status_ms ?? 0) - (a.t.status_ms ?? 0)).map((s) => s.t)
+  return scored.sort((a, b) => b.files.length - a.files.length || (b.t.status_ms ?? 0) - (a.t.status_ms ?? 0))
 }
 
-type Route = { reuse: Terminal | null; passedOver: string[]; by: string | null }
+const overlapBy = (files: string[]) => `改动文件重叠：${files.join('、')}`
+
+type Route = { reuse: Terminal | null; passedOver: string[]; by: string | null; hint: string | null }
 
 async function routeByAffinity(root: string, lane: string | null, brief: string, a: Pick<Args, 'agent' | 'model'>): Promise<Route> {
-  const [candidates, by] = lane ? [await laneWorkersInRepository(root, lane), `泳道 ${lane}`] : [await workersTouching(root, pathsIn(brief)), '改动文件重叠']
+  const { files, directories } = splitByFileOrDirectory(pathsIn(brief))
+  const hint = !lane && directories.length && !files.length ? DIRECTORY_ONLY_HINT : null
+  const candidates: Overlap[] = lane ? (await laneWorkersInRepository(root, lane)).map((t) => ({ t, files: [] })) : await workersTouching(root, files)
   const passedOver: string[] = []
-  for (const t of candidates) {
+  for (const { t, files: overlapping } of candidates) {
     const share = await contextShareOf(t)
     if (!startsTheWayThisDispatchWould(t, a)) passedOver.push(`${t.address} 跑的是别的 agent 或模型`)
     else if (share !== null && share >= REUSE_WHILE_CONTEXT_SHARE_BELOW) passedOver.push(`${t.address} 上下文已用 ${Math.round(share * 100)}%`)
-    else return { reuse: t, passedOver, by }
+    else return { reuse: t, passedOver, by: lane ? `泳道 ${lane}` : overlapBy(overlapping), hint }
   }
-  return { reuse: null, passedOver, by: null }
+  return { reuse: null, passedOver, by: null, hint }
 }
 
 const WORKERS_PER_REPOSITORY_BEFORE_A_WARNING = 8
@@ -331,13 +343,15 @@ async function seatFor(c: Checked, a: Args): Promise<Seat> {
     if (!c.task) throw new Refused('--to 把票指派给 worker 去领：不带票时去掉 --to，新开 worker', 2)
     const t = await terminalOf(a.to)
     if (t?.state !== 'live' || !t.cwd || (await mainCheckoutRealPathOf(t.cwd)) !== c.root) throw new Refused(`--to ${a.to} 不是本仓库里活着的终端`)
-    return { reuse: t, task: c.task, by: null }
+    return { reuse: t, task: c.task, by: null, hint: null }
   }
-  if (a.fresh || !c.task) return { reuse: null, passedOver: [] }
+  if (a.fresh || !c.task) return { reuse: null, passedOver: [], hint: null }
   const route = await routeByAffinity(c.root, c.lane, a.brief, a)
-  if (route.reuse && !existsSync(route.reuse.cwd!)) return { reuse: null, passedOver: [...route.passedOver, `${route.reuse.address} 的 worktree 已删`] }
-  return route.reuse ? { reuse: route.reuse, task: c.task, by: route.by } : { reuse: null, passedOver: route.passedOver }
+  if (route.reuse && !existsSync(route.reuse.cwd!)) return { reuse: null, passedOver: [...route.passedOver, `${route.reuse.address} 的 worktree 已删`], hint: route.hint }
+  return route.reuse ? { reuse: route.reuse, task: c.task, by: route.by, hint: route.hint } : { reuse: null, passedOver: route.passedOver, hint: route.hint }
 }
+
+const moreOf = (...lines: (string | null)[]) => (lines.some(Boolean) ? { more: lines.filter(Boolean).join('\n') } : {})
 
 const ROUTE_USAGE = '用法：nawaban route --brief "<目标、范围>" [--agent claude|codex|agy] [--model <m>] [--json]'
 
@@ -351,8 +365,8 @@ export function route(argv: string[]): Promise<number> {
     const warning = await crowdedWarning(root)
     return {
       done: r.reuse ? `交给 hc ${r.reuse.address}（${r.by}）` : '新开',
-      ...(warning ? { more: warning } : {}),
-      json: { terminal: r.reuse?.address ?? null, cwd: r.reuse?.cwd ?? null, by: r.by, passedOver: r.passedOver, warning },
+      ...moreOf(warning, r.hint),
+      json: { terminal: r.reuse?.address ?? null, cwd: r.reuse?.cwd ?? null, by: r.by, passedOver: r.passedOver, warning, hint: r.hint },
     }
   })
 }
@@ -573,7 +587,7 @@ export function dispatch(argv: string[]): Promise<number> {
     const seat = await seatFor(checked, a)
     const lane = checked.lane ? `（泳道 ${checked.lane}）` : ''
     const warning = await crowdedWarning(checked.root)
-    const warned = warning ? { more: warning } : {}
+    const warned = moreOf(warning, seat.hint)
     if (seat.reuse) {
       const worker = seat.reuse
       const as = await assignToRunningWorker(seat.task, worker)

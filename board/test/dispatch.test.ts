@@ -566,7 +566,7 @@ it('routes a ticket with no lane to the running worker whose changes the brief n
   const id = await newTask('OV-B')
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['OV-B', '--brief', '改 src/dispatch.ts 的路由', '--accept', 'a'], hc)
   expect(r.stderr).toBe('')
-  expect(r.stdout).toBe('✓ OV-B 指派给在跑的 hc t99（改动文件重叠），它做完手上那张自己领 · 回报给 to1\n')
+  expect(r.stdout).toBe('✓ OV-B 指派给在跑的 hc t99（改动文件重叠：board/src/dispatch.ts），它做完手上那张自己领 · 回报给 to1\n')
   expect(r.hc).not.toMatch(/^run/m)
   expect((await team.thread(id)).message.task?.for).toMatch(/\+cc-bbbb2222$/)
   await newTask('OV-C')
@@ -575,12 +575,32 @@ it('routes a ticket with no lane to the running worker whose changes the brief n
   expect(apart.hc).toMatch(/^run --bg/m)
 })
 
+it('does not queue behind a worker on a directory-only brief, and says to name files', async () => {
+  const worktree = await worktreeChanging('ov-dir', 'scripts/other.ts')
+  const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000)
+  await newTask('OV-D')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['OV-D', '--brief', '整理 scripts/ 下的脚本', '--accept', 'a'], hc)
+  expect(r.stdout).toMatch(/^✓ 派出 OV-D → hc t99 /)
+  expect(r.stdout).toContain('路径只写到目录，写到具体文件才能判重叠')
+  expect(r.hc).toMatch(/^run --bg/m)
+  const routed = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '整理 scripts/', '--json'], hc)
+  expect(JSON.parse(routed.stdout)).toMatchObject({ terminal: null, by: null, hint: '路径只写到目录，写到具体文件才能判重叠' })
+})
+
+it('lists every file that overlaps when a brief names files', async () => {
+  const worktree = await worktreeChanging('ov-files', 'scripts/a.ts')
+  await writeFile(join(worktree, 'scripts', 'b.ts'), 'x')
+  const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000)
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 scripts/a.ts 和 scripts/b.ts，scripts/ 下别的不动', '--json'], hc)
+  expect(JSON.parse(r.stdout)).toMatchObject({ terminal: 't99', by: '改动文件重叠：scripts/a.ts、scripts/b.ts', hint: null })
+})
+
 it('counts uncommitted changes as the worker\'s own', async () => {
   const worktree = await worktreeChanging('ov-u', 'docs/notes.md', false)
   const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000)
   await newTask('OV-U')
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['OV-U', '--brief', '补 docs/notes.md 一段', '--accept', 'a'], hc)
-  expect(r.stdout).toContain('指派给在跑的 hc t99（改动文件重叠）')
+  expect(r.stdout).toContain('指派给在跑的 hc t99（改动文件重叠：docs/notes.md）')
 })
 
 it('leaves an overlapping worker that runs another model and opens a new one', async () => {
@@ -596,7 +616,7 @@ it('tells which running worker the brief would go to, for the old CLI, without d
   const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000)
   const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 hooks/route.mjs', '--json'], hc)
   expect(r.stderr).toBe('')
-  expect(JSON.parse(r.stdout)).toMatchObject({ terminal: 't99', cwd: worktree, by: '改动文件重叠', warning: null })
+  expect(JSON.parse(r.stdout)).toMatchObject({ terminal: 't99', cwd: worktree, by: '改动文件重叠：hooks/route.mjs', warning: null, hint: null })
   expect(r.hc).not.toMatch(/^(run|send)/m)
   const none = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '查日志', '--json'], hc)
   expect(JSON.parse(none.stdout)).toMatchObject({ terminal: null, by: null })
@@ -644,7 +664,7 @@ it('routes roubao #1973 to the worker that just merged the generator, not to the
   const ls = (await fileWorker('t1p8', editingTheDiagram, 2_000)) + (await fileWorker('t1pp', gone, 1_000))
   const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', BRIEF_OF_ROUBAO_1973, '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
   expect(r.stderr).toBe('')
-  expect(JSON.parse(r.stdout)).toMatchObject({ terminal: 't1pp', cwd: gone, by: '改动文件重叠' })
+  expect(JSON.parse(r.stdout)).toMatchObject({ terminal: 't1pp', cwd: gone, by: expect.stringMatching(/^改动文件重叠：.*scripts\/gen-diagram\.ts/) })
   expect(r.hc).toContain('gh pr list --head wt/w-1957 --state merged')
 })
 
@@ -655,7 +675,7 @@ it('reads a worker whose branch is merged and empty by the pull request it merge
   await mergedPullRequestFrom('wt/ra-done', ['web/src/pages/TaskPage.tsx'])
   const ls = await fileWorker('t1ra', worktree, 1_000)
   const r = await nawabanInTheRepositoryAsWindowAaaa1111('route', ['--brief', '改 web/src/pages/TaskPage.tsx', '--json'], { HC_ORCH: 'to1', HC_LS_WORKERS: ls })
-  expect(JSON.parse(r.stdout)).toMatchObject({ terminal: 't1ra', by: '改动文件重叠' })
+  expect(JSON.parse(r.stdout)).toMatchObject({ terminal: 't1ra', by: '改动文件重叠：web/src/pages/TaskPage.tsx' })
 })
 
 it('picks the worker touching the most named files, and the latest active one on a tie', async () => {
