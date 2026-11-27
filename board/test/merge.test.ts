@@ -444,6 +444,19 @@ it('claims the ticket assigned to it once merged, ahead of an older one in the p
   expect(existsSync(worktree)).toBe(true)
 })
 
+it('claims the ticket assigned to it once merged when another principal owns it, as the GitHub sync owns the tickets of a synced repository', async () => {
+  const { worktree } = await workerOnItsOwnTicket('M-SYNCED', 't84', greenCodePr('M-SYNCED'), 'dispatched', 'synced-chan')
+  const next = await newTask('M-SYNCED-NEXT', 'synced-chan')
+  await boardCliAsSession(ORCH_SESSION, repo, 'board', 'tasks', 'assign', next, 'cc-aaaa1111')
+  const r = await mergeAsTheWorker('M-SYNCED', 't84', worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.hc).not.toMatch(/^kill/m)
+  expect(await holderOf(next)).toMatch(/\+cc-aaaa1111$/)
+  expect(r.stdout).toContain('任务：M-SYNCED-NEXT')
+  expect(existsSync(worktree)).toBe(true)
+})
+
 it('retires a worker that took its ticket without a dispatch, found by the terminal it claimed from, once nothing is ready for it', async () => {
   const { id, worktree } = await workerOnItsOwnTicket('M-SELF', 't79', greenCodePr('M-SELF'), 'claimedInItsTerminal')
   const r = await mergeAsTheWorker('M-SELF', 't79', worktree)
