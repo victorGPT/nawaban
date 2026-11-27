@@ -640,39 +640,40 @@ function declaredOnOneTicket([root, ...replies]: MessageView[]): Map<string, Dec
   const messages = [root!, ...replies]
   const firstPullRequestAt = messages.find((m) => blocksOf(m, 'nawaban-link').some((d) => d.kind === 'pr'))
   const lateAfter = firstPullRequestAt ? onTheOneClock(firstPullRequestAt) : null
-  const latest = messages.findLast((m) => blocksOf(m, 'nawaban-impact', 2).length) ?? messages.findLast((m) => blocksOf(m, 'nawaban-impact').length)
+  const said = messages.flatMap((m) => (m.deleted ? [] : m.blocks.filter((b) => b.data).map((b) => ({ m, b, d: b.data as Record<string, unknown> }))))
+  const declaredAs = (version: number) => said.findLastIndex(({ b }) => b.schema === 'nawaban-impact' && b.version === version)
+  const latestAt = declaredAs(2) >= 0 ? declaredAs(2) : declaredAs(1)
   const results = new Map<string, { after?: string; basis: string; at: Round }>()
-  for (const m of latest ? messages.slice(messages.indexOf(latest) + 1) : [])
-    for (const d of [...blocksOf(m, 'nawaban-impact-result'), ...blocksOf(m, 'nawaban-impact-result', 2)])
+  for (const { m, b, d } of latestAt < 0 ? [] : said.slice(latestAt + 1))
+    if (b.schema === 'nawaban-impact-result' && (b.version === 1 || b.version === 2))
       for (const r of d.krs as { name: string; after?: string; basis: string }[]) results.set(r.name, { ...r, at: onTheOneClock(m) })
   const out = new Map<string, Declared>()
-  for (const m of latest ? [latest] : []) {
-    const at = onTheOneClock(m)
-    for (const d of blocksOf(m, 'nawaban-impact')) {
-      for (const kr of d.krs as { name: string; dir: string; before?: string; after?: string; basis?: string }[]) {
-        const old = { dir: kr.dir, heading: null, change: 'product' as const, late: true, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, def_hash: null, result_at: null }
-        out.set(`${d.objective}\0${kr.name}`, { ticket, ...old, declared_at: at })
-      }
+  const latest = said[latestAt]
+  if (!latest) return out
+  const at = onTheOneClock(latest.m)
+  const d = latest.d
+  if (latest.b.version === 1) {
+    for (const kr of d.krs as { name: string; dir: string; before?: string; after?: string; basis?: string }[]) {
+      const old = { dir: kr.dir, heading: null, change: 'product' as const, late: true, before: kr.before ?? null, after: kr.after ?? null, basis: kr.basis ?? null, def_hash: null, result_at: null }
+      out.set(`${d.objective}\0${kr.name}`, { ticket, ...old, declared_at: at })
     }
-    for (const d of blocksOf(m, 'nawaban-impact', 2)) {
-      for (const kr of d.krs as { name: string; heading: Heading; reading?: string; def_hash?: string }[]) {
-        const k = `${d.objective}\0${kr.name}`
-        const result = results.get(kr.name)
-        out.set(k, {
-          ticket,
-          dir: null,
-          heading: kr.heading,
-          change: d.change as Change,
-          late: lateAfter !== null && at > lateAfter,
-          before: kr.reading ?? null,
-          after: result?.after ?? null,
-          basis: result?.basis ?? null,
-          def_hash: kr.def_hash ?? null,
-          declared_at: at,
-          result_at: result?.at ?? null,
-        })
-      }
-    }
+    return out
+  }
+  for (const kr of d.krs as { name: string; heading: Heading; reading?: string; def_hash?: string }[]) {
+    const result = results.get(kr.name)
+    out.set(`${d.objective}\0${kr.name}`, {
+      ticket,
+      dir: null,
+      heading: kr.heading,
+      change: d.change as Change,
+      late: lateAfter !== null && at > lateAfter,
+      before: kr.reading ?? null,
+      after: result?.after ?? null,
+      basis: result?.basis ?? null,
+      def_hash: kr.def_hash ?? null,
+      declared_at: at,
+      result_at: result?.at ?? null,
+    })
   }
   return out
 }

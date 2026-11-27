@@ -817,6 +817,13 @@ describe('reading one ticket’s declarations off the board', () => {
     const v1 = message(3, [{ schema: 'nawaban-impact', version: 1, data: { objective: 'O', krs: [{ name: 'K', dir: '=' }] } }])
     expect((await loaded([v2, v1])).map((d) => [d.heading, d.late])).toEqual([['toward', false]])
   })
+
+  it('reads by the latest registration only the results said after it, though in the same message', async () => {
+    const declare = (heading: string) => ({ schema: 'nawaban-impact', version: 2, data: { objective: 'O', change: 'product', krs: [{ name: 'K', heading }] } })
+    const result = { schema: 'nawaban-impact-result', version: 2, data: { krs: [{ name: 'K', after: '5', basis: '实测' }] } }
+    expect((await loaded([message(2, [declare('toward'), result])])).map((d) => [d.heading, d.after])).toEqual([['toward', '5']])
+    expect((await loaded([message(2, [declare('toward'), result]), message(3, [declare('away')])])).map((d) => [d.heading, d.after])).toEqual([['away', null]])
+  })
 })
 
 describe('a round is one okr, and an Objective stops hard when its sprint stalls', () => {
