@@ -101,15 +101,20 @@ export function impactNames(dir: string): Middleware {
 export const howToDeclare = (ref: string) =>
   `  nawaban event ${ref} impact --o "<O 名>" --kr "${IMPACT_FORMAT}" [--change measure|gold](--kr 可重复;纯基础设施写 --o 无;认领时就登记:nawaban claim ${ref} --o … --kr …)`
 
-async function hasImpactReply(team: Team, task: MessageView) {
-  for (const id of [task.id, task.labels['issue-root']].filter((id) => id !== undefined)) {
-    const { replies } = await team.thread(id)
-    if (replies.some((r) => r.blocks.some((b) => b.schema === 'nawaban-impact'))) return true
-  }
-  return false
+async function blocksOnTheTaskAndItsIssueRoot(team: Team, task: MessageView) {
+  const blocks: Registered[] = []
+  for (const id of [task.id, task.labels['issue-root']].filter((id) => id !== undefined)) blocks.push(...(await team.thread(id)).replies.filter((r) => !r.deleted).flatMap((r) => r.blocks))
+  return blocks
 }
 
 const krNamesIn = (blocks: Registered[]) => blocks.flatMap((b) => (b.data as { krs: { name: string }[] }).krs.map((k) => k.name))
+
+function krsDeclaredButUnreported(blocks: Registered[]) {
+  const reported = new Set(krNamesIn(blocks.filter((b) => b.schema === 'nawaban-impact-result' && b.data)))
+  return [...new Set(krNamesIn(blocks.filter((b) => b.schema === 'nawaban-impact' && b.data && b.version === 2)))].filter((name) => !reported.has(name))
+}
+
+const krResultFlags = (names: string[]) => names.map((n) => `--kr "${n}=<后值> 实测|预计"`).join(' ')
 
 export async function undeclared(team: Team, id: string, dir: string): Promise<string | null> {
   const { message, replies } = await team.thread(id)
@@ -118,10 +123,9 @@ export async function undeclared(team: Team, id: string, dir: string): Promise<s
   const blocks = replies.filter((r) => !r.deleted).flatMap((r) => r.blocks)
   const declared = blocks.filter((b) => b.schema === 'nawaban-impact' && b.data)
   if (!declared.length) return `${ref} 没有 KR 影响声明,不能 close --done。先补:\n${howToDeclare(ref)}`
-  const reported = new Set(krNamesIn(blocks.filter((b) => b.schema === 'nawaban-impact-result' && b.data)))
-  const unreported = [...new Set(krNamesIn(declared.filter((b) => b.version === 2)))].filter((name) => !reported.has(name))
+  const unreported = krsDeclaredButUnreported(blocks)
   if (!unreported.length) return null
-  return `${ref} 登记了 KR 却没补结果(${unreported.join('、')}),不能 close --done。关票时补:\n  nawaban close ${ref} --done ${unreported.map((n) => `--kr "${n}=<后值> 实测|预计"`).join(' ')}`
+  return `${ref} 登记了 KR 却没补结果(${unreported.join('、')}),不能 close --done。关票时补:\n  nawaban close ${ref} --done ${krResultFlags(unreported)}`
 }
 
 const quotedStringsBlankedSoAMentionIsNeverACommand = (cmd: string) => cmd.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, (q) => "'" + 'x'.repeat(q.length - 2) + "'")
@@ -188,8 +192,15 @@ async function whyThisMergeMustWait(team: Team, project: string, pr: PullRequest
   const named = tasksThePullRequestNames(pr, await tasksADeclarationCanStillBeOn(team, project))
   if (!named.length) return `PR #${pr.number} 没写到项目 ${project} 的任何一张票(标题、分支名里写票号，或正文写 Closes/Refs <票号>),核不了 KR 影响声明`
   const missed = []
-  for (const t of named) if (!(await hasImpactReply(team, t))) missed.push(t.labels.key!)
+  const unreported = []
+  for (const t of named) {
+    const blocks = await blocksOnTheTaskAndItsIssueRoot(team, t)
+    if (!blocks.some((b) => b.schema === 'nawaban-impact')) missed.push(t.labels.key!)
+    const names = krsDeclaredButUnreported(blocks)
+    if (names.length) unreported.push(`  nawaban event ${t.labels.key} result ${krResultFlags(names)}`)
+  }
   if (missed.length) return `PR #${pr.number} 的关联票没有 KR 影响声明(${missed.join('、')}),先补再合并:\n${missed.map(howToDeclare).join('\n')}`
+  if (unreported.length) return `PR #${pr.number} 的关联票登记了 KR 却没报结果,合并前先报:\n${unreported.join('\n')}`
   return null
 }
 

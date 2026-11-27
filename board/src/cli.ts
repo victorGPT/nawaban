@@ -156,7 +156,7 @@ const COMMANDS: Record<string, Command> = {
     group: '写',
     usage: 'event <票> <类>',
     args: '[正文] [参数]',
-    about: '记事件：note decision link impact ask wait resolve',
+    about: '记事件：note decision link impact result ask wait resolve',
     flags: [
       ['note <正文>', '进展同步：已完成：… / 下一步：… / 卡点：…'],
       ['decision <正文>', '决策记录：决定：… 背景：… 否决方案：…'],
@@ -165,6 +165,7 @@ const COMMANDS: Record<string, Command> = {
       ['impact', 'KR 影响声明：--o <O> --kr "<KR>=toward|away|hold"…'],
       ['', '--change product|measure|gold，默认 product'],
       ['', '纯基础设施写 --o 无'],
+      ['result', 'KR 结果，合并前报：--kr "<KR>=<后值> 实测|预计"…'],
       ['ask <决策事项>', '上升一件待决：--kr、--context、--option（至少两次）、--rec'],
       ['', '--option 写 方案｜代价｜单向门 或 双向门'],
       ['wait <一行问题>', '等你：要决策者答一句或动手，票挂起；持票人挂会交出认领'],
