@@ -95,7 +95,10 @@ function actionsFilterAsRegExp(glob: string) {
   for (let i = 0; i < glob.length; i++) {
     const c = glob[i]!
     const classEnd = c === '[' ? glob.indexOf(']', i) : -1
-    if (c === '*' && glob[i + 1] === '*') {
+    if (c === '*' && glob[i + 1] === '*' && glob[i + 2] === '/') {
+      out += '(?:.*/)?'
+      i += 2
+    } else if (c === '*' && glob[i + 1] === '*') {
       out += '.*'
       i++
     } else if (c === '*') out += '[^/]*'

@@ -227,6 +227,7 @@ it.each([
   ['M-EMPTY', 't70', 'on: pull_request\n'],
   ['M-PUSHALL', 't71', 'on: [push]\n'],
   ['M-PUSHWT', 't72', 'on:\n  push:\n    branches: ["wt/**", "!wt/other"]\n'],
+  ['M-STAR', 't75', 'on:\n  push:\n    branches: ["wt/**/m-*"]\n'],
   ['M-GLOB', 't73', 'on:\n  push:\n    branches: ["release", "wt/m-gl+o?b", "wt/[a-z]-x"]\n'],
 ])('waits with no checks while a workflow of the head runs on its branch: %s', async (key, terminal, workflow) => {
   const { worktree } = await noChecksAtAHeadWithWorkflow(key, terminal, workflow)
