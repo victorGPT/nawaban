@@ -58,6 +58,7 @@ type Event = {
   holdFirstThenReply: (reason: string, kind: string, text: string) => Promise<number>
   answerThenLiftIfStillOurs: (kind: string, text: string, ours: (newest: Newest) => boolean, beforeLift?: () => Promise<unknown>) => Promise<number | null>
   holdAndNewest: () => Promise<{ hold: NonNullable<Thread['message']['task']>['blocked']; newest: Thread['message'] }>
+  hold: (reason: string, kind: string) => Promise<number>
   liftHold: () => Promise<number>
 }
 
@@ -133,7 +134,7 @@ function eventOn(id: string, key: string, a: Args, run: Run, team: Team, pushLab
     return posted as number
   }
 
-  return { id, key, team, a, kr: a.kr?.[0], run, reply, holdFirstThenReply, answerThenLiftIfStillOurs, holdAndNewest, liftHold: unblockAsPersonWhicheverWindowHeld }
+  return { id, key, team, a, kr: a.kr?.[0], run, reply, holdFirstThenReply, answerThenLiftIfStillOurs, holdAndNewest, hold, liftHold: unblockAsPersonWhicheverWindowHeld }
 }
 
 async function note(e: Event): Promise<number> {
@@ -177,11 +178,23 @@ async function link(e: Event): Promise<number> {
   return 'why' in value ? refuse(`${value.why} (正文 pr:<url>, commit:<sha>, artifact:<ref>, adr:<ref>)`) : e.reply(value.text)
 }
 
-async function cardSentBackFromThePage(team: Team, id: string): Promise<boolean> {
+async function reasonOfAHoldWhoseCardThePageSentBack(team: Team, id: string): Promise<string | null> {
   const { message, replies } = await team.thread(id)
-  if (message.task?.blocked?.kind !== HOLD_FOR_DECISION) return false
+  const hold = message.task?.blocked
+  if (hold?.kind !== HOLD_FOR_DECISION) return null
   const answer = answerToTheCurrentHold(message, replies, await githubRepliesOf(team, message, replies))
-  return !!answer && answer.option === null && ANSWER_THAT_SENDS_THE_CARD_BACK.test(answer.words)
+  return answer && answer.option === null && ANSWER_THAT_SENDS_THE_CARD_BACK.test(answer.words) ? hold.reason : null
+}
+
+async function replaceTheCardSentBack(e: Event, sentBack: string, reason: string, text: string): Promise<number> {
+  await e.liftHold()
+  const putTheOldHoldBack = () => e.hold(sentBack, HOLD_FOR_DECISION)
+  const code = await e.holdFirstThenReply(reason, HOLD_FOR_DECISION, text).catch(async (error: unknown) => {
+    await putTheOldHoldBack().catch(() => undefined)
+    throw error
+  })
+  if (code) await putTheOldHoldBack()
+  return code
 }
 
 async function holdForDecision(e: Event, value: DecisionCard): Promise<number> {
@@ -189,7 +202,8 @@ async function holdForDecision(e: Event, value: DecisionCard): Promise<number> {
   if (gaps.length) return refuse(`待决策项未就绪（不满足就绪标准），缺 ${gaps.join('、')}；- / none / 无 / 待定 这类占位算缺（--option 写成 方案｜代价｜单向门 或 双向门）`)
   const card = checkedBeforeAnythingLands('nawaban-ask@1', value as Record<string, unknown>)
   if ('why' in card) return refuse(card.why)
-  if (await cardSentBackFromThePage(e.team, e.id)) await e.liftHold()
+  const sentBack = await reasonOfAHoldWhoseCardThePageSentBack(e.team, e.id)
+  if (sentBack !== null) return replaceTheCardSentBack(e, sentBack, String(value.decision), card.text)
   return e.holdFirstThenReply(String(value.decision), HOLD_FOR_DECISION, card.text)
 }
 

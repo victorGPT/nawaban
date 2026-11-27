@@ -328,6 +328,21 @@ it('lets the next ask replace a card the page sent back, with no resolve in the 
   expect(await currentAsk()).toBe(first)
 
   expect((await asPage({ ask: first, words: '背景不够，请补写后重发待决' })).status).toBe(201)
+  vi.stubEnv('BOARD_URL', `http://127.0.0.1:${port}/api/board`)
+  vi.stubEnv('BOARD_TOKEN', SECRET)
+  vi.stubEnv('BOARD_PROFILE', '')
+  vi.stubEnv('NAWABAN_BOARD_DIR', dir)
+  const app = createApp({ appName: 'nawaban' })
+  const dropsTheReply = (args: string[]) => (args[0] === 'reply' ? Promise.resolve(1) : app.run(args))
+  const quiet = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  try {
+    expect(await event([id, '--kind', 'ask', '--body', '换个问法', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '发'], dropsTheReply, board())).not.toBe(0)
+  } finally {
+    quiet.mockRestore()
+    vi.unstubAllEnvs()
+  }
+  expect((await team.thread(id)).message.task?.blocked).toMatchObject({ kind: 'awaiting_approval', reason: '发不发' })
+  expect(await currentAsk()).toBe(first)
   await askWith('不发')
   const thread = await team.thread(id)
   expect(thread.message.task?.blocked).toMatchObject({ kind: 'awaiting_approval', reason: '发不发' })
