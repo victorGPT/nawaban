@@ -162,7 +162,7 @@ def shell_refusal(command):
             redirect = None
             continue
         if token in REDIRECTS | {"<", "<<", "<<-", "<<<"}:
-            if words and words[-1].isdigit() and words[-1].glued_to_an_operator:
+            if words and words[-1].isdigit() and words[-1].glued_to_an_operator and not words[-1].quoted:
                 words.pop()
             redirect = token
             continue
