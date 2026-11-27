@@ -6,10 +6,9 @@ import sys
 import tempfile
 
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n", ";;", "|&"}
-REDIRECTS = {">", ">>", ">|", "&>", "&>>", ">&"}
+REDIRECTS = {">", ">>", ">|", "&>", "&>>", ">&", "<>"}
 QUOTES = ("'", '"')
-HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
-OPERATORS = sorted({"<<<", "&>>", ">>", "&>", ">&", ">|", "&&", "||", ";;", "|&", "<<", "<", ">", "&", "|", ";", "(", ")", "\n"}, key=len, reverse=True)
+OPERATORS = sorted({"<<<", "<<-", "<>", "&>>", ">>", "&>", ">&", ">|", "&&", "||", ";;", "|&", "<<", "<", ">", "&", "|", ";", "(", ")", "\n"}, key=len, reverse=True)
 GIT_WRITES = {"commit", "push", "apply", "am", "cherry-pick", "rebase", "revert"}
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 PATCHED_FILE = re.compile(r"^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$", re.M)
@@ -58,14 +57,31 @@ def closing_quote(s, i):
     return min(j, len(s))
 
 
+def past_heredoc_bodies(s, line_start, newline):
+    j = newline
+    for _, delimiter in heredoc_openers(s[line_start:newline]):
+        while j < len(s):
+            end = s.find("\n", j + 1)
+            end = len(s) if end < 0 else end
+            line, j = s[j + 1:end], end
+            if line.strip() == delimiter:
+                break
+    return j
+
+
 def closing_paren(s, j):
-    depth = 1
+    depth, line_start = 1, j
     while j < len(s):
         if s[j] in QUOTES:
             j = closing_quote(s, j) + 1
             continue
         if s[j] == "\\":
             j += 2
+            continue
+        if s[j] == "\n":
+            j = past_heredoc_bodies(s, line_start, j)
+            line_start = j + 1
+            j += 1
             continue
         depth += {"(": 1, ")": -1}.get(s[j], 0)
         j += 1
@@ -74,12 +90,23 @@ def closing_paren(s, j):
     return len(s)
 
 
+class Word(str):
+    quoted = False
+    glued_to_an_operator = False
+
+
+def heredoc_openers(line):
+    tokens = list(tokens_of(line)) if "<<" in line else []
+    return [(word.quoted, str(word)) for (is_op, op), (word_is_op, word) in zip(tokens, tokens[1:])
+            if is_op and op in ("<<", "<<-") and not word_is_op]
+
+
 def without_heredoc_bodies(command):
     lines, kept, i = command.split("\n"), [], 0
     while i < len(lines):
         kept.append(lines[i])
-        for m in HEREDOC_START.finditer(lines[i]):
-            end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(2)), None)
+        for _, delimiter in heredoc_openers(lines[i]):
+            end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == delimiter), None)
             if end is not None:
                 i = end
         i += 1
@@ -87,28 +114,38 @@ def without_heredoc_bodies(command):
 
 
 def shell_tokens(command):
-    s, i, word = without_heredoc_bodies(command).replace("\\\n", " "), 0, None
+    return tokens_of(without_heredoc_bodies(command))
+
+
+def tokens_of(text):
+    s, i, word, quoted = text.replace("\\\n", ""), 0, None, False
     while i < len(s):
         operator = next((op for op in OPERATORS if s.startswith(op, i)), None)
         if s[i] in QUOTES:
             j = closing_quote(s, i)
-            word, i = (word or "") + s[i + 1:j], j + 1
+            word, i, quoted = (word or "") + s[i + 1:j], j + 1, True
         elif s[i] == "\\":
-            word, i = (word or "") + s[i + 1:i + 2], i + 2
+            word, i, quoted = (word or "") + s[i + 1:i + 2], i + 2, True
         elif s[i] == "#" and word is None:
             end = s.find("\n", i)
             i = len(s) if end < 0 else end
         elif s[i] in " \t\r" or operator:
             if word is not None:
-                yield False, word
-            word = None
+                yield False, quoted_word(word, quoted, glued=bool(operator))
+            word, quoted = None, False
             if operator:
                 yield True, operator
             i += len(operator or " ")
         else:
             word, i = (word or "") + s[i], i + 1
     if word is not None:
-        yield False, word
+        yield False, quoted_word(word, quoted)
+
+
+def quoted_word(text, quoted, glued=False):
+    word = Word(text)
+    word.quoted, word.glued_to_an_operator = quoted, glued
+    return word
 
 
 def simple_commands(command, cwd):
