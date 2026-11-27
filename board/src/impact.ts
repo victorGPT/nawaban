@@ -175,13 +175,17 @@ const WHAT_A_CLOSES_OR_REFS_LINE_POINTS_AT = /\b(?:close[sd]?|fix(?:e[sd])?|reso
 const ticketsThePullRequestIsFor = (pr: PullRequest) =>
   [pr.title, pr.headRefName, ...[...(pr.body ?? '').matchAll(WHAT_A_CLOSES_OR_REFS_LINE_POINTS_AT)].map((m) => m[1]!)].join(' ')
 
-async function whyThisMergeMustWait(team: Team, project: string, pr: PullRequest): Promise<string | null> {
+export function tasksThePullRequestNames(pr: PullRequest, tasks: MessageView[]) {
   const text = ticketsThePullRequestIsFor(pr)
-  const named = (await tasksADeclarationCanStillBeOn(team, project)).filter((t) => {
+  return tasks.filter((t) => {
     const key = t.labels.key
     const issue = githubIssueOfTask(t)
     return !!key && (namesKeyAsWholeWord(text, key) || (issue !== null && namesKeyAsWholeWord(text, `#${issue}`)))
   })
+}
+
+async function whyThisMergeMustWait(team: Team, project: string, pr: PullRequest): Promise<string | null> {
+  const named = tasksThePullRequestNames(pr, await tasksADeclarationCanStillBeOn(team, project))
   if (!named.length) return `PR #${pr.number} 没写到项目 ${project} 的任何一张票(标题、分支名里写票号，或正文写 Closes/Refs <票号>),核不了 KR 影响声明`
   const missed = []
   for (const t of named) if (!(await hasImpactReply(team, t))) missed.push(t.labels.key!)

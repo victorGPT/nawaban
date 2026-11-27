@@ -9,7 +9,7 @@ import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
 import { checksOf, claimAssignedToMe, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf, workerProfileOf } from './dispatch.ts'
 import { githubTokenOf } from './github-account.ts'
-import { mergeGate } from './impact.ts'
+import { mergeGate, tasksThePullRequestNames } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
 import { all, closeDone, forgetTheClaimOf, live, profile, reclaimedIfItLapsedInMyHands, resolve, resultsOf, whyNotCloseable } from './tasks.ts'
@@ -18,7 +18,7 @@ import { answer, EXIT, Refused, upstreamAnswer, type Said } from './said.ts'
 const exec = promisify(execFile)
 const CLAIM_WAIT = '10m'
 const USAGE = `用法：nawaban merge <PR 号> [--wait <时长>，领下一张最多等多久，默认 ${CLAIM_WAIT}] [--kr "<KR 名>=<后值> 实测|预计"]...`
-const PR_FIELDS = 'number,state,url,title,headRefName,headRefOid,files,statusCheckRollup,comments,mergeCommit'
+const PR_FIELDS = 'number,state,url,title,body,headRefName,headRefOid,files,statusCheckRollup,comments,mergeCommit'
 const NO_BLOCKER_REVIEW_LINE = /review[:：]\s*无挡/i
 const SHA_PREFIX_A_REVIEW_NAMES = /\b[0-9a-f]{7,40}\b/gi
 const WORKTREE_BRANCH = /^wt\/(.+)$/
@@ -36,6 +36,7 @@ type PullRequest = {
   state: string
   url: string
   title: string
+  body: string
   headRefName: string
   headRefOid: string
   files: { path: string }[]
@@ -301,11 +302,17 @@ async function claimNextElseRetire(closed: MessageView, root: string, did: strin
   return { kind: 'done', did: [...did, `收 worker ${terminal}`], thenRetire: retirable }
 }
 
+async function ticketThePullRequestNamesPreferringMine(pr: PullRequest): Promise<MessageView | null> {
+  const named = tasksThePullRequestNames(pr, (await all({ state: 'all' })).filter((t) => t.task?.state !== 'canceled'))
+  const mine = named.filter((t) => !heldByThisSession(t))
+  return mine.length === 1 ? mine[0]! : named.length === 1 ? named[0]! : null
+}
+
 async function outcomeOf(r: Run): Promise<Outcome> {
   const pr = await viewOf(r.n)
   const name = WORKTREE_BRANCH.exec(pr.headRefName)?.[1]
-  r.task = name ? await resolve(name.toUpperCase()).catch(() => null) : null
-  if (!r.task) return { kind: 'refused', why: `分支 ${pr.headRefName} 找不到票（要 wt/<票号小写>）` }
+  r.task = (name ? await resolve(name.toUpperCase()).catch(() => null) : null) ?? (await ticketThePullRequestNamesPreferringMine(pr))
+  if (!r.task) return { kind: 'refused', why: `分支 ${pr.headRefName} 找不到票（要 wt/<票号小写>），PR 标题和正文的 Closes/Fixes/Refs 也没认出唯一一张票` }
   if (!r.root) return { kind: 'refused', why: '在本仓库的 worktree 里跑 merge' }
   const alreadyMerged = pr.state === 'MERGED' && !!pr.mergeCommit
   if (!alreadyMerged) {

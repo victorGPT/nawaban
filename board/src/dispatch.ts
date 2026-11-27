@@ -370,10 +370,10 @@ const MERGE_LINE = `收尾：验收没说不合并时，PR 的 CI 绿、评论�
 const MERGE_LINE_WITH_NO_TICKET_FOR_NAWABAN_MERGE_TO_FIND = '收尾：验收没说不合并时，PR 的 CI 绿之后按仓库文档的合并方式合（例如 scripts/merge.sh）；这次没有票，别用 nawaban merge'
 
 const freshWorktreeLine = (wt: Worktree, merge: string) =>
-  `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改）。${merge}`
+  `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改，只在 ${wt.branch} 上提交和开 PR，不另开分支）。${merge}`
 
 const reusedWorktreeLine = (wt: Worktree) =>
-  `worktree：接着用 ${wt.path}，先 git fetch origin main && git switch -c ${wt.branch} origin/main，只在这个分支上改。${MERGE_LINE}`
+  `worktree：接着用 ${wt.path}，先 git fetch origin main && git switch -c ${wt.branch} origin/main，只在这个分支上改、提交和开 PR，不另开分支。${MERGE_LINE}`
 
 type ReportsVia = { ref: string } | { name: string; orch: string }
 
