@@ -21,6 +21,7 @@ export const RESULT_FORMAT = `<KR 名>=<后值> 实测|预计，没有读数写 
 const NUMBER = /^-?\d+(?:\.\d+)?%?$/
 const NO_OBJECTIVE_PURE_INFRASTRUCTURE = '无'
 const TASKS_PAGE = 50
+const BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT = 20
 const run = promisify(execFile)
 
 const MERGE_IN_COMMAND_POSITION =
@@ -111,8 +112,14 @@ async function blocksOnTheTaskAndItsIssueRoot(team: Team, task: MessageView) {
 
 const krNamesIn = (blocks: Registered[]) => blocks.flatMap((b) => (b.data as { krs: { name: string }[] }).krs.map((k) => k.name))
 
+export const onTheOneClock = (m: MessageView) => `${m.createdAt}~${m.id.padStart(BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT, '0')}`
+
 const blocksOldestFirst = (replies: MessageView[]) =>
-  replies.filter((r) => !r.deleted).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).flatMap((r) => r.blocks)
+  replies
+    .filter((r) => !r.deleted)
+    .map((r) => [onTheOneClock(r), r] as const)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .flatMap(([, r]) => r.blocks)
 
 function krsTheLatestImpactLeavesUnreported(blocks: Registered[]) {
   const at = blocks.findLastIndex((b) => b.schema === 'nawaban-impact' && b.data && b.version === 2)

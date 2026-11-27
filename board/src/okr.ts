@@ -6,7 +6,7 @@ import { extname, isAbsolute, join, sep } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
 import { block, BoardError, type board, type MessageView } from '@vercel/board'
 import { parse } from 'smol-toml'
-import { OKR_FILE, projectOf } from './impact.ts'
+import { OKR_FILE, onTheOneClock, projectOf } from './impact.ts'
 import { answer, Refused } from './said.ts'
 
 type Team = ReturnType<typeof board>
@@ -51,7 +51,6 @@ const SPRINT_ROUNDS_TO_STOP = 5
 export const HARD_STOP_EXIT = 3
 const THREADS_PAGE = 500
 const ID_HASH_LENGTH = 32
-const BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT = 20
 const NOT_COMMITTED = '未提交'
 export const FAILED = ''
 const DEF_HASH_LENGTH = 16
@@ -585,7 +584,6 @@ const HEADING_WORDS: Record<Heading, string> = { toward: '向目标', away: '背
 
 export const okrChannel = (project: string) => `okr/${project}`
 
-const onTheOneClock = (m: MessageView): Round => `${m.createdAt}~${m.id.padStart(BOARD_ID_WIDTH_SO_LOG_INDEX_SORTS_AS_TEXT, '0')}`
 export const key = (...parts: string[]) => 'okr-' + createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, ID_HASH_LENGTH)
 const blocksOf = (m: MessageView, schema: string, version = 1) =>
   m.deleted ? [] : m.blocks.filter((b) => b.schema === schema && b.version === version && b.data).map((b) => b.data as Record<string, unknown>)
