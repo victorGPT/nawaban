@@ -5,6 +5,8 @@ import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { reposReadOnEveryUseSoEditsNeedNoRestart, words } from './impact.ts'
 import { Refused } from './said.ts'
+import { githubSyncConfigToPoll, switchedToTheBoard } from './github-sync-status.ts'
+import { keyOf } from './github-tasks.ts'
 
 export const ACCOUNT_DECLARED_IN = 'docs/agents/issue-tracker.md'
 const FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END = /^ {0,3}(`{3,}|~{3,})[\s\S]*?(?:^ {0,3}\1|$(?![\s\S]))|<!--[\s\S]*?(?:-->|$(?![\s\S]))/gm
@@ -24,6 +26,7 @@ const API_SENDS_A_BODY = /^(?:-f|-F|--field(?:=|$)|--raw-field(?:=|$)|--input(?:
 const API_METHOD = /^(?:-X=?|--method(?:=|$))(.*)$/
 const REPO_FLAG = /^(?:-R|--repo)(?:=(.*))?$/
 const GITHUB_REPO_IN_REMOTE = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/
+const REWRITES_THE_ISSUE_TEXT = /^(?:-t|--title|-b|--body|-F|--body-file)(?:=|$)/
 const run = promisify(execFile)
 
 const provenPrefix = (account: string) => `GH_TOKEN=$(gh auth token --user ${account})`
@@ -142,6 +145,19 @@ function directoryTheCommandIsInAt(cmd: string, blanked: string, at: number, cwd
   return resolve(cwd, target.replace(/^~(?=\/|$)/, homedir()))
 }
 
+async function issueTextEditOnARepoSwitchedToTheBoard(args: string[], here: string | null, boardDir: string): Promise<string | null> {
+  const [group, verb, number] = withoutRepoFlag(args).filter((a) => !a.startsWith('-'))
+  if (group !== 'issue' || verb !== 'edit' || !args.some((a) => REWRITES_THE_ISSUE_TEXT.test(a))) return null
+  const target = repoFlagOf(args)
+  const remote = !target && here ? await stdoutElseNull('git', ['-C', here, 'remote', 'get-url', 'origin']) : null
+  const repo = target ? ownerSlashRepo(target) : remote && GITHUB_REPO_IN_REMOTE.exec(remote)?.[1]
+  if (!repo) return null
+  const [synced, channel] = Object.entries((await githubSyncConfigToPoll(boardDir))?.repos ?? {}).find(([r]) => r.toLowerCase() === repo.toLowerCase()) ?? []
+  if (!synced || !channel || !(await switchedToTheBoard(boardDir, synced))) return null
+  const key = number && /^\d+$/.test(number) ? keyOf(channel, Number(number)) : `${channel.toUpperCase()}-<N>`
+  return `${synced} 已切到板上：gh issue edit 改标题或正文，入站后板上的票会挂起「非主人改」、认领跟着丢。改动记在票上：nawaban event ${key} note '<改了什么>'`
+}
+
 export async function whyThisGhWriteMustNotRun(typed: string, cwd: string, boardDir: string): Promise<string | null> {
   const cmd = typed.replace(/\\\n/g, '  ')
   const blanked = textBlankedKeepingWhatTheShellRuns(cmd)
@@ -152,6 +168,8 @@ export async function whyThisGhWriteMustNotRun(typed: string, cwd: string, board
     if (!writesToGithub(args, segment)) continue
     const target = repoFlagOf(args)
     const here = directoryTheCommandIsInAt(cmd, blanked, m.index, cwd)
+    const onTheBoard = await issueTextEditOnARepoSwitchedToTheBoard(args, here, boardDir)
+    if (onTheBoard) return onTheBoard
     if (!here && !(await readFile(ownerAccountsFile()).catch(() => null)) && !(await accountElseNull(cwd))) continue
     if (!here) return 'gh 写操作前 cd 到的目录核不了（带变量或 cd -），不知道是哪个仓库：cd 写成字面路径，或在那个仓库里另起一条命令'
     const checkout = target ? await checkoutOfGithubRepo(target, boardDir) : here

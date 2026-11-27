@@ -150,6 +150,21 @@ test('a write to another repository with -R uses that repository declaration, fo
   expect(await whyThisGhWriteMustNotRun('GH_TOKEN=$(gh auth token --user wuxianzhong-gpt) gh issue comment 5 -R github.com/acme/roubao -b x', here, boardDir)).toBeNull()
 })
 
+test('a gh issue edit of the title or body in a repository switched to the board is refused with the board command, before and after the switch as it should be', async () => {
+  const roubao = await repoDeclaring('roubao', null, 'https://github.com/acme/roubao.git')
+  await writeFile(join(boardDir, 'github-sync.json'), JSON.stringify({ repos: { 'Acme/roubao': 'roubao' }, reader: 'x' }))
+  expect(await whyThisGhWriteMustNotRun('gh issue edit 2016 --title t --body b', roubao, boardDir)).toBeNull()
+  await mkdir(join(boardDir, 'github-sync'), { recursive: true })
+  await writeFile(join(boardDir, 'github-sync', `${encodeURIComponent('Acme/roubao')}.switched.json`), '{}')
+  for (const cmd of ['gh issue edit 2016 --title t --body b', 'GH_TOKEN=$(gh auth token --user wuxianzhong-gpt) gh issue edit 2016 -b x', 'gh issue edit 2016 --body-file f.md']) {
+    expect(await whyThisGhWriteMustNotRun(cmd, roubao, boardDir), cmd).toContain("nawaban event ROUBAO-2016 note '<改了什么>'")
+  }
+  const here = await repoDeclaring('nawaban', null)
+  expect(await whyThisGhWriteMustNotRun('gh issue edit 7 -R acme/roubao --title t', here, boardDir)).toContain('ROUBAO-7')
+  expect(await whyThisGhWriteMustNotRun('gh issue edit 2016 --add-label x', roubao, boardDir)).toBeNull()
+  expect(await whyThisGhWriteMustNotRun('gh issue comment 2016 -b x', roubao, boardDir)).toBeNull()
+})
+
 test('the PreToolUse hook as Claude Code runs it refuses a wrong-account gh write with exit 2 and lets reads through', async () => {
   const repo = await repoDeclaring('nawaban', 'github-account: victorGPT\n')
   const hook = (command: string) =>
