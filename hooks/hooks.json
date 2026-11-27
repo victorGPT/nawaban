@@ -56,6 +56,17 @@
         ]
       },
       {
+        "matcher": "Bash|Read|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-allowlist.sh\"",
+            "timeout": 20,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
