@@ -39,7 +39,8 @@ def test_the_orchestrator_cannot_search_code_and_is_told_to_send_a_worker(tmp_pa
                 "cat <<EOF\n$(cat apps/web/a.ts)\nEOF",
                 "grep -e x apps/web/a.ts", "grep -ex apps/web/a.ts", "cat <<EOF\n'$(cat apps/web/a.ts)'\nEOF", "true # it's\necho $(cat apps/web/a.ts) '",
                 "jq . < apps/web/a.ts", "git log -1 -p", "git log --patch", "git log -L1,2:apps/web/a.ts", "git log -Sfoo", "git log -5 --dd", "git log -5 -c", "cd docs/agents && cat < ../../apps/web/a.ts", "node apps/web/a.js", "python3 scripts/x.py", "git pull", "git status -v", "git status --verbose", "git status -vv", "gh --repo o/r api x",
-                "true # <<true\ncat apps/web/a.ts\ntrue", "echo '<<EOF'\ncat apps/web/a.ts\nEOF"):
+                "true # <<true\ncat apps/web/a.ts\ntrue", "echo '<<EOF'\ncat apps/web/a.ts\nEOF",
+                "cat <<EOF # <<EOF\nmessage\nEOF\ncat apps/web/a.ts\ncat <<EOF\nend\nEOF", "echo \"<<'EOF'\" && cat <<EOF\n$(cat apps/web/a.ts)\nEOF"):
         assert refused(call("Bash", {"command": cmd})), cmd
     assert refused(call("Read", {"file_path": str(repo / "apps/web/a.ts")}))
     assert refused(call("Grep", {"pattern": "x", "path": "apps"}))

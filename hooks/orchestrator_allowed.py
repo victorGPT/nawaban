@@ -46,9 +46,9 @@ def readable(path, cwd):
 def unquoted_heredoc_bodies(command):
     lines, i = command.split("\n"), 0
     while i < len(lines):
-        for m in heredoc_openers(lines[i]):
-            end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(2)), len(lines))
-            if not m.group(1):
+        for quoted, delimiter in heredoc_openers(lines[i]):
+            end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == delimiter), len(lines))
+            if not quoted:
                 yield "\n".join(lines[i + 1:end])
             i = end
         i += 1

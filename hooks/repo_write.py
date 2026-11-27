@@ -8,7 +8,6 @@ import tempfile
 SEPARATORS = {";", "&&", "||", "|", "&", "(", ")", "\n", ";;", "|&"}
 REDIRECTS = {">", ">>", ">|", "&>", "&>>", ">&"}
 QUOTES = ("'", '"')
-HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
 OPERATORS = sorted({"<<<", "&>>", ">>", "&>", ">&", ">|", "&&", "||", ";;", "|&", "<<", "<", ">", "&", "|", ";", "(", ")", "\n"}, key=len, reverse=True)
 GIT_WRITES = {"commit", "push", "apply", "am", "cherry-pick", "rebase", "revert"}
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
@@ -74,22 +73,22 @@ def closing_paren(s, j):
     return len(s)
 
 
-def heredoc_delimiters(line):
-    tokens = list(tokens_of(line))
-    return {word.lstrip("-") for (is_op, op), (word_is_op, word) in zip(tokens, tokens[1:]) if is_op and op == "<<" and not word_is_op}
+class Word(str):
+    quoted = False
 
 
 def heredoc_openers(line):
-    real = heredoc_delimiters(line) if "<<" in line else set()
-    return [m for m in HEREDOC_START.finditer(line) if m.group(2) in real]
+    tokens = list(tokens_of(line)) if "<<" in line else []
+    return [(word.quoted, word.lstrip("-")) for (is_op, op), (word_is_op, word) in zip(tokens, tokens[1:])
+            if is_op and op == "<<" and not word_is_op]
 
 
 def without_heredoc_bodies(command):
     lines, kept, i = command.split("\n"), [], 0
     while i < len(lines):
         kept.append(lines[i])
-        for m in heredoc_openers(lines[i]):
-            end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(2)), None)
+        for _, delimiter in heredoc_openers(lines[i]):
+            end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == delimiter), None)
             if end is not None:
                 i = end
         i += 1
@@ -101,28 +100,34 @@ def shell_tokens(command):
 
 
 def tokens_of(text):
-    s, i, word = text.replace("\\\n", " "), 0, None
+    s, i, word, quoted = text.replace("\\\n", " "), 0, None, False
     while i < len(s):
         operator = next((op for op in OPERATORS if s.startswith(op, i)), None)
         if s[i] in QUOTES:
             j = closing_quote(s, i)
-            word, i = (word or "") + s[i + 1:j], j + 1
+            word, i, quoted = (word or "") + s[i + 1:j], j + 1, True
         elif s[i] == "\\":
-            word, i = (word or "") + s[i + 1:i + 2], i + 2
+            word, i, quoted = (word or "") + s[i + 1:i + 2], i + 2, True
         elif s[i] == "#" and word is None:
             end = s.find("\n", i)
             i = len(s) if end < 0 else end
         elif s[i] in " \t\r" or operator:
             if word is not None:
-                yield False, word
-            word = None
+                yield False, quoted_word(word, quoted)
+            word, quoted = None, False
             if operator:
                 yield True, operator
             i += len(operator or " ")
         else:
             word, i = (word or "") + s[i], i + 1
     if word is not None:
-        yield False, word
+        yield False, quoted_word(word, quoted)
+
+
+def quoted_word(text, quoted):
+    word = Word(text)
+    word.quoted = quoted
+    return word
 
 
 def simple_commands(command, cwd):
