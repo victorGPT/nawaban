@@ -12,8 +12,7 @@ const WATCHED_BOARD_MISSED_CHANGE_REREAD_MS = 60000;
 const OKR_READ_GIVEN_UP_AFTER_MS = 5000;
 const ICON = (name) => "mods/nawaban-board/" + name + ".svg";
 const HERDR_ICON = (name) => "mods/workspace-chrome/" + name + ".svg";
-const CLI = () => home() + "/.local/bin/nawaban";
-const CLI_ON_ANOTHER_MACHINE = 'exec "$HOME/.local/bin/nawaban" "$@"';
+const CLI = 'n="$HOME/.local/bin/nawaban"; [ -x "$n" ] || exec node "$HOME/nawaban/board/src/cli.ts" "$@"; exec "$n" "$@"';
 
 const INK = {
   canvas: "#000000", popover: "#0f0f10", border: "#ffffff14", hover: "#ffffff0a", selected: "#ffffff0f",
@@ -77,10 +76,7 @@ const placeChangedFrom = (key) => place().key !== key;
 
 const spaceId = () => focused()?.space ?? spaces().find((s) => s.active)?.id;
 
-const runCli = (args, at, timeout) =>
-  at.on
-    ? exec("sh", ["-c", CLI_ON_ANOTHER_MACHINE, "sh", ...args], { cwd: at.cwd, on: at.on, timeout })
-    : exec("sh", [CLI(), ...args], { cwd: at.cwd, timeout });
+const runCli = (args, at, timeout) => exec("sh", ["-c", CLI, "sh", ...args], { cwd: at.cwd, on: at.on, timeout });
 
 const parseJsonOrNull = (text) => {
   try { return JSON.parse(text || "null"); } catch { return null; }
