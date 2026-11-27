@@ -149,8 +149,11 @@ it('registers an O or KR that a worktree of the repository adds before it merges
   expect((await nawaban('event', id, 'impact', '--o', 'O1', '--kr', 'KR3=toward')).code).toBe(0)
   expect((await nawaban('event', id, 'impact', '--o', 'O3')).err).toMatch(/没有这个 O:O3/)
   expect(await replies(id)).toBe(2)
+  await writeFile(join(branch, 'docs/agents/okr.toml'), '[[objective]]\nname = "unclosed\n')
+  expect((await nawaban('event', id, 'impact', '--o', 'O1', '--kr', 'KR1=toward')).code).toBe(0)
   execFileSync('git', ['-C', repo, 'worktree', 'remove', '--force', branch], { stdio: 'ignore' })
   expect((await nawaban('event', id, 'impact', '--o', 'O2', '--kr', 'K2=toward')).err).toMatch(/没有这个 O:O2/)
+  expect(await replies(id)).toBe(3)
 })
 
 it('lets --o 无 through, with no KR, in any project', async () => {

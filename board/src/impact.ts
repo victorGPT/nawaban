@@ -71,7 +71,8 @@ async function checkoutsOf(repo: string) {
 export async function okrOf(dir: string, channel: string) {
   const repo = (await reposReadOnEveryUseSoEditsNeedNoRestart(dir))[channel]
   if (!repo) return null
-  const aBranchAddingAnObjectiveRegistersBeforeItMerges = (await Promise.all((await checkoutsOf(repo)).map(objectivesWithKrNamesOrNull))).filter((okr) => okr !== null)
+  const aBranchMidEditNeverBlocksTheRest = (checkout: string) => (checkout === repo ? objectivesWithKrNamesOrNull(checkout) : objectivesWithKrNamesOrNull(checkout).catch(() => null))
+  const aBranchAddingAnObjectiveRegistersBeforeItMerges = (await Promise.all((await checkoutsOf(repo)).map(aBranchMidEditNeverBlocksTheRest))).filter((okr) => okr !== null)
   if (!aBranchAddingAnObjectiveRegistersBeforeItMerges.length) return null
   const names = new Map<string, string[]>()
   for (const okr of aBranchAddingAnObjectiveRegistersBeforeItMerges) for (const [o, krs] of okr) names.set(o, [...new Set([...(names.get(o) ?? []), ...krs])])
