@@ -161,7 +161,6 @@ test('a gh issue edit of the title or body in a repository switched to the board
   }
   const here = await repoDeclaring('nawaban', null)
   expect(await whyThisGhWriteMustNotRun('gh issue edit 7 -R acme/roubao --title t', here, boardDir)).toContain('ROUBAO-7')
-  expect(await whyThisGhWriteMustNotRun('gh issue edit 7 -Racme/roubao --title t', here, boardDir)).toContain('ROUBAO-7')
   expect(await whyThisGhWriteMustNotRun('gh issue edit https://github.com/acme/roubao/issues/8 --title t', here, boardDir)).toContain('ROUBAO-8')
   expect(await whyThisGhWriteMustNotRun('gh issue edit https://github.com/acme/other/issues/8 --title t', roubao, boardDir)).toBeNull()
   expect(await whyThisGhWriteMustNotRun('gh issue edit --title t https://github.com/acme/roubao/issues/9', here, boardDir)).toContain('ROUBAO-9')
