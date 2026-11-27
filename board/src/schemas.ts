@@ -2,6 +2,7 @@ import type { board } from '@vercel/board'
 
 const text = { type: 'string', minLength: 1 } as const
 const basis = { enum: ['实测', '预计'] } as const
+export const UNMEASURED = '未测'
 
 const UNCHANGED_KR_MAY_CARRY_A_READING_NOTHING_JUDGES = {
   type: 'object',
@@ -120,6 +121,26 @@ const VERSIONS_NEVER_EDITED_ONCE_A_BOARD_HAS_THEM_ONLY_ADDED_AND_READ_ALIKE = {
           type: 'array',
           minItems: 1,
           items: { type: 'object', required: ['name', 'after', 'basis'], additionalProperties: false, properties: { name: text, after: text, basis } },
+        },
+      },
+    },
+  },
+  'nawaban-impact-result@2': {
+    description: "What a task's registered KRs read when it closed as done: each KR's value after, measured or expected, or 未测 with no value when nothing reads it yet. Heading, reading and measure stay as registered.",
+    schema: {
+      type: 'object',
+      required: ['krs'],
+      additionalProperties: false,
+      properties: {
+        krs: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            oneOf: [
+              { type: 'object', required: ['name', 'after', 'basis'], additionalProperties: false, properties: { name: text, after: text, basis } },
+              { type: 'object', required: ['name', 'basis'], additionalProperties: false, properties: { name: text, basis: { enum: [UNMEASURED] } } },
+            ],
+          },
         },
       },
     },

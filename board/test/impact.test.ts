@@ -207,7 +207,7 @@ it('refuses a merge whose task declares no impact, from a worktree of the reposi
   expect(refused.code).toBe(2)
   expect(refused.err).toMatch(/NAWABAN-T-01/)
 
-  await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=hold')
+  await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=toward')
   for (const roubaoMergesWithItsOwnScript of ['scripts/merge.sh 7', 'gh pr merge 7 --squash']) {
     const unreported = await preToolUseHookOnBashAsClaudeCodeRunsIt(roubaoMergesWithItsOwnScript, worktree, pr)
     expect([unreported.code, unreported.err]).toEqual([2, expect.stringContaining('nawaban event NAWABAN-T-01 result --kr "KR1=<后值> 实测|预计"')])
@@ -252,12 +252,39 @@ it("reads gh's -R before pr merge as a merge", EVERY_HOOK_RUN_STARTS_A_SHELL_AND
 
 it('refuses to close as done a task that registered KRs and never reported them, and takes the results as it closes', async () => {
   const id = await newTask('nawaban', 'NAWABAN-R-01')
-  await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=toward', '--kr', 'KR2=hold')
+  await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR1=toward', '--kr', 'KR2=away')
   const unreported = await close('NAWABAN-R-01')
   expect([unreported.code, unreported.err]).toEqual([1, expect.stringMatching(/登记了 KR 却没补结果\(KR1、KR2\)/)])
   expect((await close('NAWABAN-R-01', '--kr', 'KR1=up')).code).toBe(2)
   expect((await close('NAWABAN-R-01', '--kr', 'KR1=5 实测')).err).toMatch(/没补结果\(KR2\)/)
   expect((await close('NAWABAN-R-01', '--kr', 'KR2=83.3% 预计')).code).toBe(0)
+})
+
+it('asks no result of a KR registered as hold', async () => {
+  await nawaban('event', await newTask('nawaban', 'NAWABAN-R-04'), 'impact', '--o', 'O1', '--kr', 'KR1=toward', '--kr', 'KR2=hold')
+  expect((await close('NAWABAN-R-04')).err).toMatch(/没补结果\(KR1\)/)
+  expect((await close('NAWABAN-R-04', '--kr', 'KR1=5 实测')).code).toBe(0)
+})
+
+it('takes 未测 as the result of a KR nothing reads yet, with no value beside it', async () => {
+  const id = await newTask('nawaban', 'NAWABAN-R-05')
+  await nawaban('event', id, 'impact', '--o', 'O1', '--kr', 'KR1=toward', '--kr', 'KR2=toward')
+  expect((await close('NAWABAN-R-05', '--kr', 'KR1=未测 实测')).code).toBe(2)
+  expect((await close('NAWABAN-R-05', '--kr', 'KR1=未测', '--kr', 'KR2=7 预计')).code).toBe(0)
+  const results = (await team.thread(id)).replies.flatMap((r) => r.blocks).filter((b) => b.schema === 'nawaban-impact-result')
+  expect(results.map((b) => [b.version, b.data])).toEqual([[2, { krs: [{ name: 'KR1', basis: '未测' }, { name: 'KR2', after: '7', basis: '预计' }] }]])
+})
+
+it('asks results only of the KRs the latest impact names, so a redeclaration drops the KRs it leaves out', async () => {
+  const id = await newTask('nawaban', 'NAWABAN-R-06')
+  await nawaban('event', id, 'impact', '--o', 'O1', '--kr', 'KR1=toward', '--kr', 'KR2=toward')
+  await nawaban('event', id, 'impact', '--o', 'O1', '--kr', 'KR2=toward')
+  expect((await close('NAWABAN-R-06')).err).toMatch(/没补结果\(KR2\)/)
+  expect((await close('NAWABAN-R-06', '--kr', 'KR2=4 实测')).code).toBe(0)
+  const id2 = await newTask('nawaban', 'NAWABAN-R-07')
+  await nawaban('event', id2, 'impact', '--o', 'O1', '--kr', 'KR1=toward')
+  await nawaban('event', id2, 'impact', '--o', '无')
+  expect((await close('NAWABAN-R-07')).code).toBe(0)
 })
 
 it('writes no result for a ticket someone else holds', async () => {

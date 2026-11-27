@@ -639,8 +639,10 @@ function declaredOnOneTicket([root, ...replies]: MessageView[]): Map<string, Dec
   const messages = [root!, ...replies]
   const firstPullRequestAt = messages.find((m) => blocksOf(m, 'nawaban-link').some((d) => d.kind === 'pr'))
   const lateAfter = firstPullRequestAt ? onTheOneClock(firstPullRequestAt) : null
-  const results = new Map<string, { after: string; basis: string; at: Round }>()
-  for (const m of messages) for (const d of blocksOf(m, 'nawaban-impact-result')) for (const r of d.krs as { name: string; after: string; basis: string }[]) results.set(r.name, { ...r, at: onTheOneClock(m) })
+  const results = new Map<string, { after?: string; basis: string; at: Round }>()
+  for (const m of messages)
+    for (const d of [...blocksOf(m, 'nawaban-impact-result'), ...blocksOf(m, 'nawaban-impact-result', 2)])
+      for (const r of d.krs as { name: string; after?: string; basis: string }[]) results.set(r.name, { ...r, at: onTheOneClock(m) })
   const out = new Map<string, Declared>()
   for (const m of messages) {
     const at = onTheOneClock(m)
