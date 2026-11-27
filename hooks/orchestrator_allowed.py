@@ -24,6 +24,7 @@ GIT_ORCHESTRATION = {("pull", "--ff-only"), ("worktree", "list"), ("worktree", "
 ORCHESTRATION_SCRIPTS = {"node": "hooks/route.mjs", "python3": "nawaban/cli.py", "sh": "herdr/install-mod.sh"}
 MERGE_SCRIPT = "scripts/merge.sh"
 GIT_READS = {"log", "status"}
+GIT_STATUS_OPTIONS = re.compile(r"^(-s|-b|-sb|-bs|--short|--branch|--porcelain(=v\d)?|--long|-u(no|normal|all)?|--untracked-files(=.*)?|--ahead-behind|--no-ahead-behind)$")
 GIT_LOG_METADATA_OPTIONS = re.compile(r"^(-\d+|-n|--oneline|--stat|--shortstat|--name-only|--name-status|--graph|--all|--no-merges|--merges|--first-parent|--reverse|--decorate(=.*)?|--no-decorate|--abbrev-commit|--no-color|--(format|pretty|max-count|since|until|after|before|author|committer|grep|date|branches|tags|remotes)=.*)$")
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 INSTRUCTION_FILES = {"AGENTS.md", "CLAUDE.md"}
@@ -113,7 +114,7 @@ def git_reads_metadata(args):
     if not args or args[0] not in GIT_READS:
         return False
     if args[0] == "status":
-        return True
+        return all(GIT_STATUS_OPTIONS.match(a) for a in args[1:] if a.startswith("-"))
     log_args = args[1:]
     for k, a in enumerate(log_args):
         if a == "--":
