@@ -225,6 +225,13 @@ export function gapsOfADecisionCard(c: DecisionCard): string[] {
   ]
 }
 
+export const DECISION_CARD_CHARS_AT_MOST = 400
+
+export function charsOfADecisionCard(c: DecisionCard): number {
+  const parts = [c.decision, c.kr, c.context, c.recommendation, ...(c.options ?? []).flatMap((o) => [o.choice, o.tradeoff])]
+  return parts.reduce<number>((n, part) => n + [...String(part ?? '')].length, 0)
+}
+
 export type SchemaId = keyof typeof SCHEMAS
 
 export async function registerSchemas(team: ReturnType<typeof board>) {

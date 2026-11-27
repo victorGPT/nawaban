@@ -107,7 +107,7 @@ it('prints the index off the board when an orchestrator window starts, and nothi
   expect(start.code, start.err).toBe(0)
   expect(start.out).toContain('proj 进行中的事')
   expect(start.out).toContain('进行中 1 · 待办 1')
-  expect(start.out).toContain('## 进行中\n- K2 在干的\n  进展 0 分钟前：写完测试\n  下一步：接 CLI')
+  expect(start.out).toContain('## 进行中\n- K2 在干的 · 写完测试\n')
   expect(start.out).toContain('- K1 要密钥')
   expect(start.out).toContain('规矩正文')
   expect(start.err).not.toContain('改用')

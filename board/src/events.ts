@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util'
 import { BoardError, block, type board } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
-import { type DecisionCard, gapsOfADecisionCard, SCHEMAS, type SchemaId } from './schemas.ts'
+import { charsOfADecisionCard, DECISION_CARD_CHARS_AT_MOST, type DecisionCard, gapsOfADecisionCard, SCHEMAS, type SchemaId } from './schemas.ts'
 import { IMPACT_FORMAT, RESULT_FORMAT, whyNotDeclarable } from './impact.ts'
 import { registeredReadings } from './okr.ts'
 import { claimReady } from './dispatch.ts'
@@ -200,6 +200,8 @@ async function replaceTheCardSentBack(e: Event, sentBack: string, reason: string
 async function holdForDecision(e: Event, value: DecisionCard): Promise<number> {
   const gaps = gapsOfADecisionCard(value)
   if (gaps.length) return refuse(`待决策项未就绪（不满足就绪标准），缺 ${gaps.join('、')}；- / none / 无 / 待定 这类占位算缺（--option 写成 方案｜代价｜单向门 或 双向门）`)
+  const chars = charsOfADecisionCard(value)
+  if (chars > DECISION_CARD_CHARS_AT_MOST) return refuse(`决策卡 ${chars} 字，上限 ${DECISION_CARD_CHARS_AT_MOST}：卡上只留要定的事、选项、代价和建议，证据和过程用 nawaban event <票> note 记到票上`)
   const card = checkedBeforeAnythingLands('nawaban-ask@1', value as Record<string, unknown>)
   if ('why' in card) return refuse(card.why)
   const sentBack = await reasonOfAHoldWhoseCardThePageSentBack(e.team, e.id)

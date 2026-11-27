@@ -33,14 +33,13 @@ type State = '等你' | '停滞' | '进行中' | '待办'
 
 const HOUR = 3600
 const STALLED_AFTER_QUIET_FOR = 24 * HOUR
-const CLOSED_COUNTED_WITHIN_BUT_BOARD_KEEPS_ONLY_LATEST_DONE = 48 * HOUR
 const HOURS_SHOWN_UNTIL_MINUTES = 48 * 60
 const TITLE_WIDTH = 34
 const IDLE_TITLE_WIDTH = 40
 const SPEC_TITLE_WIDTH = 16
-const PROGRESS_WIDTH = 70
+const PROGRESS_WIDTH = 40
+const SAME_PROGRESS_FOLDED_FROM = 2
 const NEXT_STEP_WIDTH = 90
-const DECISION_WIDTH = 80
 const OWN_DECISION_WIDTH = 70
 const INBOX_TITLE_WIDTH = 24
 const INBOX_LINE_WIDTH = 90
@@ -80,36 +79,40 @@ function stateOf(t: Row, now: number): State {
   return now - t.active_at > STALLED_AFTER_QUIET_FOR ? '停滞' : '进行中'
 }
 
-function nextStepLine(t: Row, now: number): string | null {
-  const p = progressNotBookkeeping(t)
-  const d = t.decision
-  const next = p ? NEXT.exec(p.body) : null
-  const decisionOvertakesNextStep = !!(d && p && d.at > p.at)
+function nextStepLine(t: Row): string | null {
   if (t.waiting) return t.waiting !== '等你' ? `  下一步：${short(t.waiting, NEXT_STEP_WIDTH)}` : null
-  if (next && !decisionOvertakesNextStep) return `  下一步：${short(next[1]!, NEXT_STEP_WIDTH)}`
-  if (d) return `  最近决定 ${ago(now, d.at)}前：${short(d.verdict, DECISION_WIDTH)}`
-  return null
+  const p = progressNotBookkeeping(t)
+  const next = p ? NEXT.exec(p.body) : null
+  const decisionOvertakesNextStep = !!(t.decision && p && t.decision.at > p.at)
+  return next && !decisionOvertakesNextStep ? `  下一步：${short(next[1]!, NEXT_STEP_WIDTH)}` : null
 }
 
-function taskLines(k: State, t: Row, belongs: (t: Row) => string, now: number): string[] {
+const doneSoFar = (p: { body: string }) => short(p.body.split(NEXT_SPLIT)[0]!.replace(DONE_LABEL, ''), PROGRESS_WIDTH)
+
+function stalledOrWaitingLines(k: '等你' | '停滞', t: Row, belongs: (t: Row) => string, now: number): string[] {
   const p = progressNotBookkeeping(t)
-  const out = []
-  if (k === '停滞') {
-    const mention = p ? MENTION.exec(p.body) : null
-    out.push(`- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}${belongs(t)}（${ago(now, t.active_at)}没动静 · 停在：${mention ? '@' + mention[1] : '没写'}）`)
-  } else out.push(`- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}${belongs(t)}`)
-  if (p) out.push(`  进展 ${ago(now, p.at)}前：${short(p.body.split(NEXT_SPLIT)[0]!.replace(DONE_LABEL, ''), PROGRESS_WIDTH)}`)
-  const next = nextStepLine(t, now)
-  if (next) out.push(next)
-  return out
+  const mention = p ? MENTION.exec(p.body) : null
+  const head = `- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}${belongs(t)}`
+  const stalledFor = k === '停滞' ? `（${ago(now, t.active_at)}没动静 · 停在：${mention ? '@' + mention[1] : '没写'}）` : ''
+  return [head + stalledFor, nextStepLine(t)].filter((l): l is string => l !== null)
+}
+
+function movingLines(moving: Row[], belongs: (t: Row) => string): string[] {
+  const byProgress = Map.groupBy(moving, (t) => { const p = progressNotBookkeeping(t); return p ? doneSoFar(p) : '' })
+  return [...byProgress].flatMap(([progress, same]) =>
+    progress && same.length >= SAME_PROGRESS_FOLDED_FROM
+      ? [`- ${same.length} 张进展都是「${progress}」：${same.map((t) => bare(t.id)).join(' ')}`]
+      : same.map((t) => `- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}${belongs(t)}${progress ? ` · ${progress}` : ''}`),
+  )
 }
 
 function decisionsLines(data: Data, now: number): string[] {
-  const decided = data.decisions ?? []
-  const own = decided.filter((d) => d.owner)
+  const own = (data.decisions ?? []).filter((d) => d.owner)
+  if (!own.length) return []
   return [
-    `## 48 小时内你的决策记录 ${own.length}（agent 自己定的另有 ${decided.length - own.length} 条，在各任务里）`,
+    `## 你 48 小时内的决定 ${own.length}`,
     ...own.map((d) => `- ${ago(now, d.at)}前 ${bare(d.task)} ${short(d.verdict, OWN_DECISION_WIDTH)}`),
+    '',
   ]
 }
 
@@ -134,13 +137,11 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
   ]
   for (const [k, g] of groups) {
     if (!g.length) continue
-    out.push(`## ${k}`, ...g.flatMap((t) => taskLines(k, t, belongs, now)), '')
+    out.push(`## ${k}`, ...(k === '进行中' ? movingLines(g, belongs) : g.flatMap((t) => stalledOrWaitingLines(k, t, belongs, now))), '')
   }
   out.push(...decisionsLines(data, now))
-  out.push('', `## 待办 ${idle.length}（开着，从没认领也没写进展）`)
-  out.push(...idle.map((t) => `- ${bare(t.id)} ${short(t.title, IDLE_TITLE_WIDTH)}${belongs(t)}`))
-  const closedMayUndercount = tasks.filter((t) => t.status === 'done' && now - (t.done_at ?? 0) < CLOSED_COUNTED_WITHIN_BUT_BOARD_KEEPS_ONLY_LATEST_DONE).length
-  return [...out, '', `48 小时内关了 ${closedMayUndercount} 个。`].join('\n')
+  if (idle.length) out.push(`## 待办 ${idle.length}（没人认领过）`, ...idle.map((t) => `- ${bare(t.id)} ${short(t.title, IDLE_TITLE_WIDTH)}${belongs(t)}`))
+  return out.join('\n').trimEnd()
 }
 
 export function status(argv: string[], team: Team, dir: string): Promise<number> {

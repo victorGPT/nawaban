@@ -125,6 +125,15 @@ it('lifts a hold as the person, whatever profile the run writes as', async () =>
   expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready' })
 })
 
+it('refuses a card longer than the decision-maker reads, and writes nothing', async () => {
+  const id = await newTask()
+  const evidencePile = '回测八次抓到五次。'.repeat(50)
+  const ask = await nawaban('event', id, '--kind', 'ask', ...CARD.map((part) => (part === 'tests pass' ? evidencePile : part)), '--rec', 'ship')
+  expect(ask.code).toBe(1)
+  expect(ask.err).toContain('上限 400')
+  expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', blocked: null, replies: [] })
+})
+
 it('refuses a card without --rec, and writes nothing', async () => {
   const id = await newTask()
   const ask = await nawaban('event', id, '--kind', 'ask', ...CARD)

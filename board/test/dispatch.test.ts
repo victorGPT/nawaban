@@ -497,7 +497,7 @@ it('shows an undelivered report as the progress of the ticket in status', async 
   await team.as('cc-aaaa1111').tasks.claim(id, { lease: 3600 })
   expect((await tellAsWorker(['T-SEEN', '完成 PR #9'], {})).code).toBe(0)
   const status = await nawabanInTheRepositoryAsWindowAaaa1111('status', ['--project', 'nawaban'], {})
-  expect(status.stdout).toContain('进展 0 分钟前：回报未送达：完成 PR #9')
+  expect(status.stdout).toContain('- T-SEEN T-SEEN · 回报未送达：完成 PR #9')
 })
 
 it('lists the live workers of this repository with the tickets they hold in status, and leaves the orchestrator out', async () => {
