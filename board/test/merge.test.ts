@@ -591,9 +591,13 @@ it('picks up after a merged PR on a rerun without merging again', async () => {
   expect(await stateOf(id)).toBe('completed')
 })
 
-it('merges a PR on its own branch by the ticket its body closes', async () => {
-  const { id, worktree } = await workerOnItsOwnTicket('M-BODY', 't81', { ...greenCodePr('M-BODY'), title: 'fix merge', headRefName: 'feature/y', body: 'Closes M-BODY' })
-  const r = await mergeAsTheWorker('M-BODY', 't81', worktree)
+it('merges a PR on its own branch by the one ticket of this project its body closes', async () => {
+  await newTask('M-ELSEWHERE', 'another-project')
+  const { id, worktree } = await workerOnItsOwnTicket('M-BODY', 't81', { ...greenCodePr('M-BODY'), title: 'fix merge', headRefName: 'feature/y', body: 'Closes M-BODY, M-ELSEWHERE' })
+  const dir = join(tmp, 'board-m-body')
+  await mkdir(dir)
+  await writeFile(join(dir, 'repos.json'), JSON.stringify({ 'm-body': repo }))
+  const r = await mergeAsTheWorker('M-BODY', 't81', worktree, { NAWABAN_BOARD_DIR: dir })
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
   expect(r.gh).toMatch(/^pr merge 5 --squash/m)

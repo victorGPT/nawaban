@@ -9,7 +9,7 @@ import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
 import { checksOf, claimAssignedToMe, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf, workerProfileOf } from './dispatch.ts'
 import { githubTokenOf } from './github-account.ts'
-import { mergeGate, tasksThePullRequestNames } from './impact.ts'
+import { mergeGate, projectOf, tasksThePullRequestNames } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
 import { DIR } from './server.ts'
 import { all, closeDone, forgetTheClaimOf, live, profile, reclaimedIfItLapsedInMyHands, resolve, resultsOf, whyNotCloseable } from './tasks.ts'
@@ -302,18 +302,19 @@ async function claimNextElseRetire(closed: MessageView, root: string, did: strin
   return { kind: 'done', did: [...did, `收 worker ${terminal}`], thenRetire: retirable }
 }
 
-async function ticketThePullRequestNamesPreferringMine(pr: PullRequest): Promise<MessageView | null> {
-  const named = tasksThePullRequestNames(pr, (await all({ state: 'all' })).filter((t) => t.task?.state !== 'canceled'))
-  const mine = named.filter((t) => !heldByThisSession(t))
-  return mine.length === 1 ? mine[0]! : named.length === 1 ? named[0]! : null
+async function theOneTicketOfThisProjectThePullRequestNames(pr: PullRequest, root: string): Promise<MessageView | null> {
+  const project = await projectOf(DIR, root)
+  if (!project) return null
+  const [only, ...more] = tasksThePullRequestNames(pr, (await all({ channel: project, state: 'all' })).filter((t) => t.task?.state !== 'canceled'))
+  return more.length ? null : (only ?? null)
 }
 
 async function outcomeOf(r: Run): Promise<Outcome> {
   const pr = await viewOf(r.n)
-  const name = WORKTREE_BRANCH.exec(pr.headRefName)?.[1]
-  r.task = (name ? await resolve(name.toUpperCase()).catch(() => null) : null) ?? (await ticketThePullRequestNamesPreferringMine(pr))
-  if (!r.task) return { kind: 'refused', why: `分支 ${pr.headRefName} 找不到票（要 wt/<票号小写>），PR 标题和正文的 Closes/Fixes/Refs 也没认出唯一一张票` }
   if (!r.root) return { kind: 'refused', why: '在本仓库的 worktree 里跑 merge' }
+  const name = WORKTREE_BRANCH.exec(pr.headRefName)?.[1]
+  r.task = (name ? await resolve(name.toUpperCase()).catch(() => null) : null) ?? (await theOneTicketOfThisProjectThePullRequestNames(pr, r.root))
+  if (!r.task) return { kind: 'refused', why: `分支 ${pr.headRefName} 找不到票（要 wt/<票号小写>），PR 标题和正文的 Closes/Fixes/Refs 也没认出本项目唯一一张票` }
   const alreadyMerged = pr.state === 'MERGED' && !!pr.mergeCommit
   if (!alreadyMerged) {
     r.task = await reclaimedIfItLapsedInMyHands(r.task)
