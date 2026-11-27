@@ -2,7 +2,9 @@ import json
 import os
 import sys
 
-from repo_write import HEREDOC_START, SEPARATORS, closing_paren, free_dirs, shell_tokens, without_heredoc_bodies, without_prefixes
+import re
+
+from repo_write import HEREDOC_START, REDIRECTS, SEPARATORS, closing_paren, free_dirs, shell_tokens, without_heredoc_bodies, without_prefixes
 
 ORCHESTRATION_PROGRAMS = {"nawaban", "hc", "cd", "echo", "printf", "true", "sleep"}
 STDIN_FILTER_FLAGS_AND_VALUED_FLAGS = {
@@ -18,6 +20,7 @@ STDIN_FILTER_FLAGS_AND_VALUED_FLAGS = {
 STDIN_FILTERS_WITH_AN_EXPRESSION = {"jq", "grep"}
 GH_READS = {("issue", "view"), ("issue", "list"), ("pr", "view"), ("pr", "list")}
 GIT_READS = {"log", "status"}
+GIT_LOG_CONTENT_OPTIONS = re.compile(r"^(-p|-u|-U\d*|-L.*|-S.*|-G.*|--patch.*|--unified.*|--word-diff.*|--color-words.*|--cc|--raw|--ext-diff|--textconv|--find-object.*)$")
 GIT_OPTIONS_WITH_A_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 INSTRUCTION_FILES = {"AGENTS.md", "CLAUDE.md"}
 INSTRUCTION_DIR = os.sep + os.path.join("docs", "agents") + os.sep
@@ -98,10 +101,12 @@ def reads_only_stdin(name, args):
     return len(operands) <= (name in STDIN_FILTERS_WITH_AN_EXPRESSION)
 
 
-def git_subcommand(args):
+def git_reads_metadata(args):
     while args and args[0].startswith("-"):
         args = args[2:] if args[0] in GIT_OPTIONS_WITH_A_VALUE else args[1:]
-    return args[0] if args else None
+    if not args or args[0] not in GIT_READS:
+        return False
+    return args[0] != "log" or not any(GIT_LOG_CONTENT_OPTIONS.match(a) for a in args[1:])
 
 
 def program_allowed(words):
@@ -114,25 +119,31 @@ def program_allowed(words):
     if name == "gh":
         return tuple(args[:2]) in GH_READS
     if name == "git":
-        return git_subcommand(args) in GIT_READS
+        return git_reads_metadata(args)
     if name in STDIN_FILTER_FLAGS_AND_VALUED_FLAGS:
         return reads_only_stdin(name, args)
     return False
 
 
-def shell_refusal(command):
+def shell_refusal(command, cwd):
     for inner in substitutions(command):
-        refused = shell_refusal(inner)
+        refused = shell_refusal(inner, cwd)
         if refused:
             return refused
-    words, heredoc_delimiter_next = [], False
+    words, redirect = [], None
     for is_operator, token in list(shell_tokens(command)) + [(True, ";")]:
         if not is_operator:
-            if not heredoc_delimiter_next:
+            if redirect == "<" and not readable(token, cwd):
+                return f"< {token}"
+            if redirect is None:
                 words.append(token)
-            heredoc_delimiter_next = False
+            redirect = None
             continue
-        heredoc_delimiter_next = token == "<<"
+        if token in REDIRECTS | {"<", "<<", "<<<"}:
+            if words and words[-1].isdigit():
+                words.pop()
+            redirect = token
+            continue
         if token not in SEPARATORS:
             continue
         if not program_allowed(words):
@@ -147,7 +158,7 @@ def refusal(d):
     tool, tool_input = d.get("tool_name", ""), d.get("tool_input") or {}
     cwd = d.get("cwd") or os.getcwd()
     if tool == "Bash":
-        return shell_refusal(tool_input.get("command", ""))
+        return shell_refusal(tool_input.get("command", ""), cwd)
     if tool == "Read":
         path = tool_input.get("file_path") or ""
         return None if readable(path, cwd) else f"Read {path}"
