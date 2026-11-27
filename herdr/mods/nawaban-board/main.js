@@ -12,8 +12,8 @@ const WATCHED_BOARD_MISSED_CHANGE_REREAD_MS = 60000;
 const OKR_READ_GIVEN_UP_AFTER_MS = 5000;
 const ICON = (name) => "mods/nawaban-board/" + name + ".svg";
 const HERDR_ICON = (name) => "mods/workspace-chrome/" + name + ".svg";
-const CLI = () => home() + "/nawaban/board/src/cli.ts";
-const CLI_ON_ANOTHER_MACHINE = 'exec node "$HOME/nawaban/board/src/cli.ts" "$@"';
+const CLI = () => home() + "/.local/bin/nawaban";
+const CLI_ON_ANOTHER_MACHINE = 'exec "$HOME/.local/bin/nawaban" "$@"';
 
 const INK = {
   canvas: "#000000", popover: "#0f0f10", border: "#ffffff14", hover: "#ffffff0a", selected: "#ffffff0f",
@@ -80,17 +80,18 @@ const spaceId = () => focused()?.space ?? spaces().find((s) => s.active)?.id;
 const runCli = (args, at, timeout) =>
   at.on
     ? exec("sh", ["-c", CLI_ON_ANOTHER_MACHINE, "sh", ...args], { cwd: at.cwd, on: at.on, timeout })
-    : exec("node", [CLI(), ...args], { cwd: at.cwd, timeout });
+    : exec("sh", [CLI(), ...args], { cwd: at.cwd, timeout });
 
 const parseJsonOrNull = (text) => {
   try { return JSON.parse(text || "null"); } catch { return null; }
 };
 const lastLine = (text) => text?.trim().split("\n").pop();
+const crashLine = (text) => text?.split("\n").find((l) => /^\w*Error\b/.test(l)) ?? lastLine(text);
 
 async function nawaban(args, at, timeout) {
   const r = await runCli(args, at, timeout);
   const out = parseJsonOrNull(r.stdout);
-  if (r.code !== 0 || !out || out.error) throw new Error(out?.error || lastLine(r.stderr) || "exit " + r.code);
+  if (r.code !== 0 || !out || out.error) throw new Error(out?.error || crashLine(r.stderr) || "exit " + r.code);
   return out;
 }
 

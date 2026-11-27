@@ -470,7 +470,7 @@ test("a space on another machine is read there: the CLI under that machine's hom
     view.init({}, cx);
     await new Promise((r) => setImmediate(r));
     const cli = calls.filter((c) => c.args.includes("json"));
-    assert.ok(cli.length >= 2 && cli.every((c) => c.cmd === "sh" && c.args[1].includes('$HOME/nawaban/board/src/cli.ts')));
+    assert.ok(cli.length >= 2 && cli.every((c) => c.cmd === "sh" && c.args[1].includes('$HOME/.local/bin/nawaban')));
     assert.ok(calls.filter((c) => c.cmd !== "defaults" && !(c.cmd === "sh" && c.args[1].includes("LANG")))
       .every((c) => c.opts.on === "mbp" && c.opts.cwd === "/Users/v/roubao"));
     assert.ok(!cli.some((c) => c.args.includes("db")), "a remote board is polled, not watched");
@@ -495,8 +495,8 @@ test("the panel reads every json verb with the board CLI", async () => {
     const view = new NawabanBoard();
     view.init({}, cx);
     for (let i = 0; i < 200 && calls.length < 4; i++) await new Promise((r) => setTimeout(r, 25));
-    assert.deepEqual(calls.filter(([c]) => c !== "defaults" && c !== "sh").sort(),
-      ["board", "db", "okr", "projects"].map((v) => ["node", "/h/nawaban/board/src/cli.ts", v]).sort());
+    assert.deepEqual(calls.filter(([c, first]) => c !== "defaults" && first !== "-c").sort(),
+      ["board", "db", "okr", "projects"].map((v) => ["sh", "/h/.local/bin/nawaban", v]).sort());
   } finally {
     where = here;
     execImpl = async () => ({ code: 1 });
@@ -776,5 +776,20 @@ test("收件箱 keeps what is typed on Enter per project, hands it to this repo'
     terminals = realTerminals;
     hcImpl = async () => ({ code: 0, stdout: "", stderr: "" });
     stored.clear();
+  }
+});
+
+test("a CLI that crashes shows its Error line, not node's closing version line", async () => {
+  const quiet = { spawn() {}, notify() {} };
+  const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
+  const stderr = "node:internal/modules/package_json_reader:331\n  throw new ERR_MODULE_NOT_FOUND(...);\n\nError [ERR_MODULE_NOT_FOUND]: Cannot find package 'yaml'\n    at x\n\nNode.js v26.8.1\n";
+  execImpl = async (_cmd, args = []) => (args[1] === "json" ? { code: 1, stdout: "", stderr } : { code: 1, stdout: "" });
+  try {
+    const view = new NawabanBoard();
+    view.init({}, cx);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(view.error, "Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'yaml'");
+  } finally {
+    execImpl = async () => ({ code: 1 });
   }
 });
