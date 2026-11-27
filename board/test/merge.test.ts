@@ -43,7 +43,8 @@ esac
 `
 
 const PNPM_STAND_IN_LOGGING_CALLS = `#!/bin/sh
-printf '%s\\n' "$*" >> "$PNPM_LOG"
+[ -n "$PNPM_LOG" ] && printf '%s\\n' "$*" >> "$PNPM_LOG"
+if [ -n "$PNPM_FAIL" ]; then echo 'ERR_PNPM_FETCH_503' >&2; exit 1; fi
 `
 
 const git = (cwd: string, ...args: string[]) => exec('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args])
@@ -598,10 +599,16 @@ it('holds a schema change when the main checkout is the plugin, never pulling it
   expect(r.stderr).toContain('插件要拉进来的改动里有 schema')
 })
 
-it('pulls the plugin when it tracks this repository and the PR touches no schema, installing nothing while no lockfile changed', async () => {
+it('pulls the plugin when it tracks this repository and the PR touches no schema, installing nothing while every lockfile matches what is installed', async () => {
   const plugin = join(tmp, 'plugin-ok')
   await exec('git', ['clone', '-q', join(tmp, 'origin.git'), plugin])
   const { worktree } = await workerOnItsOwnTicket('M-PLUG', 't79')
+  await upstreamCommit('landed M-PLUG', 'web/pnpm-lock.yaml')
+  await git(plugin, 'pull', '-q', '--ff-only')
+  for (const lockfile of (await git(plugin, 'ls-files', '*pnpm-lock.yaml')).stdout.trim().split('\n')) {
+    await mkdir(join(plugin, lockfile, '..', 'node_modules', '.pnpm'), { recursive: true })
+    await writeFile(join(plugin, lockfile, '..', 'node_modules', '.pnpm', 'lock.yaml'), await readFile(join(plugin, lockfile)))
+  }
   await upstreamCommit('landed M-PLUG')
   const pnpmLog = join(tmp, 'pnpm-M-PLUG.log')
   const r = await mergeAsTheWorker('M-PLUG', 't79', worktree, { NAWABAN_PLUGIN_DIR: plugin, PNPM_LOG: pnpmLog })
@@ -610,16 +617,21 @@ it('pulls the plugin when it tracks this repository and the PR touches no schema
   expect(existsSync(pnpmLog)).toBe(false)
 })
 
-it('installs the dependencies of the plugin when the pull changes a lockfile, so the CLI keeps loading', async () => {
+it('installs the dependencies of the plugin when a pulled lockfile differs from what is installed, again on a rerun after the install failed', async () => {
   const plugin = join(tmp, 'plugin-deps')
   await exec('git', ['clone', '-q', join(tmp, 'origin.git'), plugin])
   const { worktree } = await workerOnItsOwnTicket('M-DEPS', 't82')
   await upstreamCommit('landed M-DEPS', 'board/pnpm-lock.yaml')
   const pnpmLog = join(tmp, 'pnpm-M-DEPS.log')
-  const r = await mergeAsTheWorker('M-DEPS', 't82', worktree, { NAWABAN_PLUGIN_DIR: plugin, PNPM_LOG: pnpmLog })
-  expect(r.stderr).toBe('')
-  expect(r.code).toBe(0)
-  expect(await readFile(pnpmLog, 'utf8')).toBe(`--dir ${join(plugin, 'board')} install --frozen-lockfile\n`)
+  const failed = await mergeAsTheWorker('M-DEPS', 't82', worktree, { NAWABAN_PLUGIN_DIR: plugin, PNPM_LOG: pnpmLog, PNPM_FAIL: '1' })
+  expect(failed.code).toBe(1)
+  expect(failed.stderr).toContain('插件 board/pnpm-lock.yaml 和装好的依赖不一致，装依赖失败')
+  await writeFile(join(tmp, 'pr-M-DEPS.json'), JSON.stringify({ ...greenCodePr('M-DEPS'), state: 'MERGED', mergeCommit: { oid: 'f00' } }))
+  const rerun = await mergeAsTheWorker('M-DEPS', 't82', worktree, { NAWABAN_PLUGIN_DIR: plugin, PNPM_LOG: pnpmLog })
+  expect(rerun.stderr).toBe('')
+  expect(rerun.code).toBe(0)
+  const boardInstalls = (await readFile(pnpmLog, 'utf8')).split('\n').filter((line) => line === `--dir ${join(plugin, 'board')} install --frozen-lockfile`)
+  expect(boardInstalls).toHaveLength(2)
 })
 
 it('copies the pulled Herdr panel over the installed one, keeping the files Herdr put there', async () => {
