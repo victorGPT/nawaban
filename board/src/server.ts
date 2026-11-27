@@ -12,7 +12,6 @@ import { local } from '@vercel/board/backend-local'
 import { inspector } from '@vercel/board/inspect'
 import { registerSchemas } from './schemas.ts'
 import { impactNames, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
-import { githubRepos, ISSUE_KEY, oldCli, projectOfGithub, type GithubBoard, type OldCli } from './github.ts'
 import { currentGithubAsk, githubRepliesOf, inGithubFormat, HELD_FOR_A_GITHUB_ASK, openIssuesWithoutAnOpenTask, settleIssueTasks, type EditRoot, type KnownIssue } from './github-tasks.ts'
 import { deliverAsSignedWebhook, ghReader, githubSyncConfigToPoll, importOnlySync, pollForever, readerToken, refusingGithubWrites, webhookSecret } from './github-sync.ts'
 import { ghPoster, pushAccountOf, pushForever } from './github-push.ts'
@@ -57,11 +56,9 @@ const TYPES: Record<string, string> = {
 }
 
 type Team = ReturnType<typeof board>
-type Github = { cli: OldCli; read: <T>(repo: string, args: string[]) => Promise<T>; moved: (repo: string) => void }
 const CHANGED = 'changed'
 const VIEWS = 'views'
 const PULLS = 'pulls'
-const githubGroup = (repo: string) => `github:${repo}`
 
 export const boardDirAsConfiguredWhenAsked = () => process.env.NAWABAN_BOARD_DIR ?? join(homedir(), '.nawaban', 'board')
 export const DIR = boardDirAsConfiguredWhenAsked()
@@ -218,53 +215,10 @@ function changes(signal: AbortSignal, viewsChanged: EventTarget) {
   )
 }
 
-async function githubRepoOf(dir: string, project: string | null) {
-  const repos = project ? await githubRepos(dir) : {}
-  return project && Object.hasOwn(repos, project) ? repos[project]! : null
-}
-
-async function allProjects(team: Team, dir: string, github: Github) {
-  const onTheBoard = (await projectsData(team)).projects
-  const shown = new Set(onTheBoard.map((p) => p.name))
-  const onGithub = Object.entries(await githubRepos(dir)).filter(([name]) => !shown.has(name))
-  const boards = await Promise.all(onGithub.map(([, repo]) => github.read<GithubBoard>(repo, ['json', 'board']).catch(() => null)))
-  const projects = [...onTheBoard, ...onGithub.map(([name], i) => projectOfGithub(name, boards[i]!))]
-  return { projects: projects.sort((a, b) => (a.name < b.name ? -1 : 1)) }
-}
-
-const issueKeyOf = (segment: string) => {
-  const key = decodeURIComponent(segment)
-  return ISSUE_KEY.test(key) ? key : null
-}
-
-async function githubView(github: Github, repo: string, what: string | undefined, rest: string[]) {
-  if (what === 'board' && !rest.length) return Response.json(await github.read(repo, ['json', 'board']))
-  if (what === 'okr' && !rest.length) return Response.json(await github.read(repo, ['json', 'okr', '--repo', repo]))
-  if (what === 'task' && rest.length === 1 && rest[0]) {
-    let key
-    try {
-      key = issueKeyOf(rest[0])
-    } catch {
-      return refuse(400, 'bad task key')
-    }
-    if (!key) return refuse(404, `任务不存在:${rest[0]}`)
-    try {
-      return Response.json(await github.read(repo, ['json', 'task', key]))
-    } catch (error) {
-      if (error instanceof Refused) return refuse(404, error.message)
-      throw error
-    }
-  }
-  return null
-}
-
-async function view(team: Team, dir: string, pullStateOf: PullStateOf, github: Github, path: string, query: URLSearchParams) {
+async function view(team: Team, dir: string, pullStateOf: PullStateOf, path: string, query: URLSearchParams) {
   const [what, ...rest] = path.split('/')
-  const repo = await githubRepoOf(dir, query.get('project'))
-  const onGithub = repo && (await githubView(github, repo, what, rest))
-  if (onGithub) return onGithub
   if (what === 'board' && !rest.length) return Response.json(await boardData(team, query.get('project') || undefined, dir))
-  if (what === 'projects' && !rest.length) return Response.json(await allProjects(team, dir, github))
+  if (what === 'projects' && !rest.length) return Response.json(await projectsData(team))
   if (what === 'okr' && !rest.length) {
     const project = query.get('project')
     const repos = project ? await reposReadOnEveryUseSoEditsNeedNoRestart(dir) : {}
@@ -347,30 +301,9 @@ async function answer(team: Team, asThisPerson: (body: unknown) => Promise<Respo
   return Response.json(answerToTheCurrentHold(written.message, written.replies, await githubRepliesOf(team, written.message, written.replies)), { status: 201 })
 }
 
-async function answerOnGithub(github: Github, repo: string, segment: string, request: Request) {
-  let key
-  try {
-    key = issueKeyOf(segment)
-  } catch {
-    return refuse(400, 'bad task key')
-  }
-  const said = answerSent(await jsonSent(request, ANSWER_SHAPE))
-  if (!key) return refuse(409, `${segment} 没有在等决策者答复`)
-  const { pending } = JSON.parse(await github.cli(repo, ['json', 'task', key])) as { pending?: { ask?: string } | null }
-  if (!pending) return refuse(409, `${key} 没有在等决策者答复`)
-  if (pending.ask !== said.ask) return theCardChanged(key)
-  const { option, words } = said.answer
-  await github.cli(repo, ['event', key, '--kind', 'resolve', '--by', 'user', '--body', option ? `选 ${option}：${words}` : words])
-  github.moved(repo)
-  return Response.json({ task: key, option: option ?? null, words, at: new Date().toISOString() }, { status: 201 })
-}
-
-async function write(team: Team, asThisPerson: (body: unknown) => Promise<Response>, github: Github, dir: string, path: string, query: URLSearchParams, request: Request) {
+async function write(team: Team, asThisPerson: (body: unknown) => Promise<Response>, path: string, query: URLSearchParams, request: Request) {
   const [what, ...rest] = path.split('/')
-  if (what === 'answer' && request.method === 'POST' && rest.length === 1 && rest[0]) {
-    const repo = await githubRepoOf(dir, query.get('project'))
-    return repo ? answerOnGithub(github, repo, rest[0], request) : answer(team, asThisPerson, rest[0], request)
-  }
+  if (what === 'answer' && request.method === 'POST' && rest.length === 1 && rest[0]) return answer(team, asThisPerson, rest[0], request)
   if (what === 'inbox' && request.method === 'POST' && !rest.length) {
     return Response.json(await keepInboxItem(team, query.get('project') ?? '', await wordsSent(request)), { status: 201 })
   }
@@ -400,7 +333,7 @@ async function builtFile(pathname: string, dist: string) {
 
 export function site(
   team: Team,
-  { dir, webToken, boardToken, port, dist = BUILT_PAGE, tailnet, pullStateOf = noPullStates, cli = oldCli }: { dir: string; webToken: string; boardToken: string; port: number; dist?: string; tailnet?: string; pullStateOf?: PullStateOf; cli?: OldCli },
+  { dir, webToken, boardToken, port, dist = BUILT_PAGE, tailnet, pullStateOf = noPullStates }: { dir: string; webToken: string; boardToken: string; port: number; dist?: string; tailnet?: string; pullStateOf?: PullStateOf },
 ) {
   const want = Buffer.from(webToken)
   const viewsChanged = new EventTarget()
@@ -413,15 +346,10 @@ export function site(
   const kept = keptReads(dir, (group, changed) => {
     if (changed) void (group === VIEWS ? tellThePage() : movedThenTell(VIEWS))
   })
-  const github: Github = {
-    cli,
-    read: (repo, args) => kept.read(githubGroup(repo), `github:${repo}:${JSON.stringify(args)}`, () => cli(repo, args).then((out) => JSON.parse(out)), { local: false }),
-    moved: (repo) => void movedThenTell(githubGroup(repo)),
-  }
   const pullStateInTheBackground: PullStateOf = (url) => kept.read(PULLS, `pull:${url}`, () => pullStateOf(url), { local: false }).catch(() => null)
   const keptView = async (path: string, query: URLSearchParams) => {
     const answered = await kept.read(VIEWS, `view:${path}?${[...query].sort().join('&')}`, async () => {
-      const r = await view(team, dir, pullStateInTheBackground, github, path, query)
+      const r = await view(team, dir, pullStateInTheBackground, path, query)
       return { status: r.status, body: await r.text() }
     }, { local: true })
     return new Response(answered.body, { status: answered.status, headers: { 'content-type': 'application/json' } })
@@ -458,7 +386,7 @@ export function site(
     const path = pathname.slice(API.length)
     try {
       const answered = await (!READS.has(request.method)
-        ? write(team, asThisPerson, github, dir, path, searchParams, request).finally(() => void movedThenTell(VIEWS))
+        ? write(team, asThisPerson, path, searchParams, request).finally(() => void movedThenTell(VIEWS))
         : path === 'changes'
           ? changes(request.signal, viewsChanged)
           : keptView(path, searchParams))

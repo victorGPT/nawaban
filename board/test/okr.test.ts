@@ -954,13 +954,7 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect(hardStop(o, [round(1, [], ['O']), round(2, [])], '', rows)).toBeNull()
   })
 
-  it('refuses okr in a repository the old CLI keeps, keeping nothing', async () => {
-    const p = await kOnly()
-    await writeFile(join(p.root, 'docs/agents/issue-tracker.md'), '# GitHub Issues\n')
-    const refused = await measuring(p, 80, 10)
-    expect([refused.code, refused.err]).toEqual([1, expect.stringContaining('改用旧 CLI')])
-    expect((await jokr(p)).data.objectives[0].krs[0].value).toBeNull()
-  })
+
 })
 
 describe('committed KRs hold a line, aspirational ones score, and an Objective is done on both', () => {

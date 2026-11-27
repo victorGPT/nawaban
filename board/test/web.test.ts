@@ -15,7 +15,6 @@ import { registerSchemas } from '../src/schemas.ts'
 import { run } from '../src/tasks.ts'
 import { event } from '../src/events.ts'
 import { boardData, taskDetail } from '../src/views.ts'
-import { theWebTokenHolderAtAShell } from '../src/github.ts'
 
 const SECRET = 'board-secret'
 const WEB_SECRET = 'web-secret'
@@ -442,81 +441,3 @@ it('refuses an inbox write it can\'t keep, and keeps nothing', async () => {
   expect(await inboxOf('bad')).toEqual([])
 })
 
-it('reads a GitHub-tracked repository in repos.json through the old CLI, and answers its 待决 with an 已决', async () => {
-  const repo = await mkdtemp(join(tmpdir(), 'nawaban-web-roubao-'))
-  await mkdir(join(repo, 'docs', 'agents'), { recursive: true })
-  await writeFile(join(repo, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
-  const ghDir = await mkdtemp(join(tmpdir(), 'nawaban-web-gh-board-'))
-  await writeFile(join(ghDir, 'repos.json'), JSON.stringify({ roubao: repo, nawaban: dir }))
-  let pending: { ask: string } | null = { ask: 'c1:0' }
-  const calls: string[][] = []
-  const githubBoard = { tracker: 'github', columns: [{ key: 'open', tasks: [{ id: '#7', status: 'open', pending }] }, { key: 'done', tasks: [{ id: '#6', status: 'done' }] }] }
-  const cli = async (at: string, args: string[]) => {
-    expect(at).toBe(repo)
-    calls.push(args)
-    if (args[1] === 'board') return JSON.stringify(githubBoard)
-    if (args[1] === 'okr') return JSON.stringify({ repo, objectives: [] })
-    if (args[1] === 'task') return JSON.stringify({ id: args[2], pending })
-    pending = null
-    return '✓ event'
-  }
-  handler = site(team, { dir: ghDir, webToken: WEB_SECRET, boardToken: SECRET, port, dist, cli })
-  try {
-    const stillReading = await send('/api/nawaban/board?project=roubao')
-    expect(stillReading.status, 'the first read of a GitHub board waits for no one').toBe(503)
-    expect(JSON.parse((await eventually(() => send('/api/nawaban/board?project=roubao'), (r) => r.status === 200)).body)).toEqual(githubBoard)
-    await send('/api/nawaban/board?project=roubao')
-    expect(calls.filter((c) => c[1] === 'board'), 'one gh read serves reads close together').toHaveLength(1)
-    expect(JSON.parse((await send('/api/nawaban/projects')).body).projects).toContainEqual({ name: 'roubao', open: 1, total: 2, waiting: 1 })
-    expect(JSON.parse((await eventually(() => send('/api/nawaban/okr?project=roubao'), (r) => r.status === 200)).body)).toEqual({ repo, objectives: [] })
-    expect(JSON.parse((await eventually(() => send('/api/nawaban/task/%237?project=roubao'), (r) => r.status === 200)).body)).toEqual({ id: '#7', pending })
-    expect((await send('/api/nawaban/task/--help?project=roubao')).status).toBe(404)
-
-    const asPage = (key: string, answer: unknown) =>
-      send(`/api/nawaban/answer/${encodeURIComponent(key)}?project=roubao`, { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify(answer) })
-    expect((await asPage('#7', { ask: 'an-older-card', words: '发' })).status).toBe(409)
-    expect((await asPage('--kind', { ask: 'c1:0', words: '发' })).status).toBe(409)
-    const written = await asPage('#7', { ask: 'c1:0', option: 'A', words: '就这么定' })
-    expect(written.status).toBe(201)
-    expect(JSON.parse(written.body)).toMatchObject({ task: '#7', option: 'A', words: '就这么定' })
-    expect(calls).toContainEqual(['event', '#7', '--kind', 'resolve', '--by', 'user', '--body', '选 A：就这么定'])
-    expect((await asPage('#7', { ask: 'c1:0', words: '再答一次' })).status).toBe(409)
-    await eventually(async () => calls.filter((c) => c[1] === 'board').length, (n) => n === 2)
-    expect(JSON.parse((await eventually(() => send('/api/nawaban/task/%237?project=roubao'), (r) => JSON.parse(r.body).pending === null)).body), 'an answer reads the task again').toEqual({ id: '#7', pending: null })
-    const later = Date.now() + 60_000
-    vi.spyOn(Date, 'now').mockReturnValue(later)
-    try {
-      await send('/api/nawaban/board?project=roubao')
-      await eventually(async () => calls.filter((c) => c[1] === 'board').length, (n) => n === 3)
-    } finally {
-      vi.restoreAllMocks()
-    }
-
-    const ghReadsHang = () => new Promise<string>(() => {})
-    handler = site(team, { dir: ghDir, webToken: WEB_SECRET, boardToken: SECRET, port, dist, cli: ghReadsHang, pullStateOf: () => new Promise(() => {}) })
-    const afterARestart = await send('/api/nawaban/board?project=roubao')
-    expect(afterARestart.status, 'a restart answers from what it read last').toBe(200)
-    expect(JSON.parse(afterARestart.body)).toEqual(githubBoard)
-    for (const path of ['projects', 'okr?project=roubao', 'task/%237?project=roubao', 'task/%238?project=roubao', 'board?project=nawaban', 'answers?project=roubao']) {
-      expect([200, 503], `${path} answers while GitHub never does`).toContain((await send('/api/nawaban/' + path)).status)
-    }
-  } finally {
-    handler = site(team, { dir, webToken: WEB_SECRET, boardToken: SECRET, port, dist })
-  }
-})
-
-it('runs the old CLI as the token holder at a shell, so it may record an 已决 under a name', () => {
-  vi.stubEnv('CLAUDE_CODE_SESSION_ID', 'aaaa1111-0000-0000-0000-000000000000')
-  vi.stubEnv('HC_TERMINAL_ID', 't1')
-  vi.stubEnv('CODEX_THREAD_ID', 'codex-1')
-  try {
-    const said = execFileSync('python3', ['-c', 'from nawaban.cli import identity, _orchestrator_here; print(identity(), _orchestrator_here())'], {
-      cwd: join(import.meta.dirname, '..', '..'),
-      env: theWebTokenHolderAtAShell('victor'),
-      encoding: 'utf8',
-    })
-    expect(said.trim()).toBe('victor True')
-  } finally {
-    vi.unstubAllEnvs()
-  }
-})

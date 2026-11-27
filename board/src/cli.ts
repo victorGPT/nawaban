@@ -13,9 +13,8 @@ import { merge } from './merge.ts'
 import { jsonOkr, okr, okrStat } from './okr.ts'
 import { status } from './orchestrator.ts'
 import { boardDirAsConfiguredWhenAsked, DIR, PORT, serve, urlFor, web, webOverTailnet } from './server.ts'
-import { oldCli } from './github.ts'
-import { githubReplyHook, githubStateHook, share } from './github-push.ts'
-import { githubImpactHook } from './github-impact.ts'
+import { share } from './github-push.ts'
+import { backup } from './backup.ts'
 import { githubIssuesHeldBy, progress } from './progress.ts'
 import { heldBy, run } from './tasks.ts'
 import { json } from './views.ts'
@@ -78,10 +77,7 @@ const HOOKS: Record<string, Run> = {
   progress: () => progress(async (session) => [...(await heldBy(session)), ...githubIssuesHeldBy(DIR, session)], DIR),
   guard: () => guard(board(), DIR),
   'gh-account': () => ghAccountGuard(DIR),
-  'ask-guard': (rest) => askGuard(rest, { run: upstreamQuietly, team: board(), oldCli }),
-  'github-reply': (rest) => githubReplyHook(rest, board(), DIR),
-  'github-state': (rest) => githubStateHook(rest, board(), DIR),
-  'github-impact': (rest) => githubImpactHook(rest, board(), DIR),
+  'ask-guard': () => askGuard({ run: upstreamQuietly, team: board() }),
 }
 
 const COMMANDS: Record<string, Command> = {
@@ -211,7 +207,7 @@ const COMMANDS: Record<string, Command> = {
   },
   merge: { group: '派', usage: 'merge <PR>', about: '合并 PR，关票，领下一张或收掉 worker', flags: [['--wait <时长>', '领指派给你的下一张最多等多久，默认 10m'], ['--kr "<KR>=<后值> 实测|预计"', '带验收检查的票由检查关票，登记过的 KR 结果在这里报'], ['--json', '输出 JSON']], run: (rest) => merge(rest) },
   'okr-stat': { group: '少用', usage: 'okr-stat verdicts|prereg|drift', about: 'nawaban 自己 KR 的量法：声明符合率、预注册占比、账本漂移', run: (rest) => okrStat(rest, board(), DIR) },
-  route: { group: '少用', usage: 'route --brief <文本>', about: '只看自动路由会交给哪个在跑的 worker，不派；旧 CLI 的 dispatch 用它', flags: [['--agent claude|codex|agy', '默认 claude'], ['--model <模型>', 'claude 默认 opus'], ['--json', '输出 JSON']], run: (rest) => route(rest) },
+  route: { group: '少用', usage: 'route --brief <文本>', about: '只看自动路由会交给哪个在跑的 worker，不派', flags: [['--agent claude|codex|agy', '默认 claude'], ['--model <模型>', 'claude 默认 opus'], ['--json', '输出 JSON']], run: (rest) => route(rest) },
   tell: { group: '少用', usage: 'tell <票> <一句>', about: 'worker 把「回报：<票> <一句>」发给当前编排者；没找到就记在票上', run: (rest) => tell(rest) },
   block: { group: '少用', usage: 'block <票> <挡它的票>', about: '建票之后补一条被挡', flags: [['--json', '输出 JSON']], run: taskVerb('block') },
   share: { group: '少用', usage: 'share <票>', about: '把本地建的票开成 GitHub issue，只限本机 github-sync.json 的 push 里的仓库', run: (rest) => share(rest, board(), DIR) },
@@ -253,8 +249,9 @@ const COMMANDS: Record<string, Command> = {
       ['gh-account', '从标准输入读 PreToolUse 输入，gh 写操作的 token 不是仓库声明的账号时拦下，退出 2'],
       ['ask-guard [--tracker old]', '从标准输入读 Stop 输入，按回复里的 ask 块记待决或打回'],
     ],
-    run: ([name, ...rest]) => (name !== undefined && Object.hasOwn(HOOKS, name) ? HOOKS[name]!(rest) : Promise.resolve(misused('hook renew|progress|guard|gh-account|ask-guard|github-reply|github-state|github-impact'))),
+    run: ([name, ...rest]) => (name !== undefined && Object.hasOwn(HOOKS, name) ? HOOKS[name]!(rest) : Promise.resolve(misused('hook renew|progress|guard|gh-account|ask-guard'))),
   },
+  backup: { group: '本机服务', usage: 'backup', about: '把板文件 local.db 拷一份到 backups/，改 schema 或迁数据前跑', run: () => backup(DIR) },
   json: {
     group: '本机服务',
     usage: 'json <什么>',

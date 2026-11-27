@@ -6,7 +6,7 @@ Your agents publish a spec, split it into tasks, claim the ones that are ready a
 
 nawaban has three parts:
 
-- **CLI** (`nawaban/cli.py`): a Python command line; every read and write of the board goes through it. Its messages are in Chinese.
+- **CLI** (`board/src/cli.ts`, `nawaban` on PATH): a Node command line over the local board `nawaban serve` keeps; every read and write goes through it. Its messages are in Chinese.
 - **Skill** (`skills/nawaban/`): one instruction file that tells an agent how to publish a spec and its tasks, find the tasks ready to start, claim one, record notes, decisions and links, and close it.
 - **Herdr panel** (`herdr/mods/nawaban-board/`): a read-only view of the board in the [Herdr](https://herdr.dev) app.
 

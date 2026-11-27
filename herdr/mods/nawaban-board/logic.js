@@ -15,9 +15,6 @@ export function repoName(gitCommonDir) {
   return gitDir ? checkout : null;
 }
 
-export const BOARD_PROJECTS = new Set(["nawaban", "bzkanbanv2", "huafa"]);
-const onThisComputer = (machine) => machine == null;
-export const cliFor = (project, machine = null) => (onThisComputer(machine) && BOARD_PROJECTS.has(project) ? "board" : "old");
 
 const SUPPORTED_LANGS = ["zh", "en"];
 const prefersChinese = (system) => /^zh/i.test(String(system ?? "").replace(/[\s("]/g, ""));

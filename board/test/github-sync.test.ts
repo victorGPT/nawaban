@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,9 +6,7 @@ import { board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { deliverAsSignedWebhook, githubSyncConfig, githubSyncConfigToPoll, importOnlySync, pollRepo, recordRound, refusingGithubWrites, switchOnceEveryOpenIssueHasATask, syncStalledNote, type Reader } from '../src/github-sync.ts'
 import { openIssuesWithoutAnOpenTask, settleIssueTasks } from '../src/github-tasks.ts'
-import { recordSwitch } from '../src/github-sync-status.ts'
 import { githubRepoOfChannel } from '../src/github-impact.ts'
-import { githubRepos } from '../src/github.ts'
 import { boardData } from '../src/views.ts'
 import { verifier } from '../src/server.ts'
 
@@ -271,16 +269,6 @@ describe('同步停了要露出来', () => {
   it('看板 JSON 带上这句，面板据此显示', async () => {
     expect((await boardData(team, 'roubao', dir)).syncNote).toContain('还没跑过一轮')
     expect((await boardData(team, 'nawaban', dir)).syncNote).toBeUndefined()
-  })
-
-  it('切到板上的仓库不再从 GitHub 读，没切的照旧', async () => {
-    const repoDir = join(dir, 'roubao-checkout')
-    await mkdir(join(repoDir, 'docs/agents'), { recursive: true })
-    await writeFile(join(repoDir, 'docs/agents/issue-tracker.md'), '# Issue tracker: GitHub\n')
-    await writeFile(join(dir, 'repos.json'), JSON.stringify({ roubao: repoDir, other: repoDir }))
-    expect(Object.keys(await githubRepos(dir))).toEqual(['roubao', 'other'])
-    await recordSwitch(dir, REPO, { at: '2026-11-24T12:00:00.000Z', openIssues: 0 })
-    expect(Object.keys(await githubRepos(dir))).toEqual(['other'])
   })
 })
 

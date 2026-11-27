@@ -8,7 +8,6 @@ import { block, board } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
 import { checkValue, findBlocks } from '@vercel/board/schemas'
 import { whyToSendBack } from '../src/ask-guard.ts'
-import { Refused } from '../src/said.ts'
 import { listen, verifier } from '../src/server.ts'
 import { registerSchemas, SCHEMAS } from '../src/schemas.ts'
 
@@ -206,33 +205,3 @@ it('records a real block in an everyday reply and lets it through', EVERY_CASE_S
   expect((await asksOn(id)).asks.map((a) => a.data)).toEqual([card])
 })
 
-describe('on a repository the old CLI tracks', () => {
-  const asked: string[][] = []
-  const trackersRefusingWith = (refusal: string | null) => ({
-    run: async () => 1,
-    team,
-    onOldCli: true,
-    oldCli: async (_repo: string, args: string[]) => {
-      asked.push(args)
-      if (refusal) throw new Refused(refusal)
-      return ''
-    },
-  })
-  const stop = { session_id: SESSION, cwd: '/repo', last_assistant_message: replyWith(requestFor('#7')) }
-
-  it('records the ask with the old CLI and lets it through', async () => {
-    expect(await whyToSendBack(stop, trackersRefusingWith(null))).toBeNull()
-    expect(asked.at(-1)).toEqual([
-      'event', '#7', '--kind', 'ask', `--body=${card.decision}`, `--kr=${card.kr}`, `--context=${card.context}`,
-      '--option=A｜快，接口变 | 下游要跟｜双向门', '--option=B｜稳｜单向门', `--rec=${card.recommendation}`,
-    ])
-  })
-
-  it('lets it through when the issue already has an ask waiting', async () => {
-    expect(await whyToSendBack(stop, trackersRefusingWith('#7 已有待决,一个 issue 只放一件;先记已决(决策记录),或开子 issue'))).toBeNull()
-  })
-
-  it('sends it back with any other refusal', async () => {
-    expect(await whyToSendBack(stop, trackersRefusingWith('gh down'))).toBe('#7 记不成待决：gh down')
-  })
-})

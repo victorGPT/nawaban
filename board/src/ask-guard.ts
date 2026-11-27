@@ -1,9 +1,7 @@
-import { parseArgs } from 'node:util'
 import { text } from 'node:stream/consumers'
 import { block, type board } from '@vercel/board'
 import { checkValue, findBlocks, type FoundBlock } from '@vercel/board/schemas'
 import { askOn } from './events.ts'
-import { ISSUE_KEY, type OldCli } from './github.ts'
 import { gapsOfADecisionCard, SCHEMAS } from './schemas.ts'
 import { live, profilesTheHookSessionMayHold, resolve, sessionProfile } from './tasks.ts'
 import { Refused } from './said.ts'
@@ -13,7 +11,7 @@ type Run = (argv: string[]) => Promise<number>
 type Door = 'one-way' | 'two-way'
 type Request = { ticket: string; decision: string; kr: string; context: string; options: { choice: string; tradeoff: string; door: Door }[]; recommendation: string }
 export type Stop = { last_assistant_message?: string; session_id?: string; stop_hook_active?: boolean; cwd?: string }
-export type Trackers = { run: Run; team: Team; oldCli: OldCli; onOldCli: boolean }
+export type Trackers = { run: Run; team: Team }
 
 type Reading =
   | { kind: 'broken'; why: string }
@@ -21,16 +19,13 @@ type Reading =
   | { kind: 'missing'; ticket: string; why: string }
   | { kind: 'held'; ticket: string }
   | { kind: 'open'; id: string; as: string | undefined; request: Request }
-  | { kind: 'old'; request: Request }
 
 const REQUEST = 'nawaban-ask-request@1'
 const REQUEST_NAME = 'nawaban-ask-request'
 const HOLDS_ALREADY_WAITING_ON_A_PERSON = new Set(['awaiting_approval', 'needs_input'])
-const OLD_CLI_REFUSING_A_SECOND_PENDING_ASK = '已有待决'
-const DOOR_AS_THE_OLD_CLI_WRITES_IT: Record<Door, string> = { 'one-way': '单向门', 'two-way': '双向门' }
 const AGENT_OF_THE_SESSION_BY_ITS_MARK = [['CODEX_THREAD_ID', 'cx'], ['ANTIGRAVITY_CONVERSATION_ID', 'agy']] as const
 const SAMPLE = block(REQUEST, {
-  ticket: '<票，KEY 或 #N>',
+  ticket: '<票>',
   decision: '<要决策者定的事>',
   kr: '<O / KR>',
   context: '<影响这次决策的事实>',
@@ -66,7 +61,7 @@ async function onTheBoard(request: Request, session: string | undefined): Promis
   return { kind: 'open', id: task.id, as: profileAsking(task, session), request }
 }
 
-async function readingOf(found: FoundBlock, stop: Stop, onOldCli: boolean): Promise<Reading> {
+async function readingOf(found: FoundBlock, stop: Stop): Promise<Reading> {
   if (found.id !== REQUEST) return { kind: 'broken', why: found.problem ?? `${found.id} 不是 ${REQUEST}` }
   if (!found.data) return { kind: 'broken', why: found.problem ?? '块里不是 JSON 对象' }
   const why = checkValue(SCHEMAS[REQUEST].schema, found.data)
@@ -74,7 +69,7 @@ async function readingOf(found: FoundBlock, stop: Stop, onOldCli: boolean): Prom
   const request = found.data as Request
   const gaps = gapsOfADecisionCard(request)
   if (gaps.length) return { kind: 'unready', gaps }
-  return onOldCli || ISSUE_KEY.test(request.ticket) ? { kind: 'old', request } : onTheBoard(request, stop.session_id)
+  return onTheBoard(request, stop.session_id)
 }
 
 async function saidOnStderrWithStdoutMuted(work: () => Promise<number>) {
@@ -88,28 +83,6 @@ async function saidOnStderrWithStdoutMuted(work: () => Promise<number>) {
   } finally {
     stdout.write = out
     stderr.write = err
-  }
-}
-
-const oldCliAsk = ({ ticket, decision, kr, context, options, recommendation }: Request) => [
-  'event',
-  ticket,
-  '--kind',
-  'ask',
-  `--body=${decision}`,
-  `--kr=${kr}`,
-  `--context=${context}`,
-  ...options.map((o) => `--option=${o.choice}｜${o.tradeoff}｜${DOOR_AS_THE_OLD_CLI_WRITES_IT[o.door]}`),
-  `--rec=${recommendation}`,
-]
-
-async function recordedOnTheOldCli(request: Request, repo: string, trackers: Trackers): Promise<string | null> {
-  try {
-    await trackers.oldCli(repo, oldCliAsk(request))
-    return null
-  } catch (error) {
-    const why = (error as Error).message
-    return why.includes(OLD_CLI_REFUSING_A_SECOND_PENDING_ASK) ? null : `${request.ticket} 记不成待决：${why}`
   }
 }
 
@@ -129,7 +102,6 @@ const SEND_BACK_OR_LET_THROUGH: Answer = {
       throw error
     }
   },
-  old: (r, stop, trackers) => recordedOnTheOldCli(r.request, stop.cwd || process.cwd(), trackers),
 }
 
 const answer = <K extends Reading['kind']>(r: Extract<Reading, { kind: K }>, stop: Stop, trackers: Trackers) =>
@@ -142,7 +114,7 @@ export async function whyToSendBack(stop: Stop, trackers: Trackers): Promise<str
   for (const found of requestsIn(stop.last_assistant_message ?? '')) {
     let why
     try {
-      why = await answer(await readingOf(found, stop, trackers.onOldCli), stop, trackers)
+      why = await answer(await readingOf(found, stop), stop, trackers)
     } catch (error) {
       why = `${REQUEST} 块记不上，看板读不到：${(error as Error).message}`
     }
@@ -151,15 +123,14 @@ export async function whyToSendBack(stop: Stop, trackers: Trackers): Promise<str
   return null
 }
 
-export async function askGuard(argv: string[], trackers: Omit<Trackers, 'onOldCli'>): Promise<number> {
-  const { values } = parseArgs({ args: argv, options: { tracker: { type: 'string' } } })
+export async function askGuard(trackers: Trackers): Promise<number> {
   let stop: Stop
   try {
     stop = JSON.parse(await text(process.stdin))
   } catch {
     return 0
   }
-  const why = await whyToSendBack(stop, { ...trackers, onOldCli: values.tracker === 'old' })
+  const why = await whyToSendBack(stop, trackers)
   if (why) process.stdout.write(JSON.stringify({ decision: 'block', reason: why }) + '\n')
   return 0
 }

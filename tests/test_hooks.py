@@ -34,25 +34,6 @@ def test_nothing_when_hc_fails_even_if_it_printed_the_label(tmp_path):
     assert _run(tmp_path, {"role": "orchestrator"}, hc_exit=7) == ""
 
 
-FIXTURE_ISSUES = Path(__file__).resolve().parent / "fixtures" / "gh_issues.json"
-
-
-def test_an_orchestrator_launched_outside_its_github_repository_gets_that_repositorys_issues(tmp_path):
-    bin_ = tmp_path / "bin"; bin_.mkdir()
-    (bin_ / "hc").write_text(f"#!/bin/sh\necho '{json.dumps({'labels': {'role': 'orchestrator'}, 'pid': os.getpid()})}'\n"); (bin_ / "hc").chmod(0o755)
-    (bin_ / "gh").write_text(f'#!/bin/sh\ncase "$*" in *"--state open"*) cat {FIXTURE_ISSUES} ;; *) echo "[]" ;; esac\n'); (bin_ / "gh").chmod(0o755)
-    repo = tmp_path / "roubao"; (repo / "docs/agents").mkdir(parents=True)
-    (repo / "docs/agents/issue-tracker.md").write_text("# Issue tracker: GitHub\n")
-    (repo / "docs/agents/orchestrator.md").write_text("规矩正文\n")
-    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
-    launched_in_home_not_the_repository = tmp_path
-    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "HC_TERMINAL_ID": "t1",
-           "CLAUDE_PROJECT_DIR": str(launched_in_home_not_the_repository)}
-    out = subprocess.run(["sh", str(HOOK)], input=json.dumps({"session_id": "s1", "cwd": str(repo / "docs")}),
-                         cwd=tmp_path, env=env, capture_output=True, text=True).stdout
-    assert "roubao 进行中的事" in out and "角色方向分不清（示例）" in out and "规矩正文" in out
-
-
 DECLARE = HOOK.parent / "orchestrator-declare.sh"
 GUARD = HOOK.parent / "orchestrator-guard.sh"
 
@@ -90,7 +71,7 @@ def test_a_terminal_that_does_not_run_the_hook_is_not_labelled(tmp_path):
     proj = tmp_path / "proj"; proj.mkdir()
     subprocess.run(["git", "init", "-q", str(proj)], check=True)
     env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "HC_TERMINAL_ID": "t9",
-           "NAWABAN_CLI": "board", "NAWABAN_BOARD_DIR": str(tmp_path / "board")}
+           "NAWABAN_BOARD_DIR": str(tmp_path / "board")}
     out = subprocess.run(["sh", str(DECLARE)], input=json.dumps({"prompt": "$orchestrator", "session_id": "s", "cwd": str(proj)}),
                          cwd=tmp_path, env=env, capture_output=True, text=True).stdout
     assert "已把会话 s 记为 proj 的编排者" in out, out
@@ -147,7 +128,7 @@ def test_a_hand_written_state_comment_is_pointed_at_nawaban():
                 'gh issue comment 950 --body "$(cat <<EOF\n待决：定 A\nEOF\n)"', 'gh issue comment 9 --body="已决：A"',
                 'gh issue comment 9 --body "**决定**：用 B"', 'cd x && GH_TOKEN=t gh issue comment 9 --body "进展：y"', 'gh issue comment 9 --body "总结\n决定（e8）：B"'):
         r = _comment_guard(cmd)
-        assert r.returncode == 2 and "event '#N'" in r.stderr and "cli.py" in r.stderr, cmd
+        assert r.returncode == 2 and "nawaban event <项目>-<N>" in r.stderr and "cli.py" not in r.stderr, cmd
 
 
 def test_other_comments_and_commands_pass():

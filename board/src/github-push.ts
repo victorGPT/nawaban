@@ -311,13 +311,6 @@ export function pushForever(person: Person, dir: string, pushed: Record<string, 
   void round()
 }
 
-async function pushedChannelOrRefusal(dir: string, repo: string) {
-  const config = await githubSyncConfig(dir)
-  const channel = config?.repos[repo]
-  if (!channel || !config?.push?.includes(repo)) throw new Refused(`${repo} 没在本机 github-sync.json 的 push 里：照旧直写 GitHub`)
-  return channel
-}
-
 export async function pushAccountOf(dir: string, channel: string) {
   const checkout = (await reposReadOnEveryUseSoEditsNeedNoRestart(dir))[channel]
   if (!checkout) throw new Refused(`${join(dir, 'repos.json')} 里没有 ${channel} 的本地路径，不知道用哪个 GitHub 账号推`)
@@ -334,23 +327,6 @@ export async function saidAsAHook(write: () => Promise<string>): Promise<number>
     return 1
   }
 }
-
-export const githubReplyHook = ([repo, issue, ...extra]: string[], person: Person, dir: string) =>
-  saidAsAHook(async () => {
-    if (!repo || !/^\d+$/.test(issue ?? '') || extra.length) throw new Refused('用法：nawaban hook github-reply <owner/repo> <issue 号>，正文从标准输入读')
-    const channel = await pushedChannelOrRefusal(dir, repo)
-    const written = await writeForGithub(person, channel, repo, Number(issue), await wholeOf(process.stdin), async () => (await pushAccountOf(dir, channel)).account)
-    return `记在板上（${repo}#${issue}，消息 ${written.id}），联网时推到 GitHub`
-  })
-
-export const githubStateHook = ([repo, issue, wanted, ...extra]: string[], person: Person, dir: string) =>
-  saidAsAHook(async () => {
-    if (!repo || !/^\d+$/.test(issue ?? '') || !WANTED_STATES.includes(wanted as WantedState) || extra.length) {
-      throw new Refused(`用法：nawaban hook github-state <owner/repo> <issue 号> ${WANTED_STATES.join('|')}`)
-    }
-    await wantState(person, await pushedChannelOrRefusal(dir, repo), repo, Number(issue), wanted as WantedState)
-    return `记在板上（${repo}#${issue} → ${wanted}），联网时推到 GitHub`
-  })
 
 export async function share([ref, ...extra]: string[], person: Person, dir: string): Promise<number> {
   return saidAsAHook(async () => {
