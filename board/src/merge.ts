@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
 import { parse as parseYaml } from 'yaml'
-import { checksOf, claimAssignedToMe, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf, workerProfileOf } from './dispatch.ts'
+import { checksOf, claimAssignedToMe, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, repositoryOfProject, stdoutOrNullOnFailure, terminalOf, workerProfileOf } from './dispatch.ts'
 import { githubTokenOf } from './github-account.ts'
 import { mergeGate, projectOf, tasksThePullRequestNames } from './impact.ts'
 import { checkName, checkPassed, checkPending, checkSucceeded, type Check } from './pulls.ts'
@@ -399,6 +399,7 @@ async function outcomeOf(r: Run): Promise<Outcome> {
   const name = WORKTREE_BRANCH.exec(pr.headRefName)?.[1]
   r.task = (name ? await resolve(name.toUpperCase()).catch(() => null) : null) ?? (await theOneTicketOfThisProjectThePullRequestNames(pr, r.root))
   if (!r.task) return { kind: 'refused', why: `分支 ${pr.headRefName} 找不到票（要 wt/<票号小写>），PR 标题和正文的 Closes/Fixes/Refs 也没认出本项目唯一一张票` }
+  r.root = (await repositoryOfProject(r.task.channel)) ?? r.root
   const alreadyMerged = pr.state === 'MERGED' && !!pr.mergeCommit
   if (!alreadyMerged) {
     r.task = await reclaimedIfItLapsedInMyHands(r.task)
