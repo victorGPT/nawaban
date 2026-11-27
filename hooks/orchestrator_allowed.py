@@ -2,7 +2,7 @@ import json
 import os
 import sys
 
-from repo_write import SEPARATORS, closing_paren, free_dirs, shell_tokens, without_heredoc_bodies, without_prefixes
+from repo_write import HEREDOC_START, SEPARATORS, closing_paren, free_dirs, shell_tokens, without_heredoc_bodies, without_prefixes
 
 ORCHESTRATION_PROGRAMS = {"nawaban", "hc", "cd", "echo", "printf", "true", "sleep"}
 STDIN_FILTER_FLAGS_AND_VALUED_FLAGS = {
@@ -12,7 +12,7 @@ STDIN_FILTER_FLAGS_AND_VALUED_FLAGS = {
     "wc": ("lcwm", ""),
     "sort": ("nru", "kt"),
     "uniq": ("cdu", ""),
-    "grep": ("ivEFcnowxqh", "eABCm"),
+    "grep": ("ivEFcnowxqh", "ABCm"),
     "jq": ("rcejSsn", ""),
 }
 STDIN_FILTERS_WITH_AN_EXPRESSION = {"jq", "grep"}
@@ -35,15 +35,35 @@ def readable(path, cwd):
     return any(real == d or real.startswith(d + os.sep) for d in instruction_dirs())
 
 
+def unquoted_heredoc_bodies(command):
+    lines, i = command.split("\n"), 0
+    while i < len(lines):
+        for m in HEREDOC_START.finditer(lines[i]):
+            end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(2)), len(lines))
+            if not m.group(1):
+                yield "\n".join(lines[i + 1:end])
+            i = end
+        i += 1
+
+
 def substitutions(command):
-    s, i, in_double = without_heredoc_bodies(command, quoted_only=True), 0, False
+    yield from substitutions_in(without_heredoc_bodies(command), shell_quoting=True)
+    for body in unquoted_heredoc_bodies(command):
+        yield from substitutions_in(body, shell_quoting=False)
+
+
+def substitutions_in(s, shell_quoting):
+    i, in_double = 0, False
     while i < len(s):
-        if s[i] == "'" and not in_double:
+        if shell_quoting and s[i] == "#" and not in_double and (i == 0 or s[i - 1] in " \t\n;&|("):
+            j = s.find("\n", i)
+            i = len(s) if j < 0 else j
+        elif shell_quoting and s[i] == "'" and not in_double:
             j = s.find("'", i + 1)
             i = len(s) if j < 0 else j + 1
         elif s[i] == "\\":
             i += 2
-        elif s[i] == '"':
+        elif shell_quoting and s[i] == '"':
             in_double, i = not in_double, i + 1
         elif s.startswith("$(", i):
             end = closing_paren(s, i + 2)

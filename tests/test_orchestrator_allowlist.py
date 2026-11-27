@@ -36,7 +36,8 @@ def test_the_orchestrator_cannot_search_code_and_is_told_to_send_a_worker(tmp_pa
                 "nawaban event 9 note \"$(rg apps/)\"", "hc send t1 \"`cat apps/web/a.ts`\"", "ls board", "python3 -c 1",
                 "cat apps/web/*.ts", "cd apps/web && cat a.ts", "grep -f apps/web/a.ts </dev/null", "nawaban show X | grep y a.ts",
                 "grep -R secret", "cat 123", "jq -f prog.jq", "sort -o out.txt", "nawaban show X | grep --include=*.ts -r x",
-                "cat <<EOF\n$(cat apps/web/a.ts)\nEOF"):
+                "cat <<EOF\n$(cat apps/web/a.ts)\nEOF",
+                "grep -e x apps/web/a.ts", "grep -ex apps/web/a.ts", "cat <<EOF\n'$(cat apps/web/a.ts)'\nEOF", "true # it's\necho $(cat apps/web/a.ts) '"):
         assert refused(call("Bash", {"command": cmd})), cmd
     assert refused(call("Read", {"file_path": str(repo / "apps/web/a.ts")}))
     assert refused(call("Grep", {"pattern": "x", "path": "apps"}))
