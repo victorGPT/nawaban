@@ -37,7 +37,7 @@ printf '%s\\n' "$GH_TOKEN" >> "$GH_LOG.tokens"
 case "$1 $2" in
   "auth token") echo tok-declared ;;
   "pr view") cat "$GH_PR" ;;
-  "run list") if [ -n "$GH_RUNS" ]; then printf '%s' "$GH_RUNS"; else echo '[]'; fi ;;
+  "run list") if [ -n "$GH_RUNS_FAIL" ]; then echo 'HTTP 502' >&2; exit 1; elif [ -n "$GH_RUNS" ]; then printf '%s' "$GH_RUNS"; else echo '[]'; fi ;;
   "pr merge") if [ -s "$GH_MERGE_FAILS" ]; then head -n1 "$GH_MERGE_FAILS" >&2; sed -i.bak 1d "$GH_MERGE_FAILS"; exit 1; fi ;;
 esac
 `
@@ -195,9 +195,53 @@ it('waits on a check still running: exit 3, no merge, no one told', async () => 
   expect(await stateOf(id)).not.toBe('completed')
 })
 
-it('waits while CI has no checks yet', async () => {
-  const { worktree } = await workerOnItsOwnTicket('M-EMPTY', 't69', { ...greenCodePr('M-EMPTY'), statusCheckRollup: [] })
-  expect((await mergeAsTheWorker('M-EMPTY', 't69', worktree)).code).toBe(3)
+async function noChecksAtAHeadWithWorkflow(key: string, terminal: string, workflow: string) {
+  const { id, worktree } = await workerOnItsOwnTicket(key, terminal)
+  await mkdir(join(worktree, '.github', 'workflows'), { recursive: true })
+  await writeFile(join(worktree, '.github', 'workflows', 'ci.yml'), workflow)
+  await git(worktree, 'add', '-A')
+  await git(worktree, 'commit', '-q', '-m', 'ci')
+  const head = (await git(worktree, 'rev-parse', 'HEAD')).stdout.trim()
+  await writeFile(join(tmp, `pr-${key}.json`), JSON.stringify({ ...greenCodePr(key), headRefOid: head, statusCheckRollup: [], comments: [{ body: `Codex review：无挡合并 ${head.slice(0, 7)}` }] }))
+  return { id, worktree }
+}
+
+it('merges with no checks when the head runs CI only on pushes to release or on labeled PRs, as in a repository whose PRs run none', async () => {
+  const { id, worktree } = await noChecksAtAHeadWithWorkflow('M-NOPRCI', 't69', 'on:\n  push:\n    branches: [release, release-admin]\n  pull_request:\n    types: [labeled]\n  workflow_dispatch:\njobs: {}\n')
+  const r = await mergeAsTheWorker('M-NOPRCI', 't69', worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.gh).toMatch(/^pr merge 5 --squash/m)
+  expect(await stateOf(id)).toBe('completed')
+})
+
+it('waits when the runs of the head can not be listed, however its workflows are triggered', async () => {
+  const { worktree } = await noChecksAtAHeadWithWorkflow('M-NOLIST', 't76', 'on: workflow_dispatch\n')
+  const r = await mergeAsTheWorker('M-NOLIST', 't76', worktree, { GH_RUNS_FAIL: '1' })
+  expect(r.code).toBe(3)
+  expect(r.stderr).toContain('gh run list 失败')
+  expect(r.gh).not.toMatch(/^pr merge/m)
+})
+
+it('waits for a run already started on the head even when no push or PR open fires the workflow', async () => {
+  const { worktree } = await noChecksAtAHeadWithWorkflow('M-READY', 't74', 'on:\n  pull_request:\n    types: [ready_for_review]\n')
+  const r = await mergeAsTheWorker('M-READY', 't74', worktree, { GH_RUNS: JSON.stringify([{ name: 'ci', status: 'queued', conclusion: '' }]) })
+  expect(r.code).toBe(3)
+  expect(r.stderr).toContain('CI 还在跑：ci')
+  expect(r.gh).not.toMatch(/^pr merge/m)
+})
+
+it.each([
+  ['M-EMPTY', 't70', 'on: pull_request\n'],
+  ['M-PUSHALL', 't71', 'on: [push]\n'],
+  ['M-PUSHWT', 't72', 'on:\n  push:\n    branches: ["wt/**", "!wt/other"]\n'],
+  ['M-STAR', 't75', 'on:\n  push:\n    branches: ["wt/**/m-*"]\n'],
+  ['M-GLOB', 't73', 'on:\n  push:\n    branches: ["release", "wt/m-gl+o?b", "wt/[a-z]-x"]\n'],
+])('waits with no checks while a workflow of the head runs on its branch: %s', async (key, terminal, workflow) => {
+  const { worktree } = await noChecksAtAHeadWithWorkflow(key, terminal, workflow)
+  const r = await mergeAsTheWorker(key, terminal, worktree)
+  expect(r.code).toBe(3)
+  expect(r.gh).not.toMatch(/^pr merge/m)
 })
 
 it('waits while the only checks were skipped, so a workflow not yet registered never reads as green', async () => {

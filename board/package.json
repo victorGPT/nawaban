@@ -18,7 +18,8 @@
     "@vercel/board": "0.53.0",
     "@vercel/connect": "2.9.5",
     "chat": "4.45.0",
-    "smol-toml": "1.9.1"
+    "smol-toml": "1.9.1",
+    "yaml": "2.9.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
