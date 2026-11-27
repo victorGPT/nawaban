@@ -126,7 +126,7 @@ export async function dropInboxItem(team: Team, id: string) {
 export function pageText(answers: WebAnswer[], items: InboxItem[], project: string): string {
   const out = []
   if (answers.length) {
-    out.push(`## 网页已答 ${answers.length}（还挂着；核实后 nawaban event <号> resolve "<原话>" 记已决，待决和等你都这样解）`)
+    out.push(`## 网页已答 ${answers.length}（还挂着；核实后 nawaban event <号> resolve "<结论>" 记已决，待决和等你都这样解）`)
     for (const a of answers) out.push(`- ${a.task} ${a.title}：${a.option ? `选「${a.option}」，` : ''}${a.words}${a.by ? `（${a.by}）` : ''}`)
   }
   if (items.length) {

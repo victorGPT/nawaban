@@ -134,6 +134,24 @@ it('refuses a card longer than the decision-maker reads, and writes nothing', as
   expect(await taskWithEachReplysBlocks(id)).toMatchObject({ state: 'ready', blocked: null, replies: [] })
 })
 
+it('says how to write a decision whose labels share one line', async () => {
+  const id = await newTask()
+  const oneLine = await nawaban('event', id, 'decision', '背景：x 决定：y 否决方案：z')
+  expect([oneLine.code, oneLine.err]).toEqual([1, expect.stringContaining('decision 正文缺 决定：每项单独一行')])
+})
+
+it('says what to do when an ask lands on a ticket that is closed or that another window holds', async () => {
+  const held = await newTask()
+  await nawaban('tasks', 'claim', held, '--as', 'cc-aaaa1111')
+  const other = await nawaban('event', held, 'ask', ...CARD.slice(1), '--as', 'cc-bbbb2222', '--rec', 'ship')
+  expect([other.code, other.err]).toEqual([1, expect.stringContaining(`有窗口认领着：让持票的窗口来记，或它先跑 nawaban claim ${held} --release`)])
+  const closed = await newTask()
+  await nawaban('tasks', 'claim', closed, '--as', 'cc-aaaa1111')
+  await nawaban('tasks', 'complete', closed, '--as', 'cc-aaaa1111')
+  const late = await nawaban('event', closed, 'ask', ...CARD.slice(1), '--rec', 'ship')
+  expect([late.code, late.err]).toEqual([1, expect.stringContaining('已关：新开一张票再记')])
+})
+
 it('refuses a card without --rec, and writes nothing', async () => {
   const id = await newTask()
   const ask = await nawaban('event', id, '--kind', 'ask', ...CARD)

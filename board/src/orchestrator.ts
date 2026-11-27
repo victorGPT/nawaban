@@ -30,9 +30,12 @@ type Row = {
 }
 type Data = { columns: { key: string; tasks: Row[] }[]; decisions?: { task: string; at: number; verdict: string; owner: boolean }[] }
 type State = '等你' | '停滞' | '进行中' | '待办'
+const FOLDS_IN_ORDER = ['full', 'idleCounted', 'titlesOnly', 'keysOnly'] as const
+type Fold = (typeof FOLDS_IN_ORDER)[number]
 
 const HOUR = 3600
 const STALLED_AFTER_QUIET_FOR = 24 * HOUR
+export const INDEX_CHARS_AT_MOST = 2000
 const HOURS_SHOWN_UNTIL_MINUTES = 48 * 60
 const TITLE_WIDTH = 34
 const IDLE_TITLE_WIDTH = 40
@@ -87,22 +90,25 @@ function nextStepLine(t: Row): string | null {
   return next && !decisionOvertakesNextStep ? `  下一步：${short(next[1]!, NEXT_STEP_WIDTH)}` : null
 }
 
-const doneSoFar = (p: { body: string }) => short(p.body.split(NEXT_SPLIT)[0]!.replace(DONE_LABEL, ''), PROGRESS_WIDTH)
+const doneSoFar = (t: Row) => {
+  const p = progressNotBookkeeping(t)
+  return p ? p.body.split(NEXT_SPLIT)[0]!.replace(DONE_LABEL, '').replace(/\s+/g, ' ').trim() : ''
+}
+const withProgress = (t: Row) => (doneSoFar(t) ? ` · ${short(doneSoFar(t), PROGRESS_WIDTH)}` : '')
 
 function stalledOrWaitingLines(k: '等你' | '停滞', t: Row, belongs: (t: Row) => string, now: number): string[] {
   const p = progressNotBookkeeping(t)
   const mention = p ? MENTION.exec(p.body) : null
   const head = `- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}${belongs(t)}`
   const stalledFor = k === '停滞' ? `（${ago(now, t.active_at)}没动静 · 停在：${mention ? '@' + mention[1] : '没写'}）` : ''
-  return [head + stalledFor, nextStepLine(t)].filter((l): l is string => l !== null)
+  return [head + stalledFor + (k === '停滞' ? withProgress(t) : ''), nextStepLine(t)].filter((l): l is string => l !== null)
 }
 
 function movingLines(moving: Row[], belongs: (t: Row) => string): string[] {
-  const byProgress = Map.groupBy(moving, (t) => { const p = progressNotBookkeeping(t); return p ? doneSoFar(p) : '' })
-  return [...byProgress].flatMap(([progress, same]) =>
+  return [...Map.groupBy(moving, doneSoFar)].flatMap(([progress, same]) =>
     progress && same.length >= SAME_PROGRESS_FOLDED_FROM
-      ? [`- ${same.length} 张进展都是「${progress}」：${same.map((t) => bare(t.id)).join(' ')}`]
-      : same.map((t) => `- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}${belongs(t)}${progress ? ` · ${progress}` : ''}`),
+      ? [`- ${same.length} 张进展都是「${short(progress, PROGRESS_WIDTH)}」：${same.map((t) => bare(t.id)).join(' ')}`]
+      : same.map((t) => `- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}${belongs(t)}${withProgress(t)}`),
   )
 }
 
@@ -130,18 +136,27 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
   )
   const specsWithMovingChildren = new Set(groups.flatMap(([, g]) => g.map((t) => t.parent)))
   const idle = live.filter((t) => stateOf(t, now) === '待办' && !specsWithMovingChildren.has(t.id)).sort((a, b) => b.created_at - a.created_at)
-  const out = [
-    `${name} 进行中的事 · ${stamp(now)} 生成`,
-    groups.map(([k, g]) => `${k} ${g.length}`).join(' · ') + ` · 待办 ${idle.length}`,
-    '',
-  ]
-  for (const [k, g] of groups) {
-    if (!g.length) continue
-    out.push(`## ${k}`, ...(k === '进行中' ? movingLines(g, belongs) : g.flatMap((t) => stalledOrWaitingLines(k, t, belongs, now))), '')
+  const movingAt: Record<Fold, (g: Row[]) => string[]> = {
+    full: (g) => movingLines(g, belongs),
+    idleCounted: (g) => movingLines(g, belongs),
+    titlesOnly: (g) => g.map((t) => `- ${bare(t.id)} ${short(t.title, TITLE_WIDTH)}`),
+    keysOnly: (g) => [`- ${g.map((t) => bare(t.id)).join(' ')}（标题跑 nawaban list）`],
   }
-  out.push(...decisionsLines(data, now))
-  if (idle.length) out.push(`## 待办 ${idle.length}（没人认领过）`, ...idle.map((t) => `- ${bare(t.id)} ${short(t.title, IDLE_TITLE_WIDTH)}${belongs(t)}`))
-  return out.join('\n').trimEnd()
+  const idleAt = (fold: Fold) =>
+    !idle.length ? [] : fold === 'full'
+      ? [`## 待办 ${idle.length}（没人认领过）`, ...idle.map((t) => `- ${bare(t.id)} ${short(t.title, IDLE_TITLE_WIDTH)}${belongs(t)}`)]
+      : [`## 待办 ${idle.length}（没人认领过，跑 nawaban list 看）`]
+  const textAt = (fold: Fold) => {
+    const out = [`${name} 进行中的事 · ${stamp(now)} 生成`, groups.map(([k, g]) => `${k} ${g.length}`).join(' · ') + ` · 待办 ${idle.length}`, '']
+    for (const [k, g] of groups) {
+      if (!g.length) continue
+      out.push(`## ${k}`, ...(k === '进行中' ? movingAt[fold](g) : g.flatMap((t) => stalledOrWaitingLines(k, t, belongs, now))), '')
+    }
+    out.push(...decisionsLines(data, now), ...idleAt(fold))
+    return out.join('\n').trimEnd()
+  }
+  const texts = FOLDS_IN_ORDER.map(textAt)
+  return texts.find((t) => [...t].length <= INDEX_CHARS_AT_MOST) ?? texts.at(-1)!
 }
 
 export function status(argv: string[], team: Team, dir: string): Promise<number> {

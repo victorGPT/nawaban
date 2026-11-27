@@ -101,8 +101,8 @@ it('registers with the kind as a word, and points the old --kind at that form, w
   const id = await newTask()
   expect((await nawaban('event', id, 'impact', '--o', 'O1', '--kr', 'KR1=toward', '--change', 'product')).code).toBe(0)
   const old = await nawaban('event', id, '--kind', 'impact', '--o', 'O1', '--kr', 'KR2=hold', '--change', 'measure')
-  expect([old.code, old.err]).toEqual([0, `改用：nawaban event ${id} impact --o O1 --kr KR2=hold --change measure\n`])
-  expect((await nawaban(...old.err.replace('改用：nawaban ', '').trim().split(' '))).code).toBe(0)
+  expect([old.code, old.err]).toEqual([0, `已照做，下次写：nawaban event ${id} impact --o O1 --kr KR2=hold --change measure\n`])
+  expect((await nawaban(...old.err.replace('已照做，下次写：nawaban ', '').trim().split(' '))).code).toBe(0)
   const { replies } = await team.thread(id)
   expect(replies.map((r) => r.blocks[0]!.data)).toEqual([
     { objective: 'O1', change: 'product', krs: [{ name: 'KR1', heading: 'toward' }] },

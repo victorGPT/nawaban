@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { indexText } from '../src/orchestrator.ts'
+import { INDEX_CHARS_AT_MOST, indexText } from '../src/orchestrator.ts'
 
 process.env.TZ = 'UTC'
 const NOW = 10_000_000
@@ -19,7 +19,7 @@ const INDEX_GOLDEN = `p 进行中的事 · 04-26 17:46 生成
   下一步：选 A 还是 B？
 
 ## 停滞
-- S 卡住的（26 小时没动静 · 停在：@alice）
+- S 卡住的（26 小时没动静 · 停在：@alice） · 跑到一半 @alice 在看
 
 ## 进行中
 - C1 子任务 · 属于 SPEC 总规格 · 写完测试
@@ -80,7 +80,7 @@ it.each(['已完成：写完测试 / 下一步：接 CLI / 卡点：无', 'Done:
   const moving = { columns: [{ key: 'in_progress', tasks: [task('T', '三段', NOW, { session: 't', claimed_at: NOW, progress: { body, at: NOW } })] }] }
   expect(indexText(moving, 'p', NOW)).toContain('- T 三段 · 写完测试')
   const stalled = { columns: [{ key: 'in_progress', tasks: [task('T', '三段', NOW - 30 * HOUR, { session: 't', claimed_at: NOW - 30 * HOUR, progress: { body, at: NOW - 30 * HOUR } })] }] }
-  expect(indexText(stalled, 'p', NOW)).toContain('- T 三段（30 小时没动静 · 停在：没写）\n  下一步：接 CLI')
+  expect(indexText(stalled, 'p', NOW)).toContain('- T 三段（30 小时没动静 · 停在：没写） · 写完测试\n  下一步：接 CLI')
 })
 
 const LINES_ABOVE_THE_TASKS = 4
@@ -99,7 +99,24 @@ it('folds tasks whose progress says the same thing into one line', () => {
   expect(text.match(/扫票/g)).toHaveLength(1)
 })
 
+it('folds only progress that is the same in full, not the same in its first characters', () => {
+  const alike = (id: string, tail: string) => task(id, `标题 ${id}`, NOW, { session: 's', claimed_at: NOW, progress: { body: `${'同'.repeat(60)}${tail}`, at: NOW } })
+  const text = indexText({ columns: [{ key: 'in_progress', tasks: [alike('A', '甲'), alike('B', '乙')] }] }, 'p', NOW)
+  expect(text).not.toContain('2 张进展都是')
+  expect(text).toContain('- A 标题 A · ')
+})
+
 it('prints nothing for a section with nothing to act on', () => {
   const text = indexText({ columns: [{ key: 'done', tasks: [task('D', '发布', NOW, { status: 'done', done_at: NOW })] }], decisions: [] }, 'p', NOW)
   expect(text).toBe('p 进行中的事 · 04-26 17:46 生成\n等你 0 · 停滞 0 · 进行中 0 · 待办 0')
+})
+
+it('folds the 待办, then the progress, then the titles, until the index fits its character budget', () => {
+  const many = (n: number, state: object) => Array.from({ length: n }, (_, i) => task(`K${i}-${Object.keys(state).length}`, `一个相当长的标题，第 ${i} 张，写满三十四个字符好让它截断`, NOW - i, state))
+  const moving = many(80, { session: 's', claimed_at: NOW, progress: { body: '各写各的进展，长度也不短，接近四十个字符的样子', at: NOW } })
+  const idle = many(60, {})
+  const text = indexText({ columns: [{ key: 'open', tasks: idle }, { key: 'in_progress', tasks: moving }] }, 'p', NOW)
+  expect([...text].length).toBeLessThanOrEqual(INDEX_CHARS_AT_MOST)
+  expect(text).toContain('## 待办 60（没人认领过，跑 nawaban list 看）')
+  expect(text).toContain('进行中 80')
 })

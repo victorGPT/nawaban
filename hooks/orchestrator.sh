@@ -72,7 +72,7 @@ restart_line_with_the_orchestrator_window() {
 warn_unless_the_compact_window_is_the_orchestrators() {
   [ -n "$CLAUDECODE" ] || return 0
   [ "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" = "$orchestrator_compact_window" ] && return 0
-  echo "编排者的自动压缩窗口要 ${orchestrator_compact_window}，这个会话的 CLAUDE_CODE_AUTO_COMPACT_WINDOW 是 ${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-未设}（只在启动时读），要重启一次。把下面这句原样转给吴献忠：$(restart_line_with_the_orchestrator_window "$1")"
+  echo "编排者的自动压缩窗口要 ${orchestrator_compact_window}，这个会话的 CLAUDE_CODE_AUTO_COMPACT_WINDOW 是 ${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-未设}（只在启动时读），要重启一次。把下面这句原样转给决策者：$(restart_line_with_the_orchestrator_window "$1")"
 }
 
 is_the_orchestrator() {

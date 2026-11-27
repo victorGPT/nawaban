@@ -258,8 +258,8 @@ _Avoid_: database as a product term, inbox, modules view.
 _Current identifiers_: `~/.nawaban/board/local.db`; `NAWABAN_BOARD_DIR`; CLI `json`.
 
 **Index**(索引)
-The md text an orchestrator reads when it starts or after its context is compacted: the open work grouped as waiting on the user (the board only), 停滞 (no activity for 24 hours, with on whom) and 进行中, each with its spec, latest progress and next step (`下一步：` of a 进展同步); the user's 决策记录 of the last 48 hours; the 待办; and a count of the closed. On GitHub it opens with `## 待决`, the 待决策项, oldest first, by issue number and title. It is printed from `json board`'s data each time and never stored (on GitHub the same read rewrites the pending line's cache).
-索引是编排者开工或上下文压缩后读的那份 md 文本：开着的事按等你（仅本地看板）、停滞（24 小时没动静，写明停在谁身上）、进行中分组，每件带所属的 spec、最新进展和下一步；48 小时内用户的决策记录；待办；关掉的个数。在 GitHub 上最上面先列 `## 待决`，按提出先后，只写 issue 号和标题。每次从 `json board` 的数据现打，从不存（GitHub 上同一次读取会重写待决提示行缓存）。
+The md text an orchestrator reads when it starts or after its context is compacted: the open work grouped as waiting on the user (with its question), 停滞 (no activity for 24 hours, on whom, its progress and next step) and 进行中 (one line a task, tasks with the same progress folded into one line); the user's decisions of the last 48 hours; the 待办. It stays within 2,000 characters by folding the 待办, then the progress, then the titles. It is printed from `json board`'s data each time and never stored.
+索引是编排者开工或上下文压缩后读的那份 md 文本：开着的事按等你（带问题）、停滞（24 小时没动静，写明停在谁、进展和下一步）、进行中（一张一行，进展相同的合成一行）分组；48 小时内用户的决定；待办。超过 2,000 字时依次折叠待办、进展、标题。每次从 `json board` 的数据现打，从不存。
 _Avoid_: wiki, summary file, status report.
 _Current identifiers_: CLI `status --project` (`board/src/orchestrator.ts`).
 

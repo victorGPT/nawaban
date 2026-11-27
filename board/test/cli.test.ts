@@ -72,8 +72,8 @@ const succeeds = async (...argv: string[]) => {
 }
 const columnsCountingWideCharactersAsTwo = (line: string) => [...line].reduce((n, c) => n + (/[\p{Script=Han}\u3000-\u303f\uff00-\uff60]/u.test(c) ? 2 : 1), 0)
 const verbsListedIn = (help: string) => [...help.matchAll(/^ {2}(\S+)/gm)].map((m) => m[1]!)
-const hintedCommand = (err: string) => /^改用：nawaban (.+)$/m.exec(err)?.[1]
-const wholeHintedCommand = (err: string) => /^改用：nawaban ([\s\S]+)\n$/.exec(err)?.[1]
+const hintedCommand = (err: string) => /^已照做，下次写：nawaban (.+)$/m.exec(err)?.[1]
+const wholeHintedCommand = (err: string) => /^已照做，下次写：nawaban ([\s\S]+)\n$/.exec(err)?.[1]
 
 it('fits the help on one screen and lists the ten everyday verbs', EVERY_STEP_STARTS_A_NODE, async () => {
   const { out } = await succeeds('--help')
