@@ -1,0 +1,686 @@
+{
+  "nawaban-decision@1": {
+    "description": "A choice taken on a task: the question, the verdict, what was turned down, and who took it.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "question",
+        "verdict",
+        "rejected",
+        "by"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verdict": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rejected": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "by": {
+          "enum": [
+            "agent",
+            "user"
+          ]
+        },
+        "kr": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-link@1": {
+    "description": "What a task produced, elsewhere: a pull request, a commit, an artifact, an ADR.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "pr",
+            "commit",
+            "artifact",
+            "adr"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-ask@1": {
+    "description": "A decision card for the decision-maker: what's to decide, the KR it serves, the facts, two options or more, and a recommendation.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "decision",
+        "kr",
+        "context",
+        "options",
+        "recommendation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kr": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": [
+              "choice",
+              "tradeoff",
+              "door"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "choice": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tradeoff": {
+                "type": "string",
+                "minLength": 1
+              },
+              "door": {
+                "enum": [
+                  "one-way",
+                  "two-way"
+                ]
+              }
+            }
+          }
+        },
+        "recommendation": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-ask-request@1": {
+    "description": "A decision card the orchestrator puts in a reply, with the task it is on: the ask guard records it on that task as nawaban-ask@1.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "ticket",
+        "decision",
+        "kr",
+        "context",
+        "options",
+        "recommendation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ticket": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kr": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": [
+              "choice",
+              "tradeoff",
+              "door"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "choice": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tradeoff": {
+                "type": "string",
+                "minLength": 1
+              },
+              "door": {
+                "enum": [
+                  "one-way",
+                  "two-way"
+                ]
+              }
+            }
+          }
+        },
+        "recommendation": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-resolve@1": {
+    "description": "The decision-maker's answer to a task's decision card, in their words.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "words"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "words": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-impact@1": {
+    "description": "Which KRs of one Objective a task moves: each up or down with its value before and after and whether that was measured or expected, or unchanged. Objective 无 with no KRs is pure infrastructure.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "objective",
+        "krs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "krs": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "name",
+                  "dir"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "dir": {
+                    "enum": [
+                      "="
+                    ]
+                  },
+                  "before": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "after": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "basis": {
+                    "enum": [
+                      "实测",
+                      "预计"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "name",
+                  "dir",
+                  "before",
+                  "after",
+                  "basis"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "dir": {
+                    "enum": [
+                      "↑",
+                      "↓"
+                    ]
+                  },
+                  "before": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "after": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "basis": {
+                    "enum": [
+                      "实测",
+                      "预计"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "nawaban-impact@2": {
+    "description": "What a task registers it will move, before its first pull request: one Objective, each KR heading toward its target, away from it or holding, with the reading and measure hash it was registered against, and whether the change is to the product, the measure or the gold. Objective 无 with no KRs is pure infrastructure.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "objective",
+        "change",
+        "krs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "change": {
+          "enum": [
+            "product",
+            "measure",
+            "gold"
+          ]
+        },
+        "krs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "heading"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "heading": {
+                "enum": [
+                  "toward",
+                  "away",
+                  "hold"
+                ]
+              },
+              "reading": {
+                "type": "string",
+                "minLength": 1
+              },
+              "def_hash": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "nawaban-impact-result@1": {
+    "description": "What a task's registered KRs read when it closed as done: each KR's value after, measured or expected. Heading, reading and measure stay as registered.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "krs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "krs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "after",
+              "basis"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "type": "string",
+                "minLength": 1
+              },
+              "basis": {
+                "enum": [
+                  "实测",
+                  "预计"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "nawaban-kr-reading@1": {
+    "description": "One KR's reading as its measure printed it: the value verbatim, the as-of date and what it was read from, with the okr.toml commit it was measured under. The message's time is its round.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "kr",
+        "value",
+        "as_of",
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kr": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "as_of": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-kr-reading@2": {
+    "description": "One KR's reading as its measure printed it, with the hash of the measure it was read under (the KR's okr.toml entry and the measure code it names): a new hash starts a new series. The message's time is its round.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "kr",
+        "value",
+        "as_of",
+        "source",
+        "def_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kr": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "as_of": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string"
+        },
+        "def_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-kr-failure@1": {
+    "description": "A KR whose measure failed: why, and the hash of the measure that failed. It is no round; the KR reads 量不了 until its measure reads again.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "kr",
+        "failure",
+        "def_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kr": {
+          "type": "string",
+          "minLength": 1
+        },
+        "failure": {
+          "type": "string",
+          "minLength": 1
+        },
+        "def_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-okr-round@1": {
+    "description": "One run of the board CLI's okr, the orchestrator's self-check: its number in the project, how many readings it kept, the KRs that moved toward their target past the noise gate, and the Objectives done as it ran. Kept 0 is an idle round. The message's time is the round's.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "n",
+        "kept",
+        "moved",
+        "done"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kept": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "moved": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "done": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  },
+  "nawaban-okr-resume@1": {
+    "description": "An Objective's new sprint after a hard stop, started once a decision request on it was resolved; the message's time is when.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "objective"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-okr-accept@1": {
+    "description": "The decision-maker's sign-off on an Objective whose KRs were all met when it was given; the message's time is when.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "objective"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-web-answer@1": {
+    "description": "The decision-maker's answer to a task's hold, written on the web page: the option they picked, if any, and their words. It lifts no hold; the orchestrator checks it and records the resolve.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "words"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "option": {
+          "type": "string",
+          "minLength": 1
+        },
+        "words": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-inbox@1": {
+    "description": "An idea the decision-maker jotted on the web page, for the orchestrator to make a task or a command of. The thread's inbox label says whether it is still open.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "words"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "words": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-dispatch@1": {
+    "description": "A task handed to a worker: who, in which terminal, and what counts as done.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "worker",
+        "terminal",
+        "accept"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "worker": {
+          "type": "string",
+          "minLength": 1
+        },
+        "terminal": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accept": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "nawaban-dispatch@2": {
+    "description": "A task handed to a worker: who, in which terminal, and what counts as done, with the orchestrator terminal that takes its report and the agent and model it runs when the dispatch knows them.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "worker",
+        "terminal",
+        "accept"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "worker": {
+          "type": "string",
+          "minLength": 1
+        },
+        "terminal": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accept": {
+          "type": "string",
+          "minLength": 1
+        },
+        "orchestrator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
