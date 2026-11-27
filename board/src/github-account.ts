@@ -5,6 +5,8 @@ import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { reposReadOnEveryUseSoEditsNeedNoRestart, words } from './impact.ts'
 import { Refused } from './said.ts'
+import { githubSyncConfigToPoll, switchedToTheBoard } from './github-sync-status.ts'
+import { keyOf } from './github-tasks.ts'
 
 export const ACCOUNT_DECLARED_IN = 'docs/agents/issue-tracker.md'
 const FENCED_OR_COMMENTED_EXAMPLE_UNCLOSED_RUNS_TO_THE_END = /^ {0,3}(`{3,}|~{3,})[\s\S]*?(?:^ {0,3}\1|$(?![\s\S]))|<!--[\s\S]*?(?:-->|$(?![\s\S]))/gm
@@ -24,6 +26,9 @@ const API_SENDS_A_BODY = /^(?:-f|-F|--field(?:=|$)|--raw-field(?:=|$)|--input(?:
 const API_METHOD = /^(?:-X=?|--method(?:=|$))(.*)$/
 const REPO_FLAG = /^(?:-R|--repo)(?:=(.*))?$/
 const GITHUB_REPO_IN_REMOTE = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/
+const ISSUE_TEXT_FLAGS = new Set(['-t', '-b', '-F', '--title', '--body', '--body-file'])
+const ISSUE_EDIT_FLAGS_TAKING_A_VALUE = new Set([...ISSUE_TEXT_FLAGS, '-m', '--milestone', '--type', '--parent', ...['assignee', 'blocked-by', 'blocking', 'label', 'project', 'sub-issue'].flatMap((what) => [`--add-${what}`, `--remove-${what}`])])
+const ISSUE_URL = /github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)/
 const run = promisify(execFile)
 
 const provenPrefix = (account: string) => `GH_TOKEN=$(gh auth token --user ${account})`
@@ -142,6 +147,40 @@ function directoryTheCommandIsInAt(cmd: string, blanked: string, at: number, cwd
   return resolve(cwd, target.replace(/^~(?=\/|$)/, homedir()))
 }
 
+function whatAnIssueEditChanges(args: string[]) {
+  const [group, verb, ...rest] = withoutRepoFlag(args)
+  const positionals: string[] = []
+  let rewritesText = false
+  for (let i = 0; group === 'issue' && verb === 'edit' && i < rest.length; i++) {
+    const arg = rest[i]!
+    if (!arg.startsWith('-')) {
+      positionals.push(arg)
+      continue
+    }
+    const long = arg.startsWith('--')
+    const flag = long ? arg.split('=')[0]! : arg.slice(0, 2)
+    if (ISSUE_TEXT_FLAGS.has(flag)) rewritesText = true
+    const valueAttached = long ? arg.includes('=') : arg.length > 2
+    if (!valueAttached && ISSUE_EDIT_FLAGS_TAKING_A_VALUE.has(flag)) i++
+  }
+  return { issue: positionals[0], rewritesText }
+}
+
+async function issueTextEditOnARepoSwitchedToTheBoard(args: string[], here: string | null, boardDir: string): Promise<string | null> {
+  const { issue, rewritesText } = whatAnIssueEditChanges(args)
+  if (!rewritesText) return null
+  const [, repoOfTheUrl, numberInTheUrl] = ISSUE_URL.exec(issue ?? '') ?? []
+  const number = numberInTheUrl ?? issue
+  const target = repoOfTheUrl ?? repoFlagOf(args)
+  const remote = !target && here ? await stdoutElseNull('git', ['-C', here, 'remote', 'get-url', 'origin']) : null
+  const repo = target ? ownerSlashRepo(target) : remote && GITHUB_REPO_IN_REMOTE.exec(remote)?.[1]
+  if (!repo) return null
+  const [synced, channel] = Object.entries((await githubSyncConfigToPoll(boardDir))?.repos ?? {}).find(([r]) => r.toLowerCase() === repo.toLowerCase()) ?? []
+  if (!synced || !channel || !(await switchedToTheBoard(boardDir, synced))) return null
+  const key = number && /^\d+$/.test(number) ? keyOf(channel, Number(number)) : `${channel.toUpperCase()}-<N>`
+  return `${synced} 已切到板上：gh issue edit 改标题或正文，入站后板上的票会被挂起（kind edited，根不是建票的一方改的），认领跟着丢。改动记在票上：nawaban event ${key} note '<改了什么>'`
+}
+
 export async function whyThisGhWriteMustNotRun(typed: string, cwd: string, boardDir: string): Promise<string | null> {
   const cmd = typed.replace(/\\\n/g, '  ')
   const blanked = textBlankedKeepingWhatTheShellRuns(cmd)
@@ -152,6 +191,8 @@ export async function whyThisGhWriteMustNotRun(typed: string, cwd: string, board
     if (!writesToGithub(args, segment)) continue
     const target = repoFlagOf(args)
     const here = directoryTheCommandIsInAt(cmd, blanked, m.index, cwd)
+    const onTheBoard = await issueTextEditOnARepoSwitchedToTheBoard(args, here, boardDir)
+    if (onTheBoard) return onTheBoard
     if (!here && !(await readFile(ownerAccountsFile()).catch(() => null)) && !(await accountElseNull(cwd))) continue
     if (!here) return 'gh 写操作前 cd 到的目录核不了（带变量或 cd -），不知道是哪个仓库：cd 写成字面路径，或在那个仓库里另起一条命令'
     const checkout = target ? await checkoutOfGithubRepo(target, boardDir) : here
