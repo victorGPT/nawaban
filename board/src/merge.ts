@@ -22,6 +22,8 @@ const PR_FIELDS = 'number,state,url,title,body,headRefName,headRefOid,files,stat
 const NO_BLOCKER_REVIEW_LINE = /review[:：]\s*无挡/i
 const SHA_PREFIX_A_REVIEW_NAMES = /\b[0-9a-f]{7,40}\b/gi
 const WORKTREE_BRANCH = /^wt\/(.+)$/
+const PULL_REQUEST_TRIGGER = /(?<![.\w])pull_request(?:_target)?(?![.\w])/
+const YAML_COMMENT = /(^|\s)#.*$/gm
 const SCHEMA_FILE = 'board/src/schemas.ts'
 const EXIT_CODE = { waiting: EXIT.waiting, refused: EXIT.refused, mergedButUnfinished: EXIT.refused, done: EXIT.done } as const
 const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
@@ -68,7 +70,7 @@ export async function seenOf(task: MessageView): Promise<Seen> {
 }
 
 function ciVerdict(checks: Check[]): Outcome | null {
-  if (!checks.length) return { kind: 'waiting', on: 'CI 还没有任何 check' }
+  if (!checks.length) return null
   const pending = checks.filter(checkPending)
   const failed = checks.filter((c) => !checkPending(c) && !checkPassed(c))
   if (failed.length) return { kind: 'refused', why: `CI 没过：${failed.map(checkName).join('、')}` }
@@ -86,10 +88,15 @@ async function workflowsOfHeadElseNull(pr: PullRequest): Promise<Outcome | null>
   await stdoutOrNullOnFailure('git', ['fetch', '-q', 'origin', `pull/${pr.number}/head`])
   const workflows = await stdoutOrNullOnFailure('git', ['ls-tree', '--name-only', pr.headRefOid, '.github/workflows/'])
   if (workflows === null) return { kind: 'refused', why: `本地读不到 head ${pr.headRefOid.slice(0, 7)}，核不了它带不带 workflow：先 git fetch 再跑` }
-  if (!workflows.trim()) return null
+  const runOnPullRequests = []
+  for (const path of workflows.split('\n').filter(Boolean)) {
+    const text = await stdoutOrNullOnFailure('git', ['show', `${pr.headRefOid}:${path}`])
+    if (text === null || PULL_REQUEST_TRIGGER.test(text.replace(YAML_COMMENT, '$1'))) runOnPullRequests.push(path)
+  }
+  if (!runOnPullRequests.length) return null
   const listed = await stdoutOrNullOnFailure('gh', ['run', 'list', '--commit', pr.headRefOid, '--json', 'name,status,conclusion'])
   const runs: { name: string; status: string; conclusion: string }[] = listed ? JSON.parse(listed) : []
-  if (!runs.length) return { kind: 'waiting', on: `仓库有 workflow，head ${pr.headRefOid.slice(0, 7)} 还没有一次 run` }
+  if (!runs.length) return { kind: 'waiting', on: `仓库有 PR 触发的 workflow，head ${pr.headRefOid.slice(0, 7)} 还没有一次 run` }
   const failed = runs.filter((r) => r.status === 'completed' && r.conclusion !== 'success' && r.conclusion !== 'skipped')
   if (failed.length) return { kind: 'refused', why: `CI 没过：${failed.map((r) => r.name).join('、')}` }
   const running = runs.filter((r) => r.status !== 'completed')

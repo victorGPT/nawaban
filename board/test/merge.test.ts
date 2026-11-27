@@ -195,9 +195,31 @@ it('waits on a check still running: exit 3, no merge, no one told', async () => 
   expect(await stateOf(id)).not.toBe('completed')
 })
 
-it('waits while CI has no checks yet', async () => {
-  const { worktree } = await workerOnItsOwnTicket('M-EMPTY', 't69', { ...greenCodePr('M-EMPTY'), statusCheckRollup: [] })
-  expect((await mergeAsTheWorker('M-EMPTY', 't69', worktree)).code).toBe(3)
+async function noChecksAtAHeadWithWorkflow(key: string, terminal: string, workflow: string) {
+  const { id, worktree } = await workerOnItsOwnTicket(key, terminal)
+  await mkdir(join(worktree, '.github', 'workflows'), { recursive: true })
+  await writeFile(join(worktree, '.github', 'workflows', 'ci.yml'), workflow)
+  await git(worktree, 'add', '-A')
+  await git(worktree, 'commit', '-q', '-m', 'ci')
+  const head = (await git(worktree, 'rev-parse', 'HEAD')).stdout.trim()
+  await writeFile(join(tmp, `pr-${key}.json`), JSON.stringify({ ...greenCodePr(key), headRefOid: head, statusCheckRollup: [], comments: [{ body: `Codex review：无挡合并 ${head.slice(0, 7)}` }] }))
+  return { id, worktree }
+}
+
+it('merges with no checks when the head runs CI only on pushes to release, as in a repository whose PRs run none', async () => {
+  const { id, worktree } = await noChecksAtAHeadWithWorkflow('M-NOPRCI', 't69', 'on:\n  push:\n    branches: [release] # not pull_request\njobs: {}\n')
+  const r = await mergeAsTheWorker('M-NOPRCI', 't69', worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.gh).toMatch(/^pr merge 5 --squash/m)
+  expect(await stateOf(id)).toBe('completed')
+})
+
+it('waits with no checks while a workflow of the head runs on pull requests', async () => {
+  const { worktree } = await noChecksAtAHeadWithWorkflow('M-EMPTY', 't70', 'on: [push, pull_request]\n')
+  const r = await mergeAsTheWorker('M-EMPTY', 't70', worktree)
+  expect(r.code).toBe(3)
+  expect(r.gh).not.toMatch(/^pr merge/m)
 })
 
 it('waits while the only checks were skipped, so a workflow not yet registered never reads as green', async () => {
