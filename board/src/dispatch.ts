@@ -458,6 +458,7 @@ export async function claimAssignedToMe(project: string, wait: string): Promise<
     const keptUnderItsOwnersName = !!next && next.task?.owner !== principal
     if (keptUnderItsOwnersName) await boardCliElseNothingToClaim(['tasks', 'assign', next.id, '--pool', '--json'], `${next.task?.owner} 替 ${as} 留的 #${next.id} 放回公共池失败`)
     const claimed = next ? await boardCliElseNothingToClaim(['tasks', 'claim', next.id, '--as', as, '--lease', CLAIM_LEASE, '--json'], `领指派给 ${as} 的 #${next.id} 失败`, GONE_BETWEEN_LISTING_AND_CLAIMING) : null
+    if (claimed === null && keptUnderItsOwnersName) await boardCliElseNothingToClaim(['tasks', 'assign', next.id, as, '--json'], `#${next.id} 没领成，交还给 ${as} 失败`, GONE_BETWEEN_LISTING_AND_CLAIMING)
     const task = claimed === null ? null : (JSON.parse(claimed) as { task: MessageView }).task
     if (task && (keptUnderItsOwnersName || task.task?.for?.endsWith(`+${as}`))) return labelledForThePanel(claimed!)
     if (task) await boardCliElseNothingToClaim(['tasks', 'release', task.id, '--as', as, '--json'], `#${task.id} 认领时已回到公共池，交还失败`)
