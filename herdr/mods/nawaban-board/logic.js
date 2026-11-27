@@ -3,7 +3,6 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const MS_PER_SECOND = 1000;
 const MS_PER_DAY = DAY * MS_PER_SECOND;
-const ISSUE_STILL_MOVING_FOR = DAY;
 
 export function projectFor(gitCommonDir, projects) {
   const name = repoName(gitCommonDir);
@@ -41,7 +40,6 @@ const isDone = (t) => t.status === "done";
 const isHeld = (t) => t.session != null;
 const isAsking = (t) => t.waiting != null;
 const isLive = (k) => k.state === "live";
-const isGithubBoard = (board) => board?.tracker === "github";
 export const canGo = (x) => x.focus != null || Boolean(x.url);
 
 const allTasks = (board) => (board?.columns ?? []).flatMap((c) => c.tasks ?? []);
@@ -116,39 +114,18 @@ const namer = (terminals) => {
   return (a) => names.get(a.address) || (isBareTabIndex(a.tab_name) ? "" : a.tab_name) || a.title;
 };
 
-const withoutQuestionsThatAreDecisions = (board, github) => ({ ...board,
-  columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => (github || t.pending ? { ...t, waiting: null } : t)) })) });
-
-const TERMINAL_NUMBER_RADIX = 36;
-const TERMINAL_PREFIX = "t";
-const startOrder = (k) => parseInt(k.address.split("/").pop().slice(TERMINAL_PREFIX.length), TERMINAL_NUMBER_RADIX);
-const byStartOrder = (x, y) => startOrder(x) - startOrder(y);
-
-function herdrTree(agents, space, live) {
-  const descendants = (address, seen) => live.filter((k) => k.parent === address && !seen.has(k.address))
-    .flatMap((k) => (seen.add(k.address), [k, ...descendants(k.address, seen)]));
-  const subtrees = agents.filter((a) => a.space === space).map((a) => [a.address, descendants(a.address, new Set([a.address]))]);
-  const insideSomeSubtree = new Set(subtrees.flatMap(([, below]) => below.map((k) => k.address)));
-  const isTopmostLeader = ([address, below]) => below.length && !insideSomeSubtree.has(address);
-  const childrenOf = new Map(subtrees.filter(isTopmostLeader).map(([address, below]) => [address, below.sort(byStartOrder)]));
-  const leaderOf = new Map([...childrenOf].flatMap(([leader, below]) => below.map((k) => [k.address, leader])));
-  return { childrenOf, leaderOf };
-}
+const withoutQuestionsThatAreDecisions = (board) => ({ ...board,
+  columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => (t.pending ? { ...t, waiting: null } : t)) })) });
 
 function boardContext(args) {
-  const github = isGithubBoard(args.board);
   const terminals = args.terminals ?? [];
-  const board = github ? matchIssues(args.board, terminals) : args.board;
   const live = terminals.filter(isLive);
-  const tasks = allTasks(board);
-  const agentAt = (terminal) => args.agents.find((a) => a.address === terminal);
-  return { ...args, board, github, terminals, live, tasks, nameOf: namer(terminals),
-    byId: new Map(tasks.map((t) => [t.id, t])), agentAt,
-    windowAt: (terminal) => agentAt(terminal) ?? live.find((k) => k.address === terminal),
-    ...herdrTree(args.agents, args.space, live) };
+  const tasks = allTasks(args.board);
+  return { ...args, terminals, tasks, nameOf: namer(terminals), byId: new Map(tasks.map((t) => [t.id, t])),
+    windowAt: (terminal) => args.agents.find((a) => a.address === terminal) ?? live.find((k) => k.address === terminal) };
 }
 
-const questionsAskedOnBoard = (c) => (c.board ? { ...c, board: withoutQuestionsThatAreDecisions(c.board, c.github) } : c);
+const questionsAskedOnBoard = (c) => (c.board ? { ...c, board: withoutQuestionsThatAreDecisions(c.board) } : c);
 
 export function heldTicketState(t, window) {
   if (isDone(t)) return "done";
@@ -248,20 +225,7 @@ const localMidnightSeconds = (now) => localMidnight(now) / MS_PER_SECOND;
 export const closedToday = (board, now) => allTasks(board).filter((t) => isDone(t) && (t.done_at ?? 0) >= localMidnightSeconds(now)).length;
 export const flowLine = ({ closed, running, waiting }) => "今天关了 " + closed + " · 在跑 " + running + " · 等你 " + waiting;
 
-const ISSUE_NAME = /^gh-(\d+)/;
-const issueNamedBy = (name) => ISSUE_NAME.exec(name ?? "");
-const childName = (k) => k.name || k.program?.name || k.address;
-
-const isUnclaimedIssue = (t) => !isDone(t) && !isHeld(t) && !t.terminal && !isAsking(t);
-function issueTaskItem(c, t) {
-  if (isUnclaimedIssue(t)) return { ...issueItem(t, null, c.now), state: "todo", at: null };
-  const window = t.terminal ? c.windowAt(t.terminal) : null;
-  return { ...issueItem(t, window?.status, c.now), focus: window ? t.terminal : null,
-    doing: isHeld(t) && !isDone(t) ? doingOf(t, c.byId, t.title, window?.status, c.now) : null };
-}
-
-const taskItems = (c) => (c.github ? c.tasks.map((t) => issueTaskItem(c, t))
-  : c.tasks.filter((t) => rootOf(c, t) === t).map((root) => itemOf(c, root)));
+const taskItems = (c) => c.tasks.filter((t) => rootOf(c, t) === t).map((root) => itemOf(c, root));
 
 export const TASK_GROUPS = ["stopped", "working", "todo", "done"];
 const TASK_GROUP_OF_STATE = { waiting: "stopped", stopped: "stopped", current: "working", pushing: "working", todo: "todo", done: "done" };
@@ -269,7 +233,7 @@ const latestDoneFirst = (x, y) => (y.at ?? 0) - (x.at ?? 0);
 const mostRecentlyActiveFirst = (x, y) => y.active - x.active;
 const ORDER_IN_GROUP = { done: latestDoneFirst };
 
-const listedAs = (c, id) => (c.github ? id : rootOf(c, c.byId.get(id)).id);
+const listedAs = (c, id) => rootOf(c, c.byId.get(id)).id;
 
 function taskGroups(c, items, cards) {
   const onACard = new Set(cards.filter((card) => card.task != null && c.byId.has(card.task)).map((card) => listedAs(c, card.task)));
@@ -280,22 +244,10 @@ function taskGroups(c, items, cards) {
     .filter((g) => g.items.length);
 }
 
-function panelessBlockedCards(c, items) {
-  if (!c.github) return [];
-  const words = WINDOW_WORDS[c.lang];
-  const isPanelessBlockedChild = (k) => c.leaderOf.has(k.address) && !c.agentAt(k.address) && herdrSaysBlocked(k.status);
-  return c.live.filter(isPanelessBlockedChild).flatMap((k) => {
-    const x = items.find((i) => i.focus === k.address);
-    return x ? [{ name: childName(k), question: words.confirm, doing: x.title, state: "waiting", label: words.waiting, duration: null,
-      focus: x.focus, ...(x.url && { url: x.url }), task: x.id }] : [];
-  });
-}
-
 export function panelView(args) {
   const c = boardContext(args);
-  const { waiting: asking } = windowsAndWaits(questionsAskedOnBoard(c));
+  const { waiting: cards } = windowsAndWaits(questionsAskedOnBoard(c));
   const items = taskItems(c);
-  const cards = [...asking, ...panelessBlockedCards(c, items)];
   const tasks = taskGroups(c, items, cards);
   const flow = c.board && flowLine({ closed: closedToday(c.board, c.now),
     running: tasks.find((g) => g.group === "working")?.items.length ?? 0,
@@ -397,35 +349,6 @@ export const TO_ORCHESTRATOR = {
 
 export const marksStillToKeep = (returned, incomplete, justReturned) =>
   incomplete.marks.filter((m) => returned.includes(m) || justReturned.includes(m));
-
-const issueTerminalsByName = (live) => new Map(live.flatMap((k) => {
-  const named = issueNamedBy(k.name);
-  return named ? [["#" + named[1], k.address]] : [];
-}));
-
-const matchIssues = (board, terminals) => {
-  const live = terminals.filter(isLive), alive = new Set(live.map((k) => k.address));
-  const claimed = new Set(allTasks(board).map((t) => t.terminal).filter((terminal) => alive.has(terminal)));
-  const byName = issueTerminalsByName(live.filter((k) => !claimed.has(k.address)));
-  const terminalOf = (t) => (alive.has(t.terminal) ? t.terminal : byName.get(t.id) ?? t.terminal);
-  return { ...board, columns: board.columns.map((c) => ({ ...c, tasks: (c.tasks ?? []).map((t) => ({ ...t, terminal: terminalOf(t) })) })) };
-};
-
-function issueState(t, status, now) {
-  if (isDone(t)) return "done";
-  if (isAsking(t) || herdrSaysNeedsYou(status)) return "waiting";
-  if (status === "working") return "current";
-  return now - t.active_at < ISSUE_STILL_MOVING_FOR ? "pushing" : "stopped";
-}
-
-const issueSince = (t, state) => (state === "done" ? t.done_at : state === "current" ? t.claimed_at : state === "stopped" ? t.active_at : null);
-
-const issueItem = (t, status, now) => {
-  const state = issueState(t, status, now);
-  return { id: t.id, title: t.title, state, at: issueSince(t, state), gone: false,
-    note: t.progress?.body ?? null, focus: null, spec: null, url: t.url ?? null, active: t.active_at };
-};
-
 
 const SPAN_UNITS = [
   { below: HOUR, unit: MINUTE, zh: "分钟", en: "m" },

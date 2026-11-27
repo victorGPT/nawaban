@@ -49,7 +49,7 @@ export function TaskPage(props: { id: string; project: string; changes: number }
   const view = createMemo(() => {
     const r = fetched()
     if (!r || r.of !== props.id || r.detail.id !== props.id) return null
-    return { detail: r.detail, v: detailView(r.detail, boardTaskOf(r.board, props.id), nowInSeconds(), r.board?.tracker === 'github') }
+    return { detail: r.detail, v: detailView(r.detail, boardTaskOf(r.board, props.id), nowInSeconds()) }
   })
   return (
     <Device label="任务详情" layout="narrow">

@@ -12,7 +12,7 @@ export const REPLIES = {
 } as const
 
 type HeldTask = { id: string; title: string; status: string; parent?: string | null; session?: string | null; waiting?: string | null; pending?: Pending | null; blocked_by?: string[] }
-export type WaitingBoard = { tracker?: 'github'; columns: { key: string; tasks: HeldTask[] }[] }
+export type WaitingBoard = { columns: { key: string; tasks: HeldTask[] }[] }
 type OkrKr = { name: string; value: number | string | null; unit?: string | null; target: string }
 export type WaitingOkr = { objectives?: { name: string; krs: OkrKr[] }[]; attention?: { kind: string; objective: string; kr: string; text: string }[] }
 type Said = { kind: string; body: string; at: number }
@@ -95,7 +95,6 @@ function waitingOfProject(p: ProjectReading): Waiting[] {
     }
     return seen
   }
-  const github = p.board?.tracker === 'github'
   const tickets = held
     .filter((t) => !(t.parent && heldIds.has(t.parent)))
     .map((t): Waiting => {
@@ -111,7 +110,7 @@ function waitingOfProject(p: ProjectReading): Waiting[] {
         since: t.pending?.at ?? (raised || null),
         blocks: waiters.length,
         krs: 0,
-        ask: t.pending?.ask ?? (t.waiting && !github ? t.waiting : null),
+        ask: t.pending?.ask ?? (t.waiting || null),
         card: full && { kr: full.kr, context: full.context, choices, advice: adviceOf(full.rec, choices) },
         readings: [],
         waitsOnThis: waiters.map((id) => {

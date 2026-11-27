@@ -59,23 +59,21 @@ export type BoardTask = {
   pending?: Pending | null
   blocked_by?: string[]
 }
-export type Board = { tracker?: 'github'; columns: { key: string; tasks: BoardTask[] }[]; decisions: unknown[] }
+export type Board = { columns: { key: string; tasks: BoardTask[] }[]; decisions: unknown[] }
 export type Project = { name: string; open: number; total: number; waiting: number }
 
 export type ItemState = 'done' | 'stopped' | 'working' | 'todo'
-export type Item = { key: string; id: string; title: string; state: ItemState; at: number | null; note: string | null; doing: Doing | null; spec: { done: number; total: number } | null; waiting: boolean; parent: string | null }
+export type Item = { key: string; id: string; title: string; state: ItemState; at: number | null; note: string | null; doing: Doing | null; spec: { done: number; total: number } | null; waiting: boolean }
 export type Group = 'stopped' | 'working' | 'todo' | 'done'
 
 const HOUR = 3600
 export const STOPPED_AFTER_SILENT_FOR = 24 * HOUR
 const GROUPS: Group[] = ['stopped', 'working', 'todo', 'done']
 
-const heldOnGithubByAClaimTerminalAsInThePanel = (t: BoardTask, github: boolean) => github && !!t.terminal
-
-export function stateOf(t: BoardTask, now: number, github = false): ItemState {
+export function stateOf(t: BoardTask, now: number): ItemState {
   if (t.status === 'done') return 'done'
   if (t.waiting) return 'stopped'
-  if (!t.session && !heldOnGithubByAClaimTerminalAsInThePanel(t, github)) return 'todo'
+  if (!t.session) return 'todo'
   return now - t.active_at > STOPPED_AFTER_SILENT_FOR ? 'stopped' : 'working'
 }
 
@@ -90,11 +88,11 @@ function rootOf(t: BoardTask, byId: Map<string, BoardTask>) {
   return t
 }
 
-function itemOf(root: BoardTask, tickets: BoardTask[], byId: Map<string, BoardTask>, now: number, github: boolean) {
-  const states = tickets.map((t) => stateOf(t, now, github))
+function itemOf(root: BoardTask, tickets: BoardTask[], byId: Map<string, BoardTask>, now: number) {
+  const states = tickets.map((t) => stateOf(t, now))
   const lead = tickets[states.indexOf('stopped')] ?? tickets[states.indexOf('working')] ?? root
   const allTicketsDone = tickets.length > 0 && states.every((s) => s === 'done')
-  const state: ItemState = root.status === 'done' || allTicketsDone ? 'done' : stateOf(lead, now, github)
+  const state: ItemState = root.status === 'done' || allTicketsDone ? 'done' : stateOf(lead, now)
   const at =
     state === 'done'
       ? (root.done_at ?? Math.max(0, ...tickets.map((t) => t.done_at ?? 0)))
@@ -114,7 +112,6 @@ function itemOf(root: BoardTask, tickets: BoardTask[], byId: Map<string, BoardTa
     doing: held ? (doingOf(lead, byId, root.title, undefined, now) as Doing) : null,
     spec: tickets.length ? { done: states.filter((s) => s === 'done').length, total: tickets.length } : null,
     waiting: state === 'stopped' && !!lead.waiting,
-    parent: (root.parent && byId.get(root.parent)?.title) || null,
     active: Math.max(...[root, ...tickets].map((t) => t.active_at ?? 0)),
   }
 }
@@ -124,10 +121,8 @@ const GROUP_OF: Record<ItemState, Group> = { stopped: 'stopped', working: 'worki
 export function taskGroups(board: Board | null, now: number): { group: Group; items: Item[] }[] {
   const tasks = allOf(board)
   const byId = new Map(tasks.map((t) => [t.id, t]))
-  const eachIssueStandsAloneAsInThePanel = board?.tracker === 'github'
-  const roots = eachIssueStandsAloneAsInThePanel ? tasks : tasks.filter((t) => rootOf(t, byId) === t)
-  const ticketsUnder = (root: BoardTask) => (eachIssueStandsAloneAsInThePanel ? [] : tasks.filter((t) => t !== root && rootOf(t, byId) === root))
-  const items = roots.map((root) => itemOf(root, ticketsUnder(root), byId, now, eachIssueStandsAloneAsInThePanel))
+  const roots = tasks.filter((t) => rootOf(t, byId) === t)
+  const items = roots.map((root) => itemOf(root, tasks.filter((t) => t !== root && rootOf(t, byId) === root), byId, now))
   return GROUPS.map((group) => ({
     group,
     items: items

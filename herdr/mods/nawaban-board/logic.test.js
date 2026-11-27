@@ -222,57 +222,9 @@ test("an item says since when on the right: a done one its time of day today, el
   assert.equal(decisionDate(at(5, 23, 59)), "11-05");
 });
 
-const kid = (address, name, status, parent = "t23") => ({ address, name, parent, status, state: "live" });
-const issue = (n, x = {}) => ({ ...task(`#${n}`, { title: `issue ${n}`, ...x }), ...(x.waiting && { waiting: x.waiting }), url: `https://github.com/o/r/issues/${n}` });
-const github = (...tasks) => ({ tracker: "github", ...boardOf(...tasks) });
-const ghTree = [{ address: "t23", name: null, parent: null, status: "working", state: "live" },
-  kid("t4a", "gh-275", "working"), kid("t4c", "gh-238r", "idle"), kid("t4d", "gh-239", "done"), kid("t4g", "plump", "idle")];
-const ghIssues = [
-  issue(275, { status: "in_progress", session: "gh-275（hc t52）", terminal: "t52", claimed_at: NOW - 3600, active_at: NOW - 600, progress: "第 2 步" }),
-  issue(264, { active_at: NOW - 26 * 3600 }),
-  issue(238, { status: "in_progress", session: "1dfeb4dd", claimed_at: NOW - 9000, active_at: NOW - 2 * 3600, progress: "等判官放行" }),
-  issue(292, { active_at: NOW - 3600, waiting: "等负责人审 ADR 0030" }),
-  issue(307, { status: "in_progress", session: "rel", terminal: "t4g", claimed_at: NOW - 7200, active_at: NOW - 30 * 3600 }),
-  issue(239, { status: "done", done_at: NOW - 3600 })];
-const ghView = (extra = {}) => panel([agent("t23", "working", "claude", "leader agent")], ghIssues, { terminals: ghTree, board: github(...ghIssues), ...extra });
-
-test("on a GitHub board every issue is listed: unclaimed is 待办, 在干 or 进行中 is 进行中, quiet a day or needs-info is 停滞, closed is 已完成", () => {
-  const v = ghView();
-  assert.deepEqual(grouped(v), [["stopped", ["#292", "#307"]], ["working", ["#275", "#238"]], ["todo", ["#264"]], ["done", ["#239"]]]);
-  const at = (id) => v.tasks.flatMap((g) => g.items).find((i) => i.id === id);
-  assert.deepEqual([at("#275").state, at("#275").focus, at("#275").where, at("#275").note, at("#275").url],
-    ["current", "t4a", "gh-275", "第 2 步", "https://github.com/o/r/issues/275"]);
-  assert.deepEqual([at("#238").state, at("#238").focus], ["pushing", "t4c"]);
-  assert.deepEqual([at("#307").state, at("#307").focus, at("#307").where], ["stopped", "t4g", "plump"]);
-  assert.deepEqual([at("#264").at, at("#264").focus], [null, null]);
-  assert.deepEqual([at("#239").focus, at("#239").at], ["t4d", NOW - 3600]);
-  assert.deepEqual(v.waiting, []);
-});
-
-test("on a GitHub board a claim's terminal comes before a gh-<n> name", () => {
-  const tree = [ghTree[0], kid("t4c", "gh-238r", "working")];
-  const tasks = [issue(238, { title: "named" }), issue(301, { status: "in_progress", session: "x", terminal: "t4c", claimed_at: NOW - 60, title: "claimed" })];
-  const v = panel([agent("t23", "working", "claude", "leader agent")], tasks, { terminals: tree, board: github(...tasks) });
-  assert.deepEqual(v.tasks.map((g) => [g.group, g.items.map((i) => [i.title, i.focus])]), [["working", [["claimed", "t4c"]]], ["todo", [["named", null]]]]);
-});
-
-test("on a GitHub board a window Herdr reports blocked is still a 等你 card (GLOSSARY: Waiting on you), a worker with no pane too, its issue closed or not, and not listed again", () => {
-  const terminals = ghTree.map((k) => (k.address === "t4c" || k.address === "t4d" ? { ...k, status: "blocked" } : k));
-  const v = ghView({ terminals });
-  assert.deepEqual(v.waiting, [
-    { key: "card:0", name: "gh-238r", question: "在等你确认", doing: "issue 238", state: "waiting", label: "等你", duration: null,
-      focus: "t4c", url: "https://github.com/o/r/issues/238" },
-    { key: "card:1", name: "gh-239", question: "在等你确认", doing: "issue 239", state: "waiting", label: "等你", duration: null,
-      focus: "t4d", url: "https://github.com/o/r/issues/239" }]);
-  assert.ok(!v.tasks.flatMap((g) => g.items).some((i) => i.id === "#238"));
-  assert.deepEqual(ghView({ terminals: ghTree.map((k) => (k.address === "t4c" ? { ...k, status: "error" } : k)) }).waiting, []);
-  const pane = panel([agent("t23", "blocked", "rm -rf build?", "leader agent")], ghIssues, { terminals: ghTree, board: github(...ghIssues) });
-  assert.deepEqual(pane.waiting.map((c) => [c.name, c.question, c.doing, c.focus]), [["leader agent", "在等你确认", "rm -rf build?", "t23"]]);
-});
-
 const pend = (id, at, x) => ({ id, title: `issue ${id}`, status: "open", parent: null, url: `https://gh/${id.slice(1)}`,
   active_at: at, pending: { brief: `待决：${id}\n定不定？`, at, progress: [] }, ...x });
-const pendBoard = (tasks) => ({ tracker: "github",
+const pendBoard = (tasks) => ({
   columns: [{ key: "open", tasks: tasks.filter((t) => t.status !== "done") }, { key: "done", tasks: tasks.filter((t) => t.status === "done") }] });
 
 const fullCard = { decision: "定不定", kr: "无", context: "c", rec: "A", options: [{ key: "A", text: "a", note: "x" }, { key: "B", text: "b", note: "y" }] };
@@ -406,7 +358,7 @@ const cardOf = (options) => ({ decision: "定不定", kr: "长对话接着轮保
   options: options ?? [{ key: "A", text: "一次性批准", note: "只管这一次" }, { key: "B", text: "加进白名单", note: "" }] });
 const asked = (n, at, pending) => ({ id: "#" + n, title: "issue " + n, status: "open", url: "https://gh/" + n,
   pending: { brief: "待决：…", at, progress: [{ body: "早先", at: at - 60 }, { body: "长对话配对出分\n+7.6 点", at: at + 60 }], card: null, talk: null, ruled_after: false, ...pending } });
-const decisionBoard = { tracker: "github", columns: [{ key: "open", tasks: [
+const decisionBoard = { columns: [{ key: "open", tasks: [
   asked(1428, 300, { card: cardOf() }),
   asked(1536, 100, { card: cardOf(), ruled_after: true, talk: { window: null } }),
   asked(1472, 200, { card: cardOf(), talk: { window: "t1d2" } }),
@@ -472,7 +424,7 @@ test("each tab's badge says whether it needs the owner: pending in amber, missed
 });
 
 test("a card's subtitle leaves out a KR that is empty or 无", () => {
-  const withKr = (kr) => ({ tracker: "github", columns: [{ key: "open", tasks: [asked(1280, 300, { card: { ...cardOf(), kr } })] }] });
+  const withKr = (kr) => ({ columns: [{ key: "open", tasks: [asked(1280, 300, { card: { ...cardOf(), kr } })] }] });
   assert.deepEqual(["无", " 无 ", "", null].map((kr) => decisionCardsView(withKr(kr)).cards[0].sub), Array(4).fill("#1280 · " + decisionDate(300)));
   assert.equal(decisionCardsView(withKr("留存")).cards[0].sub, "#1280 · 留存 · " + decisionDate(300));
 });
@@ -551,33 +503,20 @@ test("the top line counts what closed today, what runs, and what waits for you, 
   assert.equal(flowLine({ closed: 1, running: 2, waiting: 3 }), "今天关了 1 · 在跑 2 · 等你 3");
 });
 
-test("on a GitHub board 在跑 is the 进行中 group and 等你 is the 待决 badge, whatever sits stalled or pending elsewhere", () => {
+test("在跑 is the 进行中 group and 等你 is the 待决 badge, whatever sits pending elsewhere", () => {
   const issue = (n, status, x = {}) => ({ id: "#" + n, title: "issue " + n, status, parent: null, created_at: NOON - 9 * 86400, active_at: NOON - 600,
     url: "https://gh/" + n, terminal: null, session: status === "in_progress" ? "s" + n : null, claimed_at: status === "in_progress" ? NOON - 3600 : null,
     waiting: null, pending: null, ...x });
   const pending = { at: NOON - 300, progress: [], card: fullCard };
-  const board = { tracker: "github", columns: [
+  const board = { columns: [
     { key: "open", tasks: [issue(1, "open"), issue(2, "open", { pending })] },
     { key: "in_progress", tasks: [issue(3, "in_progress"), issue(4, "in_progress", { active_at: NOON - 2 * 86400 }), issue(5, "in_progress", { pending })] },
     { key: "done", tasks: [issue(6, "done", { done_at: NOON - 3600 })] }] };
   const v = panelView({ agents: [], terminals: [], space: "here", board, now: NOON, lang: "zh" });
   const decide = v.waiting.length + decisionCardsView(board).cards.length;
   const working = v.tasks.find((g) => g.group === "working").items.length;
-  assert.deepEqual([decide, working], [2, 2]);
+  assert.deepEqual([decide, working], [2, 3]);
   assert.equal(v.flow, "今天关了 1 · 在跑 " + working + " · 等你 " + decide);
-});
-
-test("a held GitHub issue shows its milestone, ruling and last move like a board task, and an unclaimed one shows none", () => {
-  const t = { id: "#7", title: "接里程碑", status: "in_progress", parent: null, session: "s7", claimed_at: NOON - 3600, active_at: NOON - 7200,
-    terminal: null, waiting: null, pending: null, url: "https://gh/7",
-    live: { milestone: "pr", at: NOON - 120 }, ruling: { at: at("2026-11-24T09:30:00"), verdict: "就按 B 做" } };
-  const board = { tracker: "github", columns: [{ key: "open", tasks: [{ ...t, id: "#8", status: "open", session: null, live: null, ruling: null }] },
-    { key: "in_progress", tasks: [t] }] };
-  const items = panelView({ agents: [], terminals: [], space: "here", board, now: NOON, lang: "zh" }).tasks.flatMap((g) => g.items);
-  const held = items.find((x) => x.id === "#7");
-  assert.equal(held.doing.head, "【在做】接里程碑 —— 决策者 11-24 09:30 说「就按 B 做」");
-  assert.equal(held.doing.chain, "✓3 步 → [开 PR] → review → 回报 · 2 分钟前还在动");
-  assert.equal(items.find((x) => x.id === "#8").doing, undefined);
 });
 
 test("the panel rereads the board when the board database or its log is written, progress being a label on it, not for the hook's files", () => {

@@ -47,18 +47,11 @@ describe('taskGroups', () => {
       working('S-2', { parent: 'S', active_at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, progress: { body: '卡在 CI', at: NOW } }),
       working('S-3', { parent: 'S' }),
     ), NOW)
-    expect(g).toEqual({ group: 'stopped', items: [{ key: 'task:S', id: 'S', title: 'S', state: 'stopped', at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, note: '卡在 CI', doing: { head: '【在做】S —— 编排者代定', chain: '[开工] → 首次改文件 → 首次提交 · 2 天没动', stale: true }, spec: { done: 1, total: 3 }, waiting: false, parent: null }] })
+    expect(g).toEqual({ group: 'stopped', items: [{ key: 'task:S', id: 'S', title: 'S', state: 'stopped', at: NOW - 2 * STOPPED_AFTER_SILENT_FOR, note: '卡在 CI', doing: { head: '【在做】S —— 编排者代定', chain: '[开工] → 首次改文件 → 首次提交 · 2 天没动', stale: true }, spec: { done: 1, total: 3 }, waiting: false }] })
   })
   it('lists a spec done once every ticket is done', () => {
     const groups = taskGroups(boardOf(task('S'), task('S-1', { parent: 'S', status: 'done', done_at: NOW - 9 })), NOW)
     expect(groups).toEqual([{ group: 'done', items: [expect.objectContaining({ id: 'S', state: 'done', at: NOW - 9 })] }])
-  })
-  it('lists every issue of a GitHub board on its own, as the panel does', () => {
-    const github: Board = { ...boardOf(task('#1'), working('#2', { parent: '#1' })), tracker: 'github' }
-    expect(taskGroups(github, NOW).map((g) => [g.group, g.items.map((x) => x.id)])).toEqual([['working', ['#2']], ['todo', ['#1']]])
-    const claimedByATerminalOnly = task('#3', { terminal: 't1' })
-    expect(taskGroups({ ...boardOf(claimedByATerminalOnly), tracker: 'github' }, NOW)[0]!.group).toBe('working')
-    expect(taskGroups(boardOf(claimedByATerminalOnly), NOW)[0]!.group).toBe('todo')
   })
   it('lists a ticket whose parent is not on the board on its own', () => {
     expect(taskGroups(boardOf(task('X', { parent: 'GONE' })), NOW)[0]!.items[0]!.id).toBe('X')
@@ -118,14 +111,6 @@ describe('the board card', () => {
   it('says 等你, and only that, when the task waits on you, stopped or not', () => {
     expect(signalOf(working('q', { waiting: '要不要接上\n背景……' }))).toBe('等你')
     expect(signalOf(working('q', { waiting: '定吗', active_at: NOW - 5 * 24 * 3600 }))).toBe('等你')
-  })
-})
-
-describe('the parent beside the key', () => {
-  it('names the parent issue of a GitHub issue, and nothing for a task that has none', () => {
-    const github: Board = { ...boardOf(task('#1', { title: '分享与邀请' }), task('#2', { parent: '#1' }), task('#3', { parent: '#404' })), tracker: 'github' }
-    const parents = Object.fromEntries(taskGroups(github, NOW).flatMap((g) => g.items).map((x) => [x.id, x.parent]))
-    expect(parents).toEqual({ '#1': null, '#2': '分享与邀请', '#3': null })
   })
 })
 
