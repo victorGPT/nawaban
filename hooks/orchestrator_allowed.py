@@ -132,6 +132,9 @@ def program_allowed(words):
     if name in ORCHESTRATION_PROGRAMS:
         return True
     if name == "gh":
+        while args[:1] and args[0] in ("-R", "--repo"):
+            args = args[2:]
+        args = args[1:] if args[:1] and args[0].startswith("--repo=") else args
         return tuple(args[:2]) in GH_ORCHESTRATION
     if name in ORCHESTRATION_SCRIPTS:
         return bool(args) and args[0].endswith(ORCHESTRATION_SCRIPTS[name])
