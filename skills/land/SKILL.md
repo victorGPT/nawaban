@@ -1,6 +1,6 @@
 ---
 name: land
-description: 编排者用。worker 报完成后收尾。收到回报，或票上出现 merge: 已合未收完、merge: 拒合时用。
+description: "编排者用。worker 报完成后收尾。收到回报，或票上出现 merge: 已合未收完、merge: 拒合时用。"
 ---
 
 worker 报完成，或票上出现 `merge:` 行时用。光凭回报不合并。

@@ -1,6 +1,6 @@
 ---
 name: orchestrator
-description: 把这个会话声明为本仓库的编排者。
+description: "把这个会话声明为本仓库的编排者。"
 disable-model-invocation: true
 ---
 

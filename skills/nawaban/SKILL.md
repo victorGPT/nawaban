@@ -1,6 +1,6 @@
 ---
 name: nawaban
-description: nawaban 看板就是 issue tracker。发 spec 和票、找可开工的票、做票之前、记进展决策链接、关票时用。
+description: "nawaban 看板就是 issue tracker。发 spec 和票、找可开工的票、做票之前、记进展决策链接、关票时用。"
 ---
 
 # nawaban

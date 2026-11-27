@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from 'vitest'
+import { parse } from 'yaml'
 
 const SKILLS = resolve(dirname(fileURLToPath(import.meta.url)), '../../skills')
 const CHARS_AT_MOST = {
@@ -34,7 +35,8 @@ test.each(skillFiles)('$name carries no names, quotes, dates or incident stories
 
 test.each(skillFiles)('$name stays within its length budget', ({ name, text }) => {
   expect(text.length).toBeLessThanOrEqual(budgetOf(text)[kindOf(name)])
-  const description = text.match(/^description:\s*(.*)$/m)?.[1] ?? ''
+  const frontmatter = text.match(/^---\n([\s\S]*?)\n---\n/)?.[1]
+  const description: string = frontmatter ? parse(frontmatter).description : ''
   expect(description.length).toBeLessThanOrEqual(budgetOf(description).description)
 })
 

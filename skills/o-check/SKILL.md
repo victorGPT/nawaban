@@ -1,6 +1,6 @@
 ---
 name: o-check
-description: 体检一个提出的 O：是不是 O、差在哪，再补事实、反问一句或给改写。决策者提出或改 O、agent 起草 O 时用。
+description: "体检一个提出的 O：是不是 O、差在哪，再补事实、反问一句或给改写。决策者提出或改 O、agent 起草 O 时用。"
 ---
 
 决策者提出或改了 O、或你起草 O 时，在任何人起草 KR 之前用。每条判据的正反例见 [examples.md](examples.md)。

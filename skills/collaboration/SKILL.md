@@ -1,6 +1,6 @@
 ---
 name: collaboration
-description: 人和 agent 在 nawaban 上怎么分工，一个需求怎么从进来到关掉。同事问怎么协作、新人入职时用。
+description: "人和 agent 在 nawaban 上怎么分工，一个需求怎么从进来到关掉。同事问怎么协作、新人入职时用。"
 ---
 
 # 协作流程

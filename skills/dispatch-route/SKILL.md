@@ -1,6 +1,6 @@
 ---
 name: dispatch-route
-description: 定一张票给谁：正在跑的 worker、排在它后面，还是新开。每次派活前、worker 窗口关了而票还挂在它名下时用。
+description: "定一张票给谁：正在跑的 worker、排在它后面，还是新开。每次派活前、worker 窗口关了而票还挂在它名下时用。"
 ---
 
 每次派活前用。先按规则定该谁做，再看那个 agent 的状态。多开少开一个都便宜，快定。
