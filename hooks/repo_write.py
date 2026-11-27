@@ -101,7 +101,7 @@ def shell_tokens(command):
 
 
 def tokens_of(text):
-    s, i, word, quoted = text.replace("\\\n", " "), 0, None, False
+    s, i, word, quoted = text.replace("\\\n", ""), 0, None, False
     while i < len(s):
         operator = next((op for op in OPERATORS if s.startswith(op, i)), None)
         if s[i] in QUOTES:

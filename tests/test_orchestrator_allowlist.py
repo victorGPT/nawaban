@@ -41,7 +41,7 @@ def test_the_orchestrator_cannot_search_code_and_is_told_to_send_a_worker(tmp_pa
                 "jq . < apps/web/a.ts", "git log -1 -p", "git log --patch", "git log -L1,2:apps/web/a.ts", "git log -Sfoo", "git log -5 --dd", "git log -5 -c", "cd docs/agents && cat < ../../apps/web/a.ts", "node apps/web/a.js", "python3 scripts/x.py", "git pull", "git status -v", "git status --verbose", "git status -vv", "gh --repo o/r api x",
                 "true # <<true\ncat apps/web/a.ts\ntrue", "echo '<<EOF'\ncat apps/web/a.ts\nEOF",
                 "cat <<EOF # <<EOF\nmessage\nEOF\ncat apps/web/a.ts\ncat <<EOF\nend\nEOF", "echo \"<<'EOF'\" && cat <<EOF\n$(cat apps/web/a.ts)\nEOF",
-                "cat << '-true'\nmessage\n-true\nhead -n 3 apps/web/a.ts\ntrue", "cat 123 >&1", "cat '123'>/dev/stdout", "grep secret 123 >&1"):
+                "cat << '-true'\nmessage\n-true\nhead -n 3 apps/web/a.ts\ntrue", "cat 123 >&1", "cat '123'>/dev/stdout", "git log --\\\npatch -1", "r\\\ng apps/", "grep secret 123 >&1"):
         assert refused(call("Bash", {"command": cmd})), cmd
     assert refused(call("Read", {"file_path": str(repo / "apps/web/a.ts")}))
     assert refused(call("Grep", {"pattern": "x", "path": "apps"}))
@@ -60,7 +60,7 @@ def test_the_orchestrator_keeps_its_orchestration_commands(tmp_path, outside_tmp
                 "node ~/.nawaban/plugin/hooks/route.mjs", "node ~/.nawaban/plugin/board/src/cli.ts event X --kind ask --body 'A 还是 B'", "python3 ~/.nawaban/plugin/nawaban/cli.py show '#12'",
                 "GH_TOKEN=$(gh auth token --user victorGPT) gh pr merge 12 --squash --match-head-commit abc", "gh pr checks 12", "gh --repo o/r pr view 12", "gh -R o/r issue list", "gh --repo=o/r pr list",
                 "git -C ~/.nawaban/plugin pull --ff-only && sh ~/.nawaban/plugin/herdr/install-mod.sh", "scripts/merge.sh 12",
-                "git worktree remove ../wt-x", "git status -sb", "git status --porcelain=v1", "python3 ~/.nawaban/plugin/nawaban/cli.py backup"):
+                "git worktree remove ../wt-x", "git status -sb", "nawaban show X \\\n  --json", "git status --porcelain=v1", "python3 ~/.nawaban/plugin/nawaban/cli.py backup"):
         r = call("Bash", {"command": cmd})
         assert r.returncode == 0, (cmd, r.stderr)
     for path in (repo / "docs/agents/orchestrator.md", repo / "AGENTS.md", repo / "CLAUDE.md", scratch / "plan.md", tmp_path / "board" / "x.json"):
