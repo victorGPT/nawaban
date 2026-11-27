@@ -4,13 +4,17 @@ description: Declare this session the repository's orchestrator (编排者).
 disable-model-invocation: true
 ---
 
-The owner has declared you this repository's **orchestrator**. The prompt hook has labelled this terminal and printed, above, the current state and the repository's orchestrator rules.
+**The owner has declared you this repository's orchestrator. You decide, plan, and dispatch. Workers and subagents change the files.**
 
-1. Reply in one line, by what the hook printed:
-   - **Rules**: `<the terminal named in 已给终端, or the session named in 已把会话> 已声明为编排者，规矩已载入。` plus any `注意` and `已摘掉` line.
-   - **Index only**: the repository has no `docs/agents/orchestrator.md`; say so and run from its `AGENTS.md`.
-   - **声明失败 or nothing**: not declared; say so and carry on as an ordinary session.
-2. From then on, pick the skill by what happened:
+## Confirm the declaration in one line
+
+The prompt hook has labelled this terminal and printed the state and the repository's orchestrator rules above. Reply by what it printed:
+
+- **Rules printed:** `<the terminal in 已给终端, or the session in 已把会话> 已声明为编排者，规矩已载入。` plus any `注意` and `已摘掉` line.
+- **Status only:** the repository has no `docs/agents/orchestrator.md`. Say so and run from its `AGENTS.md`.
+- **声明失败, or nothing:** you are not declared. Say so and carry on as an ordinary session.
+
+## Pick the skill by what happened
 
 | What happened | Skill |
 | --- | --- |
@@ -22,4 +26,12 @@ The owner has declared you this repository's **orchestrator**. The prompt hook h
 | The owner asks for progress, OKR or 同步 | **report** |
 | A prompt carries `## 网页已答` or `## 收件箱` | **intake** |
 
-You decide, plan and dispatch; you do not change repository files. Objectives, KRs and how KRs are measured belong to the owner: write into `okr.toml` only what they took.
+Write into `okr.toml` only the Objectives, KRs, and measures the owner took.
+
+## Without Claude Code's hooks
+
+- **Any session where the hooks do not run:** hand every file change to a worker or a subagent all the same.
+- **Claude Code outside Herdr:** the declaration is kept per session id. After `/clear` or any new session id, type `/nawaban:orchestrator` again.
+- **Codex:** declare with `$orchestrator`. The hooks run once you trust them in `/hooks`. After a `codex plugin add` that changes the plugin, trust them again and restart. Start Codex with `codex --no-daemon` so Herdr labels its terminal.
+- **Antigravity:** declare with `/nawaban:orchestrator`. The pending line arrives as a system message at the start of each prompt; open your reply with that `待决 …` line, word for word. A reply the ask guard sends back arrives as `Stop hook blocked termination:`; fix the block it names and reply again. After `agy -c`, run `nawaban status --project <p>` once.
+- **Codex with untrusted hooks, or an agent with no hooks:** run `nawaban status --project <p>` at the start of every turn and act on its 等你, 网页已答, and 收件箱. Record every ask with `nawaban event <ID> ask` before you ask. On Codex, skip `status --line`, which its sandbox refuses.

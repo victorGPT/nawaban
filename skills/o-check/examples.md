@@ -1,7 +1,5 @@
 # O 体检的例子
 
-Objectives come from roubao's `docs/agents/okr.toml` and the nawaban draft in `docs/specs/okr-v2.md`.
-
 | 判据 | 合格 | 不合格 |
 |---|---|---|
 | 1 定性、有方向 | 「听得懂需求」 | 「次日留存 ≥ 40%」：一个数，是「用户愿意拉人」的 KR |
