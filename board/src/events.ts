@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util'
 import { BoardError, block, type board } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
-import { type DecisionCard, gapsOfADecisionCard, SCHEMAS, type SchemaId } from './schemas.ts'
+import { charsOfADecisionCard, DECISION_CARD_CHARS_AT_MOST, type DecisionCard, gapsOfADecisionCard, SCHEMAS, type SchemaId } from './schemas.ts'
 import { IMPACT_FORMAT, RESULT_FORMAT, whyNotDeclarable } from './impact.ts'
 import { registeredReadings } from './okr.ts'
 import { claimReady } from './dispatch.ts'
@@ -162,6 +162,8 @@ const verdictWithItsConsequences = (verdict: string | undefined, consequences: s
 
 async function decision(e: Event): Promise<number> {
   const { a } = e
+  const missing = [['背景', oldBodyLines(a.body, '背景|Context|Question')[0]], ['决定', oldBodyLines(a.body, '决定|Decision|Verdict')[0]]].filter(([, v]) => !v).map(([k]) => k)
+  if (missing.length) refuse(`decision 正文缺 ${missing.join('、')}：每项单独一行，写成 背景：…⏎决定：…⏎否决方案：…（可选 影响：…）`)
   const value = checkedBeforeAnythingLands('nawaban-decision@1', {
     question: oldBodyLines(a.body, '背景|Context|Question')[0],
     verdict: verdictWithItsConsequences(oldBodyLines(a.body, '决定|Decision|Verdict')[0], oldBodyLines(a.body, '影响|Consequences')[0]),
@@ -200,6 +202,8 @@ async function replaceTheCardSentBack(e: Event, sentBack: string, reason: string
 async function holdForDecision(e: Event, value: DecisionCard): Promise<number> {
   const gaps = gapsOfADecisionCard(value)
   if (gaps.length) return refuse(`待决策项未就绪（不满足就绪标准），缺 ${gaps.join('、')}；- / none / 无 / 待定 这类占位算缺（--option 写成 方案｜代价｜单向门 或 双向门）`)
+  const chars = charsOfADecisionCard(value)
+  if (chars > DECISION_CARD_CHARS_AT_MOST) return refuse(`决策卡 ${chars} 字，上限 ${DECISION_CARD_CHARS_AT_MOST}：卡上只留要定的事、选项、代价和建议，证据和过程用 nawaban event <票> note 记到票上`)
   const card = checkedBeforeAnythingLands('nawaban-ask@1', value as Record<string, unknown>)
   if ('why' in card) return refuse(card.why)
   const sentBack = await reasonOfAHoldWhoseCardThePageSentBack(e.team, e.id)
@@ -290,6 +294,14 @@ const BY_KIND: Record<Kind, (e: Event) => Promise<number | string>> = {
   resolve: resolveHold,
 }
 
+const FINISHED_STATES = new Set(['completed', 'canceled', 'failed'])
+
+function whatToDoWhenTheBoardRefused(task: Awaited<ReturnType<typeof resolve>>): string | undefined {
+  if (FINISHED_STATES.has(task.task?.state ?? '')) return `${key(task)} 已关：新开一张票再记`
+  if (live(task)) return `${key(task)} 有窗口认领着：让持票的窗口来记，或它先跑 nawaban claim ${key(task)} --release`
+  return undefined
+}
+
 export function event(argv: string[], run: Run, team: Team): Promise<number> {
   return answer(argv, async () => {
     const { values, positionals, tokens } = parseArgs({ args: argv, allowPositionals: true, options: OPTIONS, tokens: true })
@@ -315,7 +327,7 @@ export function event(argv: string[], run: Run, team: Team): Promise<number> {
     if (why) refuse(why, 2)
     const pushLabel = kind === 'wait' || kind === 'result' ? [] : await pushLabelArgs(boardDirAsConfiguredWhenAsked(), task, kind)
     const got = await BY_KIND[kind](eventOn(task.id, key(task), a, run, team, pushLabel))
-    if (typeof got === 'number' && got) refuse(`看板没记下 ${key(task)} 的 ${kind}`, got)
+    if (typeof got === 'number' && got) refuse(`看板没记下 ${key(task)} 的 ${kind}`, got, whatToDoWhenTheBoardRefused(task))
     return { done: `${key(task)} ${DONE_LINE[kind]}${typeof got === 'string' ? got : ''}`, json: { key: key(task), id: task.id, kind } }
   })
 }

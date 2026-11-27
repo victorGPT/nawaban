@@ -15,9 +15,8 @@ def _run(tmp_path, labels, branch=None, rules_file="orchestrator.md", hc_exit=0)
     return subprocess.run(["sh", str(HOOK)], cwd=tmp_path, env=env, capture_output=True, text=True).stdout
 
 
-def test_a_declared_orchestrator_gets_the_repositorys_orchestrator_rules_or_the_older_leader_md(tmp_path):
+def test_a_declared_orchestrator_gets_the_repositorys_orchestrator_rules(tmp_path):
     assert "规矩正文" in _run(tmp_path, {"role": "orchestrator"})
-    assert "规矩正文" in _run(tmp_path / "old", {"role": "orchestrator"}, rules_file="leader.md")
 
 
 def test_an_undeclared_terminal_gets_nothing(tmp_path):

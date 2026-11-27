@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { block, board, type MessageView } from '@vercel/board'
 import { local } from '@vercel/board/backend-local'
-import { gapsOfADecisionCard, registerSchemas } from '../src/schemas.ts'
+import { charsOfADecisionCard, DECISION_CARD_CHARS_AT_MOST, gapsOfADecisionCard, registerSchemas } from '../src/schemas.ts'
 import { stable } from './stable.ts'
 import { defHash, okrStat, standingText, hardStop, HARD_STOP_EXIT, judge, jsonOkr, load, keepEachNewReadingOnce, okr, run, type Declared, type Heading, type KeptReading, type Kr, type Objective } from '../src/okr.ts'
 
@@ -860,6 +860,7 @@ describe('a round is one okr, and an Objective stops hard when its sprint stalls
     expect([card.decision, card.kr, card.options.length]).toEqual(['O 下一步怎么走', 'K', 3])
     expect(gapsOfADecisionCard(card)).toEqual(['建议 (--rec)'])
     expect(gapsOfADecisionCard({ ...card, recommendation: '换打法继续，先查 K 为什么不动' })).toEqual([])
+    expect(charsOfADecisionCard({ ...card, recommendation: '换打法继续，先查 K 为什么不动' })).toBeLessThanOrEqual(DECISION_CARD_CHARS_AT_MOST)
     const movingNowStillStopped = await measuring(p, 90, 12)
     expect(movingNowStillStopped.code).toBe(HARD_STOP_EXIT)
     const doneNowStillStopped = await measuring(p, 99, 13)

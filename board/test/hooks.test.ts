@@ -107,7 +107,7 @@ it('prints the index off the board when an orchestrator window starts, and nothi
   expect(start.code, start.err).toBe(0)
   expect(start.out).toContain('proj 进行中的事')
   expect(start.out).toContain('进行中 1 · 待办 1')
-  expect(start.out).toContain('## 进行中\n- K2 在干的\n  进展 0 分钟前：写完测试\n  下一步：接 CLI')
+  expect(start.out).toContain('## 进行中\n- K2 在干的 · 写完测试\n')
   expect(start.out).toContain('- K1 要密钥')
   expect(start.out).toContain('规矩正文')
   expect(start.err).not.toContain('改用')
@@ -155,7 +155,7 @@ it('shows what waits on the decision-maker under each reply, new items first, th
   expect(await inbox('s1')).toBeNull()
 
   const viaTheOldWord = await runWithTheHooksEnvironment(['node', CLI, 'inbox', '--project', 'proj'], JSON.stringify({ session_id: 's3' }))
-  expect([viaTheOldWord.code, JSON.parse(viaTheOldWord.out).systemMessage, viaTheOldWord.err]).toEqual([0, '待决 0 件', '改用：nawaban status --line --project proj\n'])
+  expect([viaTheOldWord.code, JSON.parse(viaTheOldWord.out).systemMessage, viaTheOldWord.err]).toEqual([0, '待决 0 件', '已照做，下次写：nawaban status --line --project proj\n'])
 })
 
 it('puts a ticket its holder waits on into the pending line, and a resolve hands it back to that holder alone', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
@@ -279,7 +279,7 @@ it('gives the orchestrator what the web page wrote in full once per session, the
   expect(await nawaban('status', '--project', 'proj')).toContain(full.trimEnd())
   const fresh = 'cccc3333-0000-0000-0000-000000000000'
   const oldPage = await runWithTheHooksEnvironment(['node', CLI, 'page', '--project', 'proj', '--session', fresh])
-  expect([oldPage.code, oldPage.out, oldPage.err]).toEqual([0, full, `改用：nawaban status --project proj --unseen ${fresh}\n`])
+  expect([oldPage.code, oldPage.out, oldPage.err]).toEqual([0, full, `已照做，下次写：nawaban status --project proj --unseen ${fresh}\n`])
 
   const second = await team.post(inboxChannel('proj'), { text: inboxItemText('加暗色主题'), labels: INBOX_OPEN })
   const afterNew = await prompt(S)

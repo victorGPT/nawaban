@@ -11,7 +11,7 @@ The runtime and skill use the nawaban name; the bilingual [glossary](../GLOSSARY
 | `skills/nawaban/` | The one skill: the issue-tracker guide for agents |
 | `tests/test_glossary.py` | Board CLI verb coverage check |
 
-The plugin registers all its hooks in `hooks/hooks.json`, `leader-index.sh` and `leader-gap.sh` included. Runtime data, logs, caches, and installed dependencies are omitted. No npm or pip distribution is introduced.
+The plugin registers all its hooks in `hooks/hooks.json`.
 
 ## Glossary check
 

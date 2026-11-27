@@ -20,4 +20,4 @@ export const withBody = (head: string[], body: string | undefined, rest: string[
 
 export const commandLine = (words: string[]) => `nawaban ${words.map(shellWord).join(' ')}`
 
-export const pointAt = (words: string[]) => process.stderr.write(`改用：${commandLine(words)}\n`)
+export const pointAt = (words: string[]) => process.stderr.write(`已照做，下次写：${commandLine(words)}\n`)

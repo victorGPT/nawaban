@@ -799,7 +799,7 @@ export function okr(argv: string[], team: Team, dir: string, { cwd = process.cwd
       if (!stop) continue
       const draft = join(dir, 'okr-stop', `${project}-${o.name}.md`)
       await mkdir(join(dir, 'okr-stop'), { recursive: true })
-      await writeFile(draft, decisionDraft(o, stop, start, rows, declared))
+      await writeFile(draft, decisionDraft(o, stop, start))
       shown.push(`硬停：${o.name}(${stop.why})· 待决策项草稿 ${draft},补上「建议」后用 nawaban event <票> ask 发;决策者 resolve 之后跑 okr --resume ${o.name}`)
       stops.push({ objective: o.name, why: stop.why, draft })
     }
@@ -886,33 +886,13 @@ function movedTowardTheirTarget(objectives: Objective[], rows: KeptReading[], ke
   )
 }
 
-export function decisionDraft(o: Objective, stop: NonNullable<ReturnType<typeof hardStop>>, sprintStart: string, rows: KeptReading[], declared: Map<string, Declared[]>) {
+export function decisionDraft(o: Objective, stop: NonNullable<ReturnType<typeof hardStop>>, sprintStart: string) {
   const still = (o.kr ?? []).filter((kr) => isAspirational(kr) && !stop.sprint.some((r) => r.moved.includes(kr.name))).map((kr) => kr.name)
   const since = withoutTieBreak(stop.sprint[0]?.at ?? sprintStart).slice(0, 10)
-  const tried = (o.kr ?? []).flatMap((kr) => {
-    const [op, goalText] = target(kr)
-    const rs = currentSeriesOf(rows, kr.name)
-    return (declared.get(`${o.name}\0${kr.name}`) ?? [])
-      .filter((i) => i.declared_at > sprintStart)
-      .map((i) => {
-        const judged = judgedOnce(op, dec(goalText), kr.unit ?? '', rs, i)
-        const why = i.late ? '事后，不判' : i.change !== 'product' ? '改尺子，不判' : judged ? judged.verdict : '还没判'
-        return `  - ${i.ticket} ${kr.name} ${HEADING_WORDS[i.heading ?? 'hold']}：${why}`
-      })
-  })
-  const readings = (o.kr ?? []).map((kr) => {
-    const rs = currentSeriesOf(rows, kr.name)
-    const inSprint = rs.filter((r) => r.measured_at > sprintStart)
-    return `  - ${kr.name}（目标 ${kr.target}）：${inSprint.map((r) => `${r.value}（${r.as_of}）`).join(' → ') || '没有读数'}`
-  })
   return [
     `决策事项：${o.name} 下一步怎么走`,
     `关联 KR：${(still.length ? still : (o.kr ?? []).map((k) => k.name)).join('、')}`,
     `背景：硬停，${stop.why}。这个冲刺自 ${since} 起 ${stop.sprint.length} 轮（${stop.sprint.map((r) => `第 ${r.n} 轮${r.kept ? '' : '空转'}`).join('、')}）。`,
-    '  冲刺内声明过的票：',
-    ...(tried.length ? tried : ['  - 没有']),
-    '  各 KR 的读数：',
-    ...readings,
     '备选方案：',
     `- 换打法继续 ｜ 再开一个冲刺，${still.join('、') || '这些 KR'} 换一种做法；前两轮的做法没让它们动 ｜ 双向门`,
     '- 降目标（只有你能定） ｜ 改 okr.toml 的 target，O 更容易收工，标准跟着降 ｜ 双向门',

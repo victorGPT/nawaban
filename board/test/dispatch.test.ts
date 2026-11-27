@@ -193,7 +193,7 @@ it('dispatches with no task, under --name, and records nothing', async () => {
   expect(r.hc).toContain('/pstack:poteto-mode 任务：retro\n')
   expect(r.hc).toContain('hc send to1 "回报：retro 完成')
   expect(r.hc).not.toContain('跑 nawaban merge')
-  expect(r.hc).toContain('按仓库文档的合并方式合（例如 scripts/merge.sh）')
+  expect(r.hc).toContain('按仓库文档（如 docs/agents/review.md）的合并方式合')
   expect(existsSync(join(tmp, 'repo-retro'))).toBe(true)
 })
 
@@ -497,7 +497,7 @@ it('shows an undelivered report as the progress of the ticket in status', async 
   await team.as('cc-aaaa1111').tasks.claim(id, { lease: 3600 })
   expect((await tellAsWorker(['T-SEEN', '完成 PR #9'], {})).code).toBe(0)
   const status = await nawabanInTheRepositoryAsWindowAaaa1111('status', ['--project', 'nawaban'], {})
-  expect(status.stdout).toContain('进展 0 分钟前：回报未送达：完成 PR #9')
+  expect(status.stdout).toContain('- T-SEEN T-SEEN · 回报未送达：完成 PR #9')
 })
 
 it('lists the live workers of this repository with the tickets they hold in status, and leaves the orchestrator out', async () => {

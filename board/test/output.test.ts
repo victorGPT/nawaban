@@ -180,12 +180,8 @@ it('starts each line of a ticket with its KEY, and refuses with what to do next'
       "out": "p-status 进行中的事 · <月-日 时:分> 生成
     等你 0 · 停滞 0 · 进行中 0 · 待办 1
 
-    ## 48 小时内你的决策记录 0（agent 自己定的另有 0 条，在各任务里）
-
-    ## 待办 1（开着，从没认领也没写进展）
+    ## 待办 1（没人认领过）
     - OUT-6 待办的票
-
-    48 小时内关了 0 个。
     ",
     }
   `)

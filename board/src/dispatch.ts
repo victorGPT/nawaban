@@ -402,7 +402,7 @@ async function worktreeOffOriginMain(root: string, name: string): Promise<Worktr
 
 const MERGE_LINE = `收尾：验收没说不合并时，PR 的 CI 绿、评论里贴了带 head sha 的「Codex review：无挡…」之后，跑 nawaban merge <PR 号>：它合并、关票，再最多等 10 分钟领指派给你的下一张（Claude Code 里用 Bash 的 run_in_background 放后台跑，别干等）。领到就照它打印的 brief 在这个 worktree 切新分支接着做；没领到它收掉 worktree 和终端。票登记了 KR 时，merge 带上 --kr "<KR>=<后值> 实测|预计"`
 
-const MERGE_LINE_WITH_NO_TICKET_FOR_NAWABAN_MERGE_TO_FIND = '收尾：验收没说不合并时，PR 的 CI 绿之后按仓库文档的合并方式合（例如 scripts/merge.sh）；这次没有票，别用 nawaban merge'
+const MERGE_LINE_WITH_NO_TICKET_FOR_NAWABAN_MERGE_TO_FIND = '收尾：验收没说不合并时，PR 的 CI 绿之后按仓库文档（如 docs/agents/review.md）的合并方式合；这次没有票，别用 nawaban merge'
 
 const freshWorktreeLine = (wt: Worktree, merge: string) =>
   `worktree：${wt.path}（分支 ${wt.branch}，已从 origin/main 拉好；只在这里改，只在 ${wt.branch} 上提交和开 PR，不另开分支）。${merge}`
@@ -427,9 +427,8 @@ function briefReportingTo(via: ReportsVia, brief: string, accept: string, worktr
     brief,
     `验收：${accept}`,
     ...checksLines(checks),
-    '完成或受阻：只发一行，照抄其一，PR 号填上；结论、实测输出、卡在哪、要谁做什么都写在票上：',
+    '完成或受阻时只发下面一行，照抄其一，完成的填 PR 号。结论、实测输出、卡在哪、要谁做什么和中途进展都记在票上，不发给编排者（每条消息都会叫醒它）：',
     ...reportLines,
-    '只发这一行：中途进展、阶段结果记在票上的「进展」里，不发给编排者（每条消息都会叫醒它，留在它的上下文里）。',
   ].join('\n')
 }
 
