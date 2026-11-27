@@ -110,9 +110,9 @@ describe('waitingItems', () => {
     expect(new Set(items.map(waitingKey)).size).toBe(3)
     expect(items.map((i) => [i.question, i.readings.map((r) => r.name)])).toEqual(expect.arrayContaining([['等日期定', ['K1']], ['等预算批', ['K2']], ['等日期定', ['K3']]]))
   })
-  it('gives a held question on a GitHub board no way to answer, and an unfinished card its card id', () => {
-    const items = waitingItems([project('gh', { tracker: 'github', columns: [{ key: 'open', tasks: [open('#1', { waiting: '问一句' }), open('#2', { pending: { at: NOW, card: null, ask: 'c2', brief: '待决：先补卡\n更多' } })] }] })])
-    expect(items.map((i) => [i.id, i.kind, i.question, i.ask])).toEqual([['#2', 'ask', '待决：先补卡', 'c2'], ['#1', 'ask', '问一句', null]])
+  it('answers a held question where it was asked, and an unfinished card through its card id', () => {
+    const items = waitingItems([project('r', { columns: [{ key: 'open', tasks: [open('#1', { waiting: '问一句' }), open('#2', { pending: { at: NOW, card: null, ask: 'c2', brief: '待决：先补卡\n更多' } })] }] })])
+    expect(items.map((i) => [i.id, i.kind, i.question, i.ask])).toEqual([['#2', 'ask', '待决：先补卡', 'c2'], ['#1', 'ask', '问一句', '问一句']])
   })
 })
 

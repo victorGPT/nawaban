@@ -247,7 +247,7 @@ const COMMANDS: Record<string, Command> = {
       ['progress', '从标准输入读钩子输入，记进展'],
       ['guard', '从标准输入读 PreToolUse 输入，拦下时退出 2'],
       ['gh-account', '从标准输入读 PreToolUse 输入，gh 写操作的 token 不是仓库声明的账号时拦下，退出 2'],
-      ['ask-guard [--tracker old]', '从标准输入读 Stop 输入，按回复里的 ask 块记待决或打回'],
+      ['ask-guard', '从标准输入读 Stop 输入，按回复里的 ask 块记待决或打回'],
     ],
     run: ([name, ...rest]) => (name !== undefined && Object.hasOwn(HOOKS, name) ? HOOKS[name]!(rest) : Promise.resolve(misused('hook renew|progress|guard|gh-account|ask-guard'))),
   },

@@ -55,7 +55,7 @@ const board = { columns: [
       created_at: 0, active_at: now - 3000, done_at: now - 3000 }] }] };
 
 const issue = (n, x) => open(`#${n}`, { title: `issue ${n}`, ...x });
-const ghBoard = { tracker: "github", columns: [
+const ghBoard = { columns: [
   { key: "in_progress", tasks: [issue(239, { status: "in_progress", session: "gh-239", claimed_at: now - 600, progress: note("第 2 步") })] },
   { key: "open", tasks: [issue(256, { active_at: now - 3600 })] },
   { key: "done", tasks: [{ id: "#260", title: "issue 260", status: "done", parent: null, session: null, leader: null, terminal: null,
@@ -281,7 +281,7 @@ const runningSpawns = { spawn: (f) => f({ spawn() {}, notify() {} }), notify() {
 const settle = () => new Promise((r) => setImmediate(r));
 const inChinese = () => { stored.clear(); stored.set("lang", "zh"); };
 
-test("on a GitHub board a blocked worker comes first, then each pending card, which opens in place and hands the owner's answer to this repo's orchestrator", async () => {
+test("each pending card opens in place and hands the owner's answer to this repo's orchestrator", async () => {
   inChinese();
   const sends = [], focused = [], realTerminals = terminals;
   terminals = [...terminals, orchestrator];
@@ -290,8 +290,8 @@ test("on a GitHub board a blocked worker comes first, then each pending card, wh
   try {
     const cx = runningSpawns;
     const view = drawn({ board: cardsBoard, repo: "/r/roubao" }, cx);
-    assert.deepEqual(view.keys.slice(0, 4), ["card:0", "pending:#1536", "pending:#1472", "pending:#1428"]);
-    assert.equal(after("待决", "4", "可能已定", "放不放行 1536", "去窗口聊", "放不放行 1472", "选一项", "放不放行 1428",
+    assert.deepEqual(view.keys.slice(0, 3), ["pending:#1536", "pending:#1472", "pending:#1428"]);
+    assert.equal(after("待决", "3", "可能已定", "放不放行 1536", "去窗口聊", "放不放行 1472", "选一项", "放不放行 1428",
       "未就绪 1 件（#1280），正在退回编排者"), true);
     clicks.get("nawaban-row-pending:#1428")({}, cx);
     texts.length = 0;
@@ -474,7 +474,7 @@ test("a space on another machine is read there: the CLI under that machine's hom
     assert.ok(calls.filter((c) => c.cmd !== "defaults" && !(c.cmd === "sh" && c.args[1].includes("LANG")))
       .every((c) => c.opts.on === "mbp" && c.opts.cwd === "/Users/v/roubao"));
     assert.ok(!cli.some((c) => c.args.includes("db")), "a remote board is polled, not watched");
-    assert.equal(view.board.tracker, "github");
+    assert.deepEqual(view.board, ghBoard);
   } finally {
     where = here;
     execImpl = async () => ({ code: 1 });
