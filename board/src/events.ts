@@ -9,6 +9,8 @@ import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { BODY_FROM_STDIN, bodyFrom, key, live, profile, resolve, resultsOf } from './tasks.ts'
 import { answer, orRefusal, Refused } from './said.ts'
 import { pushLabelArgs } from './github-push.ts'
+import { githubRepliesOf } from './github-tasks.ts'
+import { answerToTheCurrentHold } from './page.ts'
 import { commandLine, optionWordsBut, pointAt, shellWord, withBody } from './hint.ts'
 
 type Run = (argv: string[]) => Promise<number>
@@ -20,6 +22,7 @@ const KINDS = ['note', 'decision', 'link', 'ask', 'wait', 'resolve', 'impact', '
 type Kind = (typeof KINDS)[number]
 const HOLD_FOR_PERSON = 'needs_input'
 const HOLD_FOR_DECISION = 'awaiting_approval'
+const ANSWER_THAT_SENDS_THE_CARD_BACK = /重发待决$/
 const KR_HEADING = /^(.+)=(toward|away|hold)\s*$/
 const TRIAGE_LABEL = /^\s*triage:\s*([\w-]+)/
 const QUESTION_AFTER_DENGNI = /等你[：:]/
@@ -55,6 +58,8 @@ type Event = {
   holdFirstThenReply: (reason: string, kind: string, text: string) => Promise<number>
   answerThenLiftIfStillOurs: (kind: string, text: string, ours: (newest: Newest) => boolean, beforeLift?: () => Promise<unknown>) => Promise<number | null>
   holdAndNewest: () => Promise<{ hold: NonNullable<Thread['message']['task']>['blocked']; newest: Thread['message'] }>
+  hold: (reason: string, kind: string) => Promise<number>
+  liftHold: () => Promise<number>
 }
 
 function refuse(headline: string, code = 1, next?: string): never {
@@ -129,7 +134,7 @@ function eventOn(id: string, key: string, a: Args, run: Run, team: Team, pushLab
     return posted as number
   }
 
-  return { id, key, team, a, kr: a.kr?.[0], run, reply, holdFirstThenReply, answerThenLiftIfStillOurs, holdAndNewest }
+  return { id, key, team, a, kr: a.kr?.[0], run, reply, holdFirstThenReply, answerThenLiftIfStillOurs, holdAndNewest, hold, liftHold: unblockAsPersonWhicheverWindowHeld }
 }
 
 async function note(e: Event): Promise<number> {
@@ -173,11 +178,32 @@ async function link(e: Event): Promise<number> {
   return 'why' in value ? refuse(`${value.why} (正文 pr:<url>, commit:<sha>, artifact:<ref>, adr:<ref>)`) : e.reply(value.text)
 }
 
+async function reasonOfAHoldWhoseCardThePageSentBack(team: Team, id: string): Promise<string | null> {
+  const { message, replies } = await team.thread(id)
+  const hold = message.task?.blocked
+  if (hold?.kind !== HOLD_FOR_DECISION) return null
+  const answer = answerToTheCurrentHold(message, replies, await githubRepliesOf(team, message, replies))
+  return answer && answer.option === null && ANSWER_THAT_SENDS_THE_CARD_BACK.test(answer.words) ? hold.reason : null
+}
+
+async function replaceTheCardSentBack(e: Event, sentBack: string, reason: string, text: string): Promise<number> {
+  await e.liftHold()
+  const putTheOldHoldBack = () => e.hold(sentBack, HOLD_FOR_DECISION)
+  const code = await e.holdFirstThenReply(reason, HOLD_FOR_DECISION, text).catch(async (error: unknown) => {
+    await putTheOldHoldBack().catch(() => undefined)
+    throw error
+  })
+  if (code) await putTheOldHoldBack()
+  return code
+}
+
 async function holdForDecision(e: Event, value: DecisionCard): Promise<number> {
   const gaps = gapsOfADecisionCard(value)
   if (gaps.length) return refuse(`待决策项未就绪（不满足就绪标准），缺 ${gaps.join('、')}；- / none / 无 / 待定 这类占位算缺（--option 写成 方案｜代价｜单向门 或 双向门）`)
   const card = checkedBeforeAnythingLands('nawaban-ask@1', value as Record<string, unknown>)
   if ('why' in card) return refuse(card.why)
+  const sentBack = await reasonOfAHoldWhoseCardThePageSentBack(e.team, e.id)
+  if (sentBack !== null) return replaceTheCardSentBack(e, sentBack, String(value.decision), card.text)
   return e.holdFirstThenReply(String(value.decision), HOLD_FOR_DECISION, card.text)
 }
 
