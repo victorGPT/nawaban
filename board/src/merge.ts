@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
+import { parse as parseYaml } from 'yaml'
 import { checksOf, claimAssignedToMe, lastDispatchOf, mainCheckoutRealPathOf, NEXT_ACCEPT, orchestratorToReportTo, pickupBrief, stdoutOrNullOnFailure, terminalOf, workerProfileOf } from './dispatch.ts'
 import { githubTokenOf } from './github-account.ts'
 import { mergeGate, projectOf, tasksThePullRequestNames } from './impact.ts'
@@ -22,8 +23,8 @@ const PR_FIELDS = 'number,state,url,title,body,headRefName,headRefOid,files,stat
 const NO_BLOCKER_REVIEW_LINE = /review[:：]\s*无挡/i
 const SHA_PREFIX_A_REVIEW_NAMES = /\b[0-9a-f]{7,40}\b/gi
 const WORKTREE_BRANCH = /^wt\/(.+)$/
-const PULL_REQUEST_TRIGGER = /(?<![.\w])pull_request(?:_target)?(?![.\w])/
-const YAML_COMMENT = /(^|\s)#.*$/gm
+const PULL_REQUEST_EVENTS = ['pull_request', 'pull_request_target']
+const PULL_REQUEST_TYPES_A_PUSH_FIRES = ['opened', 'synchronize', 'reopened']
 const SCHEMA_FILE = 'board/src/schemas.ts'
 const EXIT_CODE = { waiting: EXIT.waiting, refused: EXIT.refused, mergedButUnfinished: EXIT.refused, done: EXIT.done } as const
 const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
@@ -84,6 +85,38 @@ const reviewLineNamesHead = (line: string, head: string) =>
   NO_BLOCKER_REVIEW_LINE.test(line) && (line.match(SHA_PREFIX_A_REVIEW_NAMES) ?? []).some((sha) => head.startsWith(sha.toLowerCase()))
 const reviewedAtHead = (pr: PullRequest) => pr.comments.some((c) => c.body.split('\n').some((line) => reviewLineNamesHead(line, pr.headRefOid)))
 
+type TriggerFilter = { types?: string | string[]; branches?: string | string[]; 'branches-ignore'?: string | string[]; tags?: unknown; 'tags-ignore'?: unknown } | null
+const listOf = (v: string | string[]) => (Array.isArray(v) ? v : [v]).map(String)
+
+const globMatches = (glob: string, branch: string) =>
+  new RegExp(`^${glob.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*\*/g, '\0').replace(/\*/g, '[^/]*').replace(/\0/g, '.*').replace(/\?/g, '.')}$`).test(branch)
+
+const branchListMatches = (globs: string | string[], branch: string) =>
+  listOf(globs).reduce((matched, glob) => (glob.startsWith('!') ? matched && !globMatches(glob.slice(1), branch) : matched || globMatches(glob, branch)), false)
+
+function pushFiresOn(filter: TriggerFilter, branch: string) {
+  if (!filter) return true
+  if (filter.branches !== undefined) return branchListMatches(filter.branches, branch)
+  if (filter['branches-ignore'] !== undefined) return !branchListMatches(filter['branches-ignore'], branch)
+  return filter.tags === undefined && filter['tags-ignore'] === undefined
+}
+
+function runsOnThePullRequestHead(workflow: string, branch: string) {
+  let on: unknown
+  try {
+    on = (parseYaml(workflow) as { on?: unknown } | null)?.on
+  } catch {
+    return true
+  }
+  if (!on) return true
+  const triggers: Record<string, TriggerFilter> = typeof on === 'string' ? { [on]: null } : Array.isArray(on) ? Object.fromEntries(on.map((e) => [String(e), null])) : (on as Record<string, TriggerFilter>)
+  return Object.entries(triggers).some(([event, filter]) =>
+    PULL_REQUEST_EVENTS.includes(event)
+      ? !filter?.types || listOf(filter.types).some((t) => PULL_REQUEST_TYPES_A_PUSH_FIRES.includes(t))
+      : event === 'push' && pushFiresOn(filter, branch),
+  )
+}
+
 async function workflowsOfHeadElseNull(pr: PullRequest): Promise<Outcome | null> {
   await stdoutOrNullOnFailure('git', ['fetch', '-q', 'origin', `pull/${pr.number}/head`])
   const workflows = await stdoutOrNullOnFailure('git', ['ls-tree', '--name-only', pr.headRefOid, '.github/workflows/'])
@@ -91,7 +124,7 @@ async function workflowsOfHeadElseNull(pr: PullRequest): Promise<Outcome | null>
   const runOnPullRequests = []
   for (const path of workflows.split('\n').filter(Boolean)) {
     const text = await stdoutOrNullOnFailure('git', ['show', `${pr.headRefOid}:${path}`])
-    if (text === null || PULL_REQUEST_TRIGGER.test(text.replace(YAML_COMMENT, '$1'))) runOnPullRequests.push(path)
+    if (text === null || runsOnThePullRequestHead(text, pr.headRefName)) runOnPullRequests.push(path)
   }
   if (!runOnPullRequests.length) return null
   const listed = await stdoutOrNullOnFailure('gh', ['run', 'list', '--commit', pr.headRefOid, '--json', 'name,status,conclusion'])

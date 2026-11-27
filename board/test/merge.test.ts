@@ -206,8 +206,8 @@ async function noChecksAtAHeadWithWorkflow(key: string, terminal: string, workfl
   return { id, worktree }
 }
 
-it('merges with no checks when the head runs CI only on pushes to release, as in a repository whose PRs run none', async () => {
-  const { id, worktree } = await noChecksAtAHeadWithWorkflow('M-NOPRCI', 't69', 'on:\n  push:\n    branches: [release] # not pull_request\njobs: {}\n')
+it('merges with no checks when the head runs CI only on pushes to release or on labeled PRs, as in a repository whose PRs run none', async () => {
+  const { id, worktree } = await noChecksAtAHeadWithWorkflow('M-NOPRCI', 't69', 'on:\n  push:\n    branches: [release, release-admin]\n  pull_request:\n    types: [labeled]\n  workflow_dispatch:\njobs: {}\n')
   const r = await mergeAsTheWorker('M-NOPRCI', 't69', worktree)
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
@@ -215,9 +215,13 @@ it('merges with no checks when the head runs CI only on pushes to release, as in
   expect(await stateOf(id)).toBe('completed')
 })
 
-it('waits with no checks while a workflow of the head runs on pull requests', async () => {
-  const { worktree } = await noChecksAtAHeadWithWorkflow('M-EMPTY', 't70', 'on: [push, pull_request]\n')
-  const r = await mergeAsTheWorker('M-EMPTY', 't70', worktree)
+it.each([
+  ['M-EMPTY', 't70', 'on: pull_request\n'],
+  ['M-PUSHALL', 't71', 'on: [push]\n'],
+  ['M-PUSHWT', 't72', 'on:\n  push:\n    branches: ["wt/**", "!wt/other"]\n'],
+])('waits with no checks while a workflow of the head runs on its branch: %s', async (key, terminal, workflow) => {
+  const { worktree } = await noChecksAtAHeadWithWorkflow(key, terminal, workflow)
+  const r = await mergeAsTheWorker(key, terminal, worktree)
   expect(r.code).toBe(3)
   expect(r.gh).not.toMatch(/^pr merge/m)
 })
