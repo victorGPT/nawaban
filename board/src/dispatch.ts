@@ -365,7 +365,7 @@ async function worktreeOffOriginMain(root: string, name: string): Promise<Worktr
   return { path, branch }
 }
 
-const MERGE_LINE = `收尾：验收没说不合并时，PR 的 CI 绿、评论里贴了带 head sha 的「Codex review：无挡…」之后，跑 nawaban merge <PR 号>：它合并、关票，再最多等 10 分钟领指派给你的下一张（Claude Code 里用 Bash 的 run_in_background 放后台跑，别干等）。领到就照它打印的 brief 在这个 worktree 切新分支接着做；没领到它收掉 worktree 和终端`
+const MERGE_LINE = `收尾：验收没说不合并时，PR 的 CI 绿、评论里贴了带 head sha 的「Codex review：无挡…」之后，跑 nawaban merge <PR 号>：它合并、关票，再最多等 10 分钟领指派给你的下一张（Claude Code 里用 Bash 的 run_in_background 放后台跑，别干等）。领到就照它打印的 brief 在这个 worktree 切新分支接着做；没领到它收掉 worktree 和终端。票登记了 KR 时，merge 带上 --kr "<KR>=<后值> 实测|预计"`
 
 const MERGE_LINE_WITH_NO_TICKET_FOR_NAWABAN_MERGE_TO_FIND = '收尾：验收没说不合并时，PR 的 CI 绿之后按仓库文档的合并方式合（例如 scripts/merge.sh）；这次没有票，别用 nawaban merge'
 
