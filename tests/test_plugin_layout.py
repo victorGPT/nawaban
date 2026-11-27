@@ -22,7 +22,7 @@ def test_manifests_share_one_version():
 
 
 def test_skill_names_every_tracker_verb():
-    verbs = set(re.findall(r"\.add_parser\(\s*['\"]([^'\"]+)['\"]",
-                           (ROOT / "nawaban" / "cli.py").read_text(encoding="utf-8")))
+    verbs = set(re.findall(r"^  '?([a-z-]+)'?: \{\s*\n?\s*group: '(?:看|写|派)'",
+                           (ROOT / "board" / "src" / "cli.ts").read_text(encoding="utf-8"), re.M))
     skill = (ROOT / "skills" / "nawaban" / "SKILL.md").read_text(encoding="utf-8")
     assert verbs and not {v for v in verbs if not re.search(rf"\bnawaban {v}\b", skill)}

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { projectFor, cliFor, BOARD_PROJECTS, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, panelView, sinceLabel, decisionDate, WINDOW_WORDS,
+import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, windowsView, panelView, sinceLabel, decisionDate, WINDOW_WORDS,
   okrView, OKR_WORDS, gapOf, varianceText, decisionCardsView, TO_ORCHESTRATOR, marksStillToKeep, repoRootOf, TASK_GROUPS, taskSections, panelKeys, foldKey, isGroupOpen, groupOfKey, GROUP_OPEN_BY_DEFAULT, ROWS_SHOWN_PER_GROUP, moreKey, TABS, openingTab, tabBadges,
   CAPTURE_FOLD, captureStoreKey, capturesFrom, addCapture, removeCapture, markHanded, captureView, unhandedCount, localMonthDayTime,
   stepChain, milestoneChain, doingOf, flowLine } from "./logic.js";
@@ -11,21 +11,6 @@ test("a folder's project is its repository's main checkout name, when the board 
   assert.equal(projectFor("/Users/v/nawaban/.git\n", projects), "nawaban");
   assert.equal(projectFor("/Users/v/elsewhere/.git\n", projects), null);
   assert.equal(projectFor("", projects), null);
-});
-
-test("while both boards run, a project is read from the board only once it moved there, and only on this computer", () => {
-  assert.deepEqual([...BOARD_PROJECTS].sort(), ["bzkanbanv2", "huafa", "nawaban"]);
-  assert.equal(cliFor("nawaban"), "board");
-  assert.equal(cliFor("roubao"), "old");
-  assert.equal(cliFor("agent-center"), "old");
-  assert.equal(cliFor(null), "old");
-  assert.equal(cliFor("nawaban", "mbp"), "old");
-});
-
-test("BOARD_PROJECTS stays the one line of JSON strings nawaban/cli.py reads to refuse writes", () => {
-  const cliPyReads = /^export const BOARD_PROJECTS = new Set\((\[[^\]\n]*\])?\);$/m;
-  const line = readFileSync(new URL("./logic.js", import.meta.url), "utf8").match(cliPyReads);
-  assert.deepEqual(JSON.parse(line[1]).sort(), [...BOARD_PROJECTS].sort());
 });
 
 test("the saved language wins, else the system's first preferred language: Chinese or English", () => {

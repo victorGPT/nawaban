@@ -82,7 +82,7 @@ it('fits the help on one screen and lists the ten everyday verbs', EVERY_STEP_ST
   expect(lines.filter((line) => columnsCountingWideCharactersAsTwo(line) > HELP_COLUMNS_AT_MOST)).toEqual([])
   expect(verbsListedIn(out)).toEqual(TEN_VERBS)
   for (const same of [[], ['-h'], ['help']]) expect((await succeeds(...same)).out).toBe(out)
-  expect(verbsListedIn((await succeeds('help', 'more')).out)).toEqual(['okr-stat', 'route', 'tell', 'block', 'share', 'web', 'serve', 'import', 'hook', 'json', 'board'])
+  expect(verbsListedIn((await succeeds('help', 'more')).out)).toEqual(['okr-stat', 'route', 'tell', 'block', 'share', 'web', 'serve', 'import', 'hook', 'backup', 'json', 'board'])
 })
 
 it("answers every verb's --help without reaching a board", EVERY_STEP_STARTS_A_NODE, async () => {

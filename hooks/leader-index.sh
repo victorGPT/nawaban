@@ -9,14 +9,6 @@ legacy_rules="$rules_dir/leader.md"
 
 route=$(node "$hooks/route.mjs" "$dir" 2>/dev/null)
 
-print_index_from_the_tracker_this_repository_uses() {
-  if [ "${route%% *}" = board ]; then
-    node "$hooks/../board/src/cli.ts" status --project "${route#* }"
-  else
-    (cd "$dir" && python3 "$hooks/../nawaban/cli.py" index)
-  fi
-}
-
 warn_when_off_main() {
   branch=$(git -C "$dir" branch --show-current 2>/dev/null)
   if [ -n "$branch" ] && [ "$branch" != main ]; then
@@ -33,8 +25,10 @@ print_orchestrator_rules() {
 
 is_the_orchestrator "$input" "${route#* }" || exit 0
 warn_unless_the_compact_window_is_the_orchestrators "$input"
-echo "nawaban status（现状索引，SessionStart 钩子注入；你是编排者，先读它再凭记忆补）："
-print_index_from_the_tracker_this_repository_uses
+if [ -n "$route" ]; then
+  echo "nawaban status（现状索引，SessionStart 钩子注入；你是编排者，先读它再凭记忆补）："
+  node "$hooks/../board/src/cli.ts" status --project "${route#* }"
+fi
 warn_when_off_main
 print_orchestrator_rules
 exit 0

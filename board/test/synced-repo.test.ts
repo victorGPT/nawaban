@@ -13,7 +13,7 @@ import { markerOf, openIssuesWithoutAnOpenTask, settleIssueTasks } from '../src/
 import { pushRepo, writtenHereFirst, type Poster } from '../src/github-push.ts'
 import { mergeGate } from '../src/impact.ts'
 import { importOld } from '../src/import.ts'
-import { oldRowsAsDeclaration } from '../src/github-impact.ts'
+import { oldRowsAsDeclaration, declareOnIssueThread } from '../src/github-impact.ts'
 import { load } from '../src/okr.ts'
 import { editingAsTheRootsAuthor, listen, verifier } from '../src/server.ts'
 import { registerSchemas } from '../src/schemas.ts'
@@ -274,20 +274,6 @@ describe('roubao 的 OKR 搬上板', () => {
     expect([...declared.values()].flat().map((d) => d.ticket).sort()).toEqual(['ROUBAO-1740', 'ROUBAO-5'])
     expect(githubWrites).toEqual([])
   })
-
-  it('旧 CLI 以本机用户的身份挂的占位线程，轮询拉到后照样换上标题，这一轮结算成', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
-    const rows = [{ repo: checkouts.roubao!, ticket: '#1750', objective: '听得懂需求', kr: '意图准确率', dir: '=', before: null, after: null, basis: null, declared_at: '2026-11-24T11:30:00' }]
-    const hooked = await run(['node', CLI, 'hook', 'github-impact'], checkouts.roubao!, JSON.stringify(rows))
-    expect([hooked.code, hooked.err]).toEqual([0, ''])
-    world.issues.push(issue(1750))
-    await poll()
-    const roots = (await team.channel('roubao').messages()).messages.filter((m) => m.labels.issue === `${REPO}#1750`)
-    expect(roots).toHaveLength(1)
-    expect(roots[0]!.by.principal).toBe('local:user:victor')
-    expect(roots[0]!.text.split('\n')[0]).toBe('issue 1750')
-    expect(roots[0]!.labels['title-awaits-github']).toBeUndefined()
-    expect(roots[0]!.task?.state).toBe('ready')
-  })
 })
 
 describe('同步仓库的合并锁、旧 CLI 的声明、待决', () => {
@@ -305,18 +291,6 @@ describe('同步仓库的合并锁、旧 CLI 的声明、待决', () => {
     const declaration = oldRowsAsDeclaration([{ repo: checkouts.roubao!, ticket: '#1760', objective: '无', kr: '', dir: '=', before: null, after: null, basis: null, declared_at: 'x' }])
     await team.reply(task.id, { text: declaration })
     expect(await mergeGateFor('Closes #1760')).toBeNull()
-  })
-
-  it('旧 CLI 在 #N 上声明的影响经 hook 记到同一条线程，重记不多一条，合并锁随即放行', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
-    const rows = [{ repo: checkouts.roubao!, ticket: '#1730', objective: '听得懂需求', kr: '意图准确率', dir: '=', before: null, after: null, basis: null, declared_at: '2026-11-24T10:30:00' }]
-    const first = await run(['node', CLI, 'hook', 'github-impact'], checkouts.roubao!, JSON.stringify(rows))
-    expect([first.code, first.out]).toEqual([0, `✓ 影响声明记在板上（${REPO}#1730）\n`])
-    const again = await run(['node', CLI, 'hook', 'github-impact'], checkouts.roubao!, JSON.stringify(rows))
-    expect([again.code, again.out]).toEqual([0, `✓ 影响声明板上已有（${REPO}#1730）\n`])
-    expect(await mergeGateFor('Closes #1730')).toBeNull()
-    const notSynced = await run(['node', CLI, 'hook', 'github-impact'], checkouts.nawaban!, JSON.stringify([{ ...rows[0], repo: checkouts.nawaban! }]))
-    expect([notSynced.code, notSynced.err]).toEqual([1, '✗ nawaban 不在本机 github-sync.json 的 repos 里：板上不记它的 GitHub 声明\n'])
-    expect(githubWrites).toEqual([])
   })
 
   it('切过去以后同步仓库的待决记在板上的票上，不再经旧 CLI 写 GitHub', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
@@ -568,7 +542,7 @@ describe('切到板上后 roubao worker 照旧的写法', () => {
     world.issues.push(issue(1805))
     await poll()
     const rows = [{ repo: checkouts.roubao!, ticket: '#1805', objective: '无', kr: '', dir: '=', before: null, after: null, basis: null, declared_at: '2026-11-24T12:00:00' }]
-    expect((await run(['node', CLI, 'hook', 'github-impact'], checkouts.roubao!, JSON.stringify(rows))).code).toBe(0)
+    expect(await declareOnIssueThread(team, 'roubao', REPO, rows)).toBe(true)
     commentOn(1805, impactSaidOnGithub('O 无'))
     await poll()
     const id = (await team.tasks.list({ state: 'all', label: { key: 'ROUBAO-1805' } })).tasks[0]!.message.id

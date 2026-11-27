@@ -454,41 +454,6 @@ test("two panels reading at once return an incomplete card once; an answered car
   }
 });
 
-test("a GitHub board is read from GitHub at most once a minute, whatever asks for it", async () => {
-  const reads = [];
-  execImpl = async (_cmd, args = []) => {
-    if (args[1] !== "json") return { code: 1, stdout: "" };
-    reads.push(args[2]);
-    return { code: 0, stdout: JSON.stringify(args[2] === "board" ? ghBoard : args[2] === "db" ? { db: "/b/nawaban.db" } : { projects: [] }) };
-  };
-  const realNow = Date.now;
-  let clock = realNow();
-  Date.now = () => clock;
-  try {
-    const quiet = { spawn() {}, notify() {} };
-    const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
-    const settle = () => new Promise((r) => setImmediate(r));
-    const boards = () => reads.filter((x) => x === "board").length;
-    const view = new NawabanBoard();
-    view.init({}, cx);
-    await settle();
-    assert.equal(boards(), 1);
-    assert.equal(view.board.tracker, "github");
-    clock += 30000;
-    view.refresh(cx);
-    await settle();
-    assert.equal(boards(), 1);
-    assert.equal(reads.filter((x) => x === "projects").length, 2);
-    clock += 31000;
-    view.refresh(cx);
-    await settle();
-    assert.equal(boards(), 2);
-  } finally {
-    Date.now = realNow;
-    execImpl = async () => ({ code: 1 });
-  }
-});
-
 test("a space on another machine is read there: the CLI under that machine's home, in the space's folder", async () => {
   const calls = [];
   execImpl = async (cmd, args = [], opts = {}) => {
@@ -505,7 +470,7 @@ test("a space on another machine is read there: the CLI under that machine's hom
     view.init({}, cx);
     await new Promise((r) => setImmediate(r));
     const cli = calls.filter((c) => c.args.includes("json"));
-    assert.ok(cli.length >= 2 && cli.every((c) => c.cmd === "sh" && c.args[1].includes('$HOME/nawaban/nawaban/cli.py')));
+    assert.ok(cli.length >= 2 && cli.every((c) => c.cmd === "sh" && c.args[1].includes('$HOME/nawaban/board/src/cli.ts')));
     assert.ok(calls.filter((c) => c.cmd !== "defaults" && !(c.cmd === "sh" && c.args[1].includes("LANG")))
       .every((c) => c.opts.on === "mbp" && c.opts.cwd === "/Users/v/roubao"));
     assert.ok(!cli.some((c) => c.args.includes("db")), "a remote board is polled, not watched");
@@ -516,64 +481,24 @@ test("a space on another machine is read there: the CLI under that machine's hom
   }
 });
 
-test("the panel reads a repository with the CLI the hooks' route.mjs picks for it, every json verb", async () => {
-  const tmp = mkdtempSync(join(tmpdir(), "nawaban-route-"));
-  const repoOf = (name, oldBoard) => {
-    const dir = join(tmp, name);
-    execFileSync("git", ["init", "-q", dir]);
-    if (oldBoard) { mkdirSync(join(dir, ".nawaban")); writeFileSync(join(dir, ".nawaban/nawaban.db"), ""); }
-    return dir;
-  };
-  const checkout = fileURLToPath(new URL("../../..", import.meta.url));
-  const env = { ...process.env, NAWABAN_CLI: "", NAWABAN_DB: "" };
-  const real = (cmd, args, cwd) => {
-    try { return { code: 0, stdout: execFileSync(cmd, args, { cwd, env, encoding: "utf8" }) }; } catch (e) { return { code: e.status ?? 1, stdout: "" }; }
-  };
-  const hookRoute = (dir) => real("node", [join(checkout, "hooks/route.mjs"), dir], dir).stdout.split(" ")[0].trim();
+test("the panel reads every json verb with the board CLI", async () => {
   const calls = [];
-  execImpl = async (cmd, args = [], opts = {}) => {
-    if (cmd === "git") return real(cmd, args, opts.cwd);
-    if (cmd === "node" && args[0] === "/h/nawaban/hooks/route.mjs") return real(cmd, [join(checkout, "hooks/route.mjs"), ...args.slice(1)], opts.cwd);
+  execImpl = async (cmd, args = []) => {
+    if (cmd === "git") return { code: 0, stdout: "/Users/v/x/.git\n" };
     calls.push([cmd, args[0], args[2]]);
     return { code: 0, stdout: JSON.stringify(args[2] === "board" ? board : args[2] === "db" ? { db: "/b/local.db" } : { projects: [{ name: "x" }] }) };
   };
   const quiet = { spawn() {}, notify() {} };
   const cx = { spawn: (f) => { f(quiet); }, notify() {}, timer: { every() {} }, focus_handle: () => ({ is_focused: () => false, focus() {} }) };
-  const readAllFour = async () => { for (let i = 0; i < 200 && calls.length < 4; i++) await new Promise((r) => setTimeout(r, 25)); };
-  try {
-    for (const [dir, cli] of [[repoOf("x", false), "board"], [repoOf("withold", true), "old"]]) {
-      assert.equal(hookRoute(dir), cli);
-      where = { spaces: () => [{ id: "here", active: true, name: "x", folder: dir }], focused: () => ({ space: "here", cwd: dir }) };
-      calls.length = 0;
-      const view = new NawabanBoard();
-      view.init({}, cx);
-      await readAllFour();
-      const [cmd, path] = cli === "board" ? ["node", "/h/nawaban/board/src/cli.ts"] : ["python3", "/h/nawaban/nawaban/cli.py"];
-      assert.deepEqual(calls.filter(([c]) => c !== "defaults" && c !== "sh").sort(),
-        ["board", "db", "okr", "projects"].map((v) => [cmd, path, v]).sort(), dir);
-    }
-  } finally {
-    where = here;
-    execImpl = async () => ({ code: 1 });
-    rmSync(tmp, { recursive: true, force: true });
-  }
-});
-
-test("a failed route.mjs run reads the old CLI this time and is asked again on the next read", async () => {
-  let routeRuns = 0;
-  execImpl = async (cmd, args = []) => {
-    if (cmd === "node" && args[0] === "/h/nawaban/hooks/route.mjs") return ++routeRuns === 1 ? { code: 1, stdout: "" } : { code: 0, stdout: "board x\n" };
-    return { code: 1, stdout: "" };
-  };
+  where = { spaces: () => [{ id: "here", active: true, name: "x", folder: "/Users/v/x" }], focused: () => ({ space: "here", cwd: "/Users/v/x" }) };
   try {
     const view = new NawabanBoard();
-    view.cliOfPlace = new Map();
-    const at = { on: null, cwd: "/x", key: "|/x" };
-    assert.equal(await view.cliOf(at), "old");
-    assert.equal(await view.cliOf(at), "board");
-    assert.equal(await view.cliOf(at), "board");
-    assert.equal(routeRuns, 2);
+    view.init({}, cx);
+    for (let i = 0; i < 200 && calls.length < 4; i++) await new Promise((r) => setTimeout(r, 25));
+    assert.deepEqual(calls.filter(([c]) => c !== "defaults" && c !== "sh").sort(),
+      ["board", "db", "okr", "projects"].map((v) => ["node", "/h/nawaban/board/src/cli.ts", v]).sort());
   } finally {
+    where = here;
     execImpl = async () => ({ code: 1 });
   }
 });

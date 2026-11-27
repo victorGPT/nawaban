@@ -43,4 +43,4 @@ claude plugin marketplace add ~/.nawaban/plugin   # re-points the existing "nawa
 
 The CLI is read on every call, so a publish or rollback reaches open sessions at their next command. Running `ORIG_HEAD` twice undoes the rollback; the next `pull --ff-only` moves forward to `main` again. Publish and rollback were rehearsed on a copy of the clone: `reset --hard HEAD~2` → `pull --ff-only` reached `8a32a62` → `reset --hard ORIG_HEAD` returned to `6aff36e`.
 
-The skill loads from the same directory. The `nawaban` CLI used in shells is whatever path you call; calling the development checkout's `cli.py` runs development code against the same database.
+The skill loads from the same directory. The `nawaban` CLI used in shells is whatever path you call; calling the development checkout's `board/src/cli.ts` runs development code against the same board.

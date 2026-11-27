@@ -6,10 +6,10 @@ The runtime and skill use the nawaban name; the bilingual [glossary](../GLOSSARY
 
 | Path | Contents |
 | --- | --- |
-| `nawaban/` | Python CLI (`cli.py`, also `python -m nawaban`) |
+| `board/` | The board CLI and service (`src/cli.ts`) |
 | `herdr/mods/nawaban-board/` | The Herdr panel |
 | `skills/nawaban/` | The one skill: the issue-tracker guide for agents |
-| `tests/test_glossary.py` | CLI terminology coverage check |
+| `tests/test_glossary.py` | Board CLI verb coverage check |
 
 The plugin registers all its hooks in `hooks/hooks.json`, `leader-index.sh` and `leader-gap.sh` included. Runtime data, logs, caches, and installed dependencies are omitted. No npm or pip distribution is introduced.
 

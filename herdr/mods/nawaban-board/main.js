@@ -9,14 +9,11 @@ import { projectFor, resolveLang, moveSelection, keyCommand, boardChanged, okrCh
 
 const UNWATCHED_BOARD_REREAD_MS = 5000;
 const WATCHED_BOARD_MISSED_CHANGE_REREAD_MS = 60000;
-const GITHUB_BOARD_REUSED_FOR_MS = 60000;
 const OKR_READ_GIVEN_UP_AFTER_MS = 5000;
 const ICON = (name) => "mods/nawaban-board/" + name + ".svg";
 const HERDR_ICON = (name) => "mods/workspace-chrome/" + name + ".svg";
-const CLI = { board: () => ["node", home() + "/nawaban/board/src/cli.ts"], old: () => ["python3", home() + "/nawaban/nawaban/cli.py"] };
-const ROUTE = () => home() + "/nawaban/hooks/route.mjs";
-const ROUTED_TO_BOARD = /^board /;
-const OLD_CLI_ON_ANOTHER_MACHINE = 'exec python3 "$HOME/nawaban/nawaban/cli.py" "$@"';
+const CLI = () => home() + "/nawaban/board/src/cli.ts";
+const CLI_ON_ANOTHER_MACHINE = 'exec node "$HOME/nawaban/board/src/cli.ts" "$@"';
 
 const INK = {
   canvas: "#000000", popover: "#0f0f10", border: "#ffffff14", hover: "#ffffff0a", selected: "#ffffff0f",
@@ -80,19 +77,18 @@ const placeChangedFrom = (key) => place().key !== key;
 
 const spaceId = () => focused()?.space ?? spaces().find((s) => s.active)?.id;
 
-const runCli = (args, at, timeout, via) => {
-  if (at.on) return exec("sh", ["-c", OLD_CLI_ON_ANOTHER_MACHINE, "sh", ...args], { cwd: at.cwd, on: at.on, timeout });
-  const [cmd, path] = CLI[via]();
-  return exec(cmd, [path, ...args], { cwd: at.cwd, timeout });
-};
+const runCli = (args, at, timeout) =>
+  at.on
+    ? exec("sh", ["-c", CLI_ON_ANOTHER_MACHINE, "sh", ...args], { cwd: at.cwd, on: at.on, timeout })
+    : exec("node", [CLI(), ...args], { cwd: at.cwd, timeout });
 
 const parseJsonOrNull = (text) => {
   try { return JSON.parse(text || "null"); } catch { return null; }
 };
 const lastLine = (text) => text?.trim().split("\n").pop();
 
-async function nawaban(args, at, timeout, via = "old") {
-  const r = await runCli(args, at, timeout, via);
+async function nawaban(args, at, timeout) {
+  const r = await runCli(args, at, timeout);
   const out = parseJsonOrNull(r.stdout);
   if (r.code !== 0 || !out || out.error) throw new Error(out?.error || lastLine(r.stderr) || "exit " + r.code);
   return out;
@@ -144,10 +140,8 @@ export default class NawabanBoard extends View {
     this.error = null;
     this.projectOfPlace = new Map();
     this.gitDirOfPlace = new Map();
-    this.cliOfPlace = new Map();
     this.boardFileOfPlace = new Map();
     this.watchedBoardFiles = new Set();
-    this.githubBoardOfPlace = new Map();
     this.folds = readStored(FOLDS_STORE, {});
     this.shownAll = readStored(SHOWN_ALL_STORE, {});
     this.pickedTabs = readStored(TAB_STORE, {});
@@ -262,13 +256,13 @@ export default class NawabanBoard extends View {
     this.placeShown = key;
     cx.spawn(async (cx) => {
       try {
-        const git = await this.gitOf(at), via = await this.cliOf(at), repo = repoRootOf(git);
-        const projects = await nawaban(["json", "projects"], at, undefined, via);
-        if (!this.projectOfPlace.has(key)) await this.learnPlace(at, git, projects, via);
+        const git = await this.gitOf(at), repo = repoRootOf(git);
+        const projects = await nawaban(["json", "projects"], at);
+        if (!this.projectOfPlace.has(key)) await this.learnPlace(at, git, projects);
         this.db = this.boardFileOfPlace.get(key);
         if (this.db) this.watch(this.db, cx);
         const project = this.projectOfPlace.get(key);
-        const board = await this.boardReusingGithubWithinWindow(at, project, via);
+        const board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], at);
         if (placeChangedFrom(key)) return;
         Object.assign(this, { project, projectsList: projects, board, repo, error: null });
         await this.returnIncompleteCards(board, repo);
@@ -280,18 +274,9 @@ export default class NawabanBoard extends View {
     });
   }
 
-  async learnPlace(at, git, projects, via) {
-    this.boardFileOfPlace.set(at.key, at.on ? null : await nawaban(["json", "db"], at, undefined, via).then((out) => out.db, () => null));
+  async learnPlace(at, git, projects) {
+    this.boardFileOfPlace.set(at.key, at.on ? null : await nawaban(["json", "db"], at).then((out) => out.db, () => null));
     this.projectOfPlace.set(at.key, projectFor(git, projects));
-  }
-
-  async boardReusingGithubWithinWindow(at, project, via) {
-    const cached = this.githubBoardOfPlace.get(at.key), started = Date.now();
-    if (cached && started - cached.at < GITHUB_BOARD_REUSED_FOR_MS) return cached.board;
-    if (cached) cached.at = started;
-    const board = await nawaban(["json", "board", ...(project ? ["--project", project] : [])], at, undefined, via);
-    if (board.tracker === "github") this.githubBoardOfPlace.set(at.key, { board, at: started });
-    return board;
   }
 
   returnedCards() {
@@ -328,19 +313,6 @@ export default class NawabanBoard extends View {
     return this.gitDirOfPlace.get(at.key);
   }
 
-  cliOf(at) {
-    if (at.on) return "old";
-    const key = at.key;
-    if (!this.cliOfPlace.has(key)) {
-      const routed = exec("node", [ROUTE(), at.cwd], { cwd: at.cwd }).then((r) => (r.code === 0 ? r.stdout : null), () => null);
-      this.cliOfPlace.set(key, routed.then((out) => {
-        if (out === null) this.cliOfPlace.delete(key);
-        return ROUTED_TO_BOARD.test(out ?? "") ? "board" : "old";
-      }));
-    }
-    return this.cliOfPlace.get(key);
-  }
-
   watch(db, cx) {
     if (this.watchedBoardFiles.has(db)) return;
     this.watchedBoardFiles.add(db);
@@ -369,8 +341,7 @@ export default class NawabanBoard extends View {
     const gen = ++this.okrGen;
     this.okrFlight.set(at.key, gen);
     cx.spawn(async (cx) => {
-      const via = await this.cliOf(at);
-      const okr = await nawaban(["json", "okr"], at, OKR_READ_GIVEN_UP_AFTER_MS, via).catch(okrReadingOfFailure);
+      const okr = await nawaban(["json", "okr"], at, OKR_READ_GIVEN_UP_AFTER_MS).catch(okrReadingOfFailure);
       if (!this.isNewestOkrRead(at, gen)) return;
       this.okrFlight.delete(at.key);
       if (placeChangedFrom(at.key)) return;

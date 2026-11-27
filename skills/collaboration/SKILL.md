@@ -33,7 +33,7 @@ description: 人和 agent 在 nawaban 上的协作流程：需求怎么拆、任
 3. **写 spec**（`to-spec`）：发成一个 spec 任务，写明问题、方案、用户故事、实现决定、测试决定、不做什么。
 4. **拆任务**（`to-tickets`）：按下面的拆任务规则拆成子任务，挂上被挡关系。拆法给决策者看过再派。
 5. **派活**：`nawaban dispatch` 拉 worktree、启动 worker、把目标、范围、验收写进任务。可开工的任务（前置都已完成、没人认领）可以并行派。
-6. **做**：worker 认领、复述目标、测试先行、实现。每个停顿点记进展同步，每次取舍记决策记录；遇到只有决策者能定的事，记成待决后停手。命令见 nawaban skill 的「Claim, release, close」和「Record events」，GitHub 上用同样的命令操作 `'#N'`。
+6. **做**：worker 认领、复述目标、测试先行、实现。每个停顿点记进展同步，每次取舍记决策记录；遇到只有决策者能定的事，记成待决后停手。命令见 nawaban skill 的「Claim, release, close」和「Record events」，GitHub 同步仓库的 issue #N 就是票 `<项目>-<N>`。
 7. **PR、评审、CI**：验收命令的输出和截图贴进 PR，不口头说「通过」。只做了任务一部分的 PR 写 `Refs #N`，整个做完才写 `Closes #N`，免得合并时误关。评审无挡合并的问题且 CI 绿，按仓库的合并方式合入；本机看板上由 worker 跑 `nawaban merge <PR>` 合入并关任务，编排者只在失败时收到一行。
 8. **核验收，关任务**：编排者对照任务的成功判据核目标（`nawaban merge` 关掉的任务也照样核）；流程走齐只是必要条件。没达到就重派或上升。完成标准是任务上有已合并的 `pr:` 链接。
 9. **OKR 自查，汇报**：跑 `nawaban okr`。全绿收工汇报；有红就判断差在哪、再派、再测。连续两轮没有 KR 往目标动、或冲刺跑满 5 轮，`okr` 会硬停（退出 3，打印「硬停：<O>」，草稿写到 `~/.nawaban/board/okr-stop/`）：补上「建议」用 `nawaban event <票> ask` 发给决策者，等 resolve 之后跑 `okr --resume <O>`。

@@ -55,7 +55,6 @@ beforeAll(async () => {
     CLAUDE_CODE_SESSION_ID: SESSION,
     HC_TERMINAL_ID: 't1',
     CLAUDE_PROJECT_DIR: repo,
-    NAWABAN_CLI: 'board',
     ROLE: 'orchestrator',
   }
 })
@@ -83,54 +82,20 @@ const inbox = async (session: string, more: Record<string, string> = {}) => {
 }
 const idOf = async (key: string) => (await team.tasks.list({ state: 'all', label: { key } })).tasks[0]!.message.id
 
-it('routes a repository to the board unless the old CLI already tracks it', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
-  const route = async (dir: string, more: Record<string, string> = {}) =>
-    (await runWithTheHooksEnvironment(['node', join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, 'route.mjs'), dir], '', { NAWABAN_CLI: '', ...more })).out
-  const newRepo = async (name: string) => {
-    const dir = join(tmp, 'routes', name)
-    await mkdir(dir, { recursive: true })
-    await sh('git', ['init', '-q', '-b', 'main', dir])
-    return dir
-  }
-  const fresh = await newRepo('fresh')
-  const withOldBoard = await newRepo('withold')
-  await mkdir(join(withOldBoard, '.nawaban'))
-  await writeFile(join(withOldBoard, '.nawaban/nawaban.db'), '')
-  const besideAFileNamedNawaban = join(tmp, 'routes', 'nested', 'inner')
-  await mkdir(join(tmp, 'routes', 'nested', '.nawaban'), { recursive: true })
-  await writeFile(join(tmp, 'routes', 'nested', '.nawaban/nawaban.db'), '')
-  await mkdir(besideAFileNamedNawaban, { recursive: true })
-  await sh('git', ['init', '-q', '-b', 'main', besideAFileNamedNawaban])
-  await writeFile(join(besideAFileNamedNawaban, '.nawaban'), '')
-  const onGithub = await newRepo('ongithub')
+it('routes every git repository to the board under its main checkout name, and prints nothing outside one', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+  const route = async (dir: string) => (await runWithTheHooksEnvironment(['node', join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, 'route.mjs'), dir], '')).out
+  const fresh = join(tmp, 'routes', 'fresh')
+  await mkdir(fresh, { recursive: true })
+  await sh('git', ['init', '-q', '-b', 'main', fresh])
+  const onGithub = join(tmp, 'routes', 'ongithub')
   await mkdir(join(onGithub, 'docs/agents'), { recursive: true })
+  await sh('git', ['init', '-q', '-b', 'main', onGithub])
   await writeFile(join(onGithub, 'docs/agents/issue-tracker.md'), '# Issue tracker: GitHub\n')
 
   expect(await route(fresh)).toBe('board fresh\n')
   expect(await route(join(fresh, '.git'))).toBe('board fresh\n')
-  expect(await route(withOldBoard)).toBe('old\n')
-  expect(await route(onGithub)).toBe('old\n')
-  expect(await route(besideAFileNamedNawaban)).toBe('old\n')
-  expect(await route(fresh, { NAWABAN_DB: join(withOldBoard, '.nawaban/nawaban.db') })).toBe('old\n')
-  expect(await route(fresh, { NAWABAN_CLI: 'old' })).toBe('old\n')
-  expect(await route(withOldBoard, { NAWABAN_CLI: 'board' })).toBe('board withold\n')
-  expect(await route(tmp)).toBe('old\n')
-})
-
-it('routes a GitHub repository to the board once this machine has synced every open issue there, and leaves it on the old CLI elsewhere', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
-  const route = async (...args: string[]) => (await runWithTheHooksEnvironment(['node', join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, 'route.mjs'), ...args], '', { NAWABAN_CLI: '', NAWABAN_BOARD_DIR: syncDir })).out
-  const roubao = join(tmp, 'synced', 'roubao')
-  await mkdir(join(roubao, 'docs/agents'), { recursive: true })
-  await sh('git', ['init', '-q', '-b', 'main', roubao])
-  await writeFile(join(roubao, 'docs/agents/issue-tracker.md'), '# Issue tracker: GitHub\n')
-  const syncDir = join(tmp, 'synced', 'board')
-  await mkdir(syncDir, { recursive: true })
-  expect(await route(roubao)).toBe('old\n')
-  await writeFile(join(syncDir, 'github-sync.json'), JSON.stringify({ repos: { 'acme/roubao': 'roubao' }, reader: 'someone' }))
-  expect(await route(roubao)).toBe('old\n')
-  await mkdir(join(syncDir, 'github-sync'))
-  await writeFile(join(syncDir, 'github-sync', 'acme%2Froubao.switched.json'), '{}')
-  expect(await route(roubao)).toBe('board roubao\n')
+  expect(await route(onGithub)).toBe('board ongithub\n')
+  expect(await route(tmp)).toBe('')
 })
 
 it('prints the index off the board when an orchestrator window starts, and nothing in any other window', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
@@ -317,26 +282,13 @@ it('gives the orchestrator what the web page wrote in full once per session, the
   expect(await prompt(S2)).toBe('')
 })
 
-it('runs one impact guard per repository: the board\'s where the project moved, the old one elsewhere', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+it('holds a close or a merge in a board repository until the ticket declares its impact', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   const call = (command: string) => ({ cwd: repo, tool_input: { command } })
-  const close = call('vb tasks complete 5')
-  const merge = call('gh pr merge 7')
-  const log = () => readFile(join(tmp, 'gh.log'), 'utf8').catch(() => '')
-
-  const boardClose = await hook('board-impact-guard.sh', close)
+  const boardClose = await hook('board-impact-guard.sh', call('vb tasks complete 5'))
   expect([boardClose.code, boardClose.err]).toEqual([2, expect.stringContaining('nawaban close')])
   expect(boardClose.err).not.toContain('改用')
-  expect((await hook('impact-guard.sh', merge)).code).toBe(0)
-  const oldGuardNeverAskedGitHub = await log()
-  expect(oldGuardNeverAskedGitHub).toBe('')
   const tabReachingHookJsonAsBackslashTStillAMerge = await hook('board-impact-guard.sh', call('gh pr\tmerge 7'))
   expect([tabReachingHookJsonAsBackslashTStillAMerge.code, tabReachingHookJsonAsBackslashTStillAMerge.err]).toEqual([2, expect.stringContaining('核不了 KR 影响声明')])
-
-  const old = { NAWABAN_CLI: 'old' }
-  expect((await hook('board-impact-guard.sh', close, old)).code).toBe(0)
-  const oldMerge = await hook('impact-guard.sh', merge, old)
-  expect([oldMerge.code, oldMerge.err]).toEqual([2, expect.stringContaining('核不了 KR 影响声明')])
-  expect(await log()).toContain('pr view 7')
 })
 
 it('keeps a worker running while its terminal holds a claimed task, and lets it go once released or when the board is down', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
@@ -407,11 +359,12 @@ it('moves a worker\'s task only forward along its milestones and stamps when it 
   expect([afterClose.progress, afterClose['progress.at']]).toEqual([undefined, undefined])
 })
 
-it('registers the renewal on every prompt and tool call, and both impact guards before Bash', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
+it('registers the renewal on every prompt and tool call, and the impact guard before Bash', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
   const { hooks } = JSON.parse(await readFile(join(PLUGIN_HOOKS_RUN_AS_CLAUDE_CODE_RUNS_THEM, 'hooks.json'), 'utf8'))
   const names = (event: string) => hooks[event].flatMap((g: { hooks: { command: string }[] }) => g.hooks.map((h) => h.command.split('/').pop()!.replace('"', '')))
   expect(names('UserPromptSubmit')).toContain('renew.sh')
   expect(names('PostToolUse')).toContain('renew.sh')
   expect(names('PostToolUse')).toContain('progress.sh')
-  expect(names('PreToolUse')).toEqual(expect.arrayContaining(['impact-guard.sh', 'board-impact-guard.sh']))
+  expect(names('PreToolUse')).toContain('board-impact-guard.sh')
+  expect(names('PreToolUse')).not.toContain('impact-guard.sh')
 })

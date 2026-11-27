@@ -752,7 +752,6 @@ export function okr(argv: string[], team: Team, dir: string, { cwd = process.cwd
     if (positionals.length) throw new Refused('用法：nawaban okr [--accept <O>] [--resume <O>]', 2)
     const top = await git(cwd, 'rev-parse', '--show-toplevel')
     if (!top) throw new Refused('okr 要在 git 仓库里跑')
-    if (await keptByTheOldCli(top)) throw new Refused('这个仓库还在旧 CLI 记账(hooks/route.mjs 说 old):板 CLI 的 okr 会另记一本面板不读的账,改用旧 CLI 跑 okr')
     const repo = (await mainCheckout(top))!
     const project = await projectOf(dir, repo)
     if (values.resume !== undefined) {
@@ -937,13 +936,6 @@ async function resolvedDecisionOn(team: Team, project: string, o: Objective, sin
 }
 
 const KR_LIST_SEPARATOR = /[、,，]/
-
-const ROUTE = join(import.meta.dirname, '../../hooks/route.mjs')
-
-async function keptByTheOldCli(top: string) {
-  const { stdout } = await promisify(execFile)(process.execPath, [ROUTE, top])
-  return stdout.trim() === 'old'
-}
 
 const UNSCORED_STATUSES = new Set(['untested', 'unmeasurable', 'stale'])
 

@@ -21,18 +21,18 @@ git clone https://github.com/victorGPT/nawaban ~/.nawaban/plugin && ~/.nawaban/p
 
 `NAWABAN_BOARD_DIR`, `NAWABAN_BOARD_PORT`, `NAWABAN_LAUNCHD_LABEL` and `NAWABAN_BIN_DIR` change where it puts the board, the port, the agent's label and the command, for a trial install beside an existing one. The `nawaban` command and the agent keep them, but the plugin's hooks read them from the environment Claude Code runs in, so start Claude Code with the same `NAWABAN_BOARD_DIR` and `NAWABAN_BOARD_PORT`; a normal install leaves them unset.
 
-Every repository you work in uses this board, unless the old CLI already tracks it (a `.nawaban/nawaban.db` it finds, or a `docs/agents/issue-tracker.md` that names GitHub). `node ~/.nawaban/plugin/hooks/route.mjs` in a repository prints `board <project>` or `old`.
+Every repository you work in uses this board, under its main checkout's name. `node ~/.nawaban/plugin/hooks/route.mjs` in a repository prints `board <project>`.
 
 ### First use
 
-1. **Declare the orchestrator.** In your project, start a new Claude Code session and type `/nawaban:orchestrator`. It answers `已把会话 … 记为 <project> 的编排者（没有 Herdr，按会话认）`, prints the project's index, and records the repository in `~/.nawaban/board/repos.json` so the page's OKR tab finds its `docs/agents/okr.toml`. A repository that keeps its tickets on GitHub (its `docs/agents/issue-tracker.md` heading says GitHub) has no orchestrator declaration to record it: add `"<name>": "<path>"` to `repos.json` by hand, and the page lists it and reads its tasks, 待决 and OKR through `nawaban/cli.py`, as the Herdr panel does. A new session or `/clear` needs the declaration again.
+1. **Declare the orchestrator.** In your project, start a new Claude Code session and type `/nawaban:orchestrator`. It answers `已把会话 … 记为 <project> 的编排者（没有 Herdr，按会话认）`, prints the project's index, and records the repository in `~/.nawaban/board/repos.json` so the page's OKR tab finds its `docs/agents/okr.toml`. A new session or `/clear` needs the declaration again.
 2. **Open the page.** Run `nawaban web`. The browser opens `http://127.0.0.1:4100/` with the page's token in the link; the page shows your projects' 待决, OKR, 任务 and 收件箱.
 3. **Answer a 待决.** When the orchestrator asks you to decide, the card shows under 待决. Pick an option, add your words and send it. The task stays held until the orchestrator records your answer: on its next prompt it sees `## 网页已答`, and the line after each reply reads `待决 1 件，网页已答 1 件`.
 4. **Note something in the 收件箱.** Type an idea under 收件箱 and keep it. The orchestrator sees it as `## 收件箱` and makes it a task, runs it, or drops it; a task made from it shows its key there.
 
 If the page answers `401` or says to build, run `nawaban web` again, or rerun `install.sh`. The board's log is `~/.nawaban/board/serve.log`; restart it with `launchctl kickstart -k gui/$(id -u)/com.nawaban.board`.
 
-## With Herdr, or the older Python board
+## With Herdr
 
 The short path: paste this into Claude Code or Codex, in the project that should get a board.
 
@@ -46,16 +46,16 @@ The agent follows the next section. The sections after it are the same install b
 
 Run these steps in order. Each one is safe to run again. Stop and tell the user if a step fails.
 
-1. Check that `git` and `python3` exist and that `python3 --version` is 3.9 or newer.
+1. Check that `git`, `pnpm` and `node` exist and that `node --version` is 22.18 or newer.
 2. Put nawaban at `~/nawaban`. If that directory exists and is a nawaban checkout, run `git -C ~/nawaban pull --ff-only`; otherwise run `git clone https://github.com/victorGPT/nawaban ~/nawaban`.
 3. Install the plugin.
    - Claude Code: `claude plugin marketplace add ~/nawaban`, then `claude plugin install nawaban@nawaban`.
    - Codex: add the marketplace and plugin entries shown under [Plugin install](#plugin-install) to `~/.codex/config.toml` with `source = "<absolute path of ~/nawaban>"`, then run `codex plugin add nawaban@nawaban`. Open its sandbox to the board as [Codex sandbox](#codex-sandbox) says. Codex sessions are identified by `CODEX_THREAD_ID` ([Session identity](#session-identity)).
    - Antigravity: run the three commands under [Plugin install](#plugin-install) with `~/nawaban`, and add the allow rule from [Antigravity permissions](#antigravity-permissions).
-4. In the user's project, create the board: `python3 ~/nawaban/nawaban/cli.py init`. It prints the board path, or says the board already exists.
+4. Install the board's packages: `pnpm --dir ~/nawaban/board install --frozen-lockfile`. The board lives in `~/.nawaban/board/`; `nawaban serve` (or `install.sh`) keeps it running.
 5. Tell the user three things: the board path from step 4, that the `nawaban` skill loads in a new session, so they should start one, and that they see the board in the Herdr panel, which they install by following [Herdr panel](#herdr-panel).
 
-Optional, for a person who wants to type commands: add `nawaban() { python3 ~/nawaban/nawaban/cli.py "$@"; }` to their shell profile, only if they ask.
+Optional, for a person who wants to type commands: add `nawaban() { node ~/nawaban/board/src/cli.ts "$@"; }` to their shell profile, only if they ask.
 
 ## Plugin install
 
@@ -116,24 +116,24 @@ For a local checkout, clone `https://github.com/victorGPT/nawaban` and replace `
 
 ## Run from a checkout
 
-Set `NAWABAN_HOME` to this checkout and define the CLI in your shell (no package installation required):
+Set `NAWABAN_HOME` to this checkout, run `pnpm --dir "$NAWABAN_HOME/board" install --frozen-lockfile`, and define the CLI in your shell:
 
 ```sh
 export NAWABAN_HOME="$(pwd)"
-nawaban() { python3 "$NAWABAN_HOME/nawaban/cli.py" "$@"; }
+nawaban() { node "$NAWABAN_HOME/board/src/cli.ts" "$@"; }
 ```
 
-Run `nawaban init` in the project to create `.nawaban/nawaban.db`, then `nawaban list`. The CLI picks the board from an explicit `--db`, then `NAWABAN_DB`, then `.nawaban/nawaban.db` in the repository's main checkout (so linked worktrees share it), then the nearest `.nawaban/` above the current directory. Several projects can share one board: pass the same absolute `--db` everywhere; a new task's project defaults to its parent's, then to the repository holding the board. `nawaban backup` copies the board into `backups/` beside it.
+Then `nawaban list`. The CLI talks to the board `nawaban serve` keeps in `NAWABAN_BOARD_DIR` (default `~/.nawaban/board/`); every project shares it. `nawaban backup` copies its `local.db` into `backups/` beside it.
 
 ## Session identity
 
 Commands that write as someone (`claim`, `close`, `event`) take the identity from `CODEX_THREAD_ID`, which Codex sets in every command it runs, then from `ANTIGRAVITY_CONVERSATION_ID`, which Antigravity sets in every command it runs, then from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in every session, then from `NAWABAN_OWNER`. Codex and Antigravity come first because a session started from Claude Code inherits `CLAUDE_CODE_SESSION_ID`. Elsewhere, set `NAWABAN_OWNER` to a stable name; without any of the four (a launchd or cron job, say) they write as the OS user, the same person `nawaban serve` hands its token to.
 
-A leader reads `nawaban index` when it starts or after its context is compacted: what waits on you, what stopped, what moves, from the board or, in a repository whose `docs/agents/issue-tracker.md` names GitHub, from its issues. In such a repository, set `NAWABAN_OWNER_NAMES` (comma-separated) to the names the owner signs decisions with, so the index can tell the owner's decisions from the agents' in older comments; a decision written with `event '#N' --kind decision --by user` is counted by its marker.
+An orchestrator reads `nawaban status` when it starts or after its context is compacted: what waits on you, what stopped, what moves.
 
 ## Herdr panel
 
-The [Herdr](https://herdr.dev) app can show the board as a panel beside your terminals; it never writes the board, and on GitHub projects it hands your answers to a pending decision to the repository's orchestrator. It shows what waits on your decision in the focused space, the OKR reading, and the tasks on the board of the project that space is in, grouped by state; it runs `python3 ~/nawaban/nawaban/cli.py json ...` in the space's folder, or, for a project the hooks route to the Vercel Board (`hooks/route.mjs`, run from `~/nawaban`), `node ~/nawaban/board/src/cli.ts json ...`, which needs Node 22.18 or later and `pnpm install` in `~/nawaban/board`. So it needs the checkout at `~/nawaban` (step 2 above) and `python3`.
+The [Herdr](https://herdr.dev) app can show the board as a panel beside your terminals; it never writes the board, and on GitHub projects it hands your answers to a pending decision to the repository's orchestrator. It shows what waits on your decision in the focused space, the OKR reading, and the tasks on the board of the project that space is in, grouped by state; it runs `node ~/nawaban/board/src/cli.ts json ...` in the space's folder, which needs Node 22.18 or later and `pnpm install` in `~/nawaban/board`. So it needs the checkout at `~/nawaban` (step 2 above).
 
 1. Copy the mod into Herdr. Copy rather than symlink: Herdr does not reload a symlinked mod when it changes. Run the same command again after pulling to update it.
 
@@ -152,7 +152,7 @@ The [Herdr](https://herdr.dev) app can show the board as a panel beside your ter
 
    To dock it in a layout instead, do steps 2 and 3; that layout's binding wins over the global one.
 
-   The mod belongs on the computer that runs Herdr.app. When that app drives a space on another machine (Herdr.app on a MacBook Air showing a space that lives on a MacBook Pro), the panel runs `nawaban` on that machine through herdr-core: it reads `~/nawaban/nawaban/cli.py` under that machine's home, in the space's folder, so nawaban must be installed there too. Such a board is re-read every 5 seconds instead of being watched. A layout switch closes the window; open it again with the key.
+   The mod belongs on the computer that runs Herdr.app. When that app drives a space on another machine (Herdr.app on a MacBook Air showing a space that lives on a MacBook Pro), the panel runs `nawaban` on that machine through herdr-core: it runs `~/nawaban/board/src/cli.ts` under that machine's home, in the space's folder, so nawaban must be installed there too. Such a board is re-read every 5 seconds instead of being watched. A layout switch closes the window; open it again with the key.
 
 2. Optional: dock the panel to a layout you own. Herdr's shipped layouts are read-only; clone one first if needed: `herdr-app do layout.clone '{"name":"main","as":"my-layout"}'`. In `~/.config/herdr-app/layouts/<layout>.json`, find the row that holds the terminals (in clones of `main` it is the row with id `work-body`) and add this block as its last child, so it sits on the right:
 

@@ -58,7 +58,7 @@ def _outside_herdr(tmp_path, declared_session):
     if declared_session:
         (board / "orchestrator").mkdir(parents=True)
         (board / "orchestrator" / "proj").write_text(declared_session)
-    return _run(tmp_path, BROKEN_BLOCK, _env(tmp_path, NAWABAN_CLI="board"), cwd=proj)
+    return _run(tmp_path, BROKEN_BLOCK, _env(tmp_path), cwd=proj)
 
 
 def test_outside_herdr_the_session_declared_orchestrator_is_sent_back(tmp_path):

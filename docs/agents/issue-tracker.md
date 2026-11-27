@@ -6,7 +6,7 @@ This repo's tickets are on the Vercel Board that `nawaban serve` keeps at `127.0
 nawaban <verb>
 ```
 
-Since the switch (NAWABAN-MIGRATE-06) the old board, `/Users/victor/.nawaban/nawaban.db`, is read-only for this project: `python3 /Users/victor/.nawaban/plugin/nawaban/cli.py --db /Users/victor/.nawaban/nawaban.db show <id>` still shows a closed ticket's history, and its write verbs say what to run on the board instead.
+The old board, `/Users/victor/.nawaban/nawaban.db`, is no longer read or written; its open tickets were imported at the switch (NAWABAN-MIGRATE-06). A closed ticket's history from before then is in that file, readable with `sqlite3`.
 
 GitHub writes (pushes, `gh pr create`, comments, merges) in this repository go out as this account; the token comes from this machine's `gh` keyring (`gh auth token --user victorGPT`), never from the repository:
 

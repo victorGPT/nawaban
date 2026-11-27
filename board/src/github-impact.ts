@@ -63,17 +63,3 @@ export async function declareOnIssueThread(person: Person, channel: string, repo
   return true
 }
 
-
-export const githubImpactHook = (argv: string[], person: Person, dir: string) =>
-  saidAsAHook(async () => {
-    if (argv.length) throw new Refused('用法：nawaban hook github-impact，旧 CLI 的 kr_impacts 行（JSON 数组）从标准输入读')
-    const rows = JSON.parse(await wholeOf(process.stdin)) as OldImpactRow[]
-    const ticket = rows[0]?.ticket ?? ''
-    if (!GITHUB_ISSUE_TICKET.test(ticket)) throw new Refused(`只记 GitHub issue 的声明（#N），收到 ${ticket || '空'}`)
-    const channel = await projectOf(dir, rows[0]!.repo)
-    if (!channel) throw new Refused(`仓库 ${rows[0]!.repo} 不在板的 repos.json`)
-    const repo = await githubRepoOfChannel(dir, channel)
-    if (!repo) throw new Refused(`${channel} 不在本机 github-sync.json 的 repos 里：板上不记它的 GitHub 声明`)
-    const made = await declareOnIssueThread(person, channel, repo, rows)
-    return made ? `影响声明记在板上（${repo}${ticket}）` : `影响声明板上已有（${repo}${ticket}）`
-  })

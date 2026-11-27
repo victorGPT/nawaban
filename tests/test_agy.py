@@ -94,7 +94,7 @@ def declared_project(tmp_path, parent=None):
     proj = (parent or tmp_path) / "agyws"; proj.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main", str(proj)], check=True)
     board = tmp_path / "board"
-    env = {"NAWABAN_CLI": "board", "NAWABAN_BOARD_DIR": str(board), "NAWABAN_BOARD_PORT": "9", "BOARD_URL": NOTHING_LISTENS_HERE, "HC_TERMINAL_ID": ""}
+    env = {"NAWABAN_BOARD_DIR": str(board), "NAWABAN_BOARD_PORT": "9", "BOARD_URL": NOTHING_LISTENS_HERE, "HC_TERMINAL_ID": ""}
     return proj, board, env
 
 
