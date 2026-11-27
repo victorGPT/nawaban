@@ -330,6 +330,20 @@ it.each([
   expect(await lastNote(id)).toContain(`merge: 拒合 — 没有对 head ${HEAD.slice(0, 7)} 的 review 无挡结论`)
 })
 
+it.each([
+  { form: 'review：无挡', said: (sha: string) => `Codex review：无挡合并（${sha}）` },
+  { form: '评审结论：无挡', said: (sha: string) => `Codex（xhigh）评审结论：无挡合并问题，head ${sha}` },
+])('merges a code PR whose review at its head says $form', async ({ form, said }) => {
+  const body = said(HEAD.slice(0, 7))
+  const key = `M-OK${form.length}`
+  const { id, worktree } = await workerOnItsOwnTicket(key, `t74${form.length}`, { ...greenCodePr(key), comments: [{ body }] })
+  const r = await mergeAsTheWorker(key, `t74${form.length}`, worktree)
+  expect(r.stderr).toBe('')
+  expect(r.code).toBe(0)
+  expect(r.gh).toMatch(/^pr merge 5 --squash/m)
+  expect(await stateOf(id)).toBe('completed')
+})
+
 it('merges a docs-only PR with no review', async () => {
   const { id, worktree } = await workerOnItsOwnTicket('M-DOCS', 't73', { ...greenCodePr('M-DOCS'), comments: [], files: [{ path: 'docs/a.md' }, { path: 'README.md' }] })
   const r = await mergeAsTheWorker('M-DOCS', 't73', worktree)

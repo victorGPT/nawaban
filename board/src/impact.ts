@@ -63,9 +63,20 @@ export async function projectOf(dir: string, top: string) {
   return project
 }
 
+async function checkoutsOf(repo: string) {
+  const listed = (await run('git', ['-C', repo, 'worktree', 'list', '--porcelain']).catch(() => null))?.stdout ?? ''
+  return [...new Set([repo, ...[...listed.matchAll(/^worktree (.+)$/gm)].map((m) => m[1]!)])]
+}
+
 export async function okrOf(dir: string, channel: string) {
   const repo = (await reposReadOnEveryUseSoEditsNeedNoRestart(dir))[channel]
-  return repo ? objectivesWithKrNamesOrNull(repo) : null
+  if (!repo) return null
+  const aBranchMidEditNeverBlocksTheRest = (checkout: string) => (checkout === repo ? objectivesWithKrNamesOrNull(checkout) : objectivesWithKrNamesOrNull(checkout).catch(() => null))
+  const aBranchAddingAnObjectiveRegistersBeforeItMerges = (await Promise.all((await checkoutsOf(repo)).map(aBranchMidEditNeverBlocksTheRest))).filter((okr) => okr !== null)
+  if (!aBranchAddingAnObjectiveRegistersBeforeItMerges.length) return null
+  const names = new Map<string, string[]>()
+  for (const okr of aBranchAddingAnObjectiveRegistersBeforeItMerges) for (const [o, krs] of okr) names.set(o, [...new Set([...(names.get(o) ?? []), ...krs])])
+  return names
 }
 
 function whyNotDeclarableIn(channel: string, impact: Impact, okr: Map<string, string[]> | null, dir: string): string | null {

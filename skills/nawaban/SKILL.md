@@ -20,7 +20,7 @@ description: "nawaban 看板就是 issue tracker。发 spec 和票、找可开�
 - **开工** → `nawaban claim <票>`。仓库有 `docs/agents/okr.toml` 时同时登记 `--o "<O>" --kr "<KR>=toward"`，纯文档和纯基础设施写 `--o 无`。第一个 PR 链接之后才登记算事后，不判也不计。
 - **停手、做了选择、开了 PR** → 记 `note`、`decision`、`link` 事件，格式见 [events.md](events.md)。交还前先记 `note`。
 - **要人答或要人动手** → 只有决策者能定的走 [ask](../ask/SKILL.md)。要事实或要人做事，先在对话里问，再 `nawaban event <票> wait "<一句>"`；答了用自己的话 `resolve "<结论>"`。
-- **PR 开了** → 持票的 worker 在自己 worktree 跑 `nawaban merge <PR>`，Claude Code 里放后台。退出 3 是检查还在跑，过会儿重跑；拒合的理由记在票上，改完重跑。改了 `.md` 以外文件的 PR 要一条点名 head commit（≥7 位）的 `<reviewer> review：无挡…` 评论，之后再 push 要重审。
+- **PR 开了** → 持票的 worker 在自己 worktree 跑 `nawaban merge <PR>`，Claude Code 里放后台。退出 3 是检查还在跑，过会儿重跑；拒合的理由记在票上，改完重跑。改了 `.md` 以外文件的 PR 要一条点名 head commit（≥7 位）的 `<reviewer> review：无挡…` 或 `<模型>（effort）评审结论：无挡…` 评论，之后再 push 要重审。
 - **没走 merge 的合并** → 记 `pr:` 链接后 `nawaban close <票> --done`，登记过 KR 的带 `--kr "<KR>=<后值> 实测|预计"`。板上误关的票重开不了，新建一张，在旧票记 `note "重开为 <新票>"`；同步到 GitHub 的仓库（`github-sync.json`）里 issue #N 就是票 `<PROJECT>-<N>`，误关可以 `close --reopen`。
 - **派活** → 编排者跑 `nawaban dispatch`，见 [dispatch-route](../dispatch-route/SKILL.md)。worker 用 `nawaban tell <票> "<一行>"` 回报，送不到就在票上记 `回报未送达：<那行>`。
 - **看 KR** → `nawaban okr`，它不跑 eval。
