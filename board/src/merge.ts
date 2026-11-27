@@ -152,7 +152,8 @@ async function workflowsOfHeadElseNull(pr: PullRequest): Promise<Outcome | null>
   if (workflows === null) return { kind: 'refused', why: `本地读不到 head ${pr.headRefOid.slice(0, 7)}，核不了它带不带 workflow：先 git fetch 再跑` }
   if (!workflows.trim()) return null
   const listed = await stdoutOrNullOnFailure('gh', ['run', 'list', '--commit', pr.headRefOid, '--json', 'name,status,conclusion'])
-  const runs: { name: string; status: string; conclusion: string }[] = listed ? JSON.parse(listed) : []
+  if (listed === null) return { kind: 'waiting', on: `查不到 head ${pr.headRefOid.slice(0, 7)} 的 workflow run（gh run list 失败）` }
+  const runs: { name: string; status: string; conclusion: string }[] = JSON.parse(listed)
   const failed = runs.filter((r) => r.status === 'completed' && r.conclusion !== 'success' && r.conclusion !== 'skipped')
   if (failed.length) return { kind: 'refused', why: `CI 没过：${failed.map((r) => r.name).join('、')}` }
   const running = runs.filter((r) => r.status !== 'completed')

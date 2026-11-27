@@ -37,7 +37,7 @@ printf '%s\\n' "$GH_TOKEN" >> "$GH_LOG.tokens"
 case "$1 $2" in
   "auth token") echo tok-declared ;;
   "pr view") cat "$GH_PR" ;;
-  "run list") if [ -n "$GH_RUNS" ]; then printf '%s' "$GH_RUNS"; else echo '[]'; fi ;;
+  "run list") if [ -n "$GH_RUNS_FAIL" ]; then echo 'HTTP 502' >&2; exit 1; elif [ -n "$GH_RUNS" ]; then printf '%s' "$GH_RUNS"; else echo '[]'; fi ;;
   "pr merge") if [ -s "$GH_MERGE_FAILS" ]; then head -n1 "$GH_MERGE_FAILS" >&2; sed -i.bak 1d "$GH_MERGE_FAILS"; exit 1; fi ;;
 esac
 `
@@ -213,6 +213,14 @@ it('merges with no checks when the head runs CI only on pushes to release or on 
   expect(r.code).toBe(0)
   expect(r.gh).toMatch(/^pr merge 5 --squash/m)
   expect(await stateOf(id)).toBe('completed')
+})
+
+it('waits when the runs of the head can not be listed, however its workflows are triggered', async () => {
+  const { worktree } = await noChecksAtAHeadWithWorkflow('M-NOLIST', 't76', 'on: workflow_dispatch\n')
+  const r = await mergeAsTheWorker('M-NOLIST', 't76', worktree, { GH_RUNS_FAIL: '1' })
+  expect(r.code).toBe(3)
+  expect(r.stderr).toContain('gh run list 失败')
+  expect(r.gh).not.toMatch(/^pr merge/m)
 })
 
 it('waits for a run already started on the head even when no push or PR open fires the workflow', async () => {
