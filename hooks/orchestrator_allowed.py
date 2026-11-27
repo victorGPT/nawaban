@@ -21,7 +21,7 @@ STDIN_FILTERS_WITH_AN_EXPRESSION = {"jq", "grep"}
 GH_ORCHESTRATION = {("issue", "view"), ("issue", "list"), ("pr", "view"), ("pr", "list"), ("pr", "checks"), ("pr", "merge"),
                      ("issue", "comment"), ("auth", "token")}
 GIT_ORCHESTRATION = {("pull", "--ff-only"), ("worktree", "list"), ("worktree", "remove"), ("worktree", "prune"), ("fetch",)}
-ORCHESTRATION_SCRIPTS = {"node": "hooks/route.mjs", "python3": "nawaban/cli.py", "sh": "herdr/install-mod.sh"}
+ORCHESTRATION_SCRIPTS = {"node": ("hooks/route.mjs", "board/src/cli.ts"), "python3": ("nawaban/cli.py",), "sh": ("herdr/install-mod.sh",)}
 MERGE_SCRIPT = "scripts/merge.sh"
 GIT_READS = {"log", "status"}
 GIT_STATUS_OPTIONS = re.compile(r"^(-s|-b|-sb|-bs|--short|--branch|--porcelain(=v\d)?|--long|-u(no|normal|all)?|--untracked-files(=.*)?|--ahead-behind|--no-ahead-behind)$")

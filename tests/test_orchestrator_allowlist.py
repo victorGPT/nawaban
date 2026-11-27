@@ -54,7 +54,7 @@ def test_the_orchestrator_keeps_its_orchestration_commands(tmp_path, outside_tmp
                 "hc send t1 '请执行 `rg apps/` 并回报'", "nawaban dispatch X --body '检查 $(rg apps/)'", "nawaban list | sort -k 2 | head -n 5", "hc ls --json | jq -r '.[].id' | grep -c t1",
                 "nawaban show X | tail -20 | grep -iE 'a|b'", "hc ls --json | jq . 2>/dev/null", "git log --oneline --stat -3",
                 "nawaban show X 2>&1 | head -n 5", "git log -n 3 --format=%h --since=2.days -- docs", "git log origin/main..HEAD --oneline", "nawaban status < /dev/null",
-                "node ~/.nawaban/plugin/hooks/route.mjs", "python3 ~/.nawaban/plugin/nawaban/cli.py show '#12'",
+                "node ~/.nawaban/plugin/hooks/route.mjs", "node ~/.nawaban/plugin/board/src/cli.ts event X --kind ask --body 'A 还是 B'", "python3 ~/.nawaban/plugin/nawaban/cli.py show '#12'",
                 "GH_TOKEN=$(gh auth token --user victorGPT) gh pr merge 12 --squash --match-head-commit abc", "gh pr checks 12",
                 "git -C ~/.nawaban/plugin pull --ff-only && sh ~/.nawaban/plugin/herdr/install-mod.sh", "scripts/merge.sh 12",
                 "git worktree remove ../wt-x", "git status -sb", "git status --porcelain=v1", "python3 ~/.nawaban/plugin/nawaban/cli.py backup"):
