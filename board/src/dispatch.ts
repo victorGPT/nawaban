@@ -442,20 +442,24 @@ function msOf(wait: string): number {
   return Number(n) * MS_PER[unit as keyof typeof MS_PER]
 }
 
-async function readyAssignedTo(project: string, as: string): Promise<string[]> {
-  const listed = await boardCliElseNothingToClaim(['tasks', project, '--state', 'ready', '--for', as, '--json'], `在 ${project} 查指派给 ${as} 的票失败`)
-  const { tasks } = JSON.parse(listed ?? '{"tasks":[]}') as { tasks: { message?: MessageView; id?: string }[] }
-  return tasks.map((t) => t.message?.id ?? t.id!).filter(Boolean)
+async function principalOfThisBoardToken(failing: string): Promise<string> {
+  const said = await boardCliElseNothingToClaim(['whoami', '--json'], `${failing}，查不到看板令牌的身份`)
+  return (JSON.parse(said!) as { principal: string }).principal
 }
+
+const readyAssignedTo = async (project: string, as: string) => (await all({ channel: project, state: 'ready' })).filter((t) => t.task?.for?.endsWith(`+${as}`))
 
 export async function claimAssignedToMe(project: string, wait: string): Promise<MessageView | null> {
   const as = profile()
+  const principal = await principalOfThisBoardToken(`在 ${project} 领下一张失败`)
   const until = Date.now() + msOf(wait)
   for (;;) {
-    const [id] = await readyAssignedTo(project, as)
-    const claimed = id ? await boardCliElseNothingToClaim(['tasks', 'claim', id, '--as', as, '--lease', CLAIM_LEASE, '--json'], `领指派给 ${as} 的 #${id} 失败`, GONE_BETWEEN_LISTING_AND_CLAIMING) : null
+    const [next] = await readyAssignedTo(project, as)
+    const keptUnderItsOwnersName = !!next && next.task?.owner !== principal
+    if (keptUnderItsOwnersName) await boardCliElseNothingToClaim(['tasks', 'assign', next.id, '--pool', '--json'], `${next.task?.owner} 替 ${as} 留的 #${next.id} 放回公共池失败`)
+    const claimed = next ? await boardCliElseNothingToClaim(['tasks', 'claim', next.id, '--as', as, '--lease', CLAIM_LEASE, '--json'], `领指派给 ${as} 的 #${next.id} 失败`, GONE_BETWEEN_LISTING_AND_CLAIMING) : null
     const task = claimed === null ? null : (JSON.parse(claimed) as { task: MessageView }).task
-    if (task && task.task?.for?.endsWith(`+${as}`)) return labelledForThePanel(claimed!)
+    if (task && (keptUnderItsOwnersName || task.task?.for?.endsWith(`+${as}`))) return labelledForThePanel(claimed!)
     if (task) await boardCliElseNothingToClaim(['tasks', 'release', task.id, '--as', as, '--json'], `#${task.id} 认领时已回到公共池，交还失败`)
     const left = until - Date.now()
     if (left <= 0) return null
@@ -477,7 +481,7 @@ export async function claimReady(wait: string | undefined, project: string | und
   if (!worktree) throw new Refused('claim --ready 要在接票的 worktree 里跑')
   const channel = project ?? (await projectOfThisRepository(boardDirAsConfiguredWhenAsked(), worktree))
   if (!channel) throw new Refused(`${worktree} 不在 repos.json 的任何项目里`, 2, '加 --project <项目>')
-  const task = await claimNextReady(channel, wait)
+  const task = (await claimAssignedToMe(channel, '0s')) ?? (await claimNextReady(channel, wait))
   if (!task) throw new Refused(`${channel} 里没有给 ${profile()} 的票${wait ? `，等了 ${wait}` : ''}`, 1, '等编排者派，或过会儿再跑 nawaban claim --ready')
   const brief = await pickupBrief(task, worktree)
   return { done: `领到 ${row(task)}`, more: brief, json: { task, brief } }
