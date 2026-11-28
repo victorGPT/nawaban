@@ -185,8 +185,8 @@ export function status(argv: string[], team: Team, dir: string): Promise<number>
       return whatThisSessionHasNotSeenPrinted(team, project, dir, values.unseen)
     }
     return answer(argv, async () => {
-      const [data, fromThePage, workers] = await Promise.all([boardData(team, project), whatThePageWrote(team, project), liveWorkersText(project)])
-      const [gapOfKr, tierOfKey] = await Promise.all([krGapsOfTheProjectsRepoElseNone(team, dir, project), tiersByKeyAcrossEveryProject()])
+      const [data, fromThePage, gapOfKr, tierOfKey] = await Promise.all([boardData(team, project), whatThePageWrote(team, project), krGapsOfTheProjectsRepoElseNone(team, dir, project), tiersByKeyAcrossEveryProject()])
+      const workers = await liveWorkersText(data as Data, project)
       return { shown: [indexText(data as Data, project ?? '看板', undefined, { gapOfKr, tierOfKey }), workers, fromThePage].filter(Boolean).join('\n\n'), json: data }
     })
   })
@@ -203,7 +203,7 @@ async function krGapsOfTheProjectsRepoElseNone(team: Team, dir: string, project:
   return new Map(okr?.objectives.flatMap((o) => o.krs.map((kr) => [kr.name, gapToTargetOf(kr)] as const)) ?? [])
 }
 
-async function liveWorkersText(project?: string): Promise<string> {
+async function liveWorkersText(data: Data, project?: string): Promise<string> {
   const root = project ? await mainCheckoutRealPathOf(process.cwd()) : null
   const terminals = root ? await terminalsThatMayBeWorkers(root) : []
   if (!terminals.length) return ''
@@ -211,7 +211,9 @@ async function liveWorkersText(project?: string): Promise<string> {
   const keysHeldBy = (terminal: string) => seen.filter((s) => s.terminal === terminal).map((s) => key(s.task))
   const workers = terminals.filter((t) => t.inAWorktree || keysHeldBy(t.address).length)
   if (!workers.length) return ''
-  return [`## 活着的 worker ${workers.length}`, ...workers.map((w) => `- ${[w.address, w.name, ...keysHeldBy(w.address)].filter(Boolean).join(' ')}`)].join('\n')
+  const rows = new Map(data.columns.flatMap((c) => c.tasks).map((t) => [bare(t.id), t]))
+  const progressOf = (k: string) => (rows.has(bare(k)) ? withProgress(rows.get(bare(k))!) : '')
+  return [`## 活着的 worker ${workers.length}`, ...workers.map((w) => `- ${[w.address, w.name, ...keysHeldBy(w.address).map((k) => k + progressOf(k))].filter(Boolean).join(' ')}`)].join('\n')
 }
 
 const answeredSeen = (a: Pick<WebAnswer, 'message'>) => `答 ${a.message}`

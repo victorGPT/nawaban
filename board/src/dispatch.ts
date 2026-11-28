@@ -1,13 +1,13 @@
 import { execFile } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
-import { readFile, realpath } from 'node:fs/promises'
+import { readFile, realpath, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve as absolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
 import { accountElseNull } from './github-account.ts'
-import { projectOfThisRepository } from './impact.ts'
+import { projectOfThisRepository, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
@@ -31,12 +31,22 @@ const WORKER_ARGV = {
   agy: (model: string | undefined, brief: string) => ['agy', ...(model ? ['--model', model] : []), '-i', brief],
 }
 
-export function workerTitle(ticketTitle: string, tag: string): string {
+const DUTY_THEN_TASK = ' | '
+
+export function workerTitle(ticketTitle: string, tag: string, duty?: string | null): string {
   const prefix = ticketTitle.match(CONVENTIONAL_PREFIX)
-  const scope = prefix?.[1]?.trim()
+  const of = duty ?? prefix?.[1]?.trim()
   const chars = Array.from(ticketTitle.slice(prefix?.[0].length ?? 0).trim())
   const task = chars.length > WORKER_TITLE_TASK_CHARS ? `${chars.slice(0, WORKER_TITLE_TASK_CHARS).join('')}…` : chars.join('')
-  return `${scope ? `【${scope}】` : ''}${task} ${tag}`
+  return `${of ? `${of}${DUTY_THEN_TASK}` : ''}${task} ${tag}`.replace(/[\x00-\x1f\x7f]/g, ' ')
+}
+
+export const dutyOfTheTitleItStartedWith = (title: string) =>
+  title.includes(DUTY_THEN_TASK) ? title.slice(0, title.indexOf(DUTY_THEN_TASK)) : title.includes(' ') ? title.slice(0, title.lastIndexOf(' ')) : title
+
+const sessionNameOf = (argv: string[] = []) => {
+  const at = argv.indexOf('-n')
+  return at < 0 ? null : (argv[at + 1] ?? null)
 }
 
 const withoutSessionName = (argv: string[]) => {
@@ -61,8 +71,8 @@ const USAGE_NEXT = 'nawaban dispatch --help 看每个参数'
 type Args = { ref: string | undefined; name: string | undefined; brief: string; accept: string; checks: string[]; agent: Agent; model: string | undefined; to: string | undefined; fresh: boolean }
 type Checked = { as: string; task: MessageView | null; root: string; orch: string; name: string; who: string; lane: string | null }
 type Worktree = { path: string; branch: string }
-type Terminal = { address: string; name?: string; state?: string; status?: { state?: string }; status_ms?: number; cwd?: string; foreground?: { cwd?: string }; argv?: string[]; labels?: Record<string, string> }
-type Seat = { reuse: Terminal; task: MessageView; by: string | null; hint: string | null } | { reuse: null; passedOver: string[]; hint: string | null }
+type Terminal = { address: string; name?: string; state?: string; status?: { state?: string }; status_ms?: number; cwd?: string; foreground?: { cwd?: string; pid?: number }; argv?: string[]; labels?: Record<string, string> }
+type Seat = { reuse: Terminal; task: MessageView; by: string | null; hint: string | null } | { reuse: null; passedOver: string[]; hint: string | null; overlaps: Overlap[] }
 
 export async function stdoutOrNullOnFailure(cmd: string, args: string[]): Promise<string | null> {
   try {
@@ -75,6 +85,11 @@ export async function stdoutOrNullOnFailure(cmd: string, args: string[]): Promis
 export async function mainCheckoutRealPathOf(dir: string): Promise<string | null> {
   const common = await stdoutOrNullOnFailure('git', ['-C', dir, 'rev-parse', '--git-common-dir'])
   return common === null ? null : dirname(await realpath(absolute(dir, common.trim())))
+}
+
+export async function repositoryOfProject(project: string): Promise<string | null> {
+  const path = (await reposReadOnEveryUseSoEditsNeedNoRestart(boardDirAsConfiguredWhenAsked()))[project]
+  return path ? mainCheckoutRealPathOf(path) : null
 }
 
 export async function terminalOf(address: string): Promise<Terminal | null> {
@@ -139,10 +154,9 @@ async function stillLiveOrchestrator(address: string): Promise<boolean> {
 }
 
 export async function orchestratorToReportTo(root: string | null, task: MessageView | null, threadOf = (id: string) => board().thread(id)): Promise<string | null> {
-  const inRepository = root ? await liveOrchestratorInRepository(root) : null
-  if (inRepository || !task) return inRepository
-  const recorded = lastDispatchOf((await threadOf(task.id)).replies)?.orchestrator
-  return recorded && (await stillLiveOrchestrator(recorded)) ? recorded : null
+  const recorded = task ? lastDispatchOf((await threadOf(task.id)).replies)?.orchestrator : undefined
+  if (recorded && (await stillLiveOrchestrator(recorded))) return recorded
+  return root ? liveOrchestratorInRepository(root) : null
 }
 
 export type TerminalThatMayBeAWorker = Terminal & { inAWorktree: boolean }
@@ -182,9 +196,11 @@ async function refuseBeforeAnythingStarts(a: Args): Promise<Checked> {
   const as = profile()
   const task = a.ref ? await resolve(a.ref) : null
   if (task && CLOSED_STATES.includes(task.task?.state ?? '')) throw new Refused(`${a.ref} 已经是 ${task.task?.state}，不开着`)
-  const root = await mainCheckoutRealPathOf(process.cwd())
+  const here = await mainCheckoutRealPathOf(process.cwd())
+  const root = task ? await repositoryOfProject(task.channel) : here
+  if (task && !root) throw new Refused(`${a.ref} 的项目 ${task.channel} 在 ${join(boardDirAsConfiguredWhenAsked(), 'repos.json')} 里没登记 git 仓库，不知道 worktree 建在哪`, 1, `在 repos.json 加 "${task.channel}": "<仓库路径>"`)
   if (!root) throw new Refused('dispatch 要在 worker 改的那个 git 仓库里跑')
-  const orch = await orchestratorFor(root)
+  const orch = await orchestratorFor(here ?? root)
   if (!orch) throw new Refused('没有活着的编排者收回报', 1, '在本仓库的编排者终端里跑，或给它打上 role=orchestrator 标签')
   const name = a.name ?? a.ref!.toLowerCase()
   const who = a.ref ?? name
@@ -320,6 +336,15 @@ async function workersOfRepository(root: string): Promise<Terminal[]> {
 
 type Overlap = { t: Terminal; files: string[] }
 
+const PEERS_HEAD = '正在跑、改动和你重叠的 worker（动这些共用文件前，先 nawaban show <它的票> 读对方票的最新进展；只读，不给对方发消息；要对方配合的写到对方票上，由编排者转）：'
+
+async function peersLines(channel: string | undefined, overlaps: Overlap[]): Promise<string[]> {
+  if (!overlaps.length) return []
+  const held = await Promise.all((await all({ channel, state: 'open' })).filter((t) => live(t)).map(async (t) => ({ t, terminal: t.labels.terminal ?? lastDispatchOf((await board().thread(t.id)).replies)?.terminal })))
+  const keysOf = (address: string) => held.filter((h) => h.terminal === address).map((h) => key(h.t))
+  return [PEERS_HEAD, ...overlaps.map(({ t, files }) => `  hc ${t.address}${keysOf(t.address).map((k) => ` ${k}`).join('')}：${files.join('、')}`)]
+}
+
 async function workersTouching(root: string, paths: string[]): Promise<Overlap[]> {
   if (!paths.length) return []
   const scored: Overlap[] = []
@@ -332,20 +357,21 @@ async function workersTouching(root: string, paths: string[]): Promise<Overlap[]
 
 const overlapBy = (files: string[]) => `改动文件重叠：${files.join('、')}`
 
-type Route = { reuse: Terminal | null; passedOver: string[]; by: string | null; hint: string | null }
+type Route = { reuse: Terminal | null; passedOver: string[]; by: string | null; hint: string | null; overlaps: Overlap[] }
 
 async function routeByAffinity(root: string, lane: string | null, brief: string, a: Pick<Args, 'agent' | 'model'>): Promise<Route> {
   const { files, directories } = splitByFileOrDirectory(root, brief)
   const hint = !lane && directories.length && !files.length ? DIRECTORY_ONLY_HINT : null
-  const candidates: Overlap[] = lane ? (await laneWorkersInRepository(root, lane)).map((t) => ({ t, files: [] })) : await workersTouching(root, files)
+  const overlaps = await workersTouching(root, files)
+  const candidates: Overlap[] = lane ? (await laneWorkersInRepository(root, lane)).map((t) => ({ t, files: [] })) : overlaps
   const passedOver: string[] = []
   for (const { t, files: overlapping } of candidates) {
     const share = await contextShareOf(t)
     if (!startsTheWayThisDispatchWould(t, a)) passedOver.push(`${t.address} 跑的是别的 agent 或模型`)
     else if (share !== null && share >= REUSE_WHILE_CONTEXT_SHARE_BELOW) passedOver.push(`${t.address} 上下文已用 ${Math.round(share * 100)}%`)
-    else return { reuse: t, passedOver, by: lane ? `泳道 ${lane}` : overlapBy(overlapping), hint }
+    else return { reuse: t, passedOver, by: lane ? `泳道 ${lane}` : overlapBy(overlapping), hint, overlaps }
   }
-  return { reuse: null, passedOver, by: null, hint }
+  return { reuse: null, passedOver, by: null, hint, overlaps }
 }
 
 const WORKERS_PER_REPOSITORY_BEFORE_A_WARNING = 8
@@ -362,10 +388,10 @@ async function seatFor(c: Checked, a: Args): Promise<Seat> {
     if (t?.state !== 'live' || !t.cwd || (await mainCheckoutRealPathOf(t.cwd)) !== c.root) throw new Refused(`--to ${a.to} 不是本仓库里活着的终端`)
     return { reuse: t, task: c.task, by: null, hint: null }
   }
-  if (a.fresh || !c.task) return { reuse: null, passedOver: [], hint: null }
+  if (a.fresh || !c.task) return { reuse: null, passedOver: [], hint: null, overlaps: await workersTouching(c.root, splitByFileOrDirectory(c.root, a.brief).files) }
   const route = await routeByAffinity(c.root, c.lane, a.brief, a)
-  if (route.reuse && !existsSync(route.reuse.cwd!)) return { reuse: null, passedOver: [...route.passedOver, `${route.reuse.address} 的 worktree 已删`], hint: route.hint }
-  return route.reuse ? { reuse: route.reuse, task: c.task, by: route.by, hint: route.hint } : { reuse: null, passedOver: route.passedOver, hint: route.hint }
+  if (route.reuse && !existsSync(route.reuse.cwd!)) return { reuse: null, passedOver: [...route.passedOver, `${route.reuse.address} 的 worktree 已删`], hint: route.hint, overlaps: route.overlaps.filter((o) => o.t !== route.reuse) }
+  return route.reuse ? { reuse: route.reuse, task: c.task, by: route.by, hint: route.hint } : { reuse: null, passedOver: route.passedOver, hint: route.hint, overlaps: route.overlaps }
 }
 
 const moreOf = (...lines: (string | null)[]) => (lines.some(Boolean) ? { more: lines.filter(Boolean).join('\n') } : {})
@@ -416,7 +442,7 @@ type ReportsVia = { ref: string } | { name: string; orch: string }
 const checksLines = (checks: string[]) =>
   checks.length ? ['验收检查（nawaban merge 合并前用看板的 tasks run 在 PR head 上逐条跑，全过才合并并关票；有一条非 0 就拒合，票记 failed 和输出尾巴。先在本地跑过）：', ...checks.map((c) => `  ${c}`)] : []
 
-function briefReportingTo(via: ReportsVia, brief: string, accept: string, worktreeLine: string, firstSteps: string[] = [], checks: string[] = []): string {
+function briefReportingTo(via: ReportsVia, brief: string, accept: string, worktreeLine: string, firstSteps: string[] = [], checks: string[] = [], peers: string[] = []): string {
   const [task, reportLines] =
     'ref' in via
       ? [`${via.ref}（nawaban show ${via.ref} 看全文；认领、进展、关闭用 nawaban claim|event|close 记）`, [`  nawaban tell ${via.ref} "完成 PR #<号>"`, `  nawaban tell ${via.ref} "受阻，详情在票上"`]]
@@ -426,6 +452,7 @@ function briefReportingTo(via: ReportsVia, brief: string, accept: string, worktr
     worktreeLine,
     ...firstSteps,
     brief,
+    ...peers,
     `验收：${accept}`,
     ...checksLines(checks),
     '完成或受阻时只发下面一行，照抄其一，完成的填 PR 号。结论、实测输出、卡在哪、要谁做什么和中途进展都记在票上，不发给编排者（每条消息都会叫醒它）：',
@@ -453,11 +480,23 @@ async function boardCliElseNothingToClaim(argv: string[], failing: string, nothi
   }
 }
 
+async function retitleThisTerminalFor(task: MessageView) {
+  const me = process.env.HC_TERMINAL_ID
+  const t = me ? await terminalOf(me) : null
+  const pid = t?.foreground?.pid
+  const tty = pid ? (await stdoutOrNullOnFailure('ps', ['-o', 'tty=', '-p', String(pid)]))?.trim() : null
+  if (!t || !tty || tty.startsWith('?')) return
+  const startedAs = sessionNameOf(t.argv)
+  const duty = t.labels?.lane ?? (startedAs ? dutyOfTheTitleItStartedWith(startedAs) : null)
+  await writeFile(`/dev/${tty}`, `\x1b]0;${workerTitle(task.text.split('\n')[0]!, key(task), duty)}\x07`)
+}
+
 async function labelledForThePanel(claimed: string): Promise<MessageView> {
   const { task } = JSON.parse(claimed) as { task: MessageView }
   await labelTerminalThePanelReadsWhileClaimed(task.id).catch((error) =>
     process.stderr.write(`claimed ${task.labels.key ?? task.id}; its terminal label for the panel failed: ${(error as Error).message}\n`),
   )
+  await retitleThisTerminalFor(task).catch((error) => process.stderr.write(`claimed ${key(task)}; retitling its terminal failed: ${(error as Error).message}\n`))
   return task
 }
 
@@ -526,7 +565,9 @@ export async function pickupBrief(task: MessageView, worktree: string): Promise<
   const brief = replies.map((r) => r.text).findLast((t) => t.startsWith(BRIEF_NOTE))?.slice(BRIEF_NOTE.length) ?? NEXT_BRIEF
   const accept = lastDispatchOf(replies)?.accept ?? NEXT_ACCEPT
   const declareFirst = `这张已替你认领，但认领时没登记 KR 影响：先跑 nawaban event ${ref} impact --o "<O 名>" --kr "<KR>=toward|away|hold"（纯基础设施写 --o 无），不然 merge 会拦`
-  return briefReportingTo({ ref }, brief, accept, reusedWorktreeLine({ path: worktree, branch: `wt/${ref.toLowerCase()}` }), [declareFirst], checksOf(replies))
+  const root = await mainCheckoutRealPathOf(worktree)
+  const others = root ? (await workersTouching(root, splitByFileOrDirectory(root, brief).files)).filter((o) => o.t.address !== process.env.HC_TERMINAL_ID) : []
+  return briefReportingTo({ ref }, brief, accept, reusedWorktreeLine({ path: worktree, branch: `wt/${ref.toLowerCase()}` }), [declareFirst], checksOf(replies), await peersLines(task.channel, others))
 }
 
 export async function claimReady(wait: string | undefined, project: string | undefined): Promise<Said> {
@@ -545,7 +586,7 @@ const envReachingThisBoardWithoutToken = () => ENV_NAMING_THIS_BOARD_AND_CODEX_C
 async function startWorkerElseRemoveWorktree(c: Checked, a: Args, wt: Worktree, brief: string): Promise<string> {
   const env = envReachingThisBoardWithoutToken()
   try {
-    const run = await exec('hc', ['run', '--bg', '--outlive-parent', '--json', '--name', c.name, '--cwd', wt.path, ...(env.length ? ['env', ...env] : []), ...WORKER_ARGV[a.agent](a.model, brief, c.task ? workerTitle(c.task.text.split('\n')[0]!, a.ref!) : c.name)])
+    const run = await exec('hc', ['run', '--bg', '--outlive-parent', '--json', '--name', c.name, '--cwd', wt.path, ...(env.length ? ['env', ...env] : []), ...WORKER_ARGV[a.agent](a.model, brief, c.task ? workerTitle(c.task.text.split('\n')[0]!, a.ref!, c.lane) : c.name)])
     const address = JSON.parse(run.stdout).address
     if (!address) throw new Error(run.stdout)
     return address
@@ -637,7 +678,8 @@ export function dispatch(argv: string[]): Promise<number> {
       }
     }
     const wt = await worktreeOffOriginMain(checked.root, checked.name)
-    const brief = briefReportingTo(a.ref ? { ref: a.ref } : { name: checked.name, orch: checked.orch }, a.brief, a.accept, freshWorktreeLine(wt, a.ref ? MERGE_LINE : MERGE_LINE_WITH_NO_TICKET_FOR_NAWABAN_MERGE_TO_FIND), [], a.checks)
+    const peers = await peersLines(checked.task?.channel, seat.overlaps)
+    const brief = briefReportingTo(a.ref ? { ref: a.ref } : { name: checked.name, orch: checked.orch }, a.brief, a.accept, freshWorktreeLine(wt, a.ref ? MERGE_LINE : MERGE_LINE_WITH_NO_TICKET_FOR_NAWABAN_MERGE_TO_FIND), [], a.checks, peers)
     const address = await startWorkerElseRemoveWorktree(checked, a, wt, brief)
     if (checked.task?.task?.for) await boardCliElseNothingToClaim(['tasks', 'assign', checked.task.id, '--pool', '--json'], `已派给 hc ${address}，但 ${checked.who} 还排给 ${checked.task.task.for}，放回公共池失败，它领不了`)
     await recordDispatchAsThisWindow(checked, a, address)

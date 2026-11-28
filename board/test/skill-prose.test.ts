@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { expect, test } from 'vitest'
 import { parse } from 'yaml'
 
-const SKILLS = resolve(dirname(fileURLToPath(import.meta.url)), '../../skills')
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const SKILLS = join(REPO, 'skills')
 const CHARS_AT_MOST = {
   chinese: { index: 3000, process: 1200, reference: 2000, description: 120 },
   english: { index: 9000, process: 3500, reference: 6000, description: 300 },
@@ -27,6 +28,12 @@ const kindOf = (name: string) =>
 const budgetOf = (text: string) => CHARS_AT_MOST[/\p{Script=Han}/u.test(text) ? 'chinese' : 'english']
 
 const anchorOf = (heading: string) => heading.trim().toLowerCase().replace(/[^\p{L}\p{N} -]/gu, '').replace(/ /g, '-')
+
+const referenceDocs = ['docs/install.md', 'GLOSSARY.md'].map((name) => ({ name, text: readFileSync(join(REPO, name), 'utf8') }))
+
+test.each(referenceDocs)('$name stays within the reference budget', ({ text }) => {
+  expect(text.length).toBeLessThanOrEqual(budgetOf(text).reference)
+})
 
 test.each(skillFiles)('$name carries no names, quotes, dates or incident stories', ({ text }) => {
   const found = PROSE_AN_AGENT_ACTS_ON_HAS_NONE_OF.filter(({ pattern }) => pattern.test(text)).map(({ what }) => what)
