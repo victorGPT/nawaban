@@ -747,6 +747,16 @@ it('claims the highest tier first with claim --ready, a P2 that blocks a P0 coun
   expect(claimedInTurn).toEqual(['T-GATE', 'T-BUG', 'T-OLD'])
 })
 
+it('claims a ticket assigned to it while claim --ready waits', async () => {
+  const late = await ticketTheCliOwns('C-LATE', 'claim-late')
+  await boardCliAsSession(ORCH_SESSION, repo, 'board', 'tasks', 'assign', late, 'someone-else')
+  const waiting = claimReadyIn(repo, ['--project', 'claim-late', '--wait', '25s'])
+  await new Promise((r) => setTimeout(r, 3000))
+  await boardCliAsSession(ORCH_SESSION, repo, 'board', 'tasks', 'assign', late, 'cc-bbbb2222')
+  expect((await waiting).stdout).toMatch(/^✓ 领到 C-LATE/)
+  expect(await holderOf(late)).toMatch(/\+cc-bbbb2222$/)
+}, 40_000)
+
 it('raises a ticket blocking a P0 of another project to P0 for claim --ready', async () => {
   await boardCliAsSession(ORCH_SESSION, repo, 'create', 'X-GATE', '--priority', 'P2', '--title', 'gate', '--project', 'claim-cross')
   await boardCliAsSession(ORCH_SESSION, repo, 'create', 'X-BUG', '--priority', 'P1', '--kr', '线上可见 bug', '--title', 'bug', '--project', 'claim-cross')

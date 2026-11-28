@@ -470,6 +470,8 @@ export async function claimNextReady(project: string, wait?: string): Promise<Me
   const principal = await principalOfThisBoardToken(`在 ${project} 领下一张失败`)
   const until = Date.now() + (wait ? msOf(wait) : 0)
   for (;;) {
+    const assignedMeanwhile = await claimAssignedToMe(project, '0s')
+    if (assignedMeanwhile) return assignedMeanwhile
     const poolTicketsThisTokensOwnerMade = (await readyHighestTierFirst(project)).filter((t) => !t.task?.for && t.task?.owner === principal)
     for (const next of poolTicketsThisTokensOwnerMade) {
       const claimed = await boardCliElseNothingToClaim(['tasks', 'claim', next.id, '--as', profile(), '--lease', CLAIM_LEASE, '--json'], `在 ${project} 领 #${next.id} 失败`, GONE_BETWEEN_LISTING_AND_CLAIMING)
@@ -532,7 +534,7 @@ export async function claimReady(wait: string | undefined, project: string | und
   if (!worktree) throw new Refused('claim --ready 要在接票的 worktree 里跑')
   const channel = project ?? (await projectOfThisRepository(boardDirAsConfiguredWhenAsked(), worktree))
   if (!channel) throw new Refused(`${worktree} 不在 repos.json 的任何项目里`, 2, '加 --project <项目>')
-  const task = (await claimAssignedToMe(channel, '0s')) ?? (await claimNextReady(channel, wait))
+  const task = await claimNextReady(channel, wait)
   if (!task) throw new Refused(`${channel} 里没有给 ${profile()} 的票${wait ? `，等了 ${wait}` : ''}`, 1, '等编排者派，或过会儿再跑 nawaban claim --ready')
   const brief = await pickupBrief(task, worktree)
   return { done: `领到 ${row(task)}`, more: brief, json: { task, brief } }
