@@ -10,6 +10,7 @@ import { LIVE_LABELS, liveOfLabels } from './progress.ts'
 import { noPullStates, type PullStateOf } from './pulls.ts'
 import { gapsOfADecisionCard, type DecisionCard } from './schemas.ts'
 import { Refused } from './said.ts'
+import { tierOf } from './priority.ts'
 
 type Team = ReturnType<typeof board>
 type Task = NonNullable<MessageView['task']>
@@ -149,6 +150,8 @@ function row(m: MessageView, h: History, byId: Map<string, MessageView>, githubR
     status: done ? 'done' : session ? 'in_progress' : 'open',
     project: m.channel,
     parent: m.labels.parent ?? null,
+    priority: tierOf(m.labels),
+    priority_kr: m.labels['priority-kr'] ?? null,
     session,
     created_at: secs(m.createdAt),
     active_at: h.active,

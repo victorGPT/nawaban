@@ -7,7 +7,7 @@ description: "编排者用。处理决策者在网页上写的：挂起票上的
 
 - **网页已答** → 网页已把答复写上票，挂起没解。答复点名了存在的选项，或说的话答了这个问题，就算对得上：用自己的话 `nawaban event <ID> resolve "<结论>"`，待决策项和等你都一样。对不上就走 **ask** 重问。
 - **收件箱** → 每行是 `<id> <内容>`，判它是活、命令，还是都不是。
-  - 是活 → 走 **ticket**，用 `nawaban create <KEY> --title … --inbox <id>` 建票，`--inbox` 顺手把条目标成已办。别用 `board tasks create`，它建出没 KEY 的票，板上看不到。
+  - 是活 → 走 **ticket**，用 `nawaban create <KEY> --title … --priority P0|P1|P2 --inbox <id>` 建票，`--inbox` 顺手把条目标成已办。别用 `board tasks create`，它建出没 KEY 的票，板上看不到。
   - 是命令 → 照做，再关条目。都不是 → 直接关条目。关条目：`nawaban board label <id> inbox=done --if inbox=open`。
 
 回复：每条一行，`<id>：<记成已决 | 转成 <KEY> | 已执行 | 不处理，因为 …>`。

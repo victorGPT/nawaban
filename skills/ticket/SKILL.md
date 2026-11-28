@@ -11,6 +11,6 @@ description: "编排者用。在板上开一张票。决策者交来一件活、
    - 读同样文档、改同样目录的票带同一个 `--lane`，先后关系用 `--blocked-by`。
 2. **推动某条 KR** → 正文写 O 和 KR。一次性的活、修 bug、改流程和工具不挂 O。
 3. **正文写到文件** → 两节 `## What to build`、`## Acceptance criteria`，每条判据是命令或界面能显示的。仓库有 `docs/agents/okr.toml` 时，一条判据是 worker 的 KR 登记：`claim --o "<O>" --kr "<KR>=toward"` 或 `--o 无`。
-4. **建票，不认领** → `nawaban create <KEY> --project <p> --title "<标题>" --body-file <文件>`，按需带 `--parent`、`--blocked-by`。
+4. **建票，不认领** → `nawaban create <KEY> --project <p> --title "<标题>" --priority P0|P1|P2 --body-file <文件>`，P1 带 `--kr "<KR>"`（或 `线上可见 bug`），按需带 `--parent`、`--blocked-by`。挡住别的票的随被挡的票同档。
 
 回复：票的那一行，加一行 `O：<O / KR | 无，因为 …>`。

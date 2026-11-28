@@ -144,7 +144,7 @@ const orchestratorScenarios = [
     project: 'nawaban',
     key: 'NW-1',
     raise: async () => {
-      await nawaban(checkouts.nawaban!, 'create', 'NW-1', '--title', '要密钥', '--project', 'nawaban')
+      await nawaban(checkouts.nawaban!, 'create', 'NW-1', '--priority', 'P2', '--title', '要密钥', '--project', 'nawaban')
       await nawaban(checkouts.nawaban!, 'event', 'NW-1', 'wait', '给密钥')
     },
     settle: () => nawaban(checkouts.nawaban!, 'event', 'NW-1', 'resolve', '给了'),

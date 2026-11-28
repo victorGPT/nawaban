@@ -188,7 +188,7 @@ it.each([
 })
 
 it('retitles its terminal on claim --ready with what it started for and the ticket it took now', async () => {
-  expect((await nawabanInTheRepositoryAsWindowAaaa1111('create', ['RT-NEXT', '--title', 'fix(web): 换个按钮', '--project', 'retitle'], {})).code).toBe(0)
+  expect((await nawabanInTheRepositoryAsWindowAaaa1111('create', ['RT-NEXT', '--priority', 'P2', '--title', 'fix(web): 换个按钮', '--project', 'retitle'], {})).code).toBe(0)
   const tty = join(tmp, 'tty-rt')
   await writeFile(tty, '')
   await writeFile(join(tmp, 'ps'), '#!/bin/sh\nprintf "%s\\n" "$PS_TTY"\n')
@@ -311,7 +311,7 @@ const cliAsWindowOf = (session: string, argv: string[]) =>
   exec('node', [CLI, ...argv], { cwd: repo, env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, NAWABAN_BOARD_DIR: tmp, CLAUDE_CODE_SESSION_ID: session, HC_TERMINAL_ID: '' } })
 
 it('assigns the next task of a lane to the worker running it, which alone may claim it, and pushes it nothing', async () => {
-  const made = async (key: string, ...more: string[]) => JSON.parse((await cliAsWindowOf('orch0000-0000', ['create', key, '--title', key, '--project', 'nawaban', '--json', ...more])).stdout).task.id as string
+  const made = async (key: string, ...more: string[]) => JSON.parse((await cliAsWindowOf('orch0000-0000', ['create', key, '--priority', 'P2', '--title', key, '--project', 'nawaban', '--json', ...more])).stdout).task.id as string
   const first = await made('LN-A')
   const second = await made('LN-B', '--blocked-by', 'LN-A')
   await note(first, 'lane: board')
@@ -344,7 +344,7 @@ it('assigns the next task of a lane to the worker running it, which alone may cl
 })
 
 it('routes a ticket made with create --lane to that lane\'s running worker, with no lane note', async () => {
-  const made = async (key: string) => JSON.parse((await cliAsWindowOf('orch0000-0000', ['create', key, '--title', key, '--project', 'nawaban', '--lane', 'cli', '--json'])).stdout).task.id as string
+  const made = async (key: string) => JSON.parse((await cliAsWindowOf('orch0000-0000', ['create', key, '--priority', 'P2', '--title', key, '--project', 'nawaban', '--lane', 'cli', '--json'])).stdout).task.id as string
   const first = await made('LL-A')
   const second = await made('LL-B')
   expect((await team.thread(second)).message.labels.lane).toBe('cli')

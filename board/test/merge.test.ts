@@ -155,7 +155,7 @@ const lastNote = async (id: string) => (await replies(id)).at(-1)?.text ?? ''
 const ORCH_SESSION = 'orch0000-0000'
 
 async function ticketTheCliOwns(key: string, channel: string, assignedTo?: string) {
-  const { stdout } = await boardCliAsSession(ORCH_SESSION, repo, 'create', key, '--title', key, '--project', channel, '--json')
+  const { stdout } = await boardCliAsSession(ORCH_SESSION, repo, 'create', key, '--priority', 'P2', '--title', key, '--project', channel, '--json')
   const id: string = JSON.parse(stdout).task.id
   if (assignedTo) await boardCliAsSession(ORCH_SESSION, repo, 'board', 'tasks', 'assign', id, assignedTo)
   return id
@@ -734,6 +734,34 @@ it('claims an unassigned ticket from the pool with claim --ready, and prints the
   const closed = await exec('node', [CLI, 'close', 'C-POOL', '--done'], { cwd: repo, env: { ...process.env, BOARD_URL: url, BOARD_TOKEN: SECRET, XDG_CONFIG_HOME: tmp, NAWABAN_BOARD_DIR: join(tmp, 'board'), CLAUDE_CODE_SESSION_ID: 'bbbb2222-0000', HC_TERMINAL_ID: '' } })
   expect(closed.stdout).toBe('✓ 关了 C-POOL（做完）\n')
   expect(await stateOf(id)).toBe('completed')
+})
+
+it('claims the highest tier first with claim --ready, a P2 that blocks a P0 counting as P0', async () => {
+  const make = (key: string, ...more: string[]) => boardCliAsSession(ORCH_SESSION, repo, 'create', key, '--title', key, '--project', 'claim-tier', ...more)
+  await make('T-OLD', '--priority', 'P2')
+  await make('T-BUG', '--priority', 'P1', '--kr', '线上可见 bug')
+  await make('T-GATE', '--priority', 'P2')
+  await make('T-TOP', '--priority', 'P0', '--blocked-by', 'T-GATE')
+  const claimedInTurn = []
+  for (let i = 0; i < 3; i++) claimedInTurn.push(/领到 (\S+)/.exec((await claimReadyIn(repo, ['--project', 'claim-tier'])).stdout)?.[1])
+  expect(claimedInTurn).toEqual(['T-GATE', 'T-BUG', 'T-OLD'])
+})
+
+it('claims a ticket assigned to it while claim --ready waits', async () => {
+  const late = await ticketTheCliOwns('C-LATE', 'claim-late')
+  await boardCliAsSession(ORCH_SESSION, repo, 'board', 'tasks', 'assign', late, 'someone-else')
+  const waiting = claimReadyIn(repo, ['--project', 'claim-late', '--wait', '25s'])
+  await new Promise((r) => setTimeout(r, 3000))
+  await boardCliAsSession(ORCH_SESSION, repo, 'board', 'tasks', 'assign', late, 'cc-bbbb2222')
+  expect((await waiting).stdout).toMatch(/^✓ 领到 C-LATE/)
+  expect(await holderOf(late)).toMatch(/\+cc-bbbb2222$/)
+}, 40_000)
+
+it('raises a ticket blocking a P0 of another project to P0 for claim --ready', async () => {
+  await boardCliAsSession(ORCH_SESSION, repo, 'create', 'X-GATE', '--priority', 'P2', '--title', 'gate', '--project', 'claim-cross')
+  await boardCliAsSession(ORCH_SESSION, repo, 'create', 'X-BUG', '--priority', 'P1', '--kr', '线上可见 bug', '--title', 'bug', '--project', 'claim-cross')
+  await boardCliAsSession(ORCH_SESSION, repo, 'create', 'X-TOP', '--priority', 'P0', '--title', 'top', '--project', 'claim-cross-other', '--blocked-by', 'X-GATE')
+  expect((await claimReadyIn(repo, ['--project', 'claim-cross'])).stdout).toMatch(/^✓ 领到 X-GATE/)
 })
 
 it('prints the claimed ticket and its brief as one object for claim --ready --json', async () => {

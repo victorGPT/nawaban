@@ -28,8 +28,8 @@ const INDEX_GOLDEN = `p 进行中的事 · 04-26 17:46 生成
 - 3 小时前 D 发布
 
 ## 待办 2（没人认领过）
-- TRI 分诊过的
-- IDLE 没人碰`
+- P2 TRI 分诊过的
+- P2 IDLE 没人碰`
 
 it('groups the open work into 等你, 停滞 and 进行中, then the owner decisions and the 待办', () => {
   const data = {
@@ -109,6 +109,24 @@ it('folds only progress that is the same in full, not the same in its first char
 it('prints nothing for a section with nothing to act on', () => {
   const text = indexText({ columns: [{ key: 'done', tasks: [task('D', '发布', NOW, { status: 'done', done_at: NOW })] }], decisions: [] }, 'p', NOW)
   expect(text).toBe('p 进行中的事 · 04-26 17:46 生成\n等你 0 · 停滞 0 · 进行中 0 · 待办 0')
+})
+
+it('lists the 待办 by tier, a ticket blocking a higher one at that tier, and P1s by how far their KR is from its target', () => {
+  const idle = [
+    task('P2-NEW', '新的 P2', NOW, { priority: 'P2' }),
+    task('UNTIERED', '建档前的票', NOW - 1),
+    task('GATE', '挡着 P0', NOW - 2, { priority: 'P2' }),
+    task('TOP', '线上坏了', NOW - 3, { priority: 'P0', blocked_by: ['GATE'] }),
+    task('NEAR', '差一点', NOW - 4, { priority: 'P1', priority_kr: '近的' }),
+    task('FAR', '差得远', NOW - 5, { priority: 'P1', priority_kr: '远的' }),
+    task('UNREAD', '没读数', NOW - 6, { priority: 'P1', priority_kr: '没读过的' }),
+    task('BUG', '小 bug', NOW - 7, { priority: 'P1', priority_kr: '线上可见 bug' }),
+  ]
+  const gaps = new Map([['近的', 0.05], ['远的', 0.5]])
+  const text = indexText({ columns: [{ key: 'open', tasks: idle }] }, 'p', NOW, { gapOfKr: gaps, tierOfKey: new Map([['P2-NEW', 'P0']]) })
+  expect(text.split('## 待办 8（没人认领过）\n')[1]!.split('\n').map((l) => l.split(' ').slice(1, 3).join(' '))).toEqual([
+    'P0 P2-NEW', 'P0 GATE', 'P0 TOP', 'P1 UNREAD', 'P1 BUG', 'P1 FAR', 'P1 NEAR', 'P2 UNTIERED',
+  ])
 })
 
 it('folds the 待办, then the progress, then the titles, until the index fits its character budget', () => {

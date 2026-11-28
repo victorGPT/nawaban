@@ -120,10 +120,12 @@ const COMMANDS: Record<string, Command> = {
   create: {
     group: '写',
     usage: 'create <票>',
-    args: '--title <标题> [正文]',
+    args: '--title <标题> --priority P0|P1|P2 [正文]',
     about: '建票',
     flags: [
       ['--title <标题>', '必填'],
+      ['--priority P0|P1|P2', '必填：P0 线上正在坏且影响大、合规安全、发版卡住；P1 线上可见的小 bug、推没达标/量不了/未测的 KR；P2 其余'],
+      ['--kr <KR>', 'P1 必填：推哪条 KR，线上可见的小 bug 写「线上可见 bug」'],
       ['-', '正文从标准输入读'],
       ['--body-file <文件>', '正文从文件读'],
       ['--parent <票>', '挂在这张票下，项目随它'],

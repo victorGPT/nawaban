@@ -132,7 +132,7 @@ export function pageText(answers: WebAnswer[], items: InboxItem[], project: stri
   if (items.length) {
     if (out.length) out.push('')
     out.push(
-      `## 收件箱 ${items.length}（${inboxChannel(project)} 里开着的，行首是条目 id；转票：nawaban create <KEY> --title … --inbox <id>；转命令或不做：nawaban board label <id> inbox=done --if inbox=open）`,
+      `## 收件箱 ${items.length}（${inboxChannel(project)} 里开着的，行首是条目 id；转票：nawaban create <KEY> --title … --priority P0|P1|P2 --inbox <id>；转命令或不做：nawaban board label <id> inbox=done --if inbox=open）`,
     )
     for (const i of items) out.push(`- ${i.id} ${i.words}`)
   }

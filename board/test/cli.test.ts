@@ -94,13 +94,13 @@ it("answers every verb's --help without reaching a board", EVERY_STEP_STARTS_A_N
   expect((await nawaban(['show', 'X', '-h'], { more: { BOARD_URL: NOTHING_LISTENS_HERE } })).out).toMatch(/^用法：nawaban show/)
   const upstreamHelp = await nawaban(['board'], { more: { BOARD_URL: NOTHING_LISTENS_HERE } })
   expect([upstreamHelp.code, upstreamHelp.out]).toEqual([0, expect.stringContaining('usage: nawaban board <command>')])
-  const aValueNamedHelpIsNoHelpRequest = await nawaban(['create', 'H1', '--title', '--help'], { more: { BOARD_URL: NOTHING_LISTENS_HERE } })
+  const aValueNamedHelpIsNoHelpRequest = await nawaban(['create', 'H1', '--priority', 'P2', '--title', '--help'], { more: { BOARD_URL: NOTHING_LISTENS_HERE } })
   expect(aValueNamedHelpIsNoHelpRequest.code).not.toBe(0)
   expect(aValueNamedHelpIsNoHelpRequest.out).toBe('')
 })
 
 it('runs each everyday verb that needs only the board on a fresh board', EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'C1', '--title', '一张票', '--project', 'p1')
+  await succeeds('create', 'C1', '--priority', 'P2', '--title', '一张票', '--project', 'p1')
   await succeeds('claim', 'C1')
   await succeeds('event', 'C1', 'note', '已完成：建票')
   expect((await succeeds('show', 'C1')).out).toContain('已完成：建票')
@@ -119,10 +119,10 @@ it('takes the project of the repository it runs in for create and status, and st
   await new Promise((resolve, reject) => execFile('git', ['init', '-q', repo], (error) => (error ? reject(error) : resolve(null))))
   await writeFile(join(homeBoard, 'repos.json'), JSON.stringify({ 'p-home': repo }))
   const at = (cwd: string) => ({ cwd, more: { NAWABAN_BOARD_DIR: homeBoard } })
-  expect((await nawaban(['create', 'H-IN', '--title', '在仓库里建'], at(repo))).code).toBe(0)
+  expect((await nawaban(['create', 'H-IN', '--priority', 'P2', '--title', '在仓库里建'], at(repo))).code).toBe(0)
   expect((await succeeds('show', 'H-IN')).out).toContain('project     p-home')
-  await succeeds('create', 'H-ELSE', '--title', '别的项目', '--project', 'p-else')
-  const refused = await nawaban(['create', 'H-OUT', '--title', '不在仓库里'], at(outside))
+  await succeeds('create', 'H-ELSE', '--priority', 'P2', '--title', '别的项目', '--project', 'p-else')
+  const refused = await nawaban(['create', 'H-OUT', '--priority', 'P2', '--title', '不在仓库里'], at(outside))
   expect(refused.code).toBe(2)
   expect(refused.err).toContain('加 --project')
   const inRepo = await nawaban(['status'], at(repo))
@@ -146,7 +146,7 @@ it('says there is no such verb, lists the ten, and leaves the board alone', asyn
 })
 
 it('prints under status what index printed, and points index at status', EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'S1', '--title', '没人动的', '--project', 'p2')
+  await succeeds('create', 'S1', '--priority', 'P2', '--title', '没人动的', '--project', 'p2')
   const status = await succeeds('status', '--project', 'p2')
   const index = await succeeds('index', '--project', 'p2')
   expect(index.out).toBe(status.out)
@@ -155,7 +155,7 @@ it('prints under status what index printed, and points index at status', EVERY_S
 })
 
 it('prints every event of a ticket under show --all, and only the latest without it', EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'A1', '--title', '事件多', '--project', 'p-all')
+  await succeeds('create', 'A1', '--priority', 'P2', '--title', '事件多', '--project', 'p-all')
   for (const n of [1, 2, 3]) await succeeds('event', 'A1', 'note', `第 ${n} 条\n第二行 ${n}`)
   const brief = (await succeeds('show', 'A1')).out
   expect(brief).toContain('第 3 条')
@@ -169,18 +169,18 @@ it('prints every event of a ticket under show --all, and only the latest without
 
 it('turns an inbox item into a ticket in its project and marks it done, once', EVERY_STEP_STARTS_A_NODE, async () => {
   const item = await team.post(inboxChannel('p-inbox'), { text: inboxItemText('面板加夜间模式'), labels: INBOX_OPEN })
-  const made = await succeeds('create', 'IN-1', '--title', '夜间模式', '--inbox', item.id)
+  const made = await succeeds('create', 'IN-1', '--priority', 'P2', '--title', '夜间模式', '--inbox', item.id)
   expect(made.out).toBe(`✓ 建票 IN-1：夜间模式（收件箱 ${item.id} 已处理）\n`)
   const shown = (await succeeds('show', 'IN-1')).out
   expect(shown).toContain('project     p-inbox')
   expect(shown).toContain('面板加夜间模式')
   expect((await team.thread(item.id)).message.labels).toMatchObject({ inbox: 'done', task: 'IN-1' })
-  const again = await nawaban(['create', 'IN-2', '--title', '再转一次', '--inbox', item.id])
+  const again = await nawaban(['create', 'IN-2', '--priority', 'P2', '--title', '再转一次', '--inbox', item.id])
   expect([again.code, again.err]).toEqual([1, expect.stringContaining(`收件箱里没有开着的条目 ${item.id}`)])
   expect((await nawaban(['show', 'IN-2'])).code).toBe(1)
 
   const another = await team.post(inboxChannel('p-inbox'), { text: inboxItemText('导出 CSV'), labels: INBOX_OPEN })
-  const intoAnOldTicket = await nawaban(['create', 'IN-1', '--title', '导出', '--inbox', another.id])
+  const intoAnOldTicket = await nawaban(['create', 'IN-1', '--priority', 'P2', '--title', '导出', '--inbox', another.id])
   expect([intoAnOldTicket.code, intoAnOldTicket.err]).toEqual([1, expect.stringContaining('已经有票 IN-1')])
   expect((await team.thread(another.id)).message.labels).toMatchObject({ inbox: 'open' })
   expect((await succeeds('show', 'IN-1')).out).not.toContain('导出 CSV')
@@ -188,14 +188,14 @@ it('turns an inbox item into a ticket in its project and marks it done, once', E
 
 it('refuses to reopen a ticket closed done or cancelled, so a mistaken close takes a new ticket', EVERY_STEP_STARTS_A_NODE, async () => {
   for (const [key, how] of [['RO-1', '--done'], ['RO-2', '--cancelled']] as const) {
-    await succeeds('create', key, '--title', '关错了', '--project', 'p-reopen')
+    await succeeds('create', key, '--priority', 'P2', '--title', '关错了', '--project', 'p-reopen')
     await succeeds('claim', key)
     await succeeds('close', key, how)
     const { task } = JSON.parse((await succeeds('show', key, '--json')).out) as { task: { id: string } }
     const reopen = await nawaban(['board', 'tasks', 'reopen', task.id])
     expect(reopen.code).not.toBe(0)
     expect(reopen.out + reopen.err).toMatch(/Can't reopen task #\d+\. It's finished\./)
-    await succeeds('create', `${key}-AGAIN`, '--title', '关错了，重开', '--project', 'p-reopen')
+    await succeeds('create', `${key}-AGAIN`, '--priority', 'P2', '--title', '关错了，重开', '--project', 'p-reopen')
     await succeeds('event', key, 'note', `重开为 ${key}-AGAIN`)
     expect((await succeeds('show', key)).out).toContain(`重开为 ${key}-AGAIN`)
   }
@@ -217,7 +217,7 @@ it('refuses closing a task with the upstream verb through hook guard, as guard d
 })
 
 it("runs an upstream verb typed bare, and names the board form that runs it too", EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'U1', '--title', '读它', '--project', 'p3')
+  await succeeds('create', 'U1', '--priority', 'P2', '--title', '读它', '--project', 'p3')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'U1' } })).tasks[0]!.message.id
   const bare = await succeeds('read', id)
   expect(bare.out).toContain('读它')
@@ -229,7 +229,7 @@ it("runs an upstream verb typed bare, and names the board form that runs it too"
 })
 
 it('renews through hook renew a claim made through board, as dispatch makes it for a worker', EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'W1', '--title', '替 worker 认领', '--project', 'p4')
+  await succeeds('create', 'W1', '--priority', 'P2', '--title', '替 worker 认领', '--project', 'p4')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'W1' } })).tasks[0]!.message.id
   const until = async () => Date.parse((await team.thread(id, { limit: 1 })).message.task!.claim!.until)
   await succeeds('board', 'tasks', 'claim', id, '--as', 'cc-aaaa1111', '--lease', '10m', '--json')
@@ -244,7 +244,7 @@ const repliesOf = async (key: string) => (await team.thread(await boardIdOf(key)
 const ASK_CARD = ['--kr', 'O1 / KR1', '--context', '测试都过', '--option', '发｜快｜双向门', '--option', '等｜稳｜双向门', '--rec', '发']
 
 it('records each of the six kinds written as event <票> <类> [正文]', EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'E1', '--title', '六类', '--project', 'p5')
+  await succeeds('create', 'E1', '--priority', 'P2', '--title', '六类', '--project', 'p5')
   for (const argv of [
     ['note', '已完成：一'],
     ['decision', '决定：sqlite\n背景：用哪个库\n否决方案：pg — 太重'],
@@ -260,7 +260,7 @@ it('records each of the six kinds written as event <票> <类> [正文]', EVERY_
 })
 
 it('reads the body from stdin on -, and after --, a body starting with - included', EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'E2', '--title', '正文从哪来', '--project', 'p5')
+  await succeeds('create', 'E2', '--priority', 'P2', '--title', '正文从哪来', '--project', 'p5')
   const fromStdin = await nawaban(['event', 'E2', 'note', '-'], { input: '- 已完成：从标准输入\n' })
   expect([fromStdin.code, fromStdin.err]).toEqual([0, ''])
   await succeeds('event', 'E2', 'note', '--', '- 已完成：在 -- 之后')
@@ -279,7 +279,7 @@ it('waits out a board that is restarting, so a verb run meanwhile still lands', 
   const probe = await listen(() => Promise.resolve(new Response()), 0)
   const port = (probe.address() as AddressInfo).port
   await new Promise((closed) => probe.close(closed))
-  const restarting = nawaban(['create', 'R1', '--title', '重启时建的票', '--project', 'p5'], { more: { BOARD_URL: `http://127.0.0.1:${port}/api/board` } })
+  const restarting = nawaban(['create', 'R1', '--priority', 'P2', '--title', '重启时建的票', '--project', 'p5'], { more: { BOARD_URL: `http://127.0.0.1:${port}/api/board` } })
   await new Promise((wake) => setTimeout(wake, 1200))
   const back = await listen((request) => team.fetch(request), port)
   const r = await restarting
@@ -289,24 +289,24 @@ it('waits out a board that is restarting, so a verb run meanwhile still lands', 
 })
 
 it('puts a positional body into the task create makes, and reads - from stdin there too', EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'E3', '--title', '有正文', '--project', 'p5', '正文写在位置上')
+  await succeeds('create', 'E3', '--priority', 'P2', '--title', '有正文', '--project', 'p5', '正文写在位置上')
   expect((await succeeds('show', 'E3')).out).toContain('正文写在位置上')
-  expect((await nawaban(['create', 'E4', '--title', '从标准输入', '--project', 'p5', '-'], { input: '- 第一条\n' })).code).toBe(0)
+  expect((await nawaban(['create', 'E4', '--priority', 'P2', '--title', '从标准输入', '--project', 'p5', '-'], { input: '- 第一条\n' })).code).toBe(0)
   expect((await succeeds('show', 'E4')).out).toContain('- 第一条')
   const file = join(boardDir, 'create-body.md')
   await writeFile(file, '## What to build\n从文件读的正文\n')
-  await succeeds('create', 'E11', '--title', '从文件', '--project', 'p5', '--body-file', file)
+  await succeeds('create', 'E11', '--priority', 'P2', '--title', '从文件', '--project', 'p5', '--body-file', file)
   expect((await succeeds('show', 'E11')).out).toContain('从文件读的正文')
 })
 
 it('runs the old --kind and --body, names the new form, and that form runs with no hint', EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'E5', '--title', '旧写法', '--project', 'p5')
+  await succeeds('create', 'E5', '--priority', 'P2', '--title', '旧写法', '--project', 'p5')
   for (const old of [
     ['event', 'E5', '--kind', 'note', '--body', '两个 词', '--as', 'cc-aaaa1111'],
     ['event', 'E5', '--kind', 'link', '--body', 'pr:https://github.com/acme/web/pull/2'],
     ['event', 'E5', '--kind', 'decision', '--by', 'user', '--body', "决定：it's\n背景：q\n否决方案：r"],
     ['event', 'E5', '--kind=note', '--body=- 以减号开头'],
-    ['create', 'E6', '--title', '旧建票', '--body', '旧的正文', '--project', 'p5'],
+    ['create', 'E6', '--priority', 'P2', '--title', '旧建票', '--body', '旧的正文', '--project', 'p5'],
   ]) {
     const r = await succeeds(...old)
     const hint = wholeHintedCommand(r.err)
@@ -321,11 +321,11 @@ it('runs the old --kind and --body, names the new form, and that form runs with 
 })
 
 it('refuses the same thing given twice and differently, as a usage error', EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'E7', '--title', '冲突', '--project', 'p5')
+  await succeeds('create', 'E7', '--priority', 'P2', '--title', '冲突', '--project', 'p5')
   for (const [argv, named] of [
     [['event', 'E7', 'note', 'x', '--kind', 'decision'], '--kind decision'],
     [['event', 'E7', 'note', 'x', '--body', 'y'], '--body'],
-    [['create', 'E8', '--title', 't', '--project', 'p5', 'x', '--body', 'y'], '--body'],
+    [['create', 'E8', '--priority', 'P2', '--title', 't', '--project', 'p5', 'x', '--body', 'y'], '--body'],
   ] as const) {
     const r = await nawaban([...argv])
     expect([r.code, r.err], argv.join(' ')).toEqual([2, expect.stringContaining(named)])
@@ -334,14 +334,14 @@ it('refuses the same thing given twice and differently, as a usage error', EVERY
 })
 
 it('refuses an ask with no --option, naming what it lacks', EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'E9', '--title', '缺选项', '--project', 'p5')
+  await succeeds('create', 'E9', '--priority', 'P2', '--title', '缺选项', '--project', 'p5')
   const r = await nawaban(['event', 'E9', 'ask', '发不发？', '--kr', 'K', '--context', 'c', '--rec', '发'])
   expect([r.code, r.err]).toEqual([1, expect.stringContaining('备选方案 (--option')])
   expect(await repliesOf('E9')).toEqual([])
 })
 
 it('takes --question, --verdict and --rejected no more', EVERY_STEP_STARTS_A_NODE, async () => {
-  await succeeds('create', 'E10', '--title', '删掉的 flag', '--project', 'p5')
+  await succeeds('create', 'E10', '--priority', 'P2', '--title', '删掉的 flag', '--project', 'p5')
   for (const flag of ['--question', '--verdict', '--rejected']) {
     expect((await nawaban(['event', 'E10', 'decision', flag, 'x'])).code, flag).toBe(2)
   }

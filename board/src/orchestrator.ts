@@ -5,10 +5,12 @@ import { text } from 'node:stream/consumers'
 import { parseArgs } from 'node:util'
 import type { board } from '@vercel/board'
 import { mainCheckoutRealPathOf, terminalsThatMayBeWorkers } from './dispatch.ts'
-import { projectOfThisRepository } from './impact.ts'
+import { projectOfThisRepository, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { seenOf } from './merge.ts'
-import { all, key } from './tasks.ts'
+import { all, key, tiersAcrossEveryProjectSoATicketBlockingAnotherProjectsRisesToo } from './tasks.ts'
+import { byTier, tierOf, tiersRaisedToWhatTheyBlock, VISIBLE_BUG, type Tier } from './priority.ts'
+import { gapToTargetOf, okrData } from './okr.ts'
 import { answer, orRefusal, Refused } from './said.ts'
 import { boardData, tasksOf } from './views.ts'
 import { openInboxItems, pageText, webAnswers, type InboxItem, type WebAnswer } from './page.ts'
@@ -19,6 +21,9 @@ type Row = {
   title: string
   status: string
   parent: string | null
+  priority?: Tier
+  priority_kr?: string | null
+  blocked_by?: string[]
   session: string | null
   created_at: number
   active_at: number
@@ -122,7 +127,9 @@ function decisionsLines(data: Data, now: number): string[] {
   ]
 }
 
-export function indexText(data: Data, name: string, now = Date.now() / 1000): string {
+type Ordering = { gapOfKr?: ReadonlyMap<string, number>; tierOfKey?: ReadonlyMap<string, Tier> }
+
+export function indexText(data: Data, name: string, now = Date.now() / 1000, { gapOfKr = new Map(), tierOfKey = new Map() }: Ordering = {}): string {
   const tasks = data.columns.flatMap((c) => c.tasks)
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const live = tasks.filter((t) => t.status !== 'done')
@@ -135,7 +142,12 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
     (k) => [k, live.filter((t) => stateOf(t, now) === k).sort((a, b) => a.active_at - b.active_at)] as const,
   )
   const specsWithMovingChildren = new Set(groups.flatMap(([, g]) => g.map((t) => t.parent)))
-  const idle = live.filter((t) => stateOf(t, now) === '待办' && !specsWithMovingChildren.has(t.id)).sort((a, b) => b.created_at - a.created_at)
+  const raisedWithinThisData = tiersRaisedToWhatTheyBlock(live.map((t) => ({ id: t.id, tier: t.priority ?? tierOf({}), needs: t.blocked_by ?? [] })))
+  const tiers = new Map(live.map((t) => [t.id, tierOfKey.get(t.id) ?? raisedWithinThisData.get(t.id)!]))
+  const furthestFirst = (t: Row) => (!t.priority_kr ? 0 : t.priority_kr === VISIBLE_BUG ? Infinity : (gapOfKr.get(t.priority_kr) ?? Infinity))
+  const idle = live
+    .filter((t) => stateOf(t, now) === '待办' && !specsWithMovingChildren.has(t.id))
+    .sort((a, b) => byTier(tiers.get(a.id)!, tiers.get(b.id)!) || furthestFirst(b) - furthestFirst(a) || b.created_at - a.created_at)
   const movingAt: Record<Fold, (g: Row[]) => string[]> = {
     full: (g) => movingLines(g, belongs),
     idleCounted: (g) => movingLines(g, belongs),
@@ -144,7 +156,7 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
   }
   const idleAt = (fold: Fold) =>
     !idle.length ? [] : fold === 'full'
-      ? [`## 待办 ${idle.length}（没人认领过）`, ...idle.map((t) => `- ${bare(t.id)} ${short(t.title, IDLE_TITLE_WIDTH)}${belongs(t)}`)]
+      ? [`## 待办 ${idle.length}（没人认领过）`, ...idle.map((t) => `- ${tiers.get(t.id)} ${bare(t.id)} ${short(t.title, IDLE_TITLE_WIDTH)}${belongs(t)}`)]
       : [`## 待办 ${idle.length}（没人认领过，跑 nawaban list 看）`]
   const textAt = (fold: Fold) => {
     const out = [`${name} 进行中的事 · ${stamp(now)} 生成`, groups.map(([k, g]) => `${k} ${g.length}`).join(' · ') + ` · 待办 ${idle.length}`, '']
@@ -173,11 +185,22 @@ export function status(argv: string[], team: Team, dir: string): Promise<number>
       return whatThisSessionHasNotSeenPrinted(team, project, dir, values.unseen)
     }
     return answer(argv, async () => {
-      const [data, fromThePage] = await Promise.all([boardData(team, project), whatThePageWrote(team, project)])
+      const [data, fromThePage, gapOfKr, tierOfKey] = await Promise.all([boardData(team, project), whatThePageWrote(team, project), krGapsOfTheProjectsRepoElseNone(team, dir, project), tiersByKeyAcrossEveryProject()])
       const workers = await liveWorkersText(data as Data, project)
-      return { shown: [indexText(data as Data, project ?? '看板'), workers, fromThePage].filter(Boolean).join('\n\n'), json: data }
+      return { shown: [indexText(data as Data, project ?? '看板', undefined, { gapOfKr, tierOfKey }), workers, fromThePage].filter(Boolean).join('\n\n'), json: data }
     })
   })
+}
+
+async function tiersByKeyAcrossEveryProject(): Promise<Map<string, Tier>> {
+  const { open, tier } = await tiersAcrossEveryProjectSoATicketBlockingAnotherProjectsRisesToo()
+  return new Map(open.map((m) => [m.labels.key ?? `#${m.id}`, tier(m)]))
+}
+
+async function krGapsOfTheProjectsRepoElseNone(team: Team, dir: string, project: string | undefined): Promise<Map<string, number>> {
+  const repo = project ? (await reposReadOnEveryUseSoEditsNeedNoRestart(dir).catch(() => ({}) as Record<string, string>))[project] : undefined
+  const okr = repo ? await okrData(team, dir, repo).catch(() => null) : null
+  return new Map(okr?.objectives.flatMap((o) => o.krs.map((kr) => [kr.name, gapToTargetOf(kr)] as const)) ?? [])
 }
 
 async function liveWorkersText(data: Data, project?: string): Promise<string> {

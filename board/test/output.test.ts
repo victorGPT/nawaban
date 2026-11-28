@@ -51,7 +51,7 @@ function nawaban(argv: string[], session = A_SESSION) {
 }
 
 it('says what a write verb did in one line, and what to do next when it refuses', EVERY_STEP_STARTS_A_NODE, async () => {
-  expect(await nawaban(['create', 'OUT-1', '--title', '一张票', '--project', 'p-out'])).toMatchInlineSnapshot(`
+  expect(await nawaban(['create', 'OUT-1', '--priority', 'P2', '--title', '一张票', '--project', 'p-out'])).toMatchInlineSnapshot(`
     {
       "code": 0,
       "err": "",
@@ -59,7 +59,7 @@ it('says what a write verb did in one line, and what to do next when it refuses'
     ",
     }
   `)
-  expect(await nawaban(['create', 'OUT-2', '--title', '挂在没有的票下', '--parent', 'NOPE'])).toMatchInlineSnapshot(`
+  expect(await nawaban(['create', 'OUT-2', '--priority', 'P2', '--title', '挂在没有的票下', '--parent', 'NOPE'])).toMatchInlineSnapshot(`
     {
       "code": 1,
       "err": "✗ 没有票 NOPE
@@ -68,7 +68,7 @@ it('says what a write verb did in one line, and what to do next when it refuses'
       "out": "",
     }
   `)
-  await nawaban(['create', 'OUT-2', '--title', '别人的票', '--project', 'p-out'])
+  await nawaban(['create', 'OUT-2', '--priority', 'P2', '--title', '别人的票', '--project', 'p-out'])
   await nawaban(['claim', 'OUT-2'], B_SESSION)
 
   expect(await nawaban(['claim', 'OUT-1'])).toMatchInlineSnapshot(`
@@ -126,8 +126,8 @@ it('says what a write verb did in one line, and what to do next when it refuses'
 })
 
 it('starts each line of a ticket with its KEY, and refuses with what to do next', EVERY_STEP_STARTS_A_NODE, async () => {
-  await nawaban(['create', 'OUT-3', '--title', '列出来的票', '--project', 'p-list'])
-  await nawaban(['create', 'OUT-4', '--title', '被挡的票', '--project', 'p-list', '--blocked-by', 'OUT-3'])
+  await nawaban(['create', 'OUT-3', '--priority', 'P2', '--title', '列出来的票', '--project', 'p-list'])
+  await nawaban(['create', 'OUT-4', '--priority', 'P2', '--title', '被挡的票', '--project', 'p-list', '--blocked-by', 'OUT-3'])
 
   expect(await nawaban(['list', '--project', 'p-list'])).toMatchInlineSnapshot(`
     {
@@ -155,6 +155,7 @@ it('starts each line of a ticket with its KEY, and refuses with what to do next'
       "out": "OUT-4  waiting    被挡的票
 
       project     p-list
+      priority    P2
       holder      none
       blocked by  OUT-3 ready
       downstream  nothing
@@ -172,7 +173,7 @@ it('starts each line of a ticket with its KEY, and refuses with what to do next'
     }
   `)
 
-  await nawaban(['create', 'OUT-6', '--title', '待办的票', '--project', 'p-status'])
+  await nawaban(['create', 'OUT-6', '--priority', 'P2', '--title', '待办的票', '--project', 'p-status'])
   expect(await nawaban(['status', '--project', 'p-status'])).toMatchInlineSnapshot(`
     {
       "code": 0,
@@ -181,7 +182,7 @@ it('starts each line of a ticket with its KEY, and refuses with what to do next'
     等你 0 · 停滞 0 · 进行中 0 · 待办 1
 
     ## 待办 1（没人认领过）
-    - OUT-6 待办的票
+    - P2 OUT-6 待办的票
     ",
     }
   `)
@@ -197,7 +198,7 @@ it('starts each line of a ticket with its KEY, and refuses with what to do next'
 })
 
 it('prints one object for --json, a refusal too', EVERY_STEP_STARTS_A_NODE, async () => {
-  const made = await nawaban(['create', 'OUT-5', '--title', 'json', '--project', 'p-json', '--json'])
+  const made = await nawaban(['create', 'OUT-5', '--priority', 'P2', '--title', 'json', '--project', 'p-json', '--json'])
   expect([made.code, JSON.parse(made.out).task.labels.key, made.err]).toEqual([0, 'OUT-5', ''])
   const refused = await nawaban(['show', 'NOPE', '--json'])
   expect([refused.code, refused.out, JSON.parse(refused.err)]).toEqual([1, '', { error: '没有票 NOPE', next: '票号照 nawaban list 里的写', code: 1 }])

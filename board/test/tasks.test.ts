@@ -52,16 +52,27 @@ const frontier = async (parent: string) =>
 const t0 = Date.now()
 const later = (ms: number) => vi.useFakeTimers({ toFake: ['Date'], now: t0 + ms })
 
+it('refuses a ticket without its tier, a P1 that names no KR and a KR on any other tier, and shows the tier it was made with', async () => {
+  const create = (key: string, ...more: string[]) => nawabanAsTheWindowOfSession(['create', key, '--title', key, '--project', 'tier', ...more])
+  expect(await create('TIER-NONE')).toMatchObject({ code: 2, err: expect.stringContaining('--priority 必填') })
+  expect(await create('TIER-BAD', '--priority', 'P3')).toMatchObject({ code: 2, err: expect.stringContaining('不是 P3') })
+  expect(await create('TIER-P1', '--priority', 'P1')).toMatchObject({ code: 2, err: expect.stringContaining('P1 要写推哪条 KR') })
+  expect(await create('TIER-P0', '--priority', 'P0', '--kr', '某 KR')).toMatchObject({ code: 2, err: expect.stringContaining('--kr 只跟 P1 一起用') })
+  expect((await nawabanAsTheWindowOfSession(['list', '--project', 'tier'])).json.tasks).toEqual([])
+  expect((await create('TIER-OK', '--priority', 'p1', '--kr', '召回率')).code).toBe(0)
+  expect((await nawabanAsTheWindowOfSession(['show', 'TIER-OK'])).json.task.labels).toMatchObject({ priority: 'P1', 'priority-kr': '召回率' })
+})
+
 it('leaves the board CLI its own commands', async () => {
   expect(await run(['whoami'])).toBeUndefined()
   expect(await run(['toString'])).toBeUndefined()
 })
 
 it('readies what waited for a cancelled task, and nothing behind that', async () => {
-  expect((await nawabanAsTheWindowOfSession(['create', 'S1', '--title', 'spec', '--project', 'nawaban'])).code).toBe(0)
-  expect((await nawabanAsTheWindowOfSession(['create', 'S1-A', '--title', 'A', '--parent', 'S1'])).code).toBe(0)
-  expect((await nawabanAsTheWindowOfSession(['create', 'S1-B', '--title', 'B', '--parent', 'S1', '--blocked-by', 'S1-A'])).code).toBe(0)
-  expect((await nawabanAsTheWindowOfSession(['create', 'S1-C', '--title', 'C', '--parent', 'S1'])).code).toBe(0)
+  expect((await nawabanAsTheWindowOfSession(['create', 'S1', '--priority', 'P2', '--title', 'spec', '--project', 'nawaban'])).code).toBe(0)
+  expect((await nawabanAsTheWindowOfSession(['create', 'S1-A', '--priority', 'P2', '--title', 'A', '--parent', 'S1'])).code).toBe(0)
+  expect((await nawabanAsTheWindowOfSession(['create', 'S1-B', '--priority', 'P2', '--title', 'B', '--parent', 'S1', '--blocked-by', 'S1-A'])).code).toBe(0)
+  expect((await nawabanAsTheWindowOfSession(['create', 'S1-C', '--priority', 'P2', '--title', 'C', '--parent', 'S1'])).code).toBe(0)
   expect((await nawabanAsTheWindowOfSession(['block', 'S1-C', 'S1-B'])).code).toBe(0)
   expect(await frontier('S1')).toEqual(['S1-A'])
 
@@ -72,9 +83,9 @@ it('readies what waited for a cancelled task, and nothing behind that', async ()
 })
 
 it('readies what waited for two tasks cancelled at once', async () => {
-  await nawabanAsTheWindowOfSession(['create', 'X-A', '--title', 'A', '--project', 'nawaban'])
-  await nawabanAsTheWindowOfSession(['create', 'X-B', '--title', 'B', '--project', 'nawaban'])
-  await nawabanAsTheWindowOfSession(['create', 'X-D', '--title', 'D', '--project', 'nawaban', '--blocked-by', 'X-A', '--blocked-by', 'X-B'])
+  await nawabanAsTheWindowOfSession(['create', 'X-A', '--priority', 'P2', '--title', 'A', '--project', 'nawaban'])
+  await nawabanAsTheWindowOfSession(['create', 'X-B', '--priority', 'P2', '--title', 'B', '--project', 'nawaban'])
+  await nawabanAsTheWindowOfSession(['create', 'X-D', '--priority', 'P2', '--title', 'D', '--project', 'nawaban', '--blocked-by', 'X-A', '--blocked-by', 'X-B'])
   const id = (k: string) => nawabanAsTheWindowOfSession(['show', k]).then((r) => r.json.task.id)
   const a = await id('X-A')
   const b = await id('X-B')
@@ -84,8 +95,8 @@ it('readies what waited for two tasks cancelled at once', async () => {
 })
 
 it('hands back a task its window left idle past the lease, and keeps it for a window that renews', async () => {
-  await nawabanAsTheWindowOfSession(['create', 'L-1', '--title', 'idle', '--project', 'nawaban', '--parent', 'S1'])
-  await nawabanAsTheWindowOfSession(['create', 'L-2', '--title', 'busy', '--project', 'nawaban', '--parent', 'S1'])
+  await nawabanAsTheWindowOfSession(['create', 'L-1', '--priority', 'P2', '--title', 'idle', '--project', 'nawaban', '--parent', 'S1'])
+  await nawabanAsTheWindowOfSession(['create', 'L-2', '--priority', 'P2', '--title', 'busy', '--project', 'nawaban', '--parent', 'S1'])
   expect((await nawabanAsTheWindowOfSession(['claim', 'L-1'])).code).toBe(0)
   expect((await nawabanAsTheWindowOfSession(['claim', 'L-2'], B_SESSION)).code).toBe(0)
   expect(await frontier('S1')).not.toContain('L-1')
@@ -100,9 +111,9 @@ it('hands back a task its window left idle past the lease, and keeps it for a wi
 })
 
 it('shows who holds a task, what it waits for, what waits for it, and the latest word', async () => {
-  await nawabanAsTheWindowOfSession(['create', 'V-1', '--title', 'first', '--project', 'nawaban'])
-  await nawabanAsTheWindowOfSession(['create', 'V-2', '--title', 'second', '--project', 'nawaban', '--blocked-by', 'V-1'])
-  await nawabanAsTheWindowOfSession(['create', 'V-3', '--title', 'third', '--project', 'nawaban', '--blocked-by', 'V-2'])
+  await nawabanAsTheWindowOfSession(['create', 'V-1', '--priority', 'P2', '--title', 'first', '--project', 'nawaban'])
+  await nawabanAsTheWindowOfSession(['create', 'V-2', '--priority', 'P2', '--title', 'second', '--project', 'nawaban', '--blocked-by', 'V-1'])
+  await nawabanAsTheWindowOfSession(['create', 'V-3', '--priority', 'P2', '--title', 'third', '--project', 'nawaban', '--blocked-by', 'V-2'])
   expect((await nawabanAsTheWindowOfSession(['claim', 'V-1'], A_SESSION, { HC_TERMINAL_ID: 't7' })).code).toBe(0)
   const v1 = (await nawabanAsTheWindowOfSession(['show', 'V-1'])).json.task
   await team.reply(v1.id, 'halfway there')
@@ -117,7 +128,7 @@ it('shows who holds a task, what it waits for, what waits for it, and the latest
 })
 
 it('closes a task as done only from the window holding it, or when no one does', async () => {
-  await nawabanAsTheWindowOfSession(['create', 'D-1', '--title', 'done', '--project', 'nawaban'])
+  await nawabanAsTheWindowOfSession(['create', 'D-1', '--priority', 'P2', '--title', 'done', '--project', 'nawaban'])
   await nawabanAsTheWindowOfSession(['claim', 'D-1'])
   const refused = await nawabanAsTheWindowOfSession(['close', 'D-1', '--done'], B_SESSION)
   expect(refused.code).toBe(1)
@@ -128,8 +139,8 @@ it('closes a task as done only from the window holding it, or when no one does',
 })
 
 it('renews every claim the window holds, though one of them fails', async () => {
-  await nawabanAsTheWindowOfSession(['create', 'R-1', '--title', 'no local claim', '--project', 'nawaban'])
-  await nawabanAsTheWindowOfSession(['create', 'R-2', '--title', 'local claim', '--project', 'nawaban'])
+  await nawabanAsTheWindowOfSession(['create', 'R-1', '--priority', 'P2', '--title', 'no local claim', '--project', 'nawaban'])
+  await nawabanAsTheWindowOfSession(['create', 'R-2', '--priority', 'P2', '--title', 'local claim', '--project', 'nawaban'])
   const r1 = (await nawabanAsTheWindowOfSession(['show', 'R-1'])).json.task.id
   vi.stubEnv('BOARD_URL', url)
   vi.stubEnv('BOARD_TOKEN', SECRET)
@@ -145,7 +156,7 @@ it('renews every claim the window holds, though one of them fails', async () => 
 
 it('renews a Codex claim from the session id the hook passes', async () => {
   const codexThread = 'dddd4444-0000-0000-0000-000000000000'
-  await nawabanAsTheWindowOfSession(['create', 'X-1', '--title', 'codex lease', '--project', 'nawaban'])
+  await nawabanAsTheWindowOfSession(['create', 'X-1', '--priority', 'P2', '--title', 'codex lease', '--project', 'nawaban'])
   expect((await nawabanAsTheWindowOfSession(['claim', 'X-1'], A_SESSION, { CODEX_THREAD_ID: codexThread })).code).toBe(0)
   const before = (await nawabanAsTheWindowOfSession(['show', 'X-1'])).json.task.task.claim.until
   later(10 * 60_000)
@@ -155,7 +166,7 @@ it('renews a Codex claim from the session id the hook passes', async () => {
 
 it('closes and renews for a NAWABAN_OWNER written in capitals', async () => {
   const owner = { NAWABAN_OWNER: 'Agent-A' }
-  await nawabanAsTheWindowOfSession(['create', 'O-1', '--title', 'owner', '--project', 'nawaban'])
+  await nawabanAsTheWindowOfSession(['create', 'O-1', '--priority', 'P2', '--title', 'owner', '--project', 'nawaban'])
   expect((await nawabanAsTheWindowOfSession(['claim', 'O-1'], '', owner)).code).toBe(0)
   expect((await nawabanAsTheWindowOfSession(['close', 'O-1', '--done'], '', owner)).code).toBe(0)
 })
@@ -163,7 +174,7 @@ it('closes and renews for a NAWABAN_OWNER written in capitals', async () => {
 it('takes the Codex thread, then the Antigravity conversation, before the Claude Code session they inherited, and that before NAWABAN_OWNER', async () => {
   const codexThread = 'cccc3333-0000-0000-0000-000000000000'
   const holder = async (env: Record<string, string>, session = A_SESSION) => {
-    await nawabanAsTheWindowOfSession(['create', 'I-1', '--title', 'identity', '--project', 'nawaban'])
+    await nawabanAsTheWindowOfSession(['create', 'I-1', '--priority', 'P2', '--title', 'identity', '--project', 'nawaban'])
     expect((await nawabanAsTheWindowOfSession(['claim', 'I-1'], session, env)).code).toBe(0)
     const actor = (await nawabanAsTheWindowOfSession(['show', 'I-1'])).json.task.task.claim.actor
     await nawabanAsTheWindowOfSession(['claim', 'I-1', '--release'], session, env)
@@ -178,7 +189,7 @@ it('takes the Codex thread, then the Antigravity conversation, before the Claude
 
 it('writes as the OS user from a launchd job with no session and no NAWABAN_OWNER', async () => {
   const noSession = { CODEX_THREAD_ID: '', ANTIGRAVITY_CONVERSATION_ID: '', NAWABAN_OWNER: '' }
-  await nawabanAsTheWindowOfSession(['create', 'NIGHTLY-1', '--title', 'nightly', '--project', 'nawaban'])
+  await nawabanAsTheWindowOfSession(['create', 'NIGHTLY-1', '--priority', 'P2', '--title', 'nightly', '--project', 'nawaban'])
   const c = await nawabanAsTheWindowOfSession(['claim', 'NIGHTLY-1'], '', noSession)
   expect(c.code).toBe(0)
   const actor: string = (await nawabanAsTheWindowOfSession(['show', 'NIGHTLY-1'])).json.task.task.claim.actor
