@@ -606,7 +606,8 @@ it('names in a new worker\'s brief the running workers whose changes overlap it,
   await newTask('PEER-NEW')
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['PEER-NEW', '--brief', '改 board/src/peer.ts', '--accept', 'a', '--new'], hc)
   expect([r.code, r.stderr]).toEqual([0, ''])
-  expect(r.hc).toContain('先 nawaban show <它的票> 读对方票的最新进展；只读，不给对方发消息；要对方配合的写到对方票上，由编排者转）：\n  hc t99 PEER-HELD：board/src/peer.ts\n验收：a')
+  expect(r.hc).toContain('先 nawaban show <它的票> 读对方票的最新进展；只读，不给对方发消息；要对方配合的写到对方票上，由编排者转）：\n  hc t99 ')
+  expect(r.hc).toMatch(/^ {2}hc t99 .*\bPEER-HELD：board\/src\/peer\.ts\n验收：a$/m)
 })
 
 it('names the ticket a peer holds by its dispatch record when its claim left no terminal label, as a Codex worker\'s does', async () => {
