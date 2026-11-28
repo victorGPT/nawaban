@@ -442,8 +442,16 @@ it('tells the live orchestrator of this repository', async () => {
   expect((await replies(id)).map((m) => m.text)).not.toContainEqual(expect.stringContaining('回报未送达'))
 })
 
-it('tells the new orchestrator of this repository, not the one the dispatch recorded', async () => {
-  await fileTerminal('tolda', { role: 'orchestrator' })
+it('tells the dispatching orchestrator, not another live orchestrator of this repository', async () => {
+  await fileTerminal('tdispatcher', { role: 'orchestrator' }, 'live', repo)
+  await dispatchedBy('T-MINE', 'tdispatcher')
+  const r = await tellAsWorker(['T-MINE', '完成 PR #8'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(0)
+  expect(sent(r.hc)).toEqual(['send tdispatcher 回报：T-MINE 完成 PR #8'])
+})
+
+it('tells the new orchestrator of this repository once the one the dispatch recorded is gone', async () => {
+  await fileTerminal('tolda', { role: 'orchestrator' }, 'finished')
   await dispatchedBy('T-SWAP', 'tolda')
   const r = await tellAsWorker(['T-SWAP', '受阻，详情在票上'], { HC_ORCH: 'tnewb' })
   expect(r.code).toBe(0)
