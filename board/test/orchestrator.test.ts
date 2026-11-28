@@ -123,9 +123,9 @@ it('lists the 待办 by tier, a ticket blocking a higher one at that tier, and P
     task('BUG', '小 bug', NOW - 7, { priority: 'P1', priority_kr: '线上可见 bug' }),
   ]
   const gaps = new Map([['近的', 0.05], ['远的', 0.5]])
-  const text = indexText({ columns: [{ key: 'open', tasks: idle }] }, 'p', NOW, gaps)
+  const text = indexText({ columns: [{ key: 'open', tasks: idle }] }, 'p', NOW, { gapOfKr: gaps, tierOfKey: new Map([['P2-NEW', 'P0']]) })
   expect(text.split('## 待办 8（没人认领过）\n')[1]!.split('\n').map((l) => l.split(' ').slice(1, 3).join(' '))).toEqual([
-    'P0 GATE', 'P0 TOP', 'P1 UNREAD', 'P1 BUG', 'P1 FAR', 'P1 NEAR', 'P2 P2-NEW', 'P2 UNTIERED',
+    'P0 P2-NEW', 'P0 GATE', 'P0 TOP', 'P1 UNREAD', 'P1 BUG', 'P1 FAR', 'P1 NEAR', 'P2 UNTIERED',
   ])
 })
 

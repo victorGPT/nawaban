@@ -8,7 +8,7 @@ import { answer, upstreamAnswer, orRefusal, Refused, type Said } from './said.ts
 import { projectOfThisRepository, RESULT_FORMAT, undeclared } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { UNMEASURED } from './schemas.ts'
-import { isTier, TIER_MEANING, tierOf, VISIBLE_BUG } from './priority.ts'
+import { isTier, TIER_MEANING, tierOf, tiersRaisedToWhatTheyBlock, VISIBLE_BUG, type Tier } from './priority.ts'
 import { labelsOfLive, LIVE_LABELS, liveOfLabels, type Held, type Live } from './progress.ts'
 import { optionWordsBut, pointAt, withBody } from './hint.ts'
 import { markInboxItemTurnedInto, openInboxItem } from './page.ts'
@@ -61,6 +61,12 @@ export async function all(query: Parameters<ReturnType<typeof board>['tasks']['l
     if (page.tasks.length < PAGE) return out
     after = page.cursor
   }
+}
+
+export async function tiersAcrossEveryProjectSoATicketBlockingAnotherProjectsRisesToo(): Promise<{ open: MessageView[]; tier: (m: MessageView) => Tier }> {
+  const open = await all({ state: 'open' })
+  const tiers = tiersRaisedToWhatTheyBlock(open.map((m) => ({ id: m.id, tier: tierOf(m.labels), needs: m.task?.needs ?? [] })))
+  return { open, tier: (m) => tiers.get(m.id) ?? tierOf(m.labels) }
 }
 
 export async function resolve(keyElseBoardId: string): Promise<MessageView> {

@@ -5,10 +5,10 @@ import { text } from 'node:stream/consumers'
 import { parseArgs } from 'node:util'
 import type { board } from '@vercel/board'
 import { mainCheckoutRealPathOf, terminalsThatMayBeWorkers } from './dispatch.ts'
-import { projectOfThisRepository } from './impact.ts'
+import { projectOfThisRepository, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { seenOf } from './merge.ts'
-import { all, key } from './tasks.ts'
+import { all, key, tiersAcrossEveryProjectSoATicketBlockingAnotherProjectsRisesToo } from './tasks.ts'
 import { byTier, tierOf, tiersRaisedToWhatTheyBlock, VISIBLE_BUG, type Tier } from './priority.ts'
 import { gapToTargetOf, okrData } from './okr.ts'
 import { answer, orRefusal, Refused } from './said.ts'
@@ -127,7 +127,9 @@ function decisionsLines(data: Data, now: number): string[] {
   ]
 }
 
-export function indexText(data: Data, name: string, now = Date.now() / 1000, gapOfKr: ReadonlyMap<string, number> = new Map()): string {
+type Ordering = { gapOfKr?: ReadonlyMap<string, number>; tierOfKey?: ReadonlyMap<string, Tier> }
+
+export function indexText(data: Data, name: string, now = Date.now() / 1000, { gapOfKr = new Map(), tierOfKey = new Map() }: Ordering = {}): string {
   const tasks = data.columns.flatMap((c) => c.tasks)
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const live = tasks.filter((t) => t.status !== 'done')
@@ -140,7 +142,8 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000, gap
     (k) => [k, live.filter((t) => stateOf(t, now) === k).sort((a, b) => a.active_at - b.active_at)] as const,
   )
   const specsWithMovingChildren = new Set(groups.flatMap(([, g]) => g.map((t) => t.parent)))
-  const tiers = tiersRaisedToWhatTheyBlock(live.map((t) => ({ id: t.id, tier: t.priority ?? tierOf({}), needs: t.blocked_by ?? [] })))
+  const raisedWithinThisData = tiersRaisedToWhatTheyBlock(live.map((t) => ({ id: t.id, tier: t.priority ?? tierOf({}), needs: t.blocked_by ?? [] })))
+  const tiers = new Map(live.map((t) => [t.id, tierOfKey.get(t.id) ?? raisedWithinThisData.get(t.id)!]))
   const furthestFirst = (t: Row) => (!t.priority_kr ? 0 : t.priority_kr === VISIBLE_BUG ? Infinity : (gapOfKr.get(t.priority_kr) ?? Infinity))
   const idle = live
     .filter((t) => stateOf(t, now) === '待办' && !specsWithMovingChildren.has(t.id))
@@ -183,14 +186,20 @@ export function status(argv: string[], team: Team, dir: string): Promise<number>
     }
     return answer(argv, async () => {
       const [data, fromThePage, workers] = await Promise.all([boardData(team, project), whatThePageWrote(team, project), liveWorkersText(project)])
-      const gaps = project ? await krGapsElseNoneSoEveryKrSortsAsUnread(team, dir) : new Map()
-      return { shown: [indexText(data as Data, project ?? '看板', undefined, gaps), workers, fromThePage].filter(Boolean).join('\n\n'), json: data }
+      const [gapOfKr, tierOfKey] = await Promise.all([krGapsOfTheProjectsRepoElseNone(team, dir, project), tiersByKeyAcrossEveryProject()])
+      return { shown: [indexText(data as Data, project ?? '看板', undefined, { gapOfKr, tierOfKey }), workers, fromThePage].filter(Boolean).join('\n\n'), json: data }
     })
   })
 }
 
-async function krGapsElseNoneSoEveryKrSortsAsUnread(team: Team, dir: string): Promise<Map<string, number>> {
-  const okr = await okrData(team, dir, process.cwd()).catch(() => null)
+async function tiersByKeyAcrossEveryProject(): Promise<Map<string, Tier>> {
+  const { open, tier } = await tiersAcrossEveryProjectSoATicketBlockingAnotherProjectsRisesToo()
+  return new Map(open.map((m) => [m.labels.key ?? `#${m.id}`, tier(m)]))
+}
+
+async function krGapsOfTheProjectsRepoElseNone(team: Team, dir: string, project: string | undefined): Promise<Map<string, number>> {
+  const repo = project ? (await reposReadOnEveryUseSoEditsNeedNoRestart(dir).catch(() => ({}) as Record<string, string>))[project] : undefined
+  const okr = repo ? await okrData(team, dir, repo).catch(() => null) : null
   return new Map(okr?.objectives.flatMap((o) => o.krs.map((kr) => [kr.name, gapToTargetOf(kr)] as const)) ?? [])
 }
 

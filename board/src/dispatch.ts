@@ -11,8 +11,8 @@ import { projectOfThisRepository } from './impact.ts'
 import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
-import { byTier, tierOf, tiersRaisedToWhatTheyBlock } from './priority.ts'
-import { all, key, labelTerminalThePanelReadsWhileClaimed, live, profile, resolve, row, sessionProfile, state } from './tasks.ts'
+import { byTier } from './priority.ts'
+import { all, key, labelTerminalThePanelReadsWhileClaimed, live, profile, resolve, row, sessionProfile, state, tiersAcrossEveryProjectSoATicketBlockingAnotherProjectsRisesToo } from './tasks.ts'
 import { answer, EXIT, Refused, type Said } from './said.ts'
 
 const exec = promisify(execFile)
@@ -462,9 +462,7 @@ async function labelledForThePanel(claimed: string): Promise<MessageView> {
 }
 
 async function readyHighestTierFirst(project: string): Promise<MessageView[]> {
-  const [openOnEveryProjectSoATicketBlockingAnotherProjectsRisesToo, ready] = await Promise.all([all({ state: 'open' }), all({ channel: project, state: 'ready' })])
-  const tiers = tiersRaisedToWhatTheyBlock(openOnEveryProjectSoATicketBlockingAnotherProjectsRisesToo.map((m) => ({ id: m.id, tier: tierOf(m.labels), needs: m.task?.needs ?? [] })))
-  const tier = (m: MessageView) => tiers.get(m.id) ?? tierOf(m.labels)
+  const [{ tier }, ready] = await Promise.all([tiersAcrossEveryProjectSoATicketBlockingAnotherProjectsRisesToo(), all({ channel: project, state: 'ready' })])
   return ready.sort((a, b) => byTier(tier(a), tier(b)))
 }
 

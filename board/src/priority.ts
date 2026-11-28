@@ -15,6 +15,7 @@ export function tiersRaisedToWhatTheyBlock(tasks: { id: string; tier: Tier; need
     if (known) return known
     onThePath.add(t.id)
     const tier = (dependents.get(t.id) ?? []).filter(({ t: d }) => !onThePath.has(d.id)).reduce((best, { t: d }) => higher(best, raised(d, onThePath)), t.tier)
+    onThePath.delete(t.id)
     out.set(t.id, tier)
     return tier
   }
