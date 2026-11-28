@@ -21,6 +21,7 @@ let server: Awaited<ReturnType<typeof listen>>
 let url = ''
 let tmp = ''
 let repo = ''
+let roubao = ''
 
 const HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_AND_ANY_WORKER_FILED_IN_HC_WORKERS_STARTING_T99 = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HC_LOG"
@@ -58,12 +59,19 @@ beforeAll(async () => {
   await exec('git', ['clone', '-q', join(tmp, 'origin.git'), repo])
   await git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init')
   await git(repo, 'push', '-q', 'origin', 'HEAD:main')
+  roubao = join(tmp, 'roubao')
+  await exec('git', ['init', '-q', '--bare', '-b', 'main', join(tmp, 'roubao.git')])
+  await exec('git', ['clone', '-q', join(tmp, 'roubao.git'), roubao])
+  await git(roubao, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init')
+  await git(roubao, 'push', '-q', 'origin', 'HEAD:main')
+  await mkdir(join(tmp, 'board'), { recursive: true })
+  await writeFile(join(tmp, 'board', 'repos.json'), JSON.stringify({ nawaban: repo }))
 })
 afterAll(() => server.close())
 
 const dispatchInTheRepositoryAsWindowAaaa1111 = (argv: string[], hc: Record<string, string>) => nawabanInTheRepositoryAsWindowAaaa1111('dispatch', argv, hc)
 
-async function nawabanInTheRepositoryAsWindowAaaa1111(verb: string, argv: string[], hc: Record<string, string>) {
+async function nawabanInTheRepositoryAsWindowAaaa1111(verb: string, argv: string[], hc: Record<string, string>, cwd = repo) {
   const log = join(tmp, `hc-${Math.random()}.log`)
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -83,10 +91,11 @@ async function nawabanInTheRepositoryAsWindowAaaa1111(verb: string, argv: string
     GH_MERGED: join(tmp, 'merged'),
     CLAUDE_CONFIG_DIR: join(tmp, 'claude'),
     CODEX_HOME: '',
+    NAWABAN_BOARD_DIR: join(tmp, 'board'),
     ...hc,
   }
-  for (const thisMachinesBoardSetting of ['NAWABAN_BOARD_DIR', 'NAWABAN_BOARD_PORT']) delete env[thisMachinesBoardSetting]
-  const r = await exec('node', [CLI, verb, ...argv], { cwd: repo, env }).then(
+  delete env.NAWABAN_BOARD_PORT
+  const r = await exec('node', [CLI, verb, ...argv], { cwd, env }).then(
     (ok) => ({ code: 0, ...ok }),
     (error) => ({ code: error.code as number, stdout: error.stdout as string, stderr: error.stderr as string }),
   )
@@ -128,7 +137,7 @@ it('starts the worker in its own worktree, briefed to report to the orchestrator
   `)
   const run = r.hc.slice(r.hc.indexOf('run --bg'))
   expect(run).toMatch(/^run --bg --outlive-parent --json --name d-go /)
-  expect(run).toContain(`--name d-go --cwd ${join(tmp, 'repo-d-go')} env BOARD_URL=${url} claude -n D-GO D-GO --model opus`)
+  expect(run).toContain(`--name d-go --cwd ${join(tmp, 'repo-d-go')} env NAWABAN_BOARD_DIR=${join(tmp, 'board')} BOARD_URL=${url} claude -n D-GO D-GO --model opus`)
   expect(run).toContain(`nawaban tell D-GO "完成 PR #<号>"`)
   expect(run).toContain(`nawaban tell D-GO "受阻，详情在票上"`)
   expect(run).toContain('nawaban merge <PR 号>')
@@ -209,13 +218,13 @@ it.each([
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', name, ...agent, ...model, '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
   expect(r.stderr).toBe('')
   expect(r.code).toBe(0)
-  expect(r.hc).toContain(`--name ${name} --cwd ${join(tmp, `repo-${name}`)} env BOARD_URL=${url} ${starts}`)
+  expect(r.hc).toContain(`--name ${name} --cwd ${join(tmp, `repo-${name}`)} env NAWABAN_BOARD_DIR=${join(tmp, 'board')} BOARD_URL=${url} ${starts}`)
 })
 
 it('hands the worker the Codex config the dispatcher runs under', async () => {
   const r = await dispatchInTheRepositoryAsWindowAaaa1111(['--name', 'cx-home', '--agent', 'codex', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1', CODEX_HOME: '/tmp/cx' })
   expect(r.code).toBe(0)
-  expect(r.hc).toContain(`env BOARD_URL=${url} CODEX_HOME=/tmp/cx codex 任务：cx-home`)
+  expect(r.hc).toContain(`env NAWABAN_BOARD_DIR=${join(tmp, 'board')} BOARD_URL=${url} CODEX_HOME=/tmp/cx codex 任务：cx-home`)
 })
 
 it('refuses --agent with no value as a usage mistake', async () => {
@@ -417,9 +426,9 @@ const dispatchedBy = async (key: string, orchestrator: string) => {
   return id
 }
 
-async function fileTerminal(address: string, labels: Record<string, string>, state = 'live') {
+async function fileTerminal(address: string, labels: Record<string, string>, state = 'live', cwd = tmp) {
   await mkdir(join(tmp, 'workers'), { recursive: true })
-  await writeFile(join(tmp, 'workers', `${address}.json`), JSON.stringify({ state, name: address, cwd: tmp, labels }))
+  await writeFile(join(tmp, 'workers', `${address}.json`), JSON.stringify({ state, name: address, cwd, labels }))
 }
 
 const tellAsWorker = (argv: string[], hc: Record<string, string>) => nawabanInTheRepositoryAsWindowAaaa1111('tell', argv, { HC_TERMINAL_ID: 't98', ...hc })
@@ -439,6 +448,14 @@ it('tells the new orchestrator of this repository, not the one the dispatch reco
   const r = await tellAsWorker(['T-SWAP', '受阻，详情在票上'], { HC_ORCH: 'tnewb' })
   expect(r.code).toBe(0)
   expect(sent(r.hc)).toEqual(['send tnewb 回报：T-SWAP 受阻，详情在票上'])
+})
+
+it('tells the orchestrator that dispatched from another repository, even though this repository has its own', async () => {
+  await fileTerminal('tacross', { role: 'orchestrator' }, 'live', roubao)
+  await dispatchedBy('T-ACROSS', 'tacross')
+  const r = await tellAsWorker(['T-ACROSS', '完成 PR #7'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(0)
+  expect(sent(r.hc)).toEqual(['send tacross 回报：T-ACROSS 完成 PR #7'])
 })
 
 it('tells the orchestrator the dispatch recorded when this repository has none but it lives on, still labelled', async () => {
@@ -747,3 +764,25 @@ it('looks up a merged pull request as the repository\'s GitHub account', async (
   }
 })
 
+
+it('builds the worktree in the repository of the ticket project, not the one dispatch runs in', async () => {
+  await newTask('D-ELSEWHERE')
+  const r = await nawabanInTheRepositoryAsWindowAaaa1111('dispatch', ['D-ELSEWHERE', '--brief', 'b', '--accept', 'a', '--new'], { HC_ORCH: 'to1', HC_ORCH_CWD: roubao }, roubao)
+  expect([r.code, r.stderr]).toEqual([0, ''])
+  expect(existsSync(join(tmp, 'roubao-d-elsewhere'))).toBe(false)
+  expect((await git(join(tmp, 'repo-d-elsewhere'), 'remote', 'get-url', 'origin')).stdout.trim()).toBe(join(tmp, 'origin.git'))
+})
+
+it('refuses a ticket whose project has no repository in repos.json, and starts nothing', async () => {
+  const id = (await team.as(null).tasks.create('unlisted', { id: 'D-UNLISTED', text: 'D-UNLISTED', labels: { key: 'D-UNLISTED' } })).task.id
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['D-UNLISTED', '--brief', 'b', '--accept', 'a'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(1)
+  expect(stable(r.stderr, tmp)).toMatchInlineSnapshot(`
+    "✗ D-UNLISTED 的项目 unlisted 在 <tmp>/board/repos.json 里没登记 git 仓库，不知道 worktree 建在哪
+      在 repos.json 加 "unlisted": "<仓库路径>"
+    "
+  `)
+  expect(r.hc).not.toMatch(/^run/m)
+  expect(existsSync(join(tmp, 'repo-d-unlisted'))).toBe(false)
+  expect(await replies(id)).toEqual([])
+})

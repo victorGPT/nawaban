@@ -7,7 +7,7 @@ import { parseArgs, promisify } from 'node:util'
 import { block, board, type MessageView } from '@vercel/board'
 import { checkValue } from '@vercel/board/schemas'
 import { accountElseNull } from './github-account.ts'
-import { projectOfThisRepository } from './impact.ts'
+import { projectOfThisRepository, reposReadOnEveryUseSoEditsNeedNoRestart } from './impact.ts'
 import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
@@ -76,6 +76,11 @@ export async function mainCheckoutRealPathOf(dir: string): Promise<string | null
   return common === null ? null : dirname(await realpath(absolute(dir, common.trim())))
 }
 
+export async function repositoryOfProject(project: string): Promise<string | null> {
+  const path = (await reposReadOnEveryUseSoEditsNeedNoRestart(boardDirAsConfiguredWhenAsked()))[project]
+  return path ? mainCheckoutRealPathOf(path) : null
+}
+
 export async function terminalOf(address: string): Promise<Terminal | null> {
   const got = await stdoutOrNullOnFailure('hc', ['get', address, '--json'])
   try {
@@ -137,11 +142,19 @@ async function stillLiveOrchestrator(address: string): Promise<boolean> {
   return t?.state === 'live' && t.labels?.role === 'orchestrator'
 }
 
+async function dispatchedFromAnotherRepository(orchestrator: string, root: string | null): Promise<boolean> {
+  const t = await terminalOf(orchestrator)
+  const cwd = t?.foreground?.cwd ?? t?.cwd
+  const its = cwd ? await mainCheckoutRealPathOf(cwd) : null
+  return its !== null && its !== root
+}
+
 export async function orchestratorToReportTo(root: string | null, task: MessageView | null, threadOf = (id: string) => board().thread(id)): Promise<string | null> {
+  const recorded = task ? lastDispatchOf((await threadOf(task.id)).replies)?.orchestrator : undefined
+  const recordedLives = !!recorded && (await stillLiveOrchestrator(recorded))
+  if (recordedLives && (await dispatchedFromAnotherRepository(recorded, root))) return recorded
   const inRepository = root ? await liveOrchestratorInRepository(root) : null
-  if (inRepository || !task) return inRepository
-  const recorded = lastDispatchOf((await threadOf(task.id)).replies)?.orchestrator
-  return recorded && (await stillLiveOrchestrator(recorded)) ? recorded : null
+  return inRepository ?? (recordedLives ? recorded : null)
 }
 
 export type TerminalThatMayBeAWorker = Terminal & { inAWorktree: boolean }
@@ -181,9 +194,11 @@ async function refuseBeforeAnythingStarts(a: Args): Promise<Checked> {
   const as = profile()
   const task = a.ref ? await resolve(a.ref) : null
   if (task && CLOSED_STATES.includes(task.task?.state ?? '')) throw new Refused(`${a.ref} 已经是 ${task.task?.state}，不开着`)
-  const root = await mainCheckoutRealPathOf(process.cwd())
+  const here = await mainCheckoutRealPathOf(process.cwd())
+  const root = task ? await repositoryOfProject(task.channel) : here
+  if (task && !root) throw new Refused(`${a.ref} 的项目 ${task.channel} 在 ${join(boardDirAsConfiguredWhenAsked(), 'repos.json')} 里没登记 git 仓库，不知道 worktree 建在哪`, 1, `在 repos.json 加 "${task.channel}": "<仓库路径>"`)
   if (!root) throw new Refused('dispatch 要在 worker 改的那个 git 仓库里跑')
-  const orch = await orchestratorFor(root)
+  const orch = await orchestratorFor(here ?? root)
   if (!orch) throw new Refused('没有活着的编排者收回报', 1, '在本仓库的编排者终端里跑，或给它打上 role=orchestrator 标签')
   const name = a.name ?? a.ref!.toLowerCase()
   const who = a.ref ?? name
