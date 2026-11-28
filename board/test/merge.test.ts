@@ -747,6 +747,13 @@ it('claims the highest tier first with claim --ready, a P2 that blocks a P0 coun
   expect(claimedInTurn).toEqual(['T-GATE', 'T-BUG', 'T-OLD'])
 })
 
+it('raises a ticket blocking a P0 of another project to P0 for claim --ready', async () => {
+  await boardCliAsSession(ORCH_SESSION, repo, 'create', 'X-GATE', '--priority', 'P2', '--title', 'gate', '--project', 'claim-cross')
+  await boardCliAsSession(ORCH_SESSION, repo, 'create', 'X-BUG', '--priority', 'P1', '--kr', '线上可见 bug', '--title', 'bug', '--project', 'claim-cross')
+  await boardCliAsSession(ORCH_SESSION, repo, 'create', 'X-TOP', '--priority', 'P0', '--title', 'top', '--project', 'claim-cross-other', '--blocked-by', 'X-GATE')
+  expect((await claimReadyIn(repo, ['--project', 'claim-cross'])).stdout).toMatch(/^✓ 领到 X-GATE/)
+})
+
 it('prints the claimed ticket and its brief as one object for claim --ready --json', async () => {
   await ticketTheCliOwns('C-JSON', 'claim-json')
   const r = await claimReadyIn(repo, ['--project', 'claim-json', '--json'])

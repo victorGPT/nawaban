@@ -462,24 +462,30 @@ async function labelledForThePanel(claimed: string): Promise<MessageView> {
 }
 
 async function readyHighestTierFirst(project: string): Promise<MessageView[]> {
-  const [open, ready] = await Promise.all([all({ channel: project, state: 'open' }), all({ channel: project, state: 'ready' })])
-  const tiers = tiersRaisedToWhatTheyBlock(open.map((m) => ({ id: m.id, tier: tierOf(m.labels), needs: m.task?.needs ?? [] })))
+  const [openOnEveryProjectSoATicketBlockingAnotherProjectsRisesToo, ready] = await Promise.all([all({ state: 'open' }), all({ channel: project, state: 'ready' })])
+  const tiers = tiersRaisedToWhatTheyBlock(openOnEveryProjectSoATicketBlockingAnotherProjectsRisesToo.map((m) => ({ id: m.id, tier: tierOf(m.labels), needs: m.task?.needs ?? [] })))
   const tier = (m: MessageView) => tiers.get(m.id) ?? tierOf(m.labels)
   return ready.sort((a, b) => byTier(tier(a), tier(b)))
 }
 
 export async function claimNextReady(project: string, wait?: string): Promise<MessageView | null> {
-  for (const next of (await readyHighestTierFirst(project)).filter((t) => !t.task?.for)) {
-    const claimed = await boardCliElseNothingToClaim(['tasks', 'claim', next.id, '--as', profile(), '--lease', CLAIM_LEASE, '--json'], `在 ${project} 领 #${next.id} 失败`, GONE_BETWEEN_LISTING_AND_CLAIMING)
-    if (claimed !== null) return labelledForThePanel(claimed)
+  const principal = await principalOfThisBoardToken(`在 ${project} 领下一张失败`)
+  const until = Date.now() + (wait ? msOf(wait) : 0)
+  for (;;) {
+    const poolTicketsThisTokensOwnerMade = (await readyHighestTierFirst(project)).filter((t) => !t.task?.for && t.task?.owner === principal)
+    for (const next of poolTicketsThisTokensOwnerMade) {
+      const claimed = await boardCliElseNothingToClaim(['tasks', 'claim', next.id, '--as', profile(), '--lease', CLAIM_LEASE, '--json'], `在 ${project} 领 #${next.id} 失败`, GONE_BETWEEN_LISTING_AND_CLAIMING)
+      if (claimed !== null) return labelledForThePanel(claimed)
+    }
+    const left = until - Date.now()
+    if (left <= 0) return null
+    await new Promise((r) => setTimeout(r, Math.min(LOOK_FOR_A_READY_TICKET_EVERY_MS, left)))
   }
-  const claimed = await boardCliElseNothingToClaim(['tasks', 'claim', project, '--ready', '--as', profile(), '--lease', CLAIM_LEASE, '--json', ...(wait ? ['--wait', wait] : [])], `在 ${project} 领下一张失败`)
-  return claimed === null ? null : labelledForThePanel(claimed)
 }
 
 const DURATION = /^(\d+)(s|m|h)$/
 const MS_PER = { s: 1_000, m: 60_000, h: 3_600_000 } as const
-const LOOK_FOR_AN_ASSIGNED_TICKET_EVERY_MS = 15_000
+const LOOK_FOR_A_READY_TICKET_EVERY_MS = 15_000
 const GONE_BETWEEN_LISTING_AND_CLAIMING = [...NOTHING_TO_CLAIM, 'task_assigned', 'task_claimed', 'task_blocked', 'task_waiting', 'task_finished']
 
 function msOf(wait: string): number {
@@ -510,7 +516,7 @@ export async function claimAssignedToMe(project: string, wait: string): Promise<
     if (task) await boardCliElseNothingToClaim(['tasks', 'release', task.id, '--as', as, '--json'], `#${task.id} 认领时已回到公共池，交还失败`)
     const left = until - Date.now()
     if (left <= 0) return null
-    await new Promise((r) => setTimeout(r, Math.min(LOOK_FOR_AN_ASSIGNED_TICKET_EVERY_MS, left)))
+    await new Promise((r) => setTimeout(r, Math.min(LOOK_FOR_A_READY_TICKET_EVERY_MS, left)))
   }
 }
 
