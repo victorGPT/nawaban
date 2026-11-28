@@ -152,19 +152,10 @@ async function stillLiveOrchestrator(address: string): Promise<boolean> {
   return t?.state === 'live' && t.labels?.role === 'orchestrator'
 }
 
-async function dispatchedFromAnotherRepository(orchestrator: string, root: string | null): Promise<boolean> {
-  const t = await terminalOf(orchestrator)
-  const cwd = t?.foreground?.cwd ?? t?.cwd
-  const its = cwd ? await mainCheckoutRealPathOf(cwd) : null
-  return its !== null && its !== root
-}
-
 export async function orchestratorToReportTo(root: string | null, task: MessageView | null, threadOf = (id: string) => board().thread(id)): Promise<string | null> {
   const recorded = task ? lastDispatchOf((await threadOf(task.id)).replies)?.orchestrator : undefined
-  const recordedLives = !!recorded && (await stillLiveOrchestrator(recorded))
-  if (recordedLives && (await dispatchedFromAnotherRepository(recorded, root))) return recorded
-  const inRepository = root ? await liveOrchestratorInRepository(root) : null
-  return inRepository ?? (recordedLives ? recorded : null)
+  if (recorded && (await stillLiveOrchestrator(recorded))) return recorded
+  return root ? liveOrchestratorInRepository(root) : null
 }
 
 export type TerminalThatMayBeAWorker = Terminal & { inAWorktree: boolean }
