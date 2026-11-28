@@ -609,6 +609,18 @@ it('names in a new worker\'s brief the running workers whose changes overlap it,
   expect(r.hc).toContain('先 nawaban show <它的票> 读对方票的最新进展；只读，不给对方发消息；要对方配合的写到对方票上，由编排者转）：\n  hc t99 PEER-HELD：board/src/peer.ts\n验收：a')
 })
 
+it('names the ticket a peer holds by its dispatch record when its claim left no terminal label, as a Codex worker\'s does', async () => {
+  const worktree = await worktreeChanging('peer-cx', 'board/src/peer-cx.ts')
+  const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000)
+  const held = await newTask('PEER-CX')
+  await note(held, block('nawaban-dispatch@2', { worker: 'cx', terminal: LANE_WORKER, accept: 'a', orchestrator: 'to1', agent: 'codex' }))
+  await team.as('cx-cccc3333').tasks.claim(held, { lease: 3600 })
+  await newTask('PEER-CX-NEW')
+  const r = await dispatchInTheRepositoryAsWindowAaaa1111(['PEER-CX-NEW', '--brief', '改 board/src/peer-cx.ts', '--accept', 'a', '--new'], hc)
+  expect([r.code, r.stderr]).toEqual([0, ''])
+  expect(r.hc).toMatch(/^ {2}hc t99 .*\bPEER-CX：board\/src\/peer-cx\.ts$/m)
+})
+
 it('does not queue behind a worker on a directory-only brief, and says to name files', async () => {
   const worktree = await worktreeChanging('ov-dir', 'scripts/other.ts')
   const hc = await fileTheLaneWorkerAt(worktree, 'other', 10_000)

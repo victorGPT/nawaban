@@ -333,8 +333,8 @@ const PEERS_HEAD = '正在跑、改动和你重叠的 worker（动这些共用�
 
 async function peersLines(channel: string | undefined, overlaps: Overlap[]): Promise<string[]> {
   if (!overlaps.length) return []
-  const held = (await all({ channel, state: 'open' })).filter((t) => live(t) && t.labels.terminal)
-  const keysOf = (address: string) => held.filter((t) => t.labels.terminal === address).map(key)
+  const held = await Promise.all((await all({ channel, state: 'open' })).filter((t) => live(t)).map(async (t) => ({ t, terminal: t.labels.terminal ?? lastDispatchOf((await board().thread(t.id)).replies)?.terminal })))
+  const keysOf = (address: string) => held.filter((h) => h.terminal === address).map((h) => key(h.t))
   return [PEERS_HEAD, ...overlaps.map(({ t, files }) => `  hc ${t.address}${keysOf(t.address).map((k) => ` ${k}`).join('')}：${files.join('、')}`)]
 }
 
