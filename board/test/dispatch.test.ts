@@ -21,6 +21,7 @@ let server: Awaited<ReturnType<typeof listen>>
 let url = ''
 let tmp = ''
 let repo = ''
+let roubao = ''
 
 const HC_STAND_IN_LOGGING_CALLS_KNOWING_ONE_ORCHESTRATOR_AND_ANY_WORKER_FILED_IN_HC_WORKERS_STARTING_T99 = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HC_LOG"
@@ -58,6 +59,11 @@ beforeAll(async () => {
   await exec('git', ['clone', '-q', join(tmp, 'origin.git'), repo])
   await git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init')
   await git(repo, 'push', '-q', 'origin', 'HEAD:main')
+  roubao = join(tmp, 'roubao')
+  await exec('git', ['init', '-q', '--bare', '-b', 'main', join(tmp, 'roubao.git')])
+  await exec('git', ['clone', '-q', join(tmp, 'roubao.git'), roubao])
+  await git(roubao, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init')
+  await git(roubao, 'push', '-q', 'origin', 'HEAD:main')
   await mkdir(join(tmp, 'board'), { recursive: true })
   await writeFile(join(tmp, 'board', 'repos.json'), JSON.stringify({ nawaban: repo }))
 })
@@ -420,9 +426,9 @@ const dispatchedBy = async (key: string, orchestrator: string) => {
   return id
 }
 
-async function fileTerminal(address: string, labels: Record<string, string>, state = 'live') {
+async function fileTerminal(address: string, labels: Record<string, string>, state = 'live', cwd = tmp) {
   await mkdir(join(tmp, 'workers'), { recursive: true })
-  await writeFile(join(tmp, 'workers', `${address}.json`), JSON.stringify({ state, name: address, cwd: tmp, labels }))
+  await writeFile(join(tmp, 'workers', `${address}.json`), JSON.stringify({ state, name: address, cwd, labels }))
 }
 
 const tellAsWorker = (argv: string[], hc: Record<string, string>) => nawabanInTheRepositoryAsWindowAaaa1111('tell', argv, { HC_TERMINAL_ID: 't98', ...hc })
@@ -442,6 +448,14 @@ it('tells the new orchestrator of this repository, not the one the dispatch reco
   const r = await tellAsWorker(['T-SWAP', '受阻，详情在票上'], { HC_ORCH: 'tnewb' })
   expect(r.code).toBe(0)
   expect(sent(r.hc)).toEqual(['send tnewb 回报：T-SWAP 受阻，详情在票上'])
+})
+
+it('tells the orchestrator that dispatched from another repository, even though this repository has its own', async () => {
+  await fileTerminal('tacross', { role: 'orchestrator' }, 'live', roubao)
+  await dispatchedBy('T-ACROSS', 'tacross')
+  const r = await tellAsWorker(['T-ACROSS', '完成 PR #7'], { HC_ORCH: 'to1' })
+  expect(r.code).toBe(0)
+  expect(sent(r.hc)).toEqual(['send tacross 回报：T-ACROSS 完成 PR #7'])
 })
 
 it('tells the orchestrator the dispatch recorded when this repository has none but it lives on, still labelled', async () => {
@@ -752,11 +766,6 @@ it('looks up a merged pull request as the repository\'s GitHub account', async (
 
 
 it('builds the worktree in the repository of the ticket project, not the one dispatch runs in', async () => {
-  const roubao = join(tmp, 'roubao')
-  await exec('git', ['init', '-q', '--bare', '-b', 'main', join(tmp, 'roubao.git')])
-  await exec('git', ['clone', '-q', join(tmp, 'roubao.git'), roubao])
-  await git(roubao, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init')
-  await git(roubao, 'push', '-q', 'origin', 'HEAD:main')
   await newTask('D-ELSEWHERE')
   const r = await nawabanInTheRepositoryAsWindowAaaa1111('dispatch', ['D-ELSEWHERE', '--brief', 'b', '--accept', 'a', '--new'], { HC_ORCH: 'to1', HC_ORCH_CWD: roubao }, roubao)
   expect([r.code, r.stderr]).toEqual([0, ''])
