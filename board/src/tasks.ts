@@ -8,6 +8,7 @@ import { answer, upstreamAnswer, orRefusal, Refused, type Said } from './said.ts
 import { projectOfThisRepository, RESULT_FORMAT, undeclared } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { UNMEASURED } from './schemas.ts'
+import { isTier, TIER_MEANING, tierOf, VISIBLE_BUG } from './priority.ts'
 import { labelsOfLive, LIVE_LABELS, liveOfLabels, type Held, type Live } from './progress.ts'
 import { optionWordsBut, pointAt, withBody } from './hint.ts'
 import { markInboxItemTurnedInto, openInboxItem } from './page.ts'
@@ -99,13 +100,19 @@ const create: Verb = async (argv) => {
       'blocked-by': { type: 'string', multiple: true },
       lane: { type: 'string' },
       inbox: { type: 'string' },
+      priority: { type: 'string' },
+      kr: { type: 'string' },
       json: { type: 'boolean' },
     },
   })
   const [keyAsPostIdSoCreatingAgainAnswersTheSameTask, bodyWord, ...extra] = positionals
   if (!keyAsPostIdSoCreatingAgainAnswersTheSameTask || extra.length || !values.title) {
-    throw new Refused('用法：nawaban create <票> --title <标题> [正文] [--parent <票>] [--project <项目>] [--blocked-by <票>]… [--lane <泳道>] [--inbox <条目>]', 2)
+    throw new Refused('用法：nawaban create <票> --title <标题> --priority P0|P1|P2 [--kr <KR>] [正文] [--parent <票>] [--project <项目>] [--blocked-by <票>]… [--lane <泳道>] [--inbox <条目>]', 2)
   }
+  const priority = values.priority?.toUpperCase()
+  if (!isTier(priority)) throw new Refused(`--priority 必填，写 P0、P1 或 P2${values.priority ? `，不是 ${values.priority}` : ''}`, 2, TIER_MEANING)
+  if (priority === 'P1' && !values.kr?.trim()) throw new Refused('P1 要写推哪条 KR：--kr "<KR 名>"', 2, `线上可见的小 bug 写 --kr "${VISIBLE_BUG}"`)
+  if (priority !== 'P1' && values.kr !== undefined) throw new Refused(`--kr 只跟 P1 一起用，${priority} 不写 KR`, 2, TIER_MEANING)
   const item = values.inbox === undefined ? null : await openInboxItem(personOwningEveryTaskTheirProfilesMade(), values.inbox)
   if (item && (await all({ state: 'all', label: { key: keyAsPostIdSoCreatingAgainAnswersTheSameTask } })).length) {
     throw new Refused(`已经有票 ${keyAsPostIdSoCreatingAgainAnswersTheSameTask}，收件箱条目不转进旧票`, 1, '换一个没用过的票号')
@@ -119,7 +126,7 @@ const create: Verb = async (argv) => {
   const { task } = await personOwningEveryTaskTheirProfilesMade().tasks.create(project, {
     id: keyAsPostIdSoCreatingAgainAnswersTheSameTask,
     text: body ? `${values.title}\n\n${body}` : values.title,
-    labels: { key: keyAsPostIdSoCreatingAgainAnswersTheSameTask, ...(parent ? { parent: key(parent) } : {}) },
+    labels: { key: keyAsPostIdSoCreatingAgainAnswersTheSameTask, priority, ...(values.kr ? { 'priority-kr': values.kr.trim() } : {}), ...(parent ? { parent: key(parent) } : {}) },
     needs,
   })
   if (values.lane) await personOwningEveryTaskTheirProfilesMade().label(task.id, { set: { lane: values.lane } })
@@ -187,6 +194,7 @@ const show: Verb = async (argv) => {
     '',
     `  project     ${task.channel}`,
     task.labels.parent && `  parent      ${task.labels.parent}`,
+    `  priority    ${[tierOf(task.labels), task.labels['priority-kr']].filter(Boolean).join(' · ')}`,
     `  holder      ${claim ? `${profileViaUser(claim.actor)} · until ${claim.until}` : 'none'}`,
     claim && task.labels.terminal && `  terminal    ${task.labels.terminal}`,
     task.task?.blocked && `  held        ${JSON.stringify(task.task.blocked)}`,

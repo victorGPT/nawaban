@@ -99,8 +99,8 @@ it('routes every git repository to the board under its main checkout name, and p
 })
 
 it('prints the index off the board when an orchestrator window starts, and nothing in any other window', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
-  await nawaban('create', 'K1', '--title', '要密钥', '--project', 'proj')
-  await nawaban('create', 'K2', '--title', '在干的', '--project', 'proj')
+  await nawaban('create', 'K1', '--priority', 'P2', '--title', '要密钥', '--project', 'proj')
+  await nawaban('create', 'K2', '--priority', 'P2', '--title', '在干的', '--project', 'proj')
   await nawaban('claim', 'K2')
   await nawaban('event', await idOf('K2'), '--kind', 'note', '--body', '写完测试，下一步：接 CLI。', '--as', AS)
   const start = await hook('leader-index.sh')
@@ -108,7 +108,7 @@ it('prints the index off the board when an orchestrator window starts, and nothi
   expect(start.out).toContain('proj 进行中的事')
   expect(start.out).toContain('进行中 1 · 待办 1')
   expect(start.out).toContain('## 进行中\n- K2 在干的 · 写完测试\n')
-  expect(start.out).toContain('- K1 要密钥')
+  expect(start.out).toContain('- P2 K1 要密钥')
   expect(start.out).toContain('规矩正文')
   expect(start.err).not.toContain('改用')
   expect((await hook('leader-index.sh', '', { ROLE: 'worker' })).out).toBe('')
@@ -124,7 +124,7 @@ it('reads the index of the repository the session is in, not of the folder Claud
 })
 
 async function dengniOfAnotherProjectNotThisRepositorys() {
-  await nawaban('create', 'O1', '--title', '别的项目', '--project', 'other')
+  await nawaban('create', 'O1', '--priority', 'P2', '--title', '别的项目', '--project', 'other')
   await nawaban('claim', 'O1')
   await nawaban('event', await idOf('O1'), '--kind', 'note', '--body', 'triage: needs-info — 等你：别处', '--as', AS)
 }
@@ -159,7 +159,7 @@ it('shows what waits on the decision-maker under each reply, new items first, th
 })
 
 it('puts a ticket its holder waits on into the pending line, and a resolve hands it back to that holder alone', EVERY_STEP_STARTS_A_NODE_OR_A_SHELL, async () => {
-  await nawaban('create', 'W1', '--title', '等一句话', '--project', 'proj')
+  await nawaban('create', 'W1', '--priority', 'P2', '--title', '等一句话', '--project', 'proj')
   await nawaban('claim', 'W1')
   const id = await idOf('W1')
   expect(await nawaban('event', 'W1', 'wait', '给密钥')).toBe('✓ W1 记下等你，票挂起等决策者答复\n')
@@ -218,7 +218,7 @@ it('lets a session outside Herdr that the owner declared read what the web page 
   expect(await stop('someone-else')).toBeNull()
   expect(await stop(SESSION)).toBe('待决 0 件')
 
-  await nawaban('create', 'P1', '--title', '发不发', '--project', 'proj')
+  await nawaban('create', 'P1', '--priority', 'P2', '--title', '发不发', '--project', 'proj')
   const p1 = await idOf('P1')
   const card = ['--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', '发']
   await nawaban('event', p1, ...card, '--as', AS)
@@ -238,10 +238,10 @@ it('lets a session outside Herdr that the owner declared read what the web page 
   expect(await nawaban('status', '--project', 'proj')).toContain(`- ${item.id} 面板加夜间模式`)
 
   await nawaban('event', p1, '--kind', 'resolve', '--body', '发吧，周五前')
-  await nawaban('create', 'IN1', '--title', '面板加夜间模式', '--inbox', item.id)
+  await nawaban('create', 'IN1', '--priority', 'P2', '--title', '面板加夜间模式', '--inbox', item.id)
   expect(await stop(SESSION)).toBe('待决 0 件')
   expect((await prompt('继续')).out).toBe('')
-  expect(await nawaban('status', '--project', 'proj')).toContain('- IN1 面板加夜间模式')
+  expect(await nawaban('status', '--project', 'proj')).toContain('- P2 IN1 面板加夜间模式')
 
   await team.tasks.block(p1, '发不发', { kind: 'awaiting_approval' })
   expect(await stop(SESSION)).toBe('待决 1 件：P1 发不发｜说「同步」看待决')
@@ -257,7 +257,7 @@ it('gives the orchestrator what the web page wrote in full once per session, the
   const prompt = async (session: string) => (await hook('page-writes.sh', { session_id: session, cwd: repo, prompt: '继续' }, noHerdr)).out
   const S = SESSION
   await hook('orchestrator-declare.sh', { session_id: S, cwd: repo, prompt: '/nawaban:orchestrator' }, noHerdr)
-  await nawaban('create', 'Q1', '--title', '上不上', '--project', 'proj')
+  await nawaban('create', 'Q1', '--priority', 'P2', '--title', '上不上', '--project', 'proj')
   const q1 = await idOf('Q1')
   await nawaban('event', q1, '--kind', 'ask', '--body', '上不上', '--kr', 'K', '--context', '事实', '--option', '上｜快｜two-way', '--option', '不上｜稳｜two-way', '--rec', '上', '--as', AS)
   const longWords = '先上灰度，'.repeat(80)
@@ -314,7 +314,7 @@ it('keeps a worker running while its terminal holds a claimed task, and lets it 
   await chmod(join(hcKnowingT1AsTheWorkerInThisRepository, 'hc'), 0o755)
   const worker = { PATH: `${hcKnowingT1AsTheWorkerInThisRepository}:${env.PATH}` }
   const kill = (target: string) => ({ cwd: repo, tool_input: { command: `hc kill ${target}` } })
-  await nawaban('create', 'R1', '--title', '收之前要交还', '--project', 'proj')
+  await nawaban('create', 'R1', '--priority', 'P2', '--title', '收之前要交还', '--project', 'proj')
   await nawaban('claim', 'R1')
 
   const held = await hook('retire-guard.sh', kill('w-r1'), worker)
@@ -345,7 +345,7 @@ it('moves a worker\'s task only forward along its milestones and stamps when it 
   const afterATool = { session_id: SESSION, cwd: repo, transcript_path: transcript, hook_event_name: 'PostToolUse' }
   const stamp = join(tmp, 'board/progress-stamps', SESSION)
   const gapPassed = () => utimes(stamp, Date.now() / 1000 - 6 * 60, Date.now() / 1000 - 6 * 60)
-  await nawaban('create', 'LP1', '--title', '接上进展', '--project', 'proj')
+  await nawaban('create', 'LP1', '--priority', 'P2', '--title', '接上进展', '--project', 'proj')
   await nawaban('claim', 'LP1')
   const id = await idOf('LP1')
 

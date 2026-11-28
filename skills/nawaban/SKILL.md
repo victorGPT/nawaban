@@ -16,7 +16,7 @@ description: "nawaban 看板就是 issue tracker。发 spec 和票、找可开�
 ## 情况 → 做什么
 
 - **不知道该干哪张** → `nawaban status` 看要管的，`nawaban list --frontier` 看可开工的。认领不查 frontier，你自己查。`nawaban show <票> --all` 看全部事件。
-- **发 spec 或拆票** → `nawaban create <KEY> --body-file <文件>`。spec 票的正文就是整份 spec，之后不改。子票带 `--parent`、`--blocked-by`、`--lane`，先建被依赖的票。正文怎么写见 [ticket](../ticket/SKILL.md)。
+- **发 spec 或拆票** → `nawaban create <KEY> --priority P0|P1|P2 --body-file <文件>`，P1 带 `--kr`。spec 票的正文就是整份 spec，之后不改。子票带 `--parent`、`--blocked-by`、`--lane`，先建被依赖的票。正文怎么写见 [ticket](../ticket/SKILL.md)。
 - **开工** → `nawaban claim <票>`。仓库有 `docs/agents/okr.toml` 时同时登记 `--o "<O>" --kr "<KR>=toward"`，纯文档和纯基础设施写 `--o 无`。第一个 PR 链接之后才登记算事后，不判也不计。
 - **停手、做了选择、开了 PR** → 记 `note`、`decision`、`link` 事件，格式见 [events.md](events.md)。交还前先记 `note`。
 - **要人答或要人动手** → 只有决策者能定的走 [ask](../ask/SKILL.md)。要事实或要人做事，先在对话里问，再 `nawaban event <票> wait "<一句>"`；答了用自己的话 `resolve "<结论>"`。

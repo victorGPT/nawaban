@@ -477,7 +477,7 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
     last_measured_at: rows.reduce<string | null>((m, r) => (m === null || r.measured_at > m ? r.measured_at : m), null)?.split('~')[0] ?? null,
     met: 0,
     total: 0,
-    objectives: [] as { name: string; met: number; total: number; committed: { met: number; total: number }; aspirational_score: number | null; done: boolean; accept_pending: boolean; impacts: Record<Heading, number>; rulers: number; krs: { name: string; mismatch: { ticket: string; dir: string }[] }[] }[],
+    objectives: [] as { name: string; met: number; total: number; committed: { met: number; total: number }; aspirational_score: number | null; done: boolean; accept_pending: boolean; impacts: Record<Heading, number>; rulers: number; krs: { name: string; status: string; value: number | null; target_value: number; mismatch: { ticket: string; dir: string }[] }[] }[],
     attention: [] as Attention[],
   }
   for (const o of objectives) {
@@ -567,6 +567,12 @@ export function judge(objectives: Objective[], rows: KeptReading[], accepts: Map
     out.total += krs.length
   }
   return out
+}
+
+export function gapToTargetOf(kr: { status: string; value: number | null; target_value: number }): number {
+  if (kr.value === null || UNSCORED_STATUSES.has(kr.status)) return Infinity
+  if (kr.status === 'met') return 0
+  return Math.abs(kr.target_value - kr.value) / (Math.abs(kr.target_value) || 1)
 }
 
 export function impactText(data: ReturnType<typeof judge>) {

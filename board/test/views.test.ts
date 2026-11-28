@@ -68,16 +68,16 @@ const ok = async (session: string, terminal: string, ...argv: string[]) => {
 const read = (...argv: string[]) => ok(ORCHESTRATOR_WINDOW_IN_T1, '', 'json', ...argv)
 
 const OLD_BOARD_DATA_ROW_KEYS = ['id', 'title', 'status', 'project', 'parent', 'session', 'created_at', 'active_at', 'open_blockers', 'terminal', 'leader', 'claimed_at']
-const OPEN_ROW_KEYS_PLUS_PENDING = [...OLD_BOARD_DATA_ROW_KEYS, 'progress', 'live', 'ruling', 'blocked_by', 'waiting', 'unclaimed_dispatch', 'decision', 'pending'].sort()
-const DONE_ROW_KEYS = [...OLD_BOARD_DATA_ROW_KEYS, 'done_at'].sort()
+const OPEN_ROW_KEYS_PLUS_PENDING = [...OLD_BOARD_DATA_ROW_KEYS, 'progress', 'live', 'ruling', 'blocked_by', 'waiting', 'unclaimed_dispatch', 'decision', 'pending', 'priority', 'priority_kr'].sort()
+const DONE_ROW_KEYS = [...OLD_BOARD_DATA_ROW_KEYS, 'done_at', 'priority', 'priority_kr'].sort()
 
 it('prints the board in the shape the panel reads, and the panel draws the 等你 card and the orchestrator group from it', async () => {
-  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'S', '--title', '报表迁到新底座', '--project', 'nawaban')
-  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'S-01', '--title', '第一张', '--parent', 'S')
-  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'S-02', '--title', '第二张', '--parent', 'S', '--blocked-by', 'S-01')
-  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'Q', '--title', '要问的', '--project', 'nawaban')
-  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'P', '--title', '待决的', '--project', 'nawaban')
-  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'D', '--title', '派出去的', '--project', 'nawaban')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'S', '--priority', 'P2', '--title', '报表迁到新底座', '--project', 'nawaban')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'S-01', '--priority', 'P2', '--title', '第一张', '--parent', 'S')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'S-02', '--priority', 'P2', '--title', '第二张', '--parent', 'S', '--blocked-by', 'S-01')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'Q', '--priority', 'P2', '--title', '要问的', '--project', 'nawaban')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'P', '--priority', 'P2', '--title', '待决的', '--project', 'nawaban')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'D', '--priority', 'P2', '--title', '派出去的', '--project', 'nawaban')
   const id = async (k: string) => (await team.tasks.list({ state: 'all', label: { key: k } })).tasks[0]!.message.id
 
   const s01ClaimedDecidedDoneThenS02HeldByTheOrchestratorWithProgress = async () => {
@@ -158,7 +158,7 @@ it('prints a task with its parent, blockers, notes, decisions and events', async
 })
 
 it('says of each pull request a task links what its reader says, once per address, and nothing where the reader has no answer', async () => {
-  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'PULLS', '--title', '带 PR 的票', '--project', 'nawaban')
+  await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'create', 'PULLS', '--priority', 'P2', '--title', '带 PR 的票', '--project', 'nawaban')
   for (const body of ['pr:https://github.com/o/r/pull/7', 'pr:https://github.com/o/r/pull/7 merged abc1234', 'pr:https://github.com/o/r/pull/8', 'commit:abc1234']) {
     await ok(ORCHESTRATOR_WINDOW_IN_T1, 't1', 'event', 'PULLS', '--kind', 'link', '--body', body)
   }
@@ -192,7 +192,7 @@ it('reads past a long stretch of other projects\' events, and a dispatch brief a
 })
 
 it('a progress label written while a ticket is held shows as its live state and moves no activity, while another label still does', async () => {
-  await ok(WORKER_WINDOW_IN_T3, 't3', 'create', 'LV', '--title', '只刷进展', '--project', 'nawaban')
+  await ok(WORKER_WINDOW_IN_T3, 't3', 'create', 'LV', '--priority', 'P2', '--title', '只刷进展', '--project', 'nawaban')
   await ok(WORKER_WINDOW_IN_T3, 't3', 'claim', 'LV')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'LV' } })).tasks[0]!.message.id
   const row = async () => (await read('board', '--project', 'nawaban')).columns.flatMap((c: { tasks: { id: string }[] }) => c.tasks).find((t: { id: string }) => t.id === 'LV')

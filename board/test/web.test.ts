@@ -79,8 +79,8 @@ async function create(...argv: string[]) {
 }
 
 it('answers the views with the JSON nawaban json prints, read through the board over HTTP', async () => {
-  await create('create', 'W', '--title', '网页', '--project', 'nawaban')
-  await create('create', 'W-01', '--title', '服务', '--parent', 'W')
+  await create('create', 'W', '--priority', 'P2', '--title', '网页', '--project', 'nawaban')
+  await create('create', 'W-01', '--priority', 'P2', '--title', '服务', '--parent', 'W')
   vi.stubEnv('BOARD_URL', `http://127.0.0.1:${port}/api/board`)
   vi.stubEnv('BOARD_TOKEN', SECRET)
   const overHttp = board()
@@ -92,7 +92,7 @@ it('answers the views with the JSON nawaban json prints, read through the board 
 })
 
 it('opens the board\'s own inspector at /board only for whoever the web token let read the API, and names each ticket\'s thread there', async () => {
-  await create('create', 'INSPECT', '--title', '看原始记录', '--project', 'nawaban')
+  await create('create', 'INSPECT', '--priority', 'P2', '--title', '看原始记录', '--project', 'nawaban')
   const read = await send('/api/nawaban/task/INSPECT')
   const { thread } = JSON.parse(read.body)
   const cookie = read.cookie.split(';')[0]!
@@ -226,7 +226,7 @@ it('takes a write only from the page\'s own origin', async () => {
 })
 
 it('writes an answer to a held question, naming it by its words, and keeps the hold', async () => {
-  await create('create', 'Q1', '--title', '问一句', '--project', 'question')
+  await create('create', 'Q1', '--priority', 'P2', '--title', '问一句', '--project', 'question')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'Q1' } })).tasks[0]!.message.id
   const asPage = (answer: unknown) =>
     send('/api/nawaban/answer/Q1', { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify(answer) })
@@ -250,7 +250,7 @@ it('writes an answer to a held question, naming it by its words, and keeps the h
 })
 
 it('refuses an answer to a question that changed after the hold was listed, and posts nothing under the new one', async () => {
-  await create('create', 'Q2', '--title', '问一句', '--project', 'question2')
+  await create('create', 'Q2', '--priority', 'P2', '--title', '问一句', '--project', 'question2')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'Q2' } })).tasks[0]!.message.id
   await create('event', id, 'wait', '哪天上线')
   const threadOfTheBoard = team.thread
@@ -268,7 +268,7 @@ it('refuses an answer to a question that changed after the hold was listed, and 
 })
 
 it('writes an answer to a 待决 as the local person, keeps the hold, and reads it back', async () => {
-  await create('create', 'D1', '--title', '发不发', '--project', 'decide')
+  await create('create', 'D1', '--priority', 'P2', '--title', '发不发', '--project', 'decide')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'D1' } })).tasks[0]!.message.id
   const asPage = (key: string, answer: unknown) =>
     send(`/api/nawaban/answer/${key}`, { method: 'POST', headers: { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify(answer) })
@@ -313,7 +313,7 @@ it('writes an answer to a 待决 as the local person, keeps the hold, and reads 
 })
 
 it('lets the next ask replace a card the page sent back, with no resolve in the record, but not a card the page ruled on', async () => {
-  await create('create', 'D3', '--title', '发不发', '--project', 'sentback')
+  await create('create', 'D3', '--priority', 'P2', '--title', '发不发', '--project', 'sentback')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'D3' } })).tasks[0]!.message.id
   const askWith = (rec: string) => create('event', id, '--kind', 'ask', '--body', '发不发', '--kr', 'K', '--context', '事实', '--option', '发｜快｜two-way', '--option', '不发｜稳｜two-way', '--rec', rec)
   const asPage = (answer: unknown) =>
@@ -381,7 +381,7 @@ it('says something changed when the board moves', async () => {
   expect(r.headers.get('content-type')).toBe('text/event-stream')
   const reader = r.body!.pipeThrough(new TextDecoderStream()).getReader()
   expect((await reader.read()).value).toContain(': live')
-  await create('create', 'W-02', '--title', '推送', '--parent', 'W')
+  await create('create', 'W-02', '--priority', 'P2', '--title', '推送', '--parent', 'W')
   let seen = ''
   while (!seen.includes('data: changed')) seen += (await reader.read()).value
   stop.abort()
@@ -513,7 +513,7 @@ const answerFromThePage = (key: string, answer: unknown) =>
 
 it('wakes the project\'s orchestrator with one line once a web answer is written, found where its agent runs', async () => {
   const repo = await aRepositoryFor('wake')
-  await create('create', 'WAKE1', '--title', '问一句', '--project', 'wake')
+  await create('create', 'WAKE1', '--priority', 'P2', '--title', '问一句', '--project', 'wake')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'WAKE1' } })).tasks[0]!.message.id
   await create('event', id, 'wait', '哪天上线')
   const hc = await withHc(repo)
@@ -530,7 +530,7 @@ it('wakes the project\'s orchestrator with one line once a web answer is written
 
 it('records on the ticket and tells the page when no orchestrator heard the web answer', async () => {
   await aRepositoryFor('nobody')
-  await create('create', 'WAKE2', '--title', '问一句', '--project', 'nobody')
+  await create('create', 'WAKE2', '--priority', 'P2', '--title', '问一句', '--project', 'nobody')
   const id = (await team.tasks.list({ state: 'all', label: { key: 'WAKE2' } })).tasks[0]!.message.id
   await create('event', id, 'wait', '哪天上线')
   const hc = await withHc(null)

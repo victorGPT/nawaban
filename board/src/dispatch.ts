@@ -11,6 +11,7 @@ import { projectOfThisRepository } from './impact.ts'
 import { claudeTranscriptOf } from './narrate.ts'
 import { SCHEMAS } from './schemas.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
+import { byTier, tierOf, tiersRaisedToWhatTheyBlock } from './priority.ts'
 import { all, key, labelTerminalThePanelReadsWhileClaimed, live, profile, resolve, row, sessionProfile, state } from './tasks.ts'
 import { answer, EXIT, Refused, type Said } from './said.ts'
 
@@ -460,7 +461,18 @@ async function labelledForThePanel(claimed: string): Promise<MessageView> {
   return task
 }
 
+async function readyHighestTierFirst(project: string): Promise<MessageView[]> {
+  const [open, ready] = await Promise.all([all({ channel: project, state: 'open' }), all({ channel: project, state: 'ready' })])
+  const tiers = tiersRaisedToWhatTheyBlock(open.map((m) => ({ id: m.id, tier: tierOf(m.labels), needs: m.task?.needs ?? [] })))
+  const tier = (m: MessageView) => tiers.get(m.id) ?? tierOf(m.labels)
+  return ready.sort((a, b) => byTier(tier(a), tier(b)))
+}
+
 export async function claimNextReady(project: string, wait?: string): Promise<MessageView | null> {
+  for (const next of (await readyHighestTierFirst(project)).filter((t) => !t.task?.for)) {
+    const claimed = await boardCliElseNothingToClaim(['tasks', 'claim', next.id, '--as', profile(), '--lease', CLAIM_LEASE, '--json'], `在 ${project} 领 #${next.id} 失败`, GONE_BETWEEN_LISTING_AND_CLAIMING)
+    if (claimed !== null) return labelledForThePanel(claimed)
+  }
   const claimed = await boardCliElseNothingToClaim(['tasks', 'claim', project, '--ready', '--as', profile(), '--lease', CLAIM_LEASE, '--json', ...(wait ? ['--wait', wait] : [])], `在 ${project} 领下一张失败`)
   return claimed === null ? null : labelledForThePanel(claimed)
 }
@@ -481,7 +493,7 @@ async function principalOfThisBoardToken(failing: string): Promise<string> {
   return (JSON.parse(said!) as { principal: string }).principal
 }
 
-const readyAssignedTo = async (project: string, as: string) => (await all({ channel: project, state: 'ready' })).filter((t) => t.task?.for?.endsWith(`+${as}`))
+const readyAssignedTo = async (project: string, as: string) => (await readyHighestTierFirst(project)).filter((t) => t.task?.for?.endsWith(`+${as}`))
 
 export async function claimAssignedToMe(project: string, wait: string): Promise<MessageView | null> {
   const as = profile()

@@ -9,6 +9,8 @@ import { projectOfThisRepository } from './impact.ts'
 import { boardDirAsConfiguredWhenAsked } from './server.ts'
 import { seenOf } from './merge.ts'
 import { all, key } from './tasks.ts'
+import { byTier, tierOf, tiersRaisedToWhatTheyBlock, VISIBLE_BUG, type Tier } from './priority.ts'
+import { gapToTargetOf, okrData } from './okr.ts'
 import { answer, orRefusal, Refused } from './said.ts'
 import { boardData, tasksOf } from './views.ts'
 import { openInboxItems, pageText, webAnswers, type InboxItem, type WebAnswer } from './page.ts'
@@ -19,6 +21,9 @@ type Row = {
   title: string
   status: string
   parent: string | null
+  priority?: Tier
+  priority_kr?: string | null
+  blocked_by?: string[]
   session: string | null
   created_at: number
   active_at: number
@@ -122,7 +127,7 @@ function decisionsLines(data: Data, now: number): string[] {
   ]
 }
 
-export function indexText(data: Data, name: string, now = Date.now() / 1000): string {
+export function indexText(data: Data, name: string, now = Date.now() / 1000, gapOfKr: ReadonlyMap<string, number> = new Map()): string {
   const tasks = data.columns.flatMap((c) => c.tasks)
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const live = tasks.filter((t) => t.status !== 'done')
@@ -135,7 +140,11 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
     (k) => [k, live.filter((t) => stateOf(t, now) === k).sort((a, b) => a.active_at - b.active_at)] as const,
   )
   const specsWithMovingChildren = new Set(groups.flatMap(([, g]) => g.map((t) => t.parent)))
-  const idle = live.filter((t) => stateOf(t, now) === '待办' && !specsWithMovingChildren.has(t.id)).sort((a, b) => b.created_at - a.created_at)
+  const tiers = tiersRaisedToWhatTheyBlock(live.map((t) => ({ id: t.id, tier: t.priority ?? tierOf({}), needs: t.blocked_by ?? [] })))
+  const furthestFirst = (t: Row) => (!t.priority_kr ? 0 : t.priority_kr === VISIBLE_BUG ? Infinity : (gapOfKr.get(t.priority_kr) ?? Infinity))
+  const idle = live
+    .filter((t) => stateOf(t, now) === '待办' && !specsWithMovingChildren.has(t.id))
+    .sort((a, b) => byTier(tiers.get(a.id)!, tiers.get(b.id)!) || furthestFirst(b) - furthestFirst(a) || b.created_at - a.created_at)
   const movingAt: Record<Fold, (g: Row[]) => string[]> = {
     full: (g) => movingLines(g, belongs),
     idleCounted: (g) => movingLines(g, belongs),
@@ -144,7 +153,7 @@ export function indexText(data: Data, name: string, now = Date.now() / 1000): st
   }
   const idleAt = (fold: Fold) =>
     !idle.length ? [] : fold === 'full'
-      ? [`## 待办 ${idle.length}（没人认领过）`, ...idle.map((t) => `- ${bare(t.id)} ${short(t.title, IDLE_TITLE_WIDTH)}${belongs(t)}`)]
+      ? [`## 待办 ${idle.length}（没人认领过）`, ...idle.map((t) => `- ${tiers.get(t.id)} ${bare(t.id)} ${short(t.title, IDLE_TITLE_WIDTH)}${belongs(t)}`)]
       : [`## 待办 ${idle.length}（没人认领过，跑 nawaban list 看）`]
   const textAt = (fold: Fold) => {
     const out = [`${name} 进行中的事 · ${stamp(now)} 生成`, groups.map(([k, g]) => `${k} ${g.length}`).join(' · ') + ` · 待办 ${idle.length}`, '']
@@ -174,9 +183,15 @@ export function status(argv: string[], team: Team, dir: string): Promise<number>
     }
     return answer(argv, async () => {
       const [data, fromThePage, workers] = await Promise.all([boardData(team, project), whatThePageWrote(team, project), liveWorkersText(project)])
-      return { shown: [indexText(data as Data, project ?? '看板'), workers, fromThePage].filter(Boolean).join('\n\n'), json: data }
+      const gaps = project ? await krGapsElseNoneSoEveryKrSortsAsUnread(team, dir) : new Map()
+      return { shown: [indexText(data as Data, project ?? '看板', undefined, gaps), workers, fromThePage].filter(Boolean).join('\n\n'), json: data }
     })
   })
+}
+
+async function krGapsElseNoneSoEveryKrSortsAsUnread(team: Team, dir: string): Promise<Map<string, number>> {
+  const okr = await okrData(team, dir, process.cwd()).catch(() => null)
+  return new Map(okr?.objectives.flatMap((o) => o.krs.map((kr) => [kr.name, gapToTargetOf(kr)] as const)) ?? [])
 }
 
 async function liveWorkersText(project?: string): Promise<string> {
